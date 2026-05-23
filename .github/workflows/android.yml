@@ -1,0 +1,40 @@
+name: Build Android Release
+
+on:
+  push:
+    branches: [ "main" ] # 当 main 分支有 push 时触发
+  workflow_dispatch: # 允许手动触发 workflow
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 设置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.29.3
+      - name: 创建 secrets.json 文件
+        run: |
+          echo "${{ secrets.SECRETS_JSON_CONTENT }} | base64 -d" > secrets.json
+      - name: 解码并保存 keystore 文件
+        run: |
+          echo "${{ secrets.SECRETS_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+      - name: 创建 key.properties
+        run: |
+          echo "storeFile=upload-keystore.jks" > android/key.properties
+          echo "keyAlias=${{ secrets.SECRETS_KEY_ALIAS }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.SECRETS_KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "storePassword=${{ secrets.SECRETS_KEYSTORE_PASSWORD }}" >> android/key.properties
+      - name: 获取 Flutter 依赖
+        run: flutter pub get
+      - name: 构建 APK
+        run: flutter build apk --dart-define-from-file=secrets.json
+      - name: 上传 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-release
+          path: build/app/outputs/flutter-apk/app-release.apk

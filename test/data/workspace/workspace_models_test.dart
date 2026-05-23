@@ -1,0 +1,249 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:nai_casrand/data/workspace/models/workspace_manifest.dart';
+
+void main() {
+  test('WorkspaceManifest round trips migration metadata', () {
+    final manifest = WorkspaceManifest(
+      schemaVersion: 1,
+      name: 'Novel Studio',
+      currentPromptConfigId: 'prompt-1',
+      migrations: [
+        WorkspaceMigrationEntry(
+          sourceType: 'kamia',
+          sourcePath: r'C:\src\kamia',
+          importedAt: DateTime.parse('2026-05-21T09:00:00Z'),
+          importerVersion: 1,
+          counts: const {'recipes': 2, 'tags': 3},
+        ),
+      ],
+    );
+
+    final restored = WorkspaceManifest.fromJson(manifest.toJson());
+
+    expect(restored.schemaVersion, 1);
+    expect(restored.name, 'Novel Studio');
+    expect(restored.currentPromptConfigId, 'prompt-1');
+    expect(restored.migrations.single.sourceType, 'kamia');
+    expect(restored.migrations.single.counts['recipes'], 2);
+  });
+
+  test('WorkspaceManifest copyWith can clear current prompt config', () {
+    final manifest = WorkspaceManifest(
+      schemaVersion: 1,
+      name: 'Novel Studio',
+      currentPromptConfigId: 'prompt-1',
+    );
+
+    final restored = manifest.copyWith(currentPromptConfigId: null);
+
+    expect(restored.currentPromptConfigId, isNull);
+  });
+
+  test('CharacterEntry uses front_full as the required baseline variant', () {
+    final character = CharacterEntry.fromJson({
+      'id': 'char-1',
+      'name': 'Heroine',
+      'traits': {'front_full': 'blue eyes, silver hair'},
+      'outfits': [
+        {
+          'id': 'outfit-1',
+          'name': 'Uniform',
+          'tags': {'front_full': 'school uniform'}
+        }
+      ],
+      'imageRefs': ['assets/images/heroine.webp'],
+      'source': {'type': 'kamia', 'id': 'old-char-1'},
+      'note': 'main character',
+    });
+
+    expect(character.traits.frontFull, 'blue eyes, silver hair');
+    expect(character.outfits.single.tags.frontFull, 'school uniform');
+    expect(character.toJson()['id'], 'char-1');
+  });
+
+  test('GenerationProfile keeps secret refs separate from raw secrets', () {
+    final profile = GenerationProfile.fromJson({
+      'id': 'profile-1',
+      'name': 'Default V4.5',
+      'api_key': 'pst-ignored-top-level',
+      'params': {'model': 'nai-diffusion-4-5-full', 'steps': 28},
+      'negativePrompt': 'bad anatomy',
+      'secretRef': 'default_nai_token',
+    });
+
+    expect(profile.params['steps'], 28);
+    expect(profile.secretRef, 'default_nai_token');
+    expect(profile.toJson()['api_key'], isNull);
+    expect(profile.toJson().toString(), isNot(contains('pst-ignored-top-level')));
+  });
+
+  test('GenerationProfile sanitizes nested secret-shaped values', () {
+    final profile = GenerationProfile.fromJson({
+      'id': 'profile-1',
+      'name': 'Default V4.5',
+      'params': {
+        'model': 'nai-diffusion-4-5-full',
+        'steps': 28,
+        'api_key': 'pst-top-level',
+        'nested': {
+          'width': 1024,
+          'token': 'pst-nested',
+          'headers': ['Bearer abc123', 'keep-me'],
+        },
+      },
+      'batchDefaults': {
+        'height': 1024,
+        'proxy': 'http://localhost:8080',
+        'jobs': [
+          {'seed': 42, 'secret': 'pst-inside-list'},
+        ],
+      },
+    });
+
+    final json = profile.toJson();
+    final params = json['params'] as Map<String, dynamic>;
+    final nested = params['nested'] as Map<String, dynamic>;
+    final headers = nested['headers'] as List<dynamic>;
+    final batchDefaults = json['batchDefaults'] as Map<String, dynamic>;
+    final jobs = batchDefaults['jobs'] as List<dynamic>;
+    final firstJob = jobs.single as Map<String, dynamic>;
+
+    expect(params['model'], 'nai-diffusion-4-5-full');
+    expect(params['steps'], 28);
+    expect(params.containsKey('api_key'), isFalse);
+    expect(nested['width'], 1024);
+    expect(nested.containsKey('token'), isFalse);
+    expect(headers, ['keep-me']);
+    expect(batchDefaults['height'], 1024);
+    expect(batchDefaults.containsKey('proxy'), isFalse);
+    expect(firstJob['seed'], 42);
+    expect(firstJob.containsKey('secret'), isFalse);
+  });
+
+  test('WorkspacePromptConfig sanitizes private blocks and raw secrets', () {
+    const promptConfig = WorkspacePromptConfig(
+      id: 'prompt-1',
+      name: 'Shared Prompt',
+      rootConfig: {
+        'selectionMethod': 'all',
+        'strs': ['safe prompt', 'Bearer local-only-token'],
+        'private_block': {'strs': ['private prompt']},
+        'children': [
+          {'comment': 'camera', 'strs': ['wide shot']},
+          {'comment': 'token', 'strs': ['pst-nested-secret']},
+        ],
+      },
+      savedBlocks: [
+        {
+          'comment': 'style',
+          'strs': ['soft light', 'pst-saved-secret'],
+          'api_key': 'pst-saved-key',
+        },
+      ],
+    );
+
+    final json = promptConfig.toJson();
+    final rootConfig = json['rootConfig'] as Map<String, dynamic>;
+    final savedBlock = (json['savedBlocks'] as List<dynamic>).single
+        as Map<String, dynamic>;
+    final encoded = json.toString();
+
+    expect(rootConfig['strs'], ['safe prompt']);
+    expect(rootConfig.containsKey('private_block'), isFalse);
+    expect(savedBlock['strs'], ['soft light']);
+    expect(savedBlock.containsKey('api_key'), isFalse);
+    expect(encoded, isNot(contains('Bearer local-only-token')));
+    expect(encoded, isNot(contains('private prompt')));
+    expect(encoded, isNot(contains('pst-nested-secret')));
+    expect(encoded, isNot(contains('pst-saved-secret')));
+  });
+
+  test('BatchPlan sanitizes item and status snapshots', () {
+    final batchPlan = BatchPlan(
+      id: 'batch-1',
+      name: 'Shared Batch',
+      items: const [
+        {
+          'prompt': 'safe prompt',
+          'api_key': 'pst-item-secret',
+          'nested': {'proxy': '127.0.0.1:7890'},
+        },
+      ],
+      statusSnapshot: const {
+        'completed': 0,
+        'authorization': 'Bearer batch-secret',
+      },
+      createdAt: DateTime.parse('2026-05-22T09:00:00Z'),
+      updatedAt: DateTime.parse('2026-05-22T09:00:00Z'),
+    );
+
+    final json = batchPlan.toJson();
+    final item = (json['items'] as List<dynamic>).single
+        as Map<String, dynamic>;
+    final nested = item['nested'] as Map<String, dynamic>;
+    final statusSnapshot = json['statusSnapshot'] as Map<String, dynamic>;
+    final encoded = json.toString();
+
+    expect(item['prompt'], 'safe prompt');
+    expect(item.containsKey('api_key'), isFalse);
+    expect(nested.containsKey('proxy'), isFalse);
+    expect(statusSnapshot['completed'], 0);
+    expect(statusSnapshot.containsKey('authorization'), isFalse);
+    expect(encoded, isNot(contains('pst-item-secret')));
+    expect(encoded, isNot(contains('Bearer batch-secret')));
+  });
+
+  test('Workspace entity parsing rejects wrong nested object types', () {
+    expect(
+      () => CharacterEntry.fromJson({
+        'id': 'char-1',
+        'name': 'Heroine',
+        'traits': {'front_full': 'blue eyes'},
+        'outfits': 'not a list',
+      }),
+      throwsFormatException,
+    );
+
+    expect(
+      () => GenerationProfile.fromJson({
+        'id': 'profile-1',
+        'name': 'Default',
+        'params': 'not a map',
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('Workspace date parsing rejects invalid date strings', () {
+    expect(
+      () => WorkspaceMigrationEntry.fromJson({
+        'sourceType': 'kamia',
+        'sourcePath': r'C:\src\kamia',
+        'importedAt': 'not a date',
+        'importerVersion': 1,
+      }),
+      throwsFormatException,
+    );
+
+    expect(
+      () => BatchPlan.fromJson({
+        'id': 'batch-1',
+        'name': 'Batch',
+        'createdAt': 'not a date',
+        'updatedAt': '2026-05-21T09:00:00Z',
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('Workspace string lists ignore non-string entries', () {
+    final tag = TagEntry.fromJson({
+      'tag': 'blue eyes',
+      'aliases': ['aoi me', 42, null, 'blue_eye'],
+    });
+
+    expect(tag.id, 'blue eyes');
+    expect(tag.aliases, ['aoi me', 'blue_eye']);
+  });
+}
