@@ -67,4 +67,74 @@ void main() {
     expect(json['retry_on_429_enabled'], isTrue);
     expect(json['retry_on_429_delay_sec'], 15);
   });
+
+  test('settings persists script and translation ai credentials', () {
+    final settings = Settings.fromJson({
+      'script_ai_base_url': 'https://script.example/v1',
+      'script_ai_token': 'script-token',
+      'translation_ai_base_url': 'https://translate.example/v1',
+      'translation_ai_token': 'translation-token',
+      'translation_ai_model': 'gpt-4.1-mini',
+    });
+
+    final json = settings.toJson();
+
+    expect(settings.scriptAiBaseUrl, 'https://script.example/v1');
+    expect(settings.scriptAiToken, 'script-token');
+    expect(settings.translationAiBaseUrl, 'https://translate.example/v1');
+    expect(settings.translationAiToken, 'translation-token');
+    expect(settings.translationAiModel, 'gpt-4.1-mini');
+    expect(json['script_ai_base_url'], 'https://script.example/v1');
+    expect(json['script_ai_token'], 'script-token');
+    expect(json['translation_ai_base_url'], 'https://translate.example/v1');
+    expect(json['translation_ai_token'], 'translation-token');
+    expect(json['translation_ai_model'], 'gpt-4.1-mini');
+  });
+
+  test('settings persists script ai model', () {
+    final settings = Settings.fromJson({
+      'script_ai_base_url': 'https://script.example/v1',
+      'script_ai_token': 'script-token',
+      'script_ai_model': 'gpt-4.1-mini',
+    });
+
+    final json = settings.toJson();
+
+    expect(settings.scriptAiModel, 'gpt-4.1-mini');
+    expect(json['script_ai_model'], 'gpt-4.1-mini');
+  });
+
+  test('settings always uses the official NovelAI image endpoint', () {
+    final settings = Settings.fromJson({
+      'nai_api_endpoint': 'https://proxy.example/ai/generate-image',
+    });
+
+    final json = settings.toJson();
+
+    expect(settings.imageGenerationEndpoint,
+        'https://image.novelai.net/ai/generate-image');
+    expect(json.containsKey('nai_api_endpoint'), isFalse);
+  });
+
+  test('settings persists translation provider selection', () {
+    final settings = Settings.fromJson({
+      'translation_provider': 'google',
+    });
+
+    final json = settings.toJson();
+
+    expect(settings.translationProvider, 'google');
+    expect(json['translation_provider'], 'google');
+  });
+
+  test('settings persists shared image preview dialog height', () {
+    final settings = Settings.fromJson({
+      'image_preview_dialog_height': 730.0,
+    });
+
+    final json = settings.toJson();
+
+    expect(settings.imagePreviewDialogHeight, 730.0);
+    expect(json['image_preview_dialog_height'], 730.0);
+  });
 }

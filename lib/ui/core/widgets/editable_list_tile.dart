@@ -112,6 +112,7 @@ class EditableListTile extends StatelessWidget {
 class SelectableListTile extends StatelessWidget {
   final String title;
   final String currentValue;
+  final String? currentValueText;
   final List<String> options;
   final List<String>? optionsText; // 可能为空的额外文本选项
   final Function(String) onSelectComplete;
@@ -125,6 +126,7 @@ class SelectableListTile extends StatelessWidget {
       required this.options,
       required this.onSelectComplete,
       super.key,
+      this.currentValueText,
       this.leading,
       this.dense,
       this.optionsText,
@@ -135,7 +137,7 @@ class SelectableListTile extends StatelessWidget {
     return ListTile(
       leading: leading,
       title: Text(title),
-      subtitle: Text(currentValue),
+      subtitle: Text(currentValueText ?? currentValue),
       onTap: () => _showSelectDialog(context),
       dense: dense,
       trailing: trailing,

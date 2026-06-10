@@ -15,11 +15,15 @@ class ApiRequest {
   final String proxy;
   final Map<String, String> headers;
   final Map<String, dynamic> payload;
+  final Duration? timeout;
+  final String logLabel;
 
   const ApiRequest({
     required this.endpoint,
     required this.proxy,
     required this.headers,
     required this.payload,
+    this.timeout,
+    this.logLabel = '',
   });
 }

@@ -82,6 +82,9 @@ class _TestGenerationPageViewmodel extends GenerationPageViewmodel {
   final void Function()? onNextCommand;
 
   final List<Map<String, dynamic>> requestPayloads = [];
+  final List<String> requestEndpoints = [];
+  final List<String> requestProxies = [];
+  final List<Map<String, String>> requestHeaders = [];
   final List<String> savedFileNames = [];
   final List<int> randomUpperBounds = [];
 
@@ -101,6 +104,9 @@ class _TestGenerationPageViewmodel extends GenerationPageViewmodel {
 
   @override
   Future<ApiResponse> fetchData(ApiRequest request) async {
+    requestEndpoints.add(request.endpoint);
+    requestProxies.add(request.proxy);
+    requestHeaders.add(Map<String, String>.from(request.headers));
     requestPayloads.add(Map<String, dynamic>.from(request.payload));
     final fetchDataOverride = this.fetchDataOverride;
     if (fetchDataOverride != null) {
@@ -125,6 +131,17 @@ class _TestGenerationPageViewmodel extends GenerationPageViewmodel {
     String saveDir,
   ) async {
     savedFileNames.add(fileName);
+  }
+
+  @override
+  Future<String> resolvePictureSavePath(
+    String fileName,
+    String saveDir,
+  ) async {
+    final directory = saveDir.trim().isEmpty
+        ? r'C:\Users\tester\Documents\nai-generated'
+        : saveDir;
+    return [directory, fileName].join(Platform.pathSeparator);
   }
 
   @override
@@ -255,6 +272,32 @@ void main() {
     await GetIt.I.reset();
   });
 
+  test(
+      'uses official NovelAI endpoint, API token, and HTTP proxy for generation',
+      () async {
+    final payloadConfig = GetIt.I<PayloadConfig>();
+    payloadConfig.settings.apiKey = 'pst-novelai-token';
+    payloadConfig.settings.proxy = '127.0.0.1:7890';
+    final viewmodel = _TestGenerationPageViewmodel(
+      payloadResults: [
+        _buildPayloadResult('prompt-1'),
+      ],
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+
+    await _runSingleCommand(viewmodel);
+
+    expect(
+      viewmodel.requestEndpoints,
+      ['https://image.novelai.net/ai/generate-image'],
+    );
+    expect(viewmodel.requestHeaders.single['authorization'],
+        'Bearer pst-novelai-token');
+    expect(viewmodel.requestProxies, ['127.0.0.1:7890']);
+  });
+
   test('reuses the same payload after a failed nextCommand retry', () async {
     final viewmodel = _TestGenerationPageViewmodel(
       payloadResults: [
@@ -325,6 +368,32 @@ void main() {
     );
     expect(galleryService.lastInfo, 'gallery prompt');
     expect(galleryService.lastAdditionalInfo?['input'], 'gallery prompt');
+  });
+
+  test('successful generation resolves the default gallery image path',
+      () async {
+    final galleryService = _FakeGalleryService();
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+    final viewmodel = _TestGenerationPageViewmodel(
+      payloadResults: [
+        _buildPayloadResult('gallery prompt'),
+      ],
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+
+    await _runSingleCommand(viewmodel);
+
+    final expectedFileName = '20260504000000-000000-gallery prompt-fixed1.png';
+    expect(galleryService.saveSnapshotCallCount, 1);
+    expect(
+      galleryService.lastImagePath,
+      [
+        r'C:\Users\tester\Documents\nai-generated',
+        expectedFileName,
+      ].join(Platform.pathSeparator),
+    );
   });
 
   test('stores content order text on generated homepage cards', () async {

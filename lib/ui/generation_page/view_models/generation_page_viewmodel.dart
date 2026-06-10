@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_command/flutter_command.dart';
 import 'package:get_it/get_it.dart';
 import 'package:nai_casrand/data/models/api_request.dart';
@@ -14,7 +12,6 @@ import 'package:nai_casrand/data/models/generation_size.dart';
 import 'package:nai_casrand/data/models/info_card_content.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:lorem_ipsum/lorem_ipsum.dart';
 import 'package:nai_casrand/ui/generation_page/models/generation_payload_cache.dart';
 import 'package:nai_casrand/data/services/api_service.dart';
 import 'package:nai_casrand/data/services/file_service.dart';
@@ -38,14 +35,31 @@ class ApiStatusException implements Exception {
 }
 
 class GenerationPageViewmodel extends ChangeNotifier {
-  PayloadConfig get payloadConfig => GetIt.I<PayloadConfig>();
-  CommandStatus get commandStatus => GetIt.I<CommandStatus>();
+  final PayloadConfig? _payloadConfig;
+  final CommandStatus? _commandStatus;
+  final ConfigService? _configService;
+  final StudioGalleryService? _galleryService;
+
+  GenerationPageViewmodel({
+    PayloadConfig? payloadConfig,
+    CommandStatus? commandStatus,
+    ConfigService? configService,
+    StudioGalleryService? galleryService,
+  })  : _payloadConfig = payloadConfig,
+        _commandStatus = commandStatus,
+        _configService = configService,
+        _galleryService = galleryService;
+
+  PayloadConfig get payloadConfig => _payloadConfig ?? GetIt.I<PayloadConfig>();
+  CommandStatus get commandStatus => _commandStatus ?? GetIt.I<CommandStatus>();
   ConfigService? get configService =>
-      GetIt.I.isRegistered<ConfigService>() ? GetIt.I<ConfigService>() : null;
+      _configService ??
+      (GetIt.I.isRegistered<ConfigService>() ? GetIt.I<ConfigService>() : null);
   StudioGalleryService? get galleryService =>
-      GetIt.I.isRegistered<StudioGalleryService>()
+      _galleryService ??
+      (GetIt.I.isRegistered<StudioGalleryService>()
           ? GetIt.I<StudioGalleryService>()
-          : null;
+          : null);
   List<Command<void, InfoCardContent>> get commandList =>
       commandStatus.commandList;
   int get colNum => payloadConfig.settings.generationPageColumnCount;
@@ -116,6 +130,14 @@ class GenerationPageViewmodel extends ChangeNotifier {
   }
 
   @protected
+  Future<String> resolvePictureSavePath(
+    String fileName,
+    String saveDir,
+  ) {
+    return FileService().resolvePictureSavePath(fileName, saveDir);
+  }
+
+  @protected
   String generateTimestampString(DateTime time) {
     return FileService().generateTimestampString(time);
   }
@@ -150,6 +172,10 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
   void setCardsPerCol(int value) {
     payloadConfig.settings.generationPageColumnCount = value;
+    notifyListeners();
+  }
+
+  void notifyConfigChanged() {
     notifyListeners();
   }
 
@@ -190,37 +216,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
     // Push command into list and run command
     commandList.add(command);
     command();
-  }
-
-  void addLoremInfoCardContent() async {
-    // Async command as image requires loading
-    commandFunc() async {
-      await Future.delayed(const Duration(milliseconds: 500));
-      final random = Random();
-      final bytes =
-          Uint8List.sublistView(await rootBundle.load('assets/appicon.png'));
-      return InfoCardContent(
-        title: '#${commandList.length}: ${loremIpsum(
-          words: random.nextInt(3) + 3,
-          initWithLorem: true,
-        )}',
-        info: loremIpsum(
-          words: random.nextInt(300),
-          initWithLorem: true,
-        ),
-        additionalInfo: {"Random Seed": random.nextInt(1 << 31)},
-        imageBytes: random.nextInt(2) == 1 ? null : bytes,
-      );
-    }
-
-    // Skip if active command exists
-    if (currentCommand != null && currentCommand!.isExecuting.value) return;
-    final command = Command.createAsyncNoParam(
-      commandFunc,
-      initialValue: InfoCardContent.fromEmpty(),
-    );
-    currentCommand = command;
-    addAndRunCommand(command);
   }
 
   void addTestPromptInfoCardContent() {
@@ -266,9 +261,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
     // Generate, postprocess and save image
     commandFunc() async {
-      final endpoint = payloadConfig.settings.debugApiEnabled
-          ? payloadConfig.settings.debugApiPath
-          : 'https://image.novelai.net/ai/generate-image';
+      final endpoint = payloadConfig.settings.imageGenerationEndpoint;
 
       var generatedNewPayload = false;
       final payloadResult = _payloadResultCache.takeOrGenerate(() {
@@ -396,6 +389,12 @@ class GenerationPageViewmodel extends ChangeNotifier {
   }
 
   void startBatch() {
+    startBatchFromScratch();
+  }
+
+  void startSingleImageGeneration() {
+    payloadConfig.settings.numberOfRequests = 1;
+    payloadConfig.settings.batchCount = 1;
     startBatchFromScratch();
   }
 
@@ -612,11 +611,14 @@ class GenerationPageViewmodel extends ChangeNotifier {
     if (service == null) return;
 
     try {
+      final imagePath = await resolvePictureSavePath(
+        fileName,
+        payloadConfig.settings.outputFolderPath,
+      );
       await service.saveSnapshot(
         config: payloadConfig,
         title: fileName,
-        imagePath:
-            _joinOutputPath(payloadConfig.settings.outputFolderPath, fileName),
+        imagePath: imagePath,
         info: info,
         additionalInfo: additionalInfo,
       );
@@ -724,16 +726,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
         ? '${responseText.substring(0, 800)}...'
         : responseText;
     return 'API request failed with status $statusCode: $shortened';
-  }
-
-  String _joinOutputPath(String directory, String fileName) {
-    if (directory.trim().isEmpty) {
-      return fileName;
-    }
-    if (directory.endsWith('/') || directory.endsWith('\\')) {
-      return '$directory$fileName';
-    }
-    return '$directory${Platform.pathSeparator}$fileName';
   }
 
   PayloadGenerationResult _generateBatchPayloadResult() {

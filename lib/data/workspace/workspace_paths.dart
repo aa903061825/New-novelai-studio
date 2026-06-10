@@ -4,12 +4,20 @@ class WorkspacePaths {
   static const artistChains = 'library/artist_chains.json';
   static const inspirations = 'library/inspirations.json';
   static const loras = 'library/loras.json';
+  static const assetFavorites = 'library/favorites.json';
+  static const assetCatalogCache = 'library/asset_catalog_cache.json';
   static const promptReplaceRules = 'configs/prompt_replace_rules.json';
   static const filterRules = 'configs/filter_rules.json';
   static const galleryRecords = 'gallery/records.json';
   static const batchPlansDir = 'production/batch_plans';
+  static const deterministicPlansDir = 'production/deterministic_plans';
+  static const productionExecutionSettings =
+      'production/execution_settings.json';
   static const assemblyPresetsDir = 'production/assembly_presets';
   static const workflowsDir = 'production/workflows';
+  static const scriptRecastKnowledge = 'script_recast/knowledge.json';
+  static const scriptRecastCacheDir = 'script_recast/cache';
+  static const tokenizerScriptsDir = 'tokenizer_scripts/scripts';
 
   static const blocks = [
     'style',
@@ -28,8 +36,11 @@ class WorkspacePaths {
     'configs/prompt_configs',
     'configs/generation_profiles',
     batchPlansDir,
+    deterministicPlansDir,
     assemblyPresetsDir,
     workflowsDir,
+    scriptRecastCacheDir,
+    tokenizerScriptsDir,
     'assets/images',
     'assets/thumbnails',
     'assets/references',
@@ -46,6 +57,7 @@ class WorkspacePaths {
         artistChains,
         inspirations,
         loras,
+        assetFavorites,
         promptReplaceRules,
         galleryRecords,
         for (final block in blocks) recipeFile(block),
@@ -54,6 +66,8 @@ class WorkspacePaths {
 
   static List<String> get emptyObjectFiles => [
         filterRules,
+        productionExecutionSettings,
+        scriptRecastKnowledge,
       ];
 
   static String recipeFile(String block) => 'library/recipes/$block.json';
@@ -69,8 +83,16 @@ class WorkspacePaths {
 
   static String batchPlanFile(String id) => '$batchPlansDir/$id.json';
 
-  static String assemblyPresetFile(String id) =>
-      '$assemblyPresetsDir/$id.json';
+  static String productionPlanFile(String id) =>
+      '$deterministicPlansDir/$id.json';
+
+  static String assemblyPresetFile(String id) => '$assemblyPresetsDir/$id.json';
 
   static String workflowFile(String id) => '$workflowsDir/$id.json';
+
+  static String scriptRecastCacheFile(String id) =>
+      '$scriptRecastCacheDir/$id.json';
+
+  static String tokenizerScriptFile(String id) =>
+      '$tokenizerScriptsDir/$id.json';
 }

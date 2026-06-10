@@ -1,0 +1,47 @@
+{
+  "Description": "two girls, city lights",
+  "Source": "NovelAI Diffusion V4.5",
+  "Comment": {
+    "seed": 123456,
+    "steps": 28,
+    "scale": 6,
+    "sampler": "k_euler_ancestral",
+    "width": 1216,
+    "height": 832,
+    "v4_prompt": {
+      "caption": {
+        "base_caption": "two girls, city lights, 0.8::artist:terasu_mc::",
+        "char_captions": [
+          {
+            "char_caption": "vulpisfoglia_(arknights), fox_tail",
+            "centers": [
+              {
+                "x": 0.25,
+                "y": 0.55
+              }
+            ]
+          },
+          {
+            "char_caption": "suzuran_(arknights), bell collar",
+            "centers": [
+              {
+                "x": 0.75,
+                "y": 0.45
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "v4_negative_prompt": {
+      "caption": {
+        "base_caption": "lowres, bad anatomy",
+        "char_captions": [
+          {
+            "char_caption": "bad hands"
+          }
+        ]
+      }
+    }
+  }
+}

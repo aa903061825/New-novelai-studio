@@ -151,11 +151,14 @@ void main() {
     test('supports custom parsed results without coords output', () {
       final parsed = NaiMetadataParseResult(
         prompt: 'scene',
+        source: null,
+        negativePrompt: null,
         rawContent: 'scene',
         parameters: const {},
         width: null,
         height: null,
         charCaptions: const ['char'],
+        negativeCharCaptions: const [],
         coords: const [],
         hasStructuredMetadata: true,
       );

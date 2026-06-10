@@ -61,7 +61,7 @@ class PromptConfigViewModel extends ChangeNotifier {
   }
 
   void setStrs(String value) {
-    config.strs = value.split('\n').where((str) => str.isNotEmpty).toList();
+    config.strs = PromptConfig.splitStrRows(value);
     notifyListeners();
   }
 

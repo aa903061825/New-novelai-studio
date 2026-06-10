@@ -1,0 +1,34 @@
+{
+  "Description": "intact frame after broken json",
+  "Source": "NovelAI Diffusion V4.5",
+  "Comment": {
+    "seed": 998877,
+    "steps": 20,
+    "scale": 5,
+    "sampler": "k_euler",
+    "width": 832,
+    "height": 1216,
+    "v4_prompt": {
+      "caption": {
+        "base_caption": "intact frame, dawn",
+        "char_captions": [
+          {
+            "char_caption": "suzuran_(arknights)",
+            "centers": [
+              {
+                "x": 0.5,
+                "y": 0.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "v4_negative_prompt": {
+      "caption": {
+        "base_caption": "lowres",
+        "char_captions": []
+      }
+    }
+  }
+}

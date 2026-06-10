@@ -1,0 +1,14 @@
+{
+  "Description": "vulpisfoglia_(arknights), suzuran_(arknights), city lights, two girls",
+  "Source": "NovelAI Diffusion V4",
+  "Comment": {
+    "seed": 223344,
+    "steps": 24,
+    "scale": 5.5,
+    "sampler": "k_dpmpp_2m",
+    "width": 1024,
+    "height": 1024,
+    "prompt": "vulpisfoglia_(arknights), suzuran_(arknights), city lights, two girls",
+    "negative_prompt": "lowres, bad anatomy"
+  }
+}

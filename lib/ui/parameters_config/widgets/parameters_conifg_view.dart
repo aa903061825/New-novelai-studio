@@ -270,7 +270,7 @@ class ParametersConfigView extends StatelessWidget {
 
   Widget _buildLegacyUcTile(BuildContext context) {
     return CheckboxListTile(
-      title: const Text('Legacy Prompt Conditioning Mode'),
+      title: const Text('旧版提示词条件模式'),
       secondary: const Icon(Icons.do_not_disturb),
       value: viewmodel.config.legacyUc,
       onChanged: (value) => viewmodel.setLegacyUc(value),
@@ -326,7 +326,7 @@ class ParametersConfigView extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Global'),
+        const Text('全局'),
         Transform.scale(
           scale: 0.8,
           child: Switch(
@@ -525,7 +525,7 @@ class SizeSelectionView extends StatelessWidget {
                   const Divider(),
                   const Padding(
                     padding: EdgeInsets.only(bottom: 8),
-                    child: Text('Defaults:'),
+                    child: Text('默认尺寸：'),
                   ),
                   Wrap(
                     spacing: 4,
@@ -538,7 +538,7 @@ class SizeSelectionView extends StatelessWidget {
                         .toList(),
                   ),
                   const Divider(),
-                  const Text('Manual:'),
+                  const Text('手动输入：'),
                   Row(
                     children: [
                       Expanded(

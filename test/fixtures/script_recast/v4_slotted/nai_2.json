@@ -1,0 +1,43 @@
+{
+  "Description": "two girls, train platform",
+  "Source": "NovelAI Diffusion V4.5",
+  "Comment": {
+    "seed": 123457,
+    "steps": 28,
+    "scale": 6,
+    "sampler": "k_euler_ancestral",
+    "width": 1216,
+    "height": 832,
+    "v4_prompt": {
+      "caption": {
+        "base_caption": "two girls, train platform, night rain",
+        "char_captions": [
+          {
+            "char_caption": "vulpisfoglia_(arknights), holding umbrella",
+            "centers": [
+              {
+                "x": 0.3,
+                "y": 0.52
+              }
+            ]
+          },
+          {
+            "char_caption": "suzuran_(arknights), looking up",
+            "centers": [
+              {
+                "x": 0.68,
+                "y": 0.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "v4_negative_prompt": {
+      "caption": {
+        "base_caption": "lowres, blurry",
+        "char_captions": []
+      }
+    }
+  }
+}

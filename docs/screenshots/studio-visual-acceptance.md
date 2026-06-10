@@ -5,12 +5,12 @@ Beads issue: `NAI_NEW-frr`
 
 ## Goal
 
-Provide a repeatable screenshot and visual acceptance path for Novel Studio UI
-work without depending on the flaky local `toImage` widget screenshot flow.
+Provide a repeatable screenshot and visual acceptance path for native Novel
+Studio UI work without depending on the flaky local `toImage` widget screenshot
+flow.
 
 This playbook is intentionally simple:
 
-- use the static preview as the visual oracle
 - use live Flutter pages for implementation verification
 - store evidence screenshots in-repo under `docs/screenshots/`
 - keep structural regression coverage in widget tests
@@ -19,31 +19,16 @@ This playbook is intentionally simple:
 
 Use these in order:
 
-1. `novel-studio-ui-preview/index.html`
-2. `novel-studio-ui-preview/preview-desktop.png`
-3. `novel-studio-ui-preview/preview-mobile.png`
-4. `docs/novel-studio-ui-direction.md`
-5. `lib/ui/studio_core/theme/studio_tokens.dart`
+1. `docs/novel-studio-ui-direction.md`
+2. `lib/ui/studio_core/theme/studio_tokens.dart`
+3. `lib/ui/studio_core/widgets/`
+4. the live Flutter Studio pages
 
-The preview defines the intended information architecture and visual direction.
 Flutter remains the real runtime implementation.
 
 ## Capture Flow
 
-### 1. Capture The Preview Oracle
-
-Open `novel-studio-ui-preview/index.html` directly in a browser and capture:
-
-- desktop width: `1440 x 1024`
-- compact/mobile width: `393 x 852`
-
-Use these captures when:
-
-- a page is being rebuilt for the first time
-- the intended spacing or hierarchy is unclear
-- reviewers need to compare the live Flutter page to the approved direction
-
-### 2. Capture The Live Flutter Page
+### 1. Capture The Live Flutter Page
 
 Run the app locally from the repo root:
 
@@ -59,12 +44,10 @@ Navigate to the affected Studio page and capture the same two viewport classes:
 If a page is desktop-only for now, still verify that it does not break or clip
 badly below `900px` width before marking the issue complete.
 
-### 3. Store Evidence
+### 2. Store Evidence
 
 Save evidence screenshots in `docs/screenshots/` using this format:
 
-- `YYYY-MM-DD-<page>-preview-desktop.png`
-- `YYYY-MM-DD-<page>-preview-compact.png`
 - `YYYY-MM-DD-<page>-flutter-desktop.png`
 - `YYYY-MM-DD-<page>-flutter-compact.png`
 
@@ -72,11 +55,6 @@ Example:
 
 - `2026-05-23-gallery-flutter-desktop.png`
 - `2026-05-23-gallery-flutter-compact.png`
-
-Do not overwrite the canonical preview baselines:
-
-- `novel-studio-ui-preview/preview-desktop.png`
-- `novel-studio-ui-preview/preview-mobile.png`
 
 ## Acceptance Checklist
 

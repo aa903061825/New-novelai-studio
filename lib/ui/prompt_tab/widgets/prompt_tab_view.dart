@@ -182,7 +182,8 @@ class PromptTabView extends StatelessWidget {
             children: [
               IconButton(
                 tooltip: tr('add_character'),
-                onPressed: viewmodel.characterConfigList.length >= 5
+                onPressed: viewmodel.characterConfigList.length >=
+                        PromptTabViewmodel.maxCharacterCount
                     ? null
                     : () => viewmodel.addCharacter(),
                 icon: const Icon(Icons.person_add_alt),
@@ -262,7 +263,8 @@ class PromptTabView extends StatelessWidget {
                 title: Text(tr('add_character')),
                 leading: const Icon(Icons.person_add),
                 onTap: () => viewmodel.addCharacter(),
-                enabled: viewmodel.characterConfigList.length < 5,
+                enabled: viewmodel.characterConfigList.length <
+                    PromptTabViewmodel.maxCharacterCount,
               )),
     );
     showDialog(

@@ -25,6 +25,10 @@ class StudioTokens {
   static const radiusSmall = 8.0;
   static const radiusSlotValue = 10.0;
   static const radiusBadgeValue = 5.0;
+  static const radiusTagValue = 10.0;
+  static const radiusTagCutValue = 2.0;
+  static const radiusTagStripeValue = 9.0;
+  static const radiusTagStripeCutValue = 1.0;
   static const radiusMedium = 12.0;
   static const radiusLarge = 16.0;
   static const radiusPanel = 18.0;
@@ -52,6 +56,16 @@ class StudioTokens {
     topRight: Radius.circular(radiusBadgeValue),
     bottomLeft: Radius.circular(radiusBadgeValue),
     bottomRight: Radius.circular(radiusBadgeSharpValue),
+  );
+  static const radiusTag = BorderRadius.only(
+    topLeft: Radius.circular(radiusTagValue),
+    topRight: Radius.circular(radiusTagValue),
+    bottomRight: Radius.circular(radiusTagValue),
+    bottomLeft: Radius.circular(radiusTagCutValue),
+  );
+  static const radiusTagStripe = BorderRadius.only(
+    topLeft: Radius.circular(radiusTagStripeValue),
+    bottomLeft: Radius.circular(radiusTagStripeCutValue),
   );
 
   static const pagePadding = 24.0;

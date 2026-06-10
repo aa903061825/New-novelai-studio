@@ -3,6 +3,11 @@ import 'package:nai_casrand/core/constants/settings.dart';
 
 import '../../core/constants/defaults.dart';
 
+const defaultNaiImageGenerationEndpoint =
+    'https://image.novelai.net/ai/generate-image';
+
+enum TranslationProviderMode { ai, google }
+
 class Settings {
   // Don't show again
   String welcomeMessageVersion;
@@ -10,9 +15,20 @@ class Settings {
   // Display settings
   int generationPageColumnCount;
   String themeMode;
+  double uiTextScale;
+  double imagePreviewDialogHeight;
 
   // API key
   String apiKey;
+
+  // Studio AI tools
+  String scriptAiBaseUrl;
+  String scriptAiToken;
+  String scriptAiModel;
+  String translationProvider;
+  String translationAiBaseUrl;
+  String translationAiToken;
+  String translationAiModel;
 
   // Output dir, for windows only
   String outputFolderPath;
@@ -45,6 +61,13 @@ class Settings {
   Settings({
     required this.welcomeMessageVersion,
     required this.apiKey,
+    this.scriptAiBaseUrl = '',
+    this.scriptAiToken = '',
+    this.scriptAiModel = '',
+    this.translationProvider = 'ai',
+    this.translationAiBaseUrl = '',
+    this.translationAiToken = '',
+    this.translationAiModel = '',
     required this.outputFolderPath,
     required this.proxy,
     required this.debugApiEnabled,
@@ -62,12 +85,23 @@ class Settings {
     required this.fileNamePrefixKey,
     required this.generationPageColumnCount,
     required this.themeMode,
+    this.uiTextScale = 1.1,
+    this.imagePreviewDialogHeight = 760,
   });
 
   factory Settings.fromJson(Map<String, dynamic> json) {
     return Settings(
       welcomeMessageVersion: json['welcome_message_version'] ?? '',
       apiKey: json['api_key'] ?? 'pst-abcd',
+      scriptAiBaseUrl: json['script_ai_base_url'] ?? '',
+      scriptAiToken: json['script_ai_token'] ?? '',
+      scriptAiModel: json['script_ai_model'] ?? '',
+      translationProvider: _translationProviderName(
+        json['translation_provider'] as String?,
+      ),
+      translationAiBaseUrl: json['translation_ai_base_url'] ?? '',
+      translationAiToken: json['translation_ai_token'] ?? '',
+      translationAiModel: json['translation_ai_model'] ?? '',
       outputFolderPath: json['output_folder'] ?? '',
       proxy: json['proxy'] ?? '',
       debugApiEnabled: false,
@@ -86,6 +120,12 @@ class Settings {
       fileNamePrefixKey: json['file_name_prefix_key'] ?? '',
       generationPageColumnCount: json['generation_page_column_count'] ?? 2,
       themeMode: json['theme_mode'] ?? 'system',
+      uiTextScale:
+          ((json['ui_text_scale'] ?? 1.1) as num).toDouble().clamp(1.0, 1.35),
+      imagePreviewDialogHeight:
+          ((json['image_preview_dialog_height'] ?? 760) as num)
+              .toDouble()
+              .clamp(520, 980),
     );
   }
 
@@ -93,6 +133,13 @@ class Settings {
     return {
       'welcome_message_version': welcomeMessageVersion,
       'api_key': apiKey,
+      'script_ai_base_url': scriptAiBaseUrl,
+      'script_ai_token': scriptAiToken,
+      'script_ai_model': scriptAiModel,
+      'translation_provider': translationProvider,
+      'translation_ai_base_url': translationAiBaseUrl,
+      'translation_ai_token': translationAiToken,
+      'translation_ai_model': translationAiModel,
       'output_folder': outputFolderPath,
       'proxy': proxy,
       'metadata_erase_enabled': metadataEraseEnabled,
@@ -108,9 +155,29 @@ class Settings {
       'number_of_requests': numberOfRequests,
       'generation_page_column_count': generationPageColumnCount,
       'theme_mode': themeMode,
+      'ui_text_scale': uiTextScale,
+      'image_preview_dialog_height': imagePreviewDialogHeight,
     };
   }
 
   AdaptiveThemeMode get theme =>
       stringToThemeMode[themeMode] ?? AdaptiveThemeMode.system;
+
+  String get imageGenerationEndpoint {
+    if (debugApiEnabled) {
+      return debugApiPath;
+    }
+    return defaultNaiImageGenerationEndpoint;
+  }
+
+  TranslationProviderMode get translationProviderMode =>
+      translationProvider == TranslationProviderMode.google.name
+          ? TranslationProviderMode.google
+          : TranslationProviderMode.ai;
+}
+
+String _translationProviderName(String? value) {
+  return value == TranslationProviderMode.google.name
+      ? TranslationProviderMode.google.name
+      : TranslationProviderMode.ai.name;
 }

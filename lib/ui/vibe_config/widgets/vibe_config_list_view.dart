@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:nai_casrand/ui/core/widgets/compact_image_config_card.dart';
 import 'package:nai_casrand/ui/vibe_config/view_models/vibe_config_list_viewmodel.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
@@ -10,16 +13,29 @@ class VibeConfigListView extends StatelessWidget {
   final VibeConfigListViewmodel viewmodel;
   final bool vibeEnabled;
   final ValueChanged<bool> onVibeEnabledChanged;
+  final Widget? footer;
+  final bool compact;
 
   const VibeConfigListView({
     super.key,
     required this.viewmodel,
     required this.vibeEnabled,
     required this.onVibeEnabledChanged,
+    this.footer,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return _CompactVibeConfigList(
+        viewmodel: viewmodel,
+        vibeEnabled: vibeEnabled,
+        onVibeEnabledChanged: onVibeEnabledChanged,
+        footer: footer,
+      );
+    }
+
     final addVibeImage = Icon(
       Icons.add_photo_alternate_outlined,
       size: 100.0,
@@ -46,9 +62,14 @@ class VibeConfigListView extends StatelessWidget {
     return ListenableBuilder(
       listenable: viewmodel,
       builder: (context, child) {
+        final itemCount = viewmodel.vibeList.length + 2;
         return ListView.builder(
-          itemCount: viewmodel.vibeList.length + 2,
+          itemCount: itemCount + (footer == null ? 0 : 1),
           itemBuilder: (context, index) {
+            if (footer != null && index == itemCount) {
+              return footer!;
+            }
+
             if (index == 0) {
               return SwitchListTile(
                 title: Text(context.tr('enable_vibe_transfer')),
@@ -87,6 +108,109 @@ class VibeConfigListView extends StatelessWidget {
               ),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+class _CompactVibeConfigList extends StatelessWidget {
+  final VibeConfigListViewmodel viewmodel;
+  final bool vibeEnabled;
+  final ValueChanged<bool> onVibeEnabledChanged;
+  final Widget? footer;
+
+  const _CompactVibeConfigList({
+    required this.viewmodel,
+    required this.vibeEnabled,
+    required this.onVibeEnabledChanged,
+    required this.footer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: viewmodel,
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(context.tr('enable_vibe_transfer')),
+              subtitle: Text(context.tr('enable_vibe_transfer_hint')),
+              secondary: const Icon(Icons.auto_awesome_outlined),
+              value: vibeEnabled,
+              onChanged: onVibeEnabledChanged,
+            ),
+            Opacity(
+              opacity: vibeEnabled ? 1 : 0.45,
+              child: IgnorePointer(
+                ignoring: !vibeEnabled,
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final (index, config) in viewmodel.vibeList.indexed)
+                      _CompactVibeCard(
+                        viewmodel: VibeConfigViewmodel(config: config),
+                        onDelete: () => viewmodel.removeConfigAtIndex(index),
+                      ),
+                    DropRegion(
+                      formats: Formats.standardFormats,
+                      onDropOver: (_) => DropOperation.copy,
+                      onPerformDrop: viewmodel.handleVibeDropEvent,
+                      child: CompactAddImageCard(
+                        onTap: viewmodel.addNewVibe,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (footer != null) footer!,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CompactVibeCard extends StatelessWidget {
+  final VibeConfigViewmodel viewmodel;
+  final VoidCallback onDelete;
+
+  const _CompactVibeCard({
+    required this.viewmodel,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: viewmodel,
+      builder: (context, _) {
+        return CompactImageConfigCard(
+          height: 210,
+          thumbnail: Image.memory(
+            base64Decode(viewmodel.config.imageB64),
+            fit: BoxFit.cover,
+          ),
+          fileName: viewmodel.fileName,
+          onDelete: onDelete,
+          controls: [
+            MiniLabeledSlider(
+              label: 'S',
+              value: viewmodel.referenceStrength,
+              onChanged: viewmodel.setReferenceStrength,
+            ),
+            MiniLabeledSlider(
+              label: 'I',
+              value: viewmodel.infoExtracted,
+              onChanged: viewmodel.setInfoExtracted,
+            ),
+          ],
         );
       },
     );

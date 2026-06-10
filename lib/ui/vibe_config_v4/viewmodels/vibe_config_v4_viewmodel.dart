@@ -15,6 +15,7 @@ class VibeConfigV4Viewmodel extends ChangeNotifier {
 
   String get fileName => config.fileName;
   Uint8List? get imageBytes => config.imageBytes;
+  String? get sourceImagePath => config.sourceImagePath;
   double get referenceStrength => config.referenceStrength;
 
   setReferenceStrength(double value) {

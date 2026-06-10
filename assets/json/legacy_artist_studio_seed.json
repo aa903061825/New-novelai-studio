@@ -1,0 +1,1846 @@
+{
+  "source": {
+    "type": "legacy_artist_workbook",
+    "path": "E:\\NAI的脚本群\\画师串记录.xlsx"
+  },
+  "artistChains": [
+    {
+      "id": "legacy-artist-sheet-r2c1",
+      "name": "画师串 01",
+      "tags": [
+        "画师串 01"
+      ],
+      "prompt": "{{artist:tiv}}, {artist:ask_(askzy)}, artist:hakushiro, artist:wanke, [artist:wlop], [artist:nixeu],",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R2C1"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r14-outfit-4-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r1-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r9-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r21-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r1-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r5-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r7-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r10-outfit-3-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c1-legacy-character-sheet-r20-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r2c3",
+      "name": "画师串 02",
+      "tags": [
+        "画师串 02"
+      ],
+      "prompt": "artist:jyt,artist:liduke,0.6::artist:kitada_mo ::,0.4::artist:ogipote::, artist:kararage_tsune, 0.8::artist:gamuo::,artist:iyasu_shikaku , 0.8::artist:yuyumu::, 1.3::artist:z3zz4 ::, artist:tyakomes,1.2::glossy skin::, 1.2::soft skin::, 1.1::subsurface scattering::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R2C3"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r15-square-1024x1024-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r21-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r8-plain-2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r7-portrait-832x1216-nai-v45-varsize-fix2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r19-wide-1216x832-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r5-outfit-3-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r11-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r15-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c3-legacy-character-sheet-r22-outfit-6-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r2c5",
+      "name": "画师串 03",
+      "tags": [
+        "画师串 03"
+      ],
+      "prompt": "artist:aka kan,artist:ainy,1.4::artist:achiki::,0.4::artist:akakura::,0.3::artist:bubu2kufo::,artist:daifuku mame (kageroudt33),artist:deyui,artist:harogen pabirion,artist:hitobashira (1746164306),0.9::artist:icecake::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R2C5"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r22-outfit-8-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r13-plain-2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r8-outfit-3-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r15-outfit-4-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r21-outfit-3-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c5-legacy-character-sheet-r26-outfit-3-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r2c7",
+      "name": "画师串 04",
+      "tags": [
+        "画师串 04"
+      ],
+      "prompt": "2::artist:chen_bin::,0.5::artist:kakure eria :: ,1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R2C7"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r3-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r22-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r15-outfit-8-plain-2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r22-portrait-832x1216-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r10-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r13-outfit-4-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r24-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r26-outfit-6-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r2c7-legacy-character-sheet-r30-outfit-6-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r4c1",
+      "name": "画师串 05",
+      "tags": [
+        "画师串 05"
+      ],
+      "prompt": "1.4::artist:wanke ::, 1.7::artist:dishwasher1910, artist: kim hyung tae ::, 0.3::artist:kidmo ::, 1.5::artist:ask (askzy) ::, 0.7::artist:freng ::, 0.7::artist:ratatatat74 ::, 0.8::artist:ssambatea ::, 0.3::artist:soon (c-u-soon) ::, artist:kedama milk, artist:clioranko, 0.8::artist:ningen mame ::,2::3d, photorealistic::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R4C1"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r20-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r23-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r8-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r20-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r22-outfit-4-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r26-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r30-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r1-outfit-2-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c1-legacy-character-sheet-r3-outfit-3-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r4c3",
+      "name": "表情包",
+      "tags": [
+        "表情包"
+      ],
+      "prompt": "best quality, masterpiece,best quality,official art,extremely detailed CG unity 8k wallpaper, beautiful detailed glow, best illumination, cinematic lighting, detailed lighting,artist:jyt,artist:liduke,0.6::artist:shano hiyori::,0.7::artist:ciloranko,2::artist:ningen mame, 0.8::artist:sho(sho lwlw),0.5::artist:kedama_milk,artist:(shiratama (shiratamaco))::, artist:rella,1.1::artist:maccha (mochancc)::0.8::artist:min_(120716),1.2::chen_bin::,1.6::artist:watakokyu,artist:roku6,::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R4C3"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r14-square-1024x1024-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r22-outfit-4-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r25-plain-2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r6-portrait-832x1216-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r29-wide-1216x832-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r29-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r1-outfit-2-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r5-outfit-3-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c3-legacy-character-sheet-r8-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r4c5",
+      "name": "画师串 07",
+      "tags": [
+        "画师串 07"
+      ],
+      "prompt": "1.1::artist: zhibuji loom::, 1.3::artist: 3j dangan::, 1.2::artist:rsef::, 0.3::artist: hito komoru::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R4C5"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r30-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r3-bg-3.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r11-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r25-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r4-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r26-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r5-outfit-4-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r8-outfit-3-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c5-legacy-character-sheet-r13-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r4c7",
+      "name": "反向词",
+      "tags": [
+        "反向词"
+      ],
+      "prompt": "1.3::artist:hakushiro::, 1.2::artist:quasarcake::, 1.2::artist:betabeet::, 1.1::artist:wanke::, 0.6::artist:wlop::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R4C7"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r13-outfit-4-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r3-outfit-3-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r15-outfit-8-plain-6.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r30-outfit-4-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r5-outfit-5-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r4c7-legacy-character-sheet-r9-plain-4.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r6c1",
+      "name": "画师串 09",
+      "tags": [
+        "画师串 09"
+      ],
+      "prompt": "0.6::artist:lal!role::, ::artist:sil435 ::, artist:2015x127, 1.2::artist:chenpeipeiii::, 0.3::artist:aseupilin666 ::,muted color::,vivid",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R6C1"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r15-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r7-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r19-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r3-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r5-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r9-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r13-outfit-3-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r21-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c1-legacy-character-sheet-r22-outfit-6-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r6c3",
+      "name": "表情包",
+      "tags": [
+        "表情包"
+      ],
+      "prompt": "0.5::jazz jack::, 0.7::yunayuispink::, 0.7::ao kaeru::, miratsu (miratsu169), \n\nyear 2023, year 2024, great quality, sd, chibi, jaggy lines, outline, -6::artist collaboration::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R6C3"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r13-square-1024x1024-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r14-outfit-4-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r10-outfit-3-plain-2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r5-portrait-832x1216-nai-v45-varsize-fix2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r26-wide-1216x832-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r7-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r20-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r22-outfit-4-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c3-legacy-character-sheet-r25-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r6c5",
+      "name": "画师串 11",
+      "tags": [
+        "画师串 11"
+      ],
+      "prompt": "[[[artist:40hara]]], [artist:ningen_mame], artist:chen_bin, [[[[artist:hiten_(hiten_kei)]]]]",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R6C5"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r22-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r21-bg-3.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r10-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r3-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r11-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r15-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r22-outfit-6-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r26-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r6c5-legacy-character-sheet-r30-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r8c1",
+      "name": "水墨",
+      "tags": [
+        "水墨"
+      ],
+      "prompt": "2::artist:healthyman::, 0.6::artist:kakure eria::, 1.2::wagashi (dagashiya)::, 0.6::artist:ie (raarami)::, 0.6::artist:kedama_milk::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R8C1"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r6-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r4-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r29-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r14-wide-1216x832-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r22-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r24-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r26-outfit-6-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r30-outfit-6-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c1-legacy-character-sheet-r6-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r8c3",
+      "name": "手绘",
+      "tags": [
+        "手绘"
+      ],
+      "prompt": "artist:nixeu,artist:gomzi,0.6::artist:nixeu::,1.6::artist:stu dts::,artist:qiandaiyiyu,0.8::artist:marushin (denwa0214)::,0.4::artist:omone hokoma agm::,1.3::artist:say hana::,0.3::artist:58 (opal 00 58)::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R8C3"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r7-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r11-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r10-outfit-3-plain-6.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r4-portrait-832x1216-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r25-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r24-outfit-3-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r27-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r1-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c3-legacy-character-sheet-r5-plain-4.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r8c5",
+      "name": "画师串 15",
+      "tags": [
+        "画师串 15"
+      ],
+      "prompt": "[artist:chen_bin], [artist:sho_(sho_lwlw)], [artist:ningen_mame], [artist:tianliang_duohe_fangdongye], [[artist:ciloranko]], [[artist:rella]], [[artist:konya_karasue]],",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R8C5"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r21-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r29-bg-1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r9-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r1-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r1-outfit-2-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r5-outfit-3-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r8-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r11-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c5-legacy-character-sheet-r15-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r8c7",
+      "name": "画师串 16",
+      "tags": [
+        "画师串 16"
+      ],
+      "prompt": "artist:akiyama_enma, artist:ciloranko, artist:ningen_mame,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R8C7"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r15-outfit-4-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r19-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r15-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r7-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r3-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r5-outfit-4-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r8-outfit-3-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r13-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r8c7-legacy-character-sheet-r21-outfit-3-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r10c1",
+      "name": "水墨",
+      "tags": [
+        "水墨"
+      ],
+      "prompt": "1.4::artist:mokyukyu_2339 ::, 1.4::artist:sazaki_ichiri::, 0.8::artist:gmkj::, 1.1::artist:eonsang ::, 0.7::artist:modare::, 0.8::artist:at_kiwi::, 1.6::artist:smilesmile1312 ::, 0.8::artist:channel_(caststation) ::, 2.0::artist:amaderoka::, year 2025, year 2024, year 2023",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R10C1"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r13-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r26-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r5-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r1-outfit-4-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r4-outfit-5-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r8-outfit-3-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r13-outfit-4-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r20-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c1-legacy-character-sheet-r22-outfit-4-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r10c3",
+      "name": "手绘",
+      "tags": [
+        "手绘"
+      ],
+      "prompt": "2::artist:chen_bin::,0.5::artist:kakure eria :: ,1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::；",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R10C3"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r10-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r24-outfit-3-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r3-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r22-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r10-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r14-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r15-outfit-10-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r22-outfit-3-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c3-legacy-character-sheet-r27-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r10c5",
+      "name": "画师串 19",
+      "tags": [
+        "画师串 19"
+      ],
+      "prompt": "5::artist:lunch (shin new)::, 0.9::artist:try (lsc)::, 0.8::artist:gaou (umaiyo puyoman)::, 0.6::artist:null (nyanpyoun)::, 0.75::artist:toma (toma50)::, 1.2::artist:sonao::, 1.05::artist:kokosando::, 1.1::artist:freng::, 1.15::artist:wagashi (dagashiya)::, 1.8::artist:healthyman::",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R10C5"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r20-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r14-outfit-4-bg-1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r20-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r8-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r23-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r22-outfit-4-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r25-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r29-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c5-legacy-character-sheet-r1-outfit-2-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r10c7",
+      "name": "画师串 21",
+      "tags": [
+        "画师串 21"
+      ],
+      "prompt": "2.5::artist:controlline3 ::, 1.5::artist:ohisashiburi::, artist:watao, artist:mx2j, 0.7::artist:ningen mame::, 0.7::artist:gogalking::, 1.2::artist:piromizu::, 0.6::artist:meme50 ::, volumetric lighting",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R10C7"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r4-square-1024x1024-nai-v45-varsize-fix2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r11-wide-1216x832-nai-v45-varsize-fix2.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r25-portrait-832x1216-nai-v45-varsize-fix2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r15-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r22-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r24-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r27-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r23-outfit-6-bg-5.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r10c7-legacy-character-sheet-r1-outfit-4-plain-6.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r12c1",
+      "name": "水墨",
+      "tags": [
+        "水墨"
+      ],
+      "prompt": "1.5::artist:nixeu::, 1.3::artist:cutesexyrobutts::, 1.2::artist:wlop::, 1.1::artist:wanke::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R12C1"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r10-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r1-portrait-832x1216-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r14-plain-6.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r9-square-1024x1024-nai-v45-varsize-b1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r21-wide-1216x832-nai-v45-varsize-b1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r26-outfit-6-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r30-outfit-6-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r4-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c1-legacy-character-sheet-r6-plain-4.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r12c3",
+      "name": "手绘",
+      "tags": [
+        "手绘"
+      ],
+      "prompt": "1.3::artist:torino aqua::, 1.2::artist:yunsang::, 1.2::artist:ask (askzy)::, 1.1::artist:cutesexyrobutts::, 1.1::artist:wanke::, 0.8::artist:nixeu::, 1.2::thickly coated::, 1.2::soft skin::, 1.1::blush on cheeks::, 1.1::skin blush::, 1.1::subsurface scattering::, soft shading,skin blush",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R12C3"
+      },
+      "imageRefs": [
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r14-outfit-4-bg-5.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r15-square-1024x1024-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r7-portrait-832x1216-nai-v45-varsize-fix1.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r19-wide-1216x832-nai-v45-varsize-fix1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r1-bg-1.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r5-plain-2.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r7-bg-3.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r10-outfit-3-plain-4.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c3-legacy-character-sheet-r20-plain-6.png"
+      ],
+      "previewStrategy": "background-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r12c5",
+      "name": "画师串 24",
+      "tags": [
+        "画师串 24"
+      ],
+      "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::,",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R12C5"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r21-bg-5-qaq1-vibe.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1-qaq1-vibe.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-outfit-3-bg-1-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r8-plain-2-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r11-bg-3-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r15-plain-4-qaq1-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r22-outfit-6-plain-6-qaq1-vibe.png"
+      ],
+      "previewStrategy": "character-first"
+    },
+    {
+      "id": "legacy-artist-sheet-r12c7",
+      "name": "搭配vibe：QAQ 2号",
+      "tags": [
+        "搭配vibe：QAQ 2号"
+      ],
+      "prompt": "{{{chiaroscuro}}}, [[[artist:kedama_milk]]], [[[[[artist:na_tarapisu153]]]]], {[artist:fymrie}}, nalphanne, [[dino_(dinoartforame)]], [[ringouulu]], artist:ciloranko, [[[artist:quasarcake]]], artist:rella, [[[[[[ningen_mame]]]]]]], {{{{{loli}}}}}, {{{{{detailed eyes}}}}}",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "画风!R12C7"
+      },
+      "imageRefs": [
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r3-square-1024x1024-nai-v45-varsize-b1-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r8-outfit-3-bg-1-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r13-plain-2-qaq2-vibe.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r22-portrait-832x1216-nai-v45-varsize-b1-qaq2-vibe.png",
+        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r10-wide-1216x832-nai-v45-varsize-b1-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r15-outfit-4-bg-3-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r21-outfit-3-plain-4-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r22-outfit-8-bg-5-qaq2-vibe.png",
+        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r26-outfit-3-plain-6-qaq2-vibe.png"
+      ],
+      "previewStrategy": "character-first"
+    }
+  ],
+  "characters": [
+    {
+      "id": "legacy-character-sheet-r1",
+      "name": "艾雅法拉",
+      "traits": {
+        "front_full": "eyjafjalla_(arknights), animal ears ,sheep_horns",
+        "front_upper": "animal_ears, sheep_horns, dress_bow, brown_hair, long_hair, bonnet, horns, twintails, bow, pink_bow, very_long_hair, brown_eyes, white_bonnet, hat",
+        "front_lower": "anklet"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r1-outfit-0",
+          "name": "音律联觉",
+          "tags": {
+            "front_full": "eyjafjalla (ambience synesthesia) (arknights)",
+            "front_upper": "dress, white_dress, gloves, white_gloves, long_sleeves, short_sleeves, dress_bow, layered_dress, puffy_sleeves, wide_sleeves, black_dress, frilled_dress, frilled_shirt, japanese_clothes",
+            "front_lower": "dress, white_dress, dress_bow, layered_dress, black_dress, frilled_dress, japanese_clothes, boots, lace-up_boots, pink_skirt, skirt, ankle_boots"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "dress",
+              "white_dress",
+              "gloves",
+              "white_gloves",
+              "long_sleeves",
+              "short_sleeves",
+              "dress_bow",
+              "layered_dress",
+              "puffy_sleeves",
+              "wide_sleeves",
+              "black_dress",
+              "frilled_dress",
+              "frilled_shirt",
+              "japanese_clothes"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "white_dress",
+              "dress_bow",
+              "layered_dress",
+              "black_dress",
+              "frilled_dress",
+              "japanese_clothes",
+              "boots",
+              "lace-up_boots",
+              "pink_skirt",
+              "skirt",
+              "ankle_boots"
+            ]
+          },
+          "note": "整理: 上装: dress, white_dress, gloves, white_gloves, long_sleeves, short_sleeves, dress_bow, layered_dress, puffy_sleeves, wide_sleeves, black_dress, frilled_dress, frilled_shirt, japanese_clothes | 下装: dress, white_dress, dress_bow, layered_dress, black_dress, frilled_dress, japanese_clothes, boots, lace-up_boots, pink_skirt, skirt, ankle_boots"
+        },
+        {
+          "id": "legacy-character-sheet-r1-outfit-2",
+          "name": "泳装",
+          "tags": {
+            "front_full": "eyjafjalla_(summer_flower)_(arknights)",
+            "front_upper": "bikini, pink_bikini, plaid_bikini, plaid_clothes, swimsuit, swimsuit_cover-up",
+            "front_lower": "bikini, pink_bikini, plaid_bikini, swimsuit, swimsuit_cover-up"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "bikini",
+              "pink_bikini",
+              "plaid_bikini",
+              "plaid_clothes",
+              "swimsuit",
+              "swimsuit_cover-up"
+            ],
+            "lowerClothingTags": [
+              "bikini",
+              "pink_bikini",
+              "plaid_bikini",
+              "swimsuit",
+              "swimsuit_cover-up"
+            ]
+          },
+          "note": "整理: 上装: bikini, pink_bikini, plaid_bikini, plaid_clothes, swimsuit, swimsuit_cover-up | 下装: bikini, pink_bikini, plaid_bikini, swimsuit, swimsuit_cover-up"
+        },
+        {
+          "id": "legacy-character-sheet-r1-outfit-3",
+          "name": "毛茸茸",
+          "tags": {
+            "front_full": "eyjafjalla (fluffy little witch) (arknights)",
+            "front_upper": "gloves, black_gloves, long_sleeves, dress, coat, open_clothes, jacket, open_coat, pink_coat, pink_dress, pink_jacket, white_dress, capelet, pink_capelet",
+            "front_lower": "dress, pink_dress, white_dress, boots, fur-trimmed_boots, high_heel_boots, shorts, black_boots, black_shoes, frilled_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "gloves",
+              "black_gloves",
+              "long_sleeves",
+              "dress",
+              "coat",
+              "open_clothes",
+              "jacket",
+              "open_coat",
+              "pink_coat",
+              "pink_dress",
+              "pink_jacket",
+              "white_dress",
+              "capelet",
+              "pink_capelet"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "pink_dress",
+              "white_dress",
+              "boots",
+              "fur-trimmed_boots",
+              "high_heel_boots",
+              "shorts",
+              "black_boots",
+              "black_shoes",
+              "frilled_dress"
+            ]
+          },
+          "note": "整理: 上装: gloves, black_gloves, long_sleeves, dress, coat, open_clothes, jacket, open_coat, pink_coat, pink_dress, pink_jacket, white_dress, capelet, pink_capelet | 下装: dress, pink_dress, white_dress, boots, fur-trimmed_boots, high_heel_boots, shorts, black_boots, black_shoes, frilled_dress"
+        },
+        {
+          "id": "legacy-character-sheet-r1-outfit-4",
+          "name": "童话爱丽丝",
+          "tags": {
+            "front_full": "eyjafjalla the hvit aska (a picnic before a long trip) (arknights)",
+            "front_upper": "shirt, coat, white_coat, dress, long_sleeves, open_clothes, purple_shirt, jacket, lab_coat, white_jacket, open_coat, detached_sleeves, jacket_on_shoulders, purple_dress",
+            "front_lower": "dress, purple_dress, black_skirt, shoes, skirt, black_shoes, blue_dress, frilled_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "shirt",
+              "coat",
+              "white_coat",
+              "dress",
+              "long_sleeves",
+              "open_clothes",
+              "purple_shirt",
+              "jacket",
+              "lab_coat",
+              "white_jacket",
+              "open_coat",
+              "detached_sleeves",
+              "jacket_on_shoulders",
+              "purple_dress"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "purple_dress",
+              "black_skirt",
+              "shoes",
+              "skirt",
+              "black_shoes",
+              "blue_dress",
+              "frilled_dress"
+            ]
+          },
+          "note": "整理: 上装: shirt, coat, white_coat, dress, long_sleeves, open_clothes, purple_shirt, jacket, lab_coat, white_jacket, open_coat, detached_sleeves, jacket_on_shoulders, purple_dress | 下装: dress, purple_dress, black_skirt, shoes, skirt, black_shoes, blue_dress, frilled_dress"
+        }
+      ],
+      "defaultOutfitId": "legacy-character-sheet-r1-outfit-0",
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R1"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r3",
+      "name": "桃金娘",
+      "traits": {
+        "front_full": "myrtle_(arknights)",
+        "front_upper": "eyewear_on_head, long_hair, ahoge, green_eyes, green_hair, hair_between_eyes, hair_ornament, pink_hair, pointy_ears, red_hair"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r3-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "myrtle_(summer_flowers)_(arknights)",
+            "front_upper": "shirt, sleeveless, sleeveless_shirt, swimsuit, white_shirt",
+            "front_lower": "swimsuit, sandals, white_sandals"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "shirt",
+              "sleeveless",
+              "sleeveless_shirt",
+              "swimsuit",
+              "white_shirt"
+            ],
+            "lowerClothingTags": [
+              "swimsuit",
+              "sandals",
+              "white_sandals"
+            ]
+          },
+          "note": "整理: 上装: shirt, sleeveless, sleeveless_shirt, swimsuit, white_shirt | 下装: swimsuit, sandals, white_sandals"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R3"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r3-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r4",
+      "name": "粉色小猪",
+      "traits": {
+        "front_full": "Goldenglow_(arknights)",
+        "front_upper": "animal_ears, pink_hair, cat_ears, hair_ornament, eyewear_on_head, hat, food-themed_hair_ornament, short_hair, watermelon_hair_ornament, yellow_eyes, animal_on_head, brown_hat, floppy_ears, on_head",
+        "front_lower": "tail, cat_tail, tail_ornament, thigh_strap, tail_bow, pink_tail, tail_raised"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r4-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "goldenglow (summer flowers) (arknights)",
+            "front_upper": "shirt, white_shirt, clothing_cutout, short_sleeves, bikini, dress, glove_cutout, gloves, jacket, letterman_jacket, puffy_short_sleeves, puffy_sleeves, sleeves_past_wrists, swimsuit",
+            "front_lower": "bikini, dress, swimsuit, shorts, denim_shorts, black_shorts, blue_shorts, sandals, swimsuit_cover-up, white_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "shirt",
+              "white_shirt",
+              "clothing_cutout",
+              "short_sleeves",
+              "bikini",
+              "dress",
+              "glove_cutout",
+              "gloves",
+              "jacket",
+              "letterman_jacket",
+              "puffy_short_sleeves",
+              "puffy_sleeves",
+              "sleeves_past_wrists",
+              "swimsuit"
+            ],
+            "lowerClothingTags": [
+              "bikini",
+              "dress",
+              "swimsuit",
+              "shorts",
+              "denim_shorts",
+              "black_shorts",
+              "blue_shorts",
+              "sandals",
+              "swimsuit_cover-up",
+              "white_dress"
+            ]
+          },
+          "note": "整理: 上装: shirt, white_shirt, clothing_cutout, short_sleeves, bikini, dress, glove_cutout, gloves, jacket, letterman_jacket, puffy_short_sleeves, puffy_sleeves, sleeves_past_wrists, swimsuit | 下装: bikini, dress, swimsuit, shorts, denim_shorts, black_shorts, blue_shorts, sandals, swimsuit_cover-up, white_dress"
+        },
+        {
+          "id": "legacy-character-sheet-r4-outfit-5",
+          "name": "变体 2",
+          "tags": {
+            "front_full": "goldenglow (party in the garden) (arknights)",
+            "front_upper": "gloves, white_gloves, dress, short_sleeves, white_dress, puffy_sleeves, puffy_short_sleeves, frilled_dress, apron, white_apron, frilled_apron, frilled_gloves, checkered_clothes, clothing_cutout",
+            "front_lower": "dress, white_dress, frilled_dress, pink_dress, pink_shoes, red_dress, shoes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "gloves",
+              "white_gloves",
+              "dress",
+              "short_sleeves",
+              "white_dress",
+              "puffy_sleeves",
+              "puffy_short_sleeves",
+              "frilled_dress",
+              "apron",
+              "white_apron",
+              "frilled_apron",
+              "frilled_gloves",
+              "checkered_clothes",
+              "clothing_cutout"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "white_dress",
+              "frilled_dress",
+              "pink_dress",
+              "pink_shoes",
+              "red_dress",
+              "shoes"
+            ]
+          },
+          "note": "整理: 上装: gloves, white_gloves, dress, short_sleeves, white_dress, puffy_sleeves, puffy_short_sleeves, frilled_dress, apron, white_apron, frilled_apron, frilled_gloves, checkered_clothes, clothing_cutout | 下装: dress, white_dress, frilled_dress, pink_dress, pink_shoes, red_dress, shoes"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R4"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r4-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r5",
+      "name": "小刻",
+      "traits": {
+        "front_full": "Ceobe_(arknights)",
+        "front_upper": "animal_ears, brown_hair, dog_ears, long_hair"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r5-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "dog_girl, animal_ears, brown_hair, dog_ears, long_hair",
+            "front_upper": "jacket, gloves, long_sleeves, black_jacket, red_gloves, shirt, open_clothes, open_jacket, dress, black_gloves, brown_jacket, fingerless_gloves, black_dress, black_shirt"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "jacket",
+              "gloves",
+              "long_sleeves",
+              "black_jacket",
+              "red_gloves",
+              "shirt",
+              "open_clothes",
+              "open_jacket",
+              "dress",
+              "black_gloves",
+              "brown_jacket",
+              "fingerless_gloves",
+              "black_dress",
+              "black_shirt"
+            ]
+          },
+          "note": "整理: 上装: jacket, gloves, long_sleeves, black_jacket, red_gloves, shirt, open_clothes, open_jacket, dress, black_gloves, brown_jacket, fingerless_gloves, black_dress, black_shirt"
+        },
+        {
+          "id": "legacy-character-sheet-r5-outfit-4",
+          "name": "变体 2",
+          "tags": {
+            "front_full": "thigh_boots, thighhighs,brown_boots, brown_dress, buckle,dress",
+            "front_upper": "brown_dress, dress",
+            "front_lower": "thigh_boots, thighhighs, brown_boots, brown_dress, dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "brown_dress",
+              "dress"
+            ],
+            "lowerClothingTags": [
+              "thigh_boots",
+              "thighhighs",
+              "brown_boots",
+              "brown_dress",
+              "dress"
+            ]
+          },
+          "note": "整理: 上装: brown_dress, dress | 下装: thigh_boots, thighhighs, brown_boots, brown_dress, dress"
+        },
+        {
+          "id": "legacy-character-sheet-r5-outfit-5",
+          "name": "变体 3",
+          "tags": {
+            "front_full": "multicolored_jacket, multiple_straps, open_clothes, open_jacket",
+            "front_upper": "multicolored_jacket, open_clothes, open_jacket"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "multicolored_jacket",
+              "open_clothes",
+              "open_jacket"
+            ]
+          },
+          "note": "整理: 上装: multicolored_jacket, open_clothes, open_jacket"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R5"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r5-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r6",
+      "name": "红云",
+      "traits": {
+        "front_full": "Vermeil_(arknights)",
+        "front_upper": "animal_ears, animal_ear_fluff, blonde_hair, short_hair, hair_ornament, hair_between_eyes, orange_eyes, fox_ears, notched_ear, hat, party_hat, animal_ear_piercing, blue_eyes, bow",
+        "front_lower": "tail, fox_tail, brown_tail"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R6"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r7",
+      "name": "杜林",
+      "traits": {
+        "front_full": "Durin_(arknights)",
+        "front_upper": "blonde_hair, hat, pointy_ears, black_hat, blue_eyes, long_hair, medium_hair, closed_eyes, green_eyes, grey_eyes, hair_between_eyes"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R7"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r8",
+      "name": "克洛丝",
+      "traits": {
+        "front_full": "kroos_the_keen_glint_(along_the_corridor)_(arknights)",
+        "front_upper": "animal_ears, rabbit_ears, closed_eyes, blonde_hair, bow, hair_between_eyes, hair_bow, hair_ornament, orange_hair, purple_bow, ribbon, brown_hair, ear_ribbon, long_hair"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r8-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "kroos_(moonlit_voyage)_(arknights)",
+            "front_upper": "dress, purple_dress, long_sleeves, blue_dress, clothing_cutout",
+            "front_lower": "dress, purple_dress, blue_dress, shoes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "dress",
+              "purple_dress",
+              "long_sleeves",
+              "blue_dress",
+              "clothing_cutout"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "purple_dress",
+              "blue_dress",
+              "shoes"
+            ]
+          },
+          "note": "整理: 上装: dress, purple_dress, long_sleeves, blue_dress, clothing_cutout | 下装: dress, purple_dress, blue_dress, shoes"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R8"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r8-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r9",
+      "name": "巴拉巴拉",
+      "traits": {
+        "front_full": "nymph_(arknights)",
+        "front_upper": "pointy_ears, horns, long_hair, pink_eyes, pink_hair, red_hair, demon_horns, red_eyes, very_long_hair, ahoge, floating_hair, hair_ornament, jewelry, wavy_hair",
+        "front_lower": "tail, demon_tail, pink_tail, thigh_strap, frilled_thigh_strap"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R9"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r10",
+      "name": "莎草",
+      "traits": {
+        "front_full": "papyrus_(arknights)",
+        "front_upper": "animal_ears, cat_ears, green_eyes, orange_hair, ahoge, long_hair, jewelry, blunt_bangs, animal_ear_fluff, brown_hair, tail_ornament, closed_eyes",
+        "front_lower": "tail_ornament, fluffy_tail, cat_tail, tail, brown_tail, tail_raised, tail_ring, expressive_tail, stiff_tail"
+      },
+      "outfits": [
+        {
+          "id": "default-outfit",
+          "name": "默认服装",
+          "tags": {
+            "front_full": "brown_gloves, dress, gloves, green_dress, grey_dress, hood, hood_up, long_dress, multicolored_dress, single_glove, white_hood, green_sandals, sandals",
+            "front_upper": "brown_gloves, dress, gloves, green_dress, grey_dress, hood, hood_up, long_dress, multicolored_dress, single_glove, white_hood",
+            "front_lower": "dress, green_dress, green_sandals, grey_dress, long_dress, multicolored_dress, sandals"
+          },
+          "partTags": {
+            "upperBodyTags": [
+              "animal_ears",
+              "cat_ears",
+              "green_eyes",
+              "orange_hair",
+              "ahoge",
+              "long_hair",
+              "jewelry",
+              "blunt_bangs",
+              "animal_ear_fluff",
+              "brown_hair",
+              "closed_eyes"
+            ],
+            "upperClothingTags": [
+              "brown_gloves",
+              "dress",
+              "gloves",
+              "green_dress",
+              "grey_dress",
+              "hood",
+              "hood_up",
+              "long_dress",
+              "multicolored_dress",
+              "single_glove",
+              "white_hood"
+            ],
+            "lowerBodyTags": [
+              "tail_ornament",
+              "fluffy_tail",
+              "cat_tail",
+              "tail",
+              "brown_tail",
+              "tail_raised",
+              "tail_ring",
+              "expressive_tail",
+              "stiff_tail"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "green_dress",
+              "green_sandals",
+              "grey_dress",
+              "long_dress",
+              "multicolored_dress",
+              "sandals"
+            ],
+            "weaponTags": []
+          },
+          "note": "Curated default outfit | Danbooru: papyrus_(arknights) | source: danbooru-official_art-post:10717166"
+        },
+        {
+          "id": "legacy-character-sheet-r10-outfit-3",
+          "name": "下一个任务",
+          "tags": {
+            "front_full": "papyrus_(arknights), papyrus_(the_next_side_quest)_(arknights), official_alternate_costume, white_shirt, black_hoodie, hood_down, hood, sleeveless, bare_shoulders, red_ribbon, red_bow, white_belt, clothing_cutout, cleavage_cutout, elbow_gloves, fingerless_gloves, white_gloves, red_skirt, high-waist_skirt, pleated_skirt, black_boots, thigh_boots, zettai_ryouiki, sword, sheath",
+            "front_upper": "white_shirt, black_hoodie, hood_down, hood, sleeveless, bare_shoulders, red_ribbon, red_bow, white_belt, clothing_cutout, cleavage_cutout, elbow_gloves, fingerless_gloves, white_gloves",
+            "front_lower": "red_skirt, high-waist_skirt, pleated_skirt, skirt, black_boots, thigh_boots, boots, zettai_ryouiki"
+          },
+          "partTags": {
+            "upperBodyTags": [
+              "animal_ears",
+              "cat_ears",
+              "green_eyes",
+              "orange_hair",
+              "ahoge",
+              "long_hair",
+              "blunt_bangs",
+              "animal_ear_fluff",
+              "tail_ornament"
+            ],
+            "upperClothingTags": [
+              "white_shirt",
+              "black_hoodie",
+              "hood_down",
+              "hood",
+              "sleeveless",
+              "bare_shoulders",
+              "red_ribbon",
+              "red_bow",
+              "white_belt",
+              "clothing_cutout",
+              "cleavage_cutout",
+              "elbow_gloves",
+              "fingerless_gloves",
+              "white_gloves"
+            ],
+            "lowerBodyTags": [
+              "cat_tail",
+              "tail",
+              "tail_ornament"
+            ],
+            "lowerClothingTags": [
+              "red_skirt",
+              "high-waist_skirt",
+              "pleated_skirt",
+              "black_boots",
+              "thigh_boots",
+              "zettai_ryouiki"
+            ],
+            "weaponTags": [
+              "sword",
+              "sheath"
+            ]
+          },
+          "negativePrompt": "green_dress, grey_dress, long_dress, multicolored_dress, white_hood, green_sandals, sandals, id_card, lanyard, staff, holding_staff, hood_up, animal_ear_hood, witch_hat, oversized_hood, hat",
+          "note": "Curated official skin: Achievement Star / The Next Side Quest | Danbooru clothing revised from post 10930551 Game files and skin-tag aggregation | identity: papyrus_(arknights), papyrus_(the_next_side_quest)_(arknights) | upper: white_shirt, black_hoodie/hood_down, red_ribbon, elbow/fingerless gloves, clothing_cutout | lower: red_skirt, high-waist_skirt, pleated_skirt, black_boots/thigh_boots | negative: hood_up/witch_hat and default green dress"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R10"
+      },
+      "defaultOutfitId": "default-outfit",
+      "identityTags": [
+        "papyrus_(arknights)"
+      ],
+      "anchorTags": [
+        "papyrus_(arknights)"
+      ]
+    },
+    {
+      "id": "legacy-character-sheet-r11",
+      "name": "初雪",
+      "traits": {
+        "front_full": "pramanix_(arknights)",
+        "front_upper": "animal_ear_fluff, animal_ears, braid, long_hair, snow_leopard_ears, grey_hair, grey_eyes, hair_between_eyes, jewelry, necklace, very_long_hair, bead_necklace, blue_eyes, blue_hat",
+        "front_lower": "snow_leopard_tail, tail, long_tail"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R11"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r13",
+      "name": "铃兰",
+      "traits": {
+        "front_full": "suzuran (spring praise) (arknights), fox girl, fox ears, fox tail",
+        "front_upper": "fox_ears, animal_ears, hairband, blue_hairband, frilled_hairband, green_eyes, long_hair, blonde_hair, neck_ribbon, red_ribbon, ribbon, animal_ear_fluff, fang, skin_fang",
+        "front_lower": "fox_tail, tail"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r13-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "suzuran (yukibare) (arknights)",
+            "front_upper": "japanese_clothes, kimono, long_sleeves, pink_kimono, wide_sleeves, apron, frilled_apron, waist_apron, white_apron, cross-laced_clothes, open_clothes, shirt, white_shirt",
+            "front_lower": "japanese_clothes, kimono, pink_kimono, skirt, hakama_skirt, black_skirt, sandals, high-waist_skirt, long_skirt, platform_sandals, shoes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "japanese_clothes",
+              "kimono",
+              "long_sleeves",
+              "pink_kimono",
+              "wide_sleeves",
+              "apron",
+              "frilled_apron",
+              "waist_apron",
+              "white_apron",
+              "cross-laced_clothes",
+              "open_clothes",
+              "shirt",
+              "white_shirt"
+            ],
+            "lowerClothingTags": [
+              "japanese_clothes",
+              "kimono",
+              "pink_kimono",
+              "skirt",
+              "hakama_skirt",
+              "black_skirt",
+              "sandals",
+              "high-waist_skirt",
+              "long_skirt",
+              "platform_sandals",
+              "shoes"
+            ]
+          },
+          "note": "整理: 上装: japanese_clothes, kimono, long_sleeves, pink_kimono, wide_sleeves, apron, frilled_apron, waist_apron, white_apron, cross-laced_clothes, open_clothes, shirt, white_shirt | 下装: japanese_clothes, kimono, pink_kimono, skirt, hakama_skirt, black_skirt, sandals, high-waist_skirt, long_skirt, platform_sandals, shoes"
+        },
+        {
+          "id": "legacy-character-sheet-r13-outfit-4",
+          "name": "变体 2",
+          "tags": {
+            "front_full": "girl,loli,young,suzuran (spring praise) (arknights), fox girl, fox ears, fox tail",
+            "front_upper": "long_sleeves, shirt, white_shirt, puffy_long_sleeves, puffy_sleeves, cross-laced_clothes, open_clothes, short_sleeves",
+            "front_lower": "skirt, blue_skirt, cross-laced_skirt"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "long_sleeves",
+              "shirt",
+              "white_shirt",
+              "puffy_long_sleeves",
+              "puffy_sleeves",
+              "cross-laced_clothes",
+              "open_clothes",
+              "short_sleeves"
+            ],
+            "lowerClothingTags": [
+              "skirt",
+              "blue_skirt",
+              "cross-laced_skirt"
+            ]
+          },
+          "note": "整理: 上装: long_sleeves, shirt, white_shirt, puffy_long_sleeves, puffy_sleeves, cross-laced_clothes, open_clothes, short_sleeves | 下装: skirt, blue_skirt, cross-laced_skirt"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R13"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r13-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r14",
+      "name": "佩佩",
+      "traits": {
+        "front_full": "pepe_(arknights), girl, 2::loli::, cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_tail::, Lotus flower headdress",
+        "front_upper": "cat_ears, animal_ear_fluff, animal_ears, hair_ornament, jewelry, long_hair, skin_fang",
+        "front_lower": "cat_tail"
+      },
+      "outfits": [
+        {
+          "id": "default-outfit",
+          "name": "默认服装",
+          "tags": {
+            "front_full": "animal_ear_hood, black_jacket, hood, hood_up, hooded_jacket, jacket, long_sleeves, black_shoes, black_shorts, open-toe_shoes, platform_shoes, shoes, shorts",
+            "front_upper": "animal_ear_hood, black_jacket, hood, hood_up, hooded_jacket, jacket, long_sleeves",
+            "front_lower": "black_shoes, black_shorts, open-toe_shoes, platform_shoes, shoes, shorts"
+          },
+          "note": "整理: 默认服装补全 | Danbooru: pepe_(arknights) | 来源: danbooru-official_art-post:8699085",
+          "partTags": {
+            "upperBodyTags": [
+              "cat_ears",
+              "animal_ear_fluff",
+              "animal_ears",
+              "hair_ornament",
+              "jewelry",
+              "long_hair",
+              "skin_fang",
+              "lotus_flower_headdress"
+            ],
+            "upperClothingTags": [
+              "animal_ear_hood",
+              "black_jacket",
+              "hood",
+              "hood_up",
+              "hooded_jacket",
+              "jacket",
+              "long_sleeves"
+            ],
+            "lowerBodyTags": [
+              "cat_tail"
+            ],
+            "lowerClothingTags": [
+              "black_shoes",
+              "black_shorts",
+              "open-toe_shoes",
+              "platform_shoes",
+              "shoes",
+              "shorts"
+            ],
+            "weaponTags": []
+          }
+        },
+        {
+          "id": "legacy-character-sheet-r14-outfit-4",
+          "name": "星移",
+          "tags": {
+            "front_full": "pepe_(arknights), pepe_(nuit_of_the_nightsky)_(arknights), official_alternate_costume, ancient_egyptian_clothes, white_dress, dress, bare_shoulders, off-shoulder_dress, usekh_collar, armlet, gold_armlet, bracelet, gold_bracelet, anklet, gold_anklet, gold_jewelry, earrings, ankh, blue_flower, hair_flower, hair_ornament, headpiece, tail_ornament, tail_ring",
+            "front_upper": "white_dress, dress, bare_shoulders, off-shoulder_dress, usekh_collar, armlet, gold_armlet, bracelet, gold_bracelet, gold_jewelry, earrings, ankh, blue_flower, hair_flower, hair_ornament, headpiece",
+            "front_lower": "white_dress, dress, bare_legs, thighs, anklet, gold_anklet, tail_ornament, tail_ring"
+          },
+          "partTags": {
+            "upperBodyTags": [
+              "cat_ears",
+              "animal_ear_fluff",
+              "animal_ears",
+              "brown_hair",
+              "long_hair",
+              "blue_flower",
+              "hair_flower",
+              "hair_ornament",
+              "headpiece"
+            ],
+            "upperClothingTags": [
+              "white_dress",
+              "bare_shoulders",
+              "off-shoulder_dress",
+              "usekh_collar",
+              "armlet",
+              "gold_armlet",
+              "bracelet",
+              "gold_bracelet",
+              "gold_jewelry",
+              "earrings",
+              "ankh"
+            ],
+            "lowerBodyTags": [
+              "cat_tail",
+              "tail",
+              "tail_ornament",
+              "tail_ring"
+            ],
+            "lowerClothingTags": [
+              "white_dress",
+              "bare_legs",
+              "thighs",
+              "anklet",
+              "gold_anklet"
+            ],
+            "weaponTags": []
+          },
+          "note": "Curated official skin: Nuit of the Nightsky / ?? | Danbooru clothing revised from posts 9702767, 9739814, 9760221, 9771810 and skin-tag aggregation | identity: pepe_(arknights), pepe_(nuit_of_the_nightsky)_(arknights) | upper: white_dress, bare_shoulders, usekh_collar, armlets/bracelets, blue flower/headpiece, gold jewelry | lower: white_dress, bare legs, anklets, tail ornament/ring | negative: default hood/black shorts and over-strong purple skirt/sistrum",
+          "negativePrompt": "hood, hood up, hooded jacket, animal ear hood, hood over head, wearing hood, hooded cloak, hooded cape, black shorts, black jacket, platform shoes, large purple cape, purple_skirt, black_skirt, sistrum, staff"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R14"
+      },
+      "defaultOutfitId": "default-outfit",
+      "identityTags": [
+        "pepe_(arknights)"
+      ],
+      "anchorTags": [
+        "pepe_(arknights)"
+      ]
+    },
+    {
+      "id": "legacy-character-sheet-r15",
+      "name": "迷迭香",
+      "traits": {
+        "front_full": ",2::loli::,rosmontis_(arknights),cat_girl,1.5::cat_ears,cat_tail,animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::",
+        "front_upper": "cat_ears, animal_ear_fluff, animal_ears, long_hair, white_hair, green_eyes, twintails, very_long_hair, grey_hair, low_twintails, blue_eyes, blue_hair, extra_ears, hair_between_eyes",
+        "front_lower": "cat_tail, tail, anklet"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r15-outfit-4",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "girl,loli,young,rosmontis_(become_anew)_(arknights),cat_ears, cat_girl, cat_tail",
+            "front_upper": "dress, white_dress, sleeveless, sleeveless_dress, clothing_cutout, shirt, short_dress, sleeveless_shirt",
+            "front_lower": "dress, white_dress, sleeveless_dress, short_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "dress",
+              "white_dress",
+              "sleeveless",
+              "sleeveless_dress",
+              "clothing_cutout",
+              "shirt",
+              "short_dress",
+              "sleeveless_shirt"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "white_dress",
+              "sleeveless_dress",
+              "short_dress"
+            ]
+          },
+          "note": "整理: 上装: dress, white_dress, sleeveless, sleeveless_dress, clothing_cutout, shirt, short_dress, sleeveless_shirt | 下装: dress, white_dress, sleeveless_dress, short_dress"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R15"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r15-outfit-4"
+    },
+    {
+      "id": "legacy-character-sheet-r19",
+      "name": "嚯嚯",
+      "traits": {
+        "front_full": "huohuo (honkai: star rail), ahoge, fox_ears, fox_girl, fox_tail, green_eyes, green_hair, long_hair, tail,",
+        "front_upper": "ahoge, fox_ears, green_eyes, green_hair, long_hair, hat, zhuang_hat, animal_ears, yin_yang_hair_ornament, black_hat, hair_intakes, animal_ear_piercing, blue_eyes, hair_ornament",
+        "front_lower": "fox_tail, tail, fiery_tail"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r19-outfit-6",
+          "name": "服装",
+          "tags": {
+            "front_full": "brown_shorts, hat, socks, white_socks, zhuang_hat",
+            "front_lower": "brown_shorts, socks, white_socks",
+            "front_upper": "chinese_clothes, detached_sleeves, gloves, long_sleeves, white_sleeves, black_gloves, dress, green_dress, elbow_gloves, fingerless_gloves, hood, hood_up, jacket, shirt"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "chinese_clothes",
+              "detached_sleeves",
+              "gloves",
+              "long_sleeves",
+              "white_sleeves",
+              "black_gloves",
+              "dress",
+              "green_dress",
+              "elbow_gloves",
+              "fingerless_gloves",
+              "hood",
+              "hood_up",
+              "jacket",
+              "shirt"
+            ],
+            "lowerClothingTags": [
+              "brown_shorts",
+              "socks",
+              "white_socks"
+            ]
+          },
+          "note": "整理: 上装: chinese_clothes, detached_sleeves, gloves, long_sleeves, white_sleeves, black_gloves, dress, green_dress, elbow_gloves, fingerless_gloves, hood, hood_up, jacket, shirt | 下装: brown_shorts, socks, white_socks"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R19"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r19-outfit-6"
+    },
+    {
+      "id": "legacy-character-sheet-r20",
+      "name": "绮良良",
+      "traits": {
+        "front_full": "girl,1.5::loli::,kirara (post office) (genshin impact),cat_girl,3::cat_ears,cat_tail::,",
+        "front_upper": "cat_ears",
+        "front_lower": "cat_tail"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R20"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r21",
+      "name": "由艾尔",
+      "traits": {
+        "front_full": "girl,3::loli,fox ears::,yuel_(granblue_fantasy),animal_ears, bell, fluffy_tail, fox_ears,",
+        "front_upper": "fox_ears, animal_ears, long_hair, black_hair, hair_ornament, purple_eyes, purple_hair, hair_bell, collarbone, fang, very_long_hair, no_extra_ears, pink_eyes, red_eyes",
+        "front_lower": "fluffy_tail, tail, fox_tail, large_tail"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r21-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "girl,3::loli,fox earsi::,yuel (summer) (granblue fantasy), animal_ears, bell, fluffy_tail, fox_ears, fox_",
+            "front_upper": "bikini, swimsuit, black_bikini, long_sleeves, wide_sleeves, open_clothes, robe, white_robe, detached_sleeves",
+            "front_lower": "bikini, swimsuit, black_bikini, robe, white_robe"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "bikini",
+              "swimsuit",
+              "black_bikini",
+              "long_sleeves",
+              "wide_sleeves",
+              "open_clothes",
+              "robe",
+              "white_robe",
+              "detached_sleeves"
+            ],
+            "lowerClothingTags": [
+              "bikini",
+              "swimsuit",
+              "black_bikini",
+              "robe",
+              "white_robe"
+            ]
+          },
+          "note": "整理: 上装: bikini, swimsuit, black_bikini, long_sleeves, wide_sleeves, open_clothes, robe, white_robe, detached_sleeves | 下装: bikini, swimsuit, black_bikini, robe, white_robe"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R21"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r21-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r22",
+      "name": "瓦基拉",
+      "traits": {
+        "front_full": "girl,1.5::loli,animal_ears::,vajra (granblue fantasy)",
+        "front_upper": "animal_ears, animal_ear, brown_hair, dog_ears, hair_ornament, brown_eyes, blonde_hair, hat, short_hair, white_hat, yellow_eyes, fang, skin_fang, blunt_bangs",
+        "front_lower": "tail, dog_tail, tiger_tail"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r22-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "girl,1.5::loli,animal_ear::,vajra_(summer)_(granblue_fantasy)",
+            "front_upper": "sleeveless, shirt, jacket, white_shirt, open_clothes, open_jacket, sleeveless_shirt, white_jacket, sleeveless_jacket, bikini, swimsuit, blue_jacket, hood, sailor_bikini",
+            "front_lower": "bikini, swimsuit, sailor_bikini, blue_shorts, shorts, short_shorts, sandals, denim_shorts, multicolored_shorts, platform_sandals, two-tone_shorts, white_bikini, white_shorts"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "sleeveless",
+              "shirt",
+              "jacket",
+              "white_shirt",
+              "open_clothes",
+              "open_jacket",
+              "sleeveless_shirt",
+              "white_jacket",
+              "sleeveless_jacket",
+              "bikini",
+              "swimsuit",
+              "blue_jacket",
+              "hood",
+              "sailor_bikini"
+            ],
+            "lowerClothingTags": [
+              "bikini",
+              "swimsuit",
+              "sailor_bikini",
+              "blue_shorts",
+              "shorts",
+              "short_shorts",
+              "sandals",
+              "denim_shorts",
+              "multicolored_shorts",
+              "platform_sandals",
+              "two-tone_shorts",
+              "white_bikini",
+              "white_shorts"
+            ]
+          },
+          "note": "整理: 上装: sleeveless, shirt, jacket, white_shirt, open_clothes, open_jacket, sleeveless_shirt, white_jacket, sleeveless_jacket, bikini, swimsuit, blue_jacket, hood, sailor_bikini | 下装: bikini, swimsuit, sailor_bikini, blue_shorts, shorts, short_shorts, sandals, denim_shorts, multicolored_shorts, platform_sandals, two-tone_shorts, white_bikini, white_shorts"
+        },
+        {
+          "id": "legacy-character-sheet-r22-outfit-4",
+          "name": "变体 2",
+          "tags": {
+            "front_full": "girl,1.5::loli,animal_ear::,vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders, brown_eyes, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
+            "front_upper": "japanese_clothes",
+            "front_lower": "japanese_clothes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "japanese_clothes"
+            ],
+            "lowerClothingTags": [
+              "japanese_clothes"
+            ]
+          },
+          "note": "整理: 上装: japanese_clothes | 下装: japanese_clothes"
+        },
+        {
+          "id": "legacy-character-sheet-r22-outfit-6",
+          "name": "变体 3",
+          "tags": {
+            "front_full": "girl,1.5::loli,animal_ears::,vajra (granblue fantasy),bodystocking, china_dress, chinese_clothes, dress, erune, hair_ornament, pantyhose, pelvic_curtain",
+            "front_upper": "bodystocking, china_dress, chinese_clothes, dress",
+            "front_lower": "bodystocking, china_dress, dress, pantyhose, pelvic_curtain"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "bodystocking",
+              "china_dress",
+              "chinese_clothes",
+              "dress"
+            ],
+            "lowerClothingTags": [
+              "bodystocking",
+              "china_dress",
+              "dress",
+              "pantyhose",
+              "pelvic_curtain"
+            ]
+          },
+          "note": "整理: 上装: bodystocking, china_dress, chinese_clothes, dress | 下装: bodystocking, china_dress, dress, pantyhose, pelvic_curtain"
+        },
+        {
+          "id": "legacy-character-sheet-r22-outfit-8",
+          "name": "变体 4",
+          "tags": {
+            "front_full": "girl,1.5::loli,animal_ear::,vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders,, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
+            "front_upper": "japanese_clothes",
+            "front_lower": "japanese_clothes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "japanese_clothes"
+            ],
+            "lowerClothingTags": [
+              "japanese_clothes"
+            ]
+          },
+          "note": "整理: 上装: japanese_clothes | 下装: japanese_clothes"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R22"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r22-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r23",
+      "name": "长门",
+      "traits": {
+        "front_full": "nagato (guardian fox's blessed bonds) (azur lane), fox_ears, fox_girl, fox_tail,",
+        "front_upper": "fox_ears, hair_ornament",
+        "front_lower": "fox_tail, thigh_strap"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r23-outfit-6",
+          "name": "服装",
+          "tags": {
+            "front_full": "clothing_cutout, dress, hair_flower, hair_ornament, panties, panties_under_pantyhose, pantyhose, pom_pom_(clothes), sleeveless, sleeveless_dress, thigh_strap, thighs, white_dress",
+            "front_upper": "clothing_cutout, dress, sleeveless, sleeveless_dress, white_dress",
+            "front_lower": "dress, pantyhose, sleeveless_dress, white_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "clothing_cutout",
+              "dress",
+              "sleeveless",
+              "sleeveless_dress",
+              "white_dress"
+            ],
+            "lowerClothingTags": [
+              "dress",
+              "pantyhose",
+              "sleeveless_dress",
+              "white_dress"
+            ]
+          },
+          "note": "整理: 上装: clothing_cutout, dress, sleeveless, sleeveless_dress, white_dress | 下装: dress, pantyhose, sleeveless_dress, white_dress"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R23"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r23-outfit-6"
+    },
+    {
+      "id": "legacy-character-sheet-r24",
+      "name": "果宝",
+      "traits": {
+        "front_full": "1girl, white hair, very long hair, twin braids, heterochromia, orange eye, blue eye, red eyeliner, little fang, green bonnet, frilled bonnet, hair bow, pink bow, green dress, chinese clothes, frog button, cleavage, detached sleeves, puffy sleeves, frilled sleeves, pleated skirt, pink sash, thigh highs, thigh strap, tassel",
+        "front_upper": "white_hair, very_long_hair, orange_eye, blue_eye, little_fang, green_bonnet, frilled_bonnet, hair_bow, pink_bow, beauty_mark, lop_rabbit_ears",
+        "front_lower": "thigh_strap"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r24-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": "1girl, 1.5::loli::, white hair, very long hair, heterochromia, orange eye, blue eye, red eyeliner, beauty mark, little fang, lop rabbit ears"
+          },
+          "partTags": {},
+          "note": ""
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R24"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r24-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r25",
+      "name": "聚福福",
+      "traits": {
+        "front_full": ",1.5::loli,ju_fufu ,animal_ear_fluff, animal_ears, colored_inner_hair, long_hair, multicolored_hair, tiger_ears, tiger_girl, tiger_stripes, tiger_tail",
+        "front_upper": "animal_ear_fluff, animal_ears, colored_inner_hair, long_hair, multicolored_hair, tiger_ears",
+        "front_lower": "tiger_tail"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R25"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r26",
+      "name": "薄绿",
+      "traits": {
+        "front_full": ",1.5::loli,mint (arknights),animal_ears, bell, fluffy_tail,cat_girl,1.5::cat_ears,cat_tail",
+        "front_upper": "animal_ears, cat_ears, ahoge, black_ribbon, blue_eyes, collarbone, hair_ribbon, long_hair, ribbon, grey_hair, hair_ornament, aqua_eyes, hair_bun, animal_ear_fluff",
+        "front_lower": "fluffy_tail, cat_tail, tail"
+      },
+      "outfits": [
+        {
+          "id": "legacy-character-sheet-r26-outfit-3",
+          "name": "变体 1",
+          "tags": {
+            "front_full": ",1.5::loli,mint_(tsukiyoi)_(arknights),animal_ears, bell, fluffy_tail,cat_girl,1.5::cat_ears,cat_tail",
+            "front_upper": "japanese_clothes, shirt, white_shirt, kimono, long_sleeves, collared_shirt, red_kimono, dress, frilled_shirt_collar, open_clothes, open_kimono, black_cape, black_vest, cape",
+            "front_lower": "japanese_clothes, kimono, red_kimono, dress, open_kimono, skirt, black_skirt, black_shoes, shoes"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "japanese_clothes",
+              "shirt",
+              "white_shirt",
+              "kimono",
+              "long_sleeves",
+              "collared_shirt",
+              "red_kimono",
+              "dress",
+              "frilled_shirt_collar",
+              "open_clothes",
+              "open_kimono",
+              "black_cape",
+              "black_vest",
+              "cape"
+            ],
+            "lowerClothingTags": [
+              "japanese_clothes",
+              "kimono",
+              "red_kimono",
+              "dress",
+              "open_kimono",
+              "skirt",
+              "black_skirt",
+              "black_shoes",
+              "shoes"
+            ]
+          },
+          "note": "整理: 上装: japanese_clothes, shirt, white_shirt, kimono, long_sleeves, collared_shirt, red_kimono, dress, frilled_shirt_collar, open_clothes, open_kimono, black_cape, black_vest, cape | 下装: japanese_clothes, kimono, red_kimono, dress, open_kimono, skirt, black_skirt, black_shoes, shoes"
+        },
+        {
+          "id": "legacy-character-sheet-r26-outfit-6",
+          "name": "服装",
+          "tags": {
+            "front_full": "ahoge, animal_ears, black_jacket, black_ribbon, black_thighhighs, blue_eyes, boots, cat_ears, cat_girl, cat_tail, coat, collar, collarbone, dress, hair_ribbon, infection_monitor_(arknights), long_hair, long_sleeves, open_clothes, open_coat, open_jacket, ribbon, thighhighs, white_dress",
+            "front_upper": "black_jacket, coat, dress, long_sleeves, open_clothes, open_coat, open_jacket, white_dress",
+            "front_lower": "black_thighhighs, boots, dress, thighhighs, white_dress"
+          },
+          "partTags": {
+            "upperClothingTags": [
+              "black_jacket",
+              "coat",
+              "dress",
+              "long_sleeves",
+              "open_clothes",
+              "open_coat",
+              "open_jacket",
+              "white_dress"
+            ],
+            "lowerClothingTags": [
+              "black_thighhighs",
+              "boots",
+              "dress",
+              "thighhighs",
+              "white_dress"
+            ]
+          },
+          "note": "整理: 上装: black_jacket, coat, dress, long_sleeves, open_clothes, open_coat, open_jacket, white_dress | 下装: black_thighhighs, boots, dress, thighhighs, white_dress"
+        }
+      ],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R26"
+      },
+      "defaultOutfitId": "legacy-character-sheet-r26-outfit-3"
+    },
+    {
+      "id": "legacy-character-sheet-r27",
+      "name": "露露卡",
+      "traits": {
+        "front_full": "luruka (azur promilia),ahoge, animal_ear_fluff, animal_ears, black_hairband, blue_eyes, braid, breasts, cat_ears, covered_navel, dress, hairband, long_hair, low_twin_braids, pink_hair, short_dress, thigh_strap, twin_braids, white_dress",
+        "front_upper": "ahoge, animal_ear_fluff, animal_ears, black_hairband, blue_eyes, braid, cat_ears, hairband, long_hair, pink_hair",
+        "front_lower": "thigh_strap"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R27"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r29",
+      "name": "巫恋",
+      "traits": {
+        "front_full": "shamare (arknights), fox girl, fox ears, fox tail",
+        "front_upper": "fox_ears",
+        "front_lower": "fox_tail"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R29"
+      }
+    },
+    {
+      "id": "legacy-character-sheet-r30",
+      "name": "缇缇",
+      "traits": {
+        "front_full": "titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes,cat_ears, cat_girl, cat_tail",
+        "front_upper": "animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, yellow_eyes, cat_ears, blunt_bangs, jewelry",
+        "front_lower": "tail, cat_tail, anklet, thigh_belt, thigh_strap"
+      },
+      "outfits": [],
+      "source": {
+        "type": "legacy_artist_workbook",
+        "id": "角色名!R30"
+      }
+    }
+  ]
+}

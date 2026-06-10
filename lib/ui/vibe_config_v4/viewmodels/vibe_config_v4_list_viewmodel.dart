@@ -1,125 +1,72 @@
 import 'dart:convert';
+import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart'; // For BuildContext and SnackBar
-import 'package:get_it/get_it.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
+import 'package:nai_casrand/data/models/vibe_config_v4.dart';
 import 'package:nai_casrand/data/services/config_service.dart';
 import 'package:nai_casrand/ui/core/utils/flushbar.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
-
-import '../../../data/models/vibe_config_v4.dart';
 
 class VibeConfigV4ListViewmodel extends ChangeNotifier {
   PayloadConfig get payloadConfig => GetIt.I<PayloadConfig>();
   ConfigService get configService => GetIt.I<ConfigService>();
 
-  // Access the singleton list from GetIt
-  List<VibeConfigV4> get vibeList => GetIt.I<PayloadConfig>().vibeConfigListV4;
+  List<VibeConfigV4> get vibeList => payloadConfig.vibeConfigListV4;
 
-  // Method to add a new config from a picked file
-  Future<void> pickAndAddNewConfig(BuildContext context,
-      {double initialReferenceStrength = 0.2}) async {
-    int vibesAddedCount = 0;
-    String message;
-
+  Future<void> pickAndAddNewConfig(
+    BuildContext context, {
+    double initialReferenceStrength = 0.2,
+  }) async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['png', 'naiv4vibe', 'naiv4vibebundle'],
-        withData: true, // Crucial to get bytes directly
+        allowedExtensions: const ['png', 'naiv4vibe', 'naiv4vibebundle'],
+        allowMultiple: true,
+        withData: true,
       );
 
-      if (result != null && result.files.single.bytes != null) {
-        PlatformFile file = result.files.single;
-        String fileName = file.name;
-        Uint8List fileBytes = file.bytes!;
-        String? fileExtension = file.extension?.toLowerCase();
-
-        if (fileExtension == 'png') {
-          final newConfig = VibeConfigV4.fromPngBytes(
-            fileName,
-            fileBytes,
-            initialReferenceStrength,
-          );
-          vibeList.add(newConfig);
-          vibesAddedCount += 1;
-          message = 'Added ${newConfig.fileName} from PNG.';
-        } else if (fileExtension == 'naiv4vibe') {
-          String jsonString = utf8.decode(fileBytes);
-          Map<String, dynamic> jsonData =
-              jsonDecode(jsonString) as Map<String, dynamic>;
-          final newConfig = VibeConfigV4.fromNaiV4VibeJson(
-            fileName, // 原始文件名
-            jsonData,
-            initialReferenceStrength,
-          );
-          vibeList.add(newConfig);
-          vibesAddedCount += 1;
-          message = 'Added ${newConfig.fileName} from .naiv4vibe file.';
-        } else if (fileExtension == 'naiv4vibebundle') {
-          String jsonString = utf8.decode(fileBytes);
-          Map<String, dynamic> bundleJsonData =
-              jsonDecode(jsonString) as Map<String, dynamic>;
-          final vibesListJson = bundleJsonData['vibes'] as List<dynamic>?;
-          if (vibesListJson == null || vibesListJson.isEmpty) {
-            throw const FormatException(
-                "No vibes found or 'vibes' array is missing in .naiv4vibebundle file.");
-          }
-          for (var vibeJsonEntry in vibesListJson) {
-            if (vibeJsonEntry is Map<String, dynamic>) {
-              try {
-                final newConfig = VibeConfigV4.fromNaiV4VibeJson(
-                  '$fileName#$vibesAddedCount',
-                  vibeJsonEntry,
-                  initialReferenceStrength,
-                );
-                vibeList.add(newConfig);
-                vibesAddedCount++;
-              } catch (e) {
-                // Log error for individual vibe parsing and continue with others
-                if (kDebugMode) {
-                  print(
-                      "Error parsing an individual vibe from bundle '$fileName': $e");
-                }
-              }
-            }
-          }
-          if (vibesAddedCount > 0) {
-            message =
-                'Added $vibesAddedCount vibes from .naiv4vibebundle file.';
-          } else {
-            message =
-                'No valid vibes successfully imported from .naiv4vibebundle file.';
-          }
-        } else {
-          throw FormatException('Unsupported file type: $fileExtension');
-        }
-
-        notifyListeners(); // Notify UI to rebuild
-        _saveCache();
-        if (!context.mounted) return;
-        showInfoBar(context, message);
-      } else {
-        // User canceled the picker or file had no data
+      if (result == null) {
         if (!context.mounted) return;
         showInfoBar(context, 'File selection canceled or file is empty.');
+        return;
       }
+
+      final imported = <_ImportedVibe>[];
+      for (final file in result.files) {
+        final bytes = await _bytesFor(file);
+        imported.addAll(
+          await _configsFromBytes(
+            fileName: file.name,
+            extension: (file.extension ?? _extensionFromName(file.name))
+                .toLowerCase()
+                .trim(),
+            bytes: bytes,
+            initialReferenceStrength: initialReferenceStrength,
+          ),
+        );
+      }
+
+      _addScriptVibes(imported.map((entry) => entry.config));
+      await _saveCache();
+      if (!context.mounted) return;
+      showInfoBar(context, _importMessage(imported));
     } catch (e) {
-      // Handle errors from VibeConfigV4.fromPngBytes or file picking
+      if (!context.mounted) return;
       showErrorBar(context, 'Error adding vibe config: $e');
       if (kDebugMode) {
-        print("Error picking/processing file: $e");
+        print('Error picking/processing file: $e');
       }
     }
   }
 
-  // Method to remove a config
   void removeConfig(VibeConfigV4 configToRemove) {
-    final bool removed = vibeList.remove(configToRemove);
+    final removed = vibeList.remove(configToRemove);
     if (removed) {
-      notifyListeners(); // Notify UI to rebuild
+      notifyListeners();
       _saveCache();
     }
   }
@@ -132,99 +79,169 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
     }
   }
 
-  // Method to handle file drop event
   Future<void> handleVibeDropEvent(
     BuildContext context,
     PerformDropEvent event, {
     double initialReferenceStrength = 0.2,
   }) async {
     final item = event.session.items.first;
-    final reader = item.dataReader!;
+    final reader = item.dataReader;
+    if (reader == null) return;
+
     reader.getFile(null, (file) async {
-      final fileBytes = await file.readAll();
-      String fileName = file.fileName ?? 'Imported file';
-      String? fileExtension = fileName.split('.').last;
-
-      String message;
-      int vibesAddedCount = 0;
-
+      final fileName = file.fileName ?? 'Imported file';
       try {
-        if (fileExtension == 'png') {
-          final newConfig = VibeConfigV4.fromPngBytes(
-            fileName,
-            fileBytes,
-            initialReferenceStrength,
-          );
-          vibeList.add(newConfig);
-          vibesAddedCount += 1;
-          message = 'Added ${newConfig.fileName} from PNG.';
-        } else if (fileExtension == 'naiv4vibe') {
-          String jsonString = utf8.decode(fileBytes);
-          Map<String, dynamic> jsonData =
-              jsonDecode(jsonString) as Map<String, dynamic>;
-          final newConfig = VibeConfigV4.fromNaiV4VibeJson(
-            fileName, // 原始文件名
-            jsonData,
-            initialReferenceStrength,
-          );
-          vibeList.add(newConfig);
-          vibesAddedCount += 1;
-          message = 'Added ${newConfig.fileName} from .naiv4vibe file.';
-        } else if (fileExtension == 'naiv4vibebundle') {
-          String jsonString = utf8.decode(fileBytes);
-          Map<String, dynamic> bundleJsonData =
-              jsonDecode(jsonString) as Map<String, dynamic>;
-          final vibesListJson = bundleJsonData['vibes'] as List<dynamic>?;
-          if (vibesListJson == null || vibesListJson.isEmpty) {
-            throw const FormatException(
-                "No vibes found or 'vibes' array is missing in .naiv4vibebundle file.");
-          }
-          for (var vibeJsonEntry in vibesListJson) {
-            if (vibeJsonEntry is Map<String, dynamic>) {
-              try {
-                final newConfig = VibeConfigV4.fromNaiV4VibeJson(
-                  '$fileName#$vibesAddedCount',
-                  vibeJsonEntry,
-                  initialReferenceStrength,
-                );
-                vibeList.add(newConfig);
-                vibesAddedCount++;
-              } catch (e) {
-                // Log error for individual vibe parsing and continue with others
-                if (kDebugMode) {
-                  print(
-                      "Error parsing an individual vibe from bundle '$fileName': $e");
-                }
-              }
-            }
-          }
-          if (vibesAddedCount > 0) {
-            message =
-                'Added $vibesAddedCount vibes from .naiv4vibebundle file.';
-          } else {
-            message =
-                'No valid vibes successfully imported from .naiv4vibebundle file.';
-          }
-        } else {
-          throw FormatException('Unsupported file type: $fileExtension');
-        }
+        final imported = await _configsFromBytes(
+          fileName: fileName,
+          extension: _extensionFromName(fileName).toLowerCase().trim(),
+          bytes: await file.readAll(),
+          initialReferenceStrength: initialReferenceStrength,
+        );
 
-        notifyListeners(); // Notify UI to rebuild
-        _saveCache();
+        _addScriptVibes(imported.map((entry) => entry.config));
+        await _saveCache();
         if (!context.mounted) return;
-        showInfoBar(context, message);
+        showInfoBar(context, _importMessage(imported));
       } catch (e) {
-        // Handle errors from VibeConfigV4.fromPngBytes or file picking
         if (!context.mounted) return;
         showErrorBar(context, 'Error adding vibe config: $e');
         if (kDebugMode) {
-          print("Error picking/processing file: $e");
+          print('Error picking/processing file: $e');
         }
       }
     });
   }
 
-  void _saveCache() {
-    configService.saveConfig(payloadConfig.toJson());
+  Future<List<_ImportedVibe>> _configsFromBytes({
+    required String fileName,
+    required String extension,
+    required Uint8List bytes,
+    required double initialReferenceStrength,
+  }) async {
+    if (extension == 'png') {
+      final config = VibeConfigV4.fromPngBytes(
+        fileName,
+        bytes,
+        initialReferenceStrength,
+      );
+      config.sourceImagePath = await configService.saveV4VibeSourceImage(
+        fileName: fileName,
+        bytes: bytes,
+      );
+      config.imageBytes = null;
+      return [
+        _ImportedVibe(
+          config: config,
+          message: 'Added V4 Vibe ${config.fileName} from PNG.',
+        ),
+      ];
+    }
+
+    if (extension == 'naiv4vibe') {
+      final jsonData = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      final config = VibeConfigV4.fromNaiV4VibeJson(
+        fileName,
+        jsonData,
+        initialReferenceStrength,
+      );
+      return [
+        _ImportedVibe(
+          config: config,
+          message: 'Added V4 Vibe ${config.fileName}.',
+        ),
+      ];
+    }
+
+    if (extension == 'naiv4vibebundle') {
+      final bundleJsonData =
+          jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      final vibesListJson = bundleJsonData['vibes'] as List<dynamic>?;
+      if (vibesListJson == null || vibesListJson.isEmpty) {
+        throw const FormatException(
+          "No vibes found or 'vibes' array is missing in .naiv4vibebundle file.",
+        );
+      }
+      final imported = <_ImportedVibe>[];
+      for (final vibeJsonEntry in vibesListJson) {
+        if (vibeJsonEntry is! Map<String, dynamic>) continue;
+        final config = VibeConfigV4.fromNaiV4VibeJson(
+          '$fileName#${imported.length}',
+          vibeJsonEntry,
+          initialReferenceStrength,
+        );
+        imported.add(
+          _ImportedVibe(
+            config: config,
+            message: 'Added V4 Vibe ${config.fileName} from bundle.',
+          ),
+        );
+      }
+      if (imported.isNotEmpty) return imported;
+      throw FormatException(
+        "No valid vibes successfully imported from '$fileName'.",
+      );
+    }
+
+    throw FormatException('Unsupported file type: $extension');
   }
+
+  Future<Uint8List> _bytesFor(PlatformFile file) async {
+    final bytes = file.bytes;
+    if (bytes != null) return bytes;
+
+    final path = file.path;
+    if (path == null || path.trim().isEmpty) {
+      throw FormatException('Vibe file ${file.name} has no readable data.');
+    }
+    return File(path).readAsBytes();
+  }
+
+  void _addScriptVibes(Iterable<VibeConfigV4> configs) {
+    final next = payloadConfig.vibeConfigListV4.toList();
+    for (final config in configs) {
+      if (config.vibeB64.trim().isEmpty) continue;
+      final existingIndex = next.indexWhere(
+        (existing) => existing.vibeB64.trim() == config.vibeB64.trim(),
+      );
+      if (existingIndex >= 0) {
+        next[existingIndex] = config;
+      } else {
+        next.add(config);
+      }
+    }
+    payloadConfig.setScriptVibeConfigV4List(next);
+    notifyListeners();
+  }
+
+  Future<void> _saveCache() {
+    return configService.saveConfig(payloadConfig.toJson());
+  }
+}
+
+String _importMessage(List<_ImportedVibe> imported) {
+  if (imported.isEmpty) {
+    return 'No readable V4 Vibe was imported.';
+  }
+  if (imported.length == 1) {
+    return imported.single.message;
+  }
+  return 'Added ${imported.length} V4 Vibes.';
+}
+
+class _ImportedVibe {
+  final VibeConfigV4 config;
+  final String message;
+
+  const _ImportedVibe({
+    required this.config,
+    required this.message,
+  });
+}
+
+String _extensionFromName(String fileName) {
+  final dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex == fileName.length - 1) {
+    return '';
+  }
+  return fileName.substring(dotIndex + 1);
 }

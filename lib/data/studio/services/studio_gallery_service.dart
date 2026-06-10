@@ -2,14 +2,24 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:nai_casrand/data/models/payload_config.dart';
+import 'package:nai_casrand/data/services/file_service.dart';
 import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
 import 'package:nai_casrand/data/workspace/workspace_paths.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
 
+typedef StudioGalleryResolvePicturePath = Future<String> Function(
+  String fileName,
+  String saveDir,
+);
+
 class StudioGalleryService {
   final WorkspaceService workspaceService;
+  final StudioGalleryResolvePicturePath? resolvePictureSavePath;
 
-  const StudioGalleryService({required this.workspaceService});
+  const StudioGalleryService({
+    required this.workspaceService,
+    this.resolvePictureSavePath,
+  });
 
   Future<List<StudioGalleryRecord>> loadRecords() async {
     final file = _recordsFile();
@@ -23,8 +33,16 @@ class StudioGalleryService {
       throw const FormatException('Gallery records must be a JSON array.');
     }
 
-    return decoded
+    final records = decoded
         .map((json) => StudioGalleryRecord.fromJson(_jsonMap(json)))
+        .toList(growable: false);
+    return Future.wait(records.map(_resolveLegacyImagePath));
+  }
+
+  Future<List<StudioGalleryRecord>> loadCreativeRecords() async {
+    final records = await loadRecords();
+    return records
+        .where((record) => record.provenance == null)
         .toList(growable: false);
   }
 
@@ -45,6 +63,32 @@ class StudioGalleryService {
       title: title,
       imagePath: imagePath,
       info: info,
+      additionalInfo: additionalInfo,
+    );
+    final records = await loadRecords();
+    await saveRecords([record, ...records]);
+    return record;
+  }
+
+  Future<StudioGalleryRecord> saveRecastFrameSnapshot({
+    required Map<String, dynamic> payload,
+    required String title,
+    required String imagePath,
+    required String info,
+    required StudioRecastProvenance provenance,
+    Map<String, dynamic> additionalInfo = const {},
+    DateTime? createdAt,
+    String? id,
+  }) async {
+    final created = createdAt ?? DateTime.now().toUtc();
+    final record = StudioGalleryRecord.fromRecastPayload(
+      payload: payload,
+      id: id ?? 'gallery-${created.microsecondsSinceEpoch}',
+      createdAt: created,
+      title: title,
+      imagePath: imagePath,
+      info: info,
+      provenance: provenance,
       additionalInfo: additionalInfo,
     );
     final records = await loadRecords();
@@ -104,6 +148,49 @@ class StudioGalleryService {
       ...segments,
     ].join(Platform.pathSeparator);
   }
+
+  Future<StudioGalleryRecord> _resolveLegacyImagePath(
+    StudioGalleryRecord record,
+  ) async {
+    final imagePath = record.imagePath?.trim();
+    if (imagePath == null ||
+        imagePath.isEmpty ||
+        _looksLikeAbsolutePath(imagePath)) {
+      return record;
+    }
+
+    try {
+      final resolver =
+          resolvePictureSavePath ?? FileService().resolvePictureSavePath;
+      final resolved = (await resolver(imagePath, '')).trim();
+      if (resolved.isEmpty || resolved == imagePath) {
+        return record;
+      }
+      if (!await File(resolved).exists()) {
+        return record;
+      }
+      return StudioGalleryRecord(
+        id: record.id,
+        createdAt: record.createdAt,
+        title: record.title,
+        imagePath: resolved,
+        info: record.info,
+        additionalInfo: record.additionalInfo,
+        provenance: record.provenance,
+        document: record.document,
+      );
+    } catch (_) {
+      return record;
+    }
+  }
+}
+
+bool _looksLikeAbsolutePath(String path) {
+  final trimmed = path.trim();
+  return File(trimmed).isAbsolute ||
+      RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(trimmed) ||
+      trimmed.startsWith(r'\\') ||
+      trimmed.startsWith('//');
 }
 
 Map<String, dynamic> _jsonMap(dynamic json) {

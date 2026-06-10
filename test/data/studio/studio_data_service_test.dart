@@ -30,6 +30,36 @@ void main() {
     expect(await manifest.exists(), isTrue);
   });
 
+  test('initializeAt auto-loads bundled cache before creating a new studio',
+      () async {
+    final target = Directory('${tempDir.path}/target');
+    final bundledCache = Directory('${tempDir.path}/bundled_cache');
+    final bundledStudio = Directory('${bundledCache.path}/novel_studio');
+    await File(
+      '${bundledStudio.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+    ).create(recursive: true).then((file) => file.writeAsString(
+          '{"name":"Bundled Studio","schemaVersion":1}',
+        ));
+    final bundledCharacters = File(
+      '${bundledStudio.path}${Platform.pathSeparator}${WorkspacePaths.characters}',
+    );
+    await bundledCharacters.parent.create(recursive: true);
+    await bundledCharacters.writeAsString(
+      '[{"id":"bundled","name":"Bundled Character","traits":{}}]',
+    );
+
+    final workspaceService = WorkspaceService();
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      bundledCacheRoot: bundledCache,
+    );
+
+    await service.initializeAt(target);
+
+    final characters = await workspaceService.loadCharacters();
+    expect(characters.single.name, 'Bundled Character');
+  });
+
   test('initializeAt opens existing studio data without clearing characters',
       () async {
     final workspaceService = WorkspaceService();
@@ -52,5 +82,185 @@ void main() {
 
     expect(characters.single.id, 'char-1');
     expect(characters.single.traits.frontFull, 'blue eyes');
+  });
+
+  test('initializeAt seeds legacy artist workbook data into an empty studio',
+      () async {
+    final workspaceService = WorkspaceService();
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => {
+        'artistChains': [
+          {
+            'id': 'legacy-artist-1',
+            'name': 'Ink Wash',
+            'tags': ['Ink Wash'],
+            'prompt': 'artist:nixeu, artist:wlop',
+          },
+        ],
+        'characters': [
+          {
+            'id': 'legacy-character-1',
+            'name': 'Eyjafjalla',
+            'traits': {'front_full': 'eyjafjalla_(arknights)'},
+            'outfits': [],
+          },
+        ],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    final artistChains = await workspaceService.loadArtistChains();
+    final characters = await workspaceService.loadCharacters();
+
+    expect(artistChains.single.name, 'Ink Wash');
+    expect(artistChains.single.prompt, 'artist:nixeu, artist:wlop');
+    expect(characters.single.name, 'Eyjafjalla');
+  });
+
+  test('initializeAt does not overwrite non-empty studio assets with seed data',
+      () async {
+    final workspaceService = WorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveArtistChains([
+      const ArtistChain(
+        id: 'artist-1',
+        name: 'Existing Painter',
+        prompt: 'artist:existing',
+      ),
+    ]);
+
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => {
+        'artistChains': [
+          {
+            'id': 'legacy-artist-1',
+            'name': 'Ink Wash',
+            'prompt': 'artist:nixeu',
+          },
+        ],
+        'characters': [
+          {
+            'id': 'legacy-character-1',
+            'name': 'Eyjafjalla',
+            'traits': {'front_full': 'eyjafjalla_(arknights)'},
+            'outfits': [],
+          },
+        ],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    final artistChains = await workspaceService.loadArtistChains();
+    final characters = await workspaceService.loadCharacters();
+
+    expect(artistChains.single.name, 'Existing Painter');
+    expect(characters, isEmpty);
+  });
+
+  test('initializeAt backfills legacy artist image refs into existing studio',
+      () async {
+    final workspaceService = WorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveArtistChains([
+      const ArtistChain(
+        id: 'legacy-artist-1',
+        name: 'Ink Wash',
+        prompt: 'artist:nixeu',
+        source: SourceRef(type: 'legacy_artist_workbook'),
+      ),
+      const ArtistChain(
+        id: 'manual-artist',
+        name: 'Manual Painter',
+        prompt: 'artist:manual',
+      ),
+    ]);
+
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => {
+        'artistChains': [
+          {
+            'id': 'legacy-artist-1',
+            'name': 'Ink Wash',
+            'prompt': 'artist:nixeu',
+            'imageRefs': ['E:\\legacy\\nixeu.png'],
+          },
+        ],
+        'characters': [],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    final artistChains = await workspaceService.loadArtistChains();
+
+    expect(artistChains.first.imageRefs, ['E:\\legacy\\nixeu.png']);
+    expect(artistChains.last.imageRefs, isEmpty);
+  });
+
+  test('initializeAt leaves legacy codex out of workspace inspirations',
+      () async {
+    final workspaceService = WorkspaceService();
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => const {
+        'artistChains': [],
+        'characters': [],
+      },
+      legacyCodexSeedLoader: () async => {
+        'inspirations': [
+          {
+            'id': 'legacy-codex-regular-0001',
+            'name': 'Fantasy',
+            'prompt': 'artist:wlop, dnd, fantasy',
+            'tags': ['Codex', 'Regular'],
+            'source': {'type': 'legacy_codex', 'id': 'regular.docx#p156'},
+          },
+        ],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    final inspirations = await workspaceService.loadInspirations();
+    final codexEntries = await service.loadLegacyCodexSeedEntries();
+
+    expect(inspirations, isEmpty);
+    expect(codexEntries.single.source.type, 'legacy_codex');
+  });
+
+  test('initializeAt removes previously seeded legacy codex entries', () async {
+    final workspaceService = WorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'legacy-codex-regular-0001',
+        name: 'Fantasy',
+        prompt: 'artist:wlop, dnd, fantasy',
+        tags: ['Codex', 'Regular'],
+        source: SourceRef(type: 'legacy_codex', id: 'regular.docx#p156'),
+      ),
+    ]);
+
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => const {
+        'artistChains': [],
+        'characters': [],
+      },
+      legacyCodexSeedLoader: () async => const {
+        'inspirations': [],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    final inspirations = await workspaceService.loadInspirations();
+
+    expect(inspirations, isEmpty);
   });
 }

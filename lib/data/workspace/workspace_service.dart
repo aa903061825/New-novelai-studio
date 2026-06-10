@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:nai_casrand/data/workspace/importers/artist_studio_importer.dart';
+import 'package:nai_casrand/data/studio/models/production_task.dart';
+import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
+import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
+import 'package:nai_casrand/data/studio/tools/stable_id.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_manifest.dart';
 import 'package:nai_casrand/data/workspace/workspace_paths.dart';
@@ -48,6 +52,7 @@ class WorkspaceService {
 
     _root = workspaceRoot;
     _currentManifest = manifest;
+    await _ensureWorkspaceScaffold();
   }
 
   Future<List<CharacterEntry>> loadCharacters() {
@@ -76,6 +81,41 @@ class WorkspaceService {
       WorkspacePaths.artistChains,
       artistChains.map((artistChain) => artistChain.toJson()).toList(),
     );
+  }
+
+  Future<Set<String>> loadAssetFavorites() async {
+    final json = await _readJsonFile(WorkspacePaths.assetFavorites);
+    if (json is! List) {
+      throw const FormatException(
+          'library/favorites.json must be a JSON array.');
+    }
+    return json
+        .whereType<String>()
+        .map((key) => key.trim())
+        .where((key) => key.isNotEmpty)
+        .toSet();
+  }
+
+  Future<void> saveAssetFavorites(Set<String> favoriteKeys) {
+    final normalized = favoriteKeys
+        .map((key) => key.trim())
+        .where((key) => key.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+    return _writeJsonFile(WorkspacePaths.assetFavorites, normalized);
+  }
+
+  Future<void> setAssetFavorite(String key, bool isFavorite) async {
+    final normalized = key.trim();
+    if (normalized.isEmpty) return;
+    final favoriteKeys = await loadAssetFavorites();
+    if (isFavorite) {
+      favoriteKeys.add(normalized);
+    } else {
+      favoriteKeys.remove(normalized);
+    }
+    await saveAssetFavorites(favoriteKeys);
   }
 
   Future<List<InspirationEntry>> loadInspirations() {
@@ -199,6 +239,40 @@ class WorkspaceService {
     );
   }
 
+  Future<List<ProductionPlan>> loadProductionPlans() {
+    return _readEntityDirectory(
+      WorkspacePaths.deterministicPlansDir,
+      ProductionPlan.fromJson,
+    );
+  }
+
+  Future<void> saveProductionPlans(List<ProductionPlan> plans) {
+    return _writeEntityDirectory(
+      WorkspacePaths.deterministicPlansDir,
+      plans,
+      (entry) => entry.id,
+      (entry) => entry.toJson(),
+    );
+  }
+
+  Future<ProductionPlanExecutionSettings?>
+      loadProductionExecutionSettings() async {
+    final json =
+        await _readJsonFile(WorkspacePaths.productionExecutionSettings);
+    final map = _jsonMap(json);
+    if (map.isEmpty) return null;
+    return ProductionPlanExecutionSettings.fromJson(map);
+  }
+
+  Future<void> saveProductionExecutionSettings(
+    ProductionPlanExecutionSettings settings,
+  ) {
+    return _writeJsonFile(
+      WorkspacePaths.productionExecutionSettings,
+      settings.toJson(),
+    );
+  }
+
   Future<List<AssemblyPresetEntry>> loadAssemblyPresets() {
     return _readEntityDirectory(
       WorkspacePaths.assemblyPresetsDir,
@@ -227,6 +301,79 @@ class WorkspaceService {
       WorkspacePaths.workflowsDir,
       workflows,
       (entry) => entry.id,
+      (entry) => entry.toJson(),
+    );
+  }
+
+  Future<List<RecastScriptCache>> loadRecastScriptCaches() {
+    return _readEntityDirectory(
+      WorkspacePaths.scriptRecastCacheDir,
+      (json) => RecastScriptCache.fromJson(Map<String, dynamic>.from(json)),
+    );
+  }
+
+  Future<RecastScriptCache?> loadRecastScriptCache(String scriptId) async {
+    final file = _file(_scriptRecastCacheRelativePath(scriptId));
+    if (!await file.exists()) {
+      return null;
+    }
+    final decoded = jsonDecode(await file.readAsString());
+    return RecastScriptCache.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
+  Future<void> saveRecastScriptCache(RecastScriptCache cache) {
+    return _writeJsonFile(
+      _scriptRecastCacheRelativePath(cache.scriptId),
+      cache.toJson(),
+    );
+  }
+
+  Future<void> saveRecastScriptCaches(List<RecastScriptCache> caches) {
+    return _writeEntityDirectory(
+      WorkspacePaths.scriptRecastCacheDir,
+      caches,
+      (entry) => safeWorkspaceEntityId(prefix: 'script', id: entry.scriptId),
+      (entry) => entry.toJson(),
+    );
+  }
+
+  Future<Map<String, dynamic>> loadRecastKnowledgeBase() async {
+    final workspaceRoot = _root;
+    if (workspaceRoot == null) {
+      throw StateError('No workspace is open.');
+    }
+    final file = File(
+      _resolveFrom(workspaceRoot, WorkspacePaths.scriptRecastKnowledge),
+    );
+    if (!await file.exists()) {
+      return const <String, dynamic>{};
+    }
+    final json = await _readJsonFileFrom(
+      workspaceRoot,
+      WorkspacePaths.scriptRecastKnowledge,
+    );
+    return Map.unmodifiable(_jsonMap(json));
+  }
+
+  Future<void> saveRecastKnowledgeBase(Map<String, dynamic> knowledgeBase) {
+    return _writeJsonFile(
+      WorkspacePaths.scriptRecastKnowledge,
+      _sanitizeKnowledgeMap(knowledgeBase),
+    );
+  }
+
+  Future<List<TokenizerScript>> loadTokenizerScripts() {
+    return _readEntityDirectory(
+      WorkspacePaths.tokenizerScriptsDir,
+      (json) => TokenizerScript.fromJson(Map<String, dynamic>.from(json)),
+    );
+  }
+
+  Future<void> saveTokenizerScripts(List<TokenizerScript> scripts) {
+    return _writeEntityDirectory(
+      WorkspacePaths.tokenizerScriptsDir,
+      scripts,
+      (entry) => entry.scriptId,
       (entry) => entry.toJson(),
     );
   }
@@ -265,6 +412,26 @@ class WorkspaceService {
     await file.parent.create(recursive: true);
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString('${encoder.convert(value)}\n');
+  }
+
+  Future<void> _ensureWorkspaceScaffold() async {
+    for (final directory in WorkspacePaths.directories) {
+      await _directory(directory).create(recursive: true);
+    }
+
+    for (final filePath in WorkspacePaths.emptyArrayFiles) {
+      final file = _file(filePath);
+      if (!await file.exists()) {
+        await _writeJsonFile(filePath, <dynamic>[]);
+      }
+    }
+
+    for (final filePath in WorkspacePaths.emptyObjectFiles) {
+      final file = _file(filePath);
+      if (!await file.exists()) {
+        await _writeJsonFile(filePath, <String, dynamic>{});
+      }
+    }
   }
 
   Future<List<T>> _readEntityDirectory<T>(
@@ -320,6 +487,11 @@ class WorkspaceService {
     return Directory(_resolve(relativePath));
   }
 
+  String _scriptRecastCacheRelativePath(String scriptId) {
+    final safeId = safeWorkspaceEntityId(prefix: 'script', id: scriptId);
+    return WorkspacePaths.scriptRecastCacheFile(safeId);
+  }
+
   void _checkBlock(String block) {
     if (!WorkspacePaths.blocks.contains(block)) {
       throw ArgumentError.value(block, 'block', 'Unknown workspace block.');
@@ -372,6 +544,20 @@ Map<String, dynamic> _jsonMap(dynamic json) {
 }
 
 Map<String, dynamic> _sanitizeFilterRules(Map<String, dynamic> value) {
+  final result = <String, dynamic>{};
+  for (final entry in value.entries) {
+    if (_isSensitiveKey(entry.key)) {
+      continue;
+    }
+    final sanitized = _sanitizeFilterValue(entry.value);
+    if (sanitized != null) {
+      result[entry.key] = sanitized;
+    }
+  }
+  return result;
+}
+
+Map<String, dynamic> _sanitizeKnowledgeMap(Map<String, dynamic> value) {
   final result = <String, dynamic>{};
   for (final entry in value.entries) {
     if (_isSensitiveKey(entry.key)) {

@@ -15,12 +15,14 @@ class CharacterPromptResult {
 }
 
 class CharacterConfig {
+  String name;
   List<Point<int>> positions;
   PromptConfig positivePromptConfig;
   String negativePrompt;
   bool enabled;
 
   CharacterConfig({
+    this.name = '',
     required this.positions,
     required this.positivePromptConfig,
     required this.negativePrompt,
@@ -43,8 +45,9 @@ class CharacterConfig {
     );
   }
 
-  factory CharacterConfig.fromEmpty() {
+  factory CharacterConfig.fromEmpty({String name = ''}) {
     return CharacterConfig(
+      name: name,
       positions: [],
       positivePromptConfig: PromptConfig(strs: [], prompts: []),
       negativePrompt: '',
@@ -60,6 +63,7 @@ class CharacterConfig {
     }).toList();
 
     return CharacterConfig(
+      name: json['name'] ?? '',
       positions: positions,
       positivePromptConfig: PromptConfig.fromJson(json['positivePromptConfig']),
       negativePrompt: json['negativePrompt'] ?? '',
@@ -69,6 +73,7 @@ class CharacterConfig {
 
   Map<String, dynamic> toJson() {
     return {
+      'name': name,
       'positions': positions.map((point) {
         return {
           'x': point.x,

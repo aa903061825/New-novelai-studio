@@ -1,0 +1,344 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:nai_casrand/data/studio/models/script_recast.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_payload_adapter.dart';
+
+void main() {
+  group('ScriptRecastPayloadAdapter', () {
+    test('converts recast metadata payload into direct NAI request payload',
+        () async {
+      final script = await ScriptRecastParserService().parseDirectory(
+        Directory('test/fixtures/script_recast/v4_slotted'),
+      );
+      final result = const ScriptRecastEngine().resolvePayloads(
+        script: script,
+        mapping: RecastMapping.defaults(script.id),
+        characters: const [],
+        artistChains: const [],
+      );
+
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        result.frames.first.payload,
+      );
+
+      expect(request.keys, containsAll(['input', 'model', 'action']));
+      expect(request['input'], contains('city lights'));
+      expect(request['input'], contains('artist:terasu_mc'));
+      expect(request['model'], 'nai-diffusion-4-5-full');
+      expect(request['action'], 'generate');
+      expect(request, isNot(contains('Comment')));
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters['seed'], 123456);
+      expect(parameters['width'], 1216);
+      expect(parameters['height'], 832);
+      expect(parameters, isNot(contains('extra_passthrough_testing')));
+      expect(parameters['params_version'], 3);
+      expect(parameters['n_samples'], 1);
+      expect(parameters['v4_prompt'], isA<Map<String, dynamic>>());
+      expect(parameters['v4_negative_prompt'], isA<Map<String, dynamic>>());
+
+      final prompt = parameters['v4_prompt'] as Map<String, dynamic>;
+      final caption = prompt['caption'] as Map<String, dynamic>;
+      expect(caption['base_caption'], contains('city lights'));
+      expect(
+          caption['char_captions'],
+          isA<List>().having(
+            (items) => items.length,
+            'length',
+            2,
+          ));
+    });
+
+    test('normalizes base inline scripts into v4 prompt fields', () async {
+      final script = await ScriptRecastParserService().parseDirectory(
+        Directory('test/fixtures/script_recast/base_inline'),
+      );
+      final result = const ScriptRecastEngine().resolvePayloads(
+        script: script,
+        mapping: RecastMapping.defaults(script.id),
+        characters: const [],
+        artistChains: const [],
+      );
+
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        result.frames.first.payload,
+      );
+
+      expect(request['input'], contains('vulpisfoglia_(arknights)'));
+      expect(request['model'], 'nai-diffusion-4-full');
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      final negative = parameters['v4_negative_prompt'] as Map<String, dynamic>;
+      final negativeCaption = negative['caption'] as Map<String, dynamic>;
+      expect(negativeCaption['base_caption'], contains('lowres'));
+    });
+
+    test('preserves already direct request payloads while filling defaults',
+        () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'direct prompt',
+          'model': 'nai-diffusion-4-curated-preview',
+          'action': 'generate',
+          'parameters': {
+            'seed': 7,
+            'extra_passthrough_testing': {'bucket': 'web-only'},
+            'width': 1024,
+            'height': 1024,
+            'v4_prompt': {
+              'caption': {
+                'base_caption': 'direct prompt',
+                'char_captions': [],
+              },
+            },
+          },
+        },
+      );
+
+      expect(request['input'], 'direct prompt');
+      expect(request['model'], 'nai-diffusion-4-curated-preview');
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters['seed'], 7);
+      expect(parameters, isNot(contains('extra_passthrough_testing')));
+      expect(parameters['params_version'], 3);
+      expect(parameters['characterPrompts'], isEmpty);
+    });
+
+    test('normalizes edit request parameters into prompt generation requests',
+        () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'recast prompt',
+          'model': 'nai-diffusion-4-5-full',
+          'action': 'generate',
+          'parameters': {
+            'request_type': 'NativeInfillingRequest',
+            'add_original_image': false,
+            'img2img': 'source-image',
+            'mask': 'mask-image',
+            'image': 'legacy-image',
+            'strength': 0.7,
+            'seed': 7,
+          },
+        },
+      );
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters['request_type'], 'PromptGenerateRequest');
+      expect(parameters, isNot(contains('add_original_image')));
+      expect(parameters, isNot(contains('img2img')));
+      expect(parameters, isNot(contains('mask')));
+      expect(parameters, isNot(contains('image')));
+      expect(parameters, isNot(contains('strength')));
+      expect(parameters['seed'], 7);
+    });
+
+    test('disables coordinate mode when char captions have no centers', () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'recast prompt',
+          'model': 'nai-diffusion-4-5-full',
+          'action': 'generate',
+          'parameters': {
+            'request_type': 'PromptGenerateRequest',
+            'v4_prompt': {
+              'use_coords': true,
+              'caption': {
+                'base_caption': 'scene prompt',
+                'char_captions': [
+                  {'char_caption': 'first character'},
+                  {'char_caption': 'second character'},
+                ],
+              },
+            },
+          },
+        },
+      );
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      final prompt = parameters['v4_prompt'] as Map<String, dynamic>;
+      expect(prompt['use_coords'], isFalse);
+      final caption = prompt['caption'] as Map<String, dynamic>;
+      final charCaptions = caption['char_captions'] as List<dynamic>;
+      expect(
+        charCaptions,
+        everyElement(
+          isA<Map<String, dynamic>>().having(
+            (entry) => entry['centers'],
+            'centers',
+            [
+              {'x': 0.5, 'y': 0.5},
+            ],
+          ),
+        ),
+      );
+    });
+
+    test('normalizes edit metadata into prompt generation requests', () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'Description': 'prompt from metadata',
+          'Source': 'NovelAI Diffusion V4.5 1229B44F',
+          'Comment': {
+            'v4_prompt': {
+              'caption': {
+                'base_caption': 'prompt from metadata',
+                'char_captions': [],
+              },
+            },
+          },
+          'parameters': {
+            'request_type': 'NativeInfillingRequest',
+            'add_original_image': false,
+            'img2img': 'source-image',
+            'mask': 'mask-image',
+            'image': 'legacy-image',
+            'strength': 0.7,
+          },
+        },
+      );
+
+      expect(request['model'], 'nai-diffusion-4-5-full');
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters['request_type'], 'PromptGenerateRequest');
+      expect(parameters, isNot(contains('add_original_image')));
+      expect(parameters, isNot(contains('img2img')));
+      expect(parameters, isNot(contains('mask')));
+      expect(parameters, isNot(contains('image')));
+      expect(parameters, isNot(contains('strength')));
+    });
+
+    test('removes display-only placeholders from direct request payloads', () {
+      final artistLabel = '${_artistChainLabel()} 24';
+      final rolePlaceholder = '[${_roleLabel()}B${_lowerBodyLabel()}]';
+
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        {
+          'input': 'city lights, $artistLabel, detailed eyes',
+          'model': 'nai-diffusion-4-curated-preview',
+          'action': 'generate',
+          'parameters': {
+            'v4_prompt': {
+              'caption': {
+                'base_caption': 'city lights, $artistLabel, detailed eyes',
+                'char_captions': [
+                  {'char_caption': 'new heroine, $rolePlaceholder, red eyes'},
+                ],
+              },
+            },
+          },
+        },
+      );
+
+      expect(request['input'], 'city lights, detailed eyes');
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      final prompt = parameters['v4_prompt'] as Map<String, dynamic>;
+      final caption = prompt['caption'] as Map<String, dynamic>;
+      expect(caption['base_caption'], 'city lights, detailed eyes');
+      final charCaptions = caption['char_captions'] as List;
+      final firstChar = charCaptions.single as Map<String, dynamic>;
+      expect(firstChar['char_caption'], 'new heroine, red eyes');
+    });
+
+    test('drops malformed director reference arrays from direct payloads', () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'direct prompt',
+          'parameters': {
+            'seed': 7,
+            'director_reference_images': [],
+            'director_reference_strength_values': [0.8],
+            'director_reference_secondary_strength_values': [0.2],
+            'director_reference_information_extracted': [1.0],
+            'director_reference_descriptions': [
+              {
+                'caption': {
+                  'base_caption': 'character',
+                  'char_captions': [],
+                },
+                'legacy_uc': false,
+              },
+            ],
+          },
+        },
+      );
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters.containsKey('director_reference_images'), isFalse);
+      expect(
+        parameters.containsKey('director_reference_strength_values'),
+        isFalse,
+      );
+      expect(
+        parameters.containsKey('director_reference_secondary_strength_values'),
+        isFalse,
+      );
+      expect(
+        parameters.containsKey('director_reference_information_extracted'),
+        isFalse,
+      );
+      expect(
+          parameters.containsKey('director_reference_descriptions'), isFalse);
+    });
+
+    test('drops malformed director reference arrays from metadata payloads',
+        () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'Description': 'prompt from metadata',
+          'Source': 'NovelAI Diffusion V4.5',
+          'Comment': {
+            'v4_prompt': {
+              'caption': {
+                'base_caption': 'prompt from metadata',
+                'char_captions': [],
+              },
+            },
+            'v4_negative_prompt': {
+              'caption': {
+                'base_caption': 'bad anatomy',
+                'char_captions': [],
+              },
+            },
+          },
+          'parameters': {
+            'seed': 42,
+            'director_reference_images': [],
+            'director_reference_strength_values': [0.8],
+            'director_reference_secondary_strength_values': [0.2],
+            'director_reference_information_extracted': [1.0],
+            'director_reference_descriptions': [
+              {
+                'caption': {
+                  'base_caption': 'style',
+                  'char_captions': [],
+                },
+                'legacy_uc': false,
+              },
+            ],
+          },
+        },
+      );
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters.containsKey('director_reference_images'), isFalse);
+      expect(
+          parameters.containsKey('director_reference_descriptions'), isFalse);
+    });
+  });
+}
+
+String _artistChainLabel() {
+  return String.fromCharCodes([0x753b, 0x5e08, 0x4e32]);
+}
+
+String _roleLabel() {
+  return String.fromCharCodes([0x89d2, 0x8272]);
+}
+
+String _lowerBodyLabel() {
+  return String.fromCharCodes([0x4e0b, 0x8eab]);
+}

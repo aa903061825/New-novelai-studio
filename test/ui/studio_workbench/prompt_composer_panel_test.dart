@@ -8,6 +8,7 @@ import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:nai_casrand/ui/studio_workbench/widgets/prompt_composer_panel.dart';
 
 PayloadConfig _payload({String prompt = ''}) {
@@ -30,8 +31,58 @@ Widget _studioApp(Widget child) {
   );
 }
 
+Future<void> _addPromptTags(
+  WidgetTester tester,
+  Finder editor,
+  String text,
+) async {
+  await tester.tap(
+    find.descendant(
+      of: editor,
+      matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.descendant(
+      of: editor,
+      matching: find.byKey(const ValueKey('prompt-tag-editor-input')),
+    ),
+    text,
+  );
+  await tester.testTextInput.receiveAction(TextInputAction.done);
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('composer edits blocks and keeps preview ordered',
+  testWidgets('composer manual prompt uses the plus-driven tag editor',
+      (tester) async {
+    final payload = _payload(prompt: 'manual base');
+    final service = StudioWorkbenchAssetService(payloadConfig: payload);
+
+    await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
+
+    final editor =
+        find.byKey(const ValueKey('workbench-manual-positive-editor'));
+    expect(editor, findsOneWidget);
+    expect(find.descendant(of: editor, matching: find.byType(PromptTagEditor)),
+        findsOneWidget);
+    expect(
+      find.descendant(
+        of: editor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-input')),
+      ),
+      findsNothing,
+    );
+
+    await _addPromptTags(tester, editor, 'golden hour, rim light');
+
+    expect(payload.overridePrompt, 'manual base, golden hour, rim light');
+    expect(find.text('golden hour'), findsOneWidget);
+    expect(find.text('rim light'), findsOneWidget);
+  });
+
+  testWidgets('composer edits blocks and keeps payload ordered',
       (tester) async {
     final payload = _payload(prompt: 'manual base');
     final service = StudioWorkbenchAssetService(payloadConfig: payload);
@@ -50,10 +101,16 @@ void main() {
     await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
 
     final firstId = service.fragments.first.id;
-    await tester.enterText(
-      find.byKey(ValueKey('prompt-block-field-$firstId')),
-      'golden hour',
+    final editor = find.byKey(ValueKey('prompt-block-editor-$firstId'));
+    expect(editor, findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: editor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-delete-0')),
+      ),
     );
+    await tester.pumpAndSettle();
+    await _addPromptTags(tester, editor, 'golden hour');
     await tester.tap(find.byKey(ValueKey('prompt-block-down-$firstId')));
     await tester.pump();
 
@@ -61,13 +118,9 @@ void main() {
       payload.overridePrompt,
       'manual base, wet pavement, golden hour',
     );
-    expect(
-      find.textContaining('manual base, wet pavement, golden hour'),
-      findsOneWidget,
-    );
   });
 
-  testWidgets('composer removes blocks and edits manual negative prompt',
+  testWidgets('composer removes blocks and leaves negative prompt to console',
       (tester) async {
     final payload = _payload();
     final service = StudioWorkbenchAssetService(payloadConfig: payload);
@@ -77,16 +130,13 @@ void main() {
 
     await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
     final blockId = service.fragments.single.id;
-    await tester.enterText(
-      find.byKey(const ValueKey('workbench-negative-field')),
-      'bad anatomy',
-    );
     await tester.tap(find.byKey(ValueKey('prompt-block-remove-$blockId')));
     await tester.pump();
 
-    expect(payload.paramConfig.negativePrompt, 'bad anatomy');
+    expect(
+        find.byKey(const ValueKey('workbench-negative-field')), findsNothing);
     expect(service.fragments, isEmpty);
-    expect(find.byKey(ValueKey('prompt-block-field-$blockId')), findsNothing);
+    expect(find.byKey(ValueKey('prompt-block-editor-$blockId')), findsNothing);
   });
 
   testWidgets('composer shows save action only for dirty source-backed blocks',
@@ -131,9 +181,43 @@ void main() {
 
     expect(
       find.byKey(
-        ValueKey('prompt-block-save-${sourceBackedService.fragments.single.id}'),
+        ValueKey(
+            'prompt-block-save-${sourceBackedService.fragments.single.id}'),
       ),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('composer blocks can be dragged to another drop position',
+      (tester) async {
+    final payload = _payload();
+    final service = StudioWorkbenchAssetService(payloadConfig: payload);
+    service.appendTag(
+      const TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+    );
+    service.appendRecipe(
+      const Recipe(
+        id: 'recipe-1',
+        name: 'Rain Street',
+        block: 'scene',
+        tags: 'wet pavement',
+      ),
+    );
+
+    await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
+
+    final source = find.text('Rain Street');
+    final target = find.byKey(const ValueKey('prompt-drop-target-0'));
+    final gesture = await tester.startGesture(tester.getCenter(source));
+    await tester.pump(const Duration(milliseconds: 650));
+    await gesture.moveTo(tester.getCenter(target));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(
+      payload.overridePrompt,
+      'wet pavement, cinematic lighting',
     );
   });
 }

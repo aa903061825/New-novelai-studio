@@ -1,0 +1,443 @@
+[
+  {
+    "id": "legacy-character-sheet-r1-styled",
+    "sourceId": "legacy-character-sheet-r1",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r2c1",
+    "artistChainName": "画师串 01",
+    "title": "艾雅法拉",
+    "prompt": "masterpiece, best quality, anime illustration, {{artist:tiv}}, {artist:ask_(askzy)}, artist:hakushiro, artist:wanke, [artist:wlop], [artist:nixeu], eyjafjalla_(arknights), animal ears, sheep_horns, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r1-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r1-outfit-2-styled",
+    "sourceId": "legacy-character-sheet-r1-outfit-2",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r1",
+    "artistChainId": "legacy-artist-sheet-r2c3",
+    "artistChainName": "画师串 02",
+    "title": "艾雅法拉 / 泳装",
+    "prompt": "masterpiece, best quality, anime illustration, artist:jyt, artist:liduke, 0.6::artist:kitada_mo ::, 0.4::artist:ogipote::, artist:kararage_tsune, 0.8::artist:gamuo::, artist:iyasu_shikaku, 0.8::artist:yuyumu::, 1.3::artist:z3zz4 ::, artist:tyakomes, 1.2::glossy skin::, 1.2::soft skin::, 1.1::subsurface scattering::, eyjafjalla_(arknights), animal ears, sheep_horns, eyjafjalla_(summer_flower)_(arknights), outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r1-outfit-2-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r3-styled",
+    "sourceId": "legacy-character-sheet-r3",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r2c5",
+    "artistChainName": "画师串 03",
+    "title": "桃金娘",
+    "prompt": "masterpiece, best quality, anime illustration, artist:aka kan, artist:ainy, 1.4::artist:achiki::, 0.4::artist:akakura::, 0.3::artist:bubu2kufo::, artist:daifuku mame (kageroudt33), artist:deyui, artist:harogen pabirion, artist:hitobashira (1746164306), 0.9::artist:icecake::, myrtle_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r3-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r3-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r3",
+    "artistChainId": "legacy-artist-sheet-r2c7",
+    "artistChainName": "画师串 04",
+    "title": "桃金娘 / Summer Flowers",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:chen_bin::, 0.5::artist:kakure eria ::, 1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::, myrtle_(arknights), myrtle_(summer_flowers)_(arknights), outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r3-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r4-styled",
+    "sourceId": "legacy-character-sheet-r4",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r4c1",
+    "artistChainName": "画师串 05",
+    "title": "粉色小猪",
+    "prompt": "masterpiece, best quality, anime illustration, 1.4::artist:wanke ::, 1.7::artist:dishwasher1910, artist: kim hyung tae ::, 0.3::artist:kidmo ::, 1.5::artist:ask (askzy) ::, 0.7::artist:freng ::, 0.7::artist:ratatatat74 ::, 0.8::artist:ssambatea ::, 0.3::artist:soon (c-u-soon) ::, artist:kedama milk, artist:clioranko, 0.8::artist:ningen mame ::, 2::3d, photorealistic::, Goldenglow_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-styled",
+    "sourceId": "legacy-character-sheet-r5",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r4c3",
+    "artistChainName": "表情包",
+    "title": "小刻",
+    "prompt": "masterpiece, best quality, anime illustration, best quality, masterpiece, best quality, official art, extremely detailed CG unity 8k wallpaper, beautiful detailed glow, best illumination, cinematic lighting, detailed lighting, artist:jyt, artist:liduke, 0.6::artist:shano hiyori::, 0.7::artist:ciloranko, 2::artist:ningen mame, 0.8::artist:sho(sho lwlw), 0.5::artist:kedama_milk, artist:(shiratama (shiratamaco))::, artist:rella, 1.1::artist:maccha (mochancc)::0.8::artist:min_(120716), 1.2::chen_bin::, 1.6::artist:watakokyu, artist:roku6, ::, Ceobe_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r5-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r5-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "artistChainId": "legacy-artist-sheet-r4c5",
+    "artistChainName": "画师串 07",
+    "title": "小刻 / 变体 1",
+    "prompt": "masterpiece, best quality, anime illustration, 1.1::artist: zhibuji loom::, 1.3::artist: 3j dangan::, 1.2::artist:rsef::, 0.3::artist: hito komoru::, Ceobe_(arknights), dog_girl, animal_ears, brown_hair, dog_ears, long_hair, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r5-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r5-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "artistChainId": "legacy-artist-sheet-r4c7",
+    "artistChainName": "反向词",
+    "title": "小刻 / 变体 2",
+    "prompt": "masterpiece, best quality, anime illustration, 1.3::artist:hakushiro::, 1.2::artist:quasarcake::, 1.2::artist:betabeet::, 1.1::artist:wanke::, 0.6::artist:wlop::, Ceobe_(arknights), thigh_boots, thighhighs, brown_boots, brown_dress, buckle, dress, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r5-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-5-styled",
+    "sourceId": "legacy-character-sheet-r5-outfit-5",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "artistChainId": "legacy-artist-sheet-r6c1",
+    "artistChainName": "画师串 09",
+    "title": "小刻 / 变体 3",
+    "prompt": "masterpiece, best quality, anime illustration, 0.6::artist:lal!role::, ::artist:sil435 ::, artist:2015x127, 1.2::artist:chenpeipeiii::, 0.3::artist:aseupilin666 ::, muted color::, vivid, Ceobe_(arknights), multicolored_jacket, multiple_straps, open_clothes, open_jacket, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r5-outfit-5-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r6-styled",
+    "sourceId": "legacy-character-sheet-r6",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r10c5",
+    "artistChainName": "画师串 19",
+    "title": "红云",
+    "prompt": "masterpiece, best quality, anime illustration, 5::artist:lunch (shin new)::, 0.9::artist:try (lsc)::, 0.8::artist:gaou (umaiyo puyoman)::, 0.6::artist:null (nyanpyoun)::, 0.75::artist:toma (toma50)::, 1.2::artist:sonao::, 1.05::artist:kokosando::, 1.1::artist:freng::, 1.15::artist:wagashi (dagashiya)::, 1.8::artist:healthyman::, Vermeil_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r6-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r7-styled",
+    "sourceId": "legacy-character-sheet-r7",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r6c5",
+    "artistChainName": "画师串 11",
+    "title": "杜林",
+    "prompt": "masterpiece, best quality, anime illustration, [[[artist:40hara]]], [artist:ningen_mame], artist:chen_bin, [[[[artist:hiten_(hiten_kei)]]]], Durin_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r7-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r8-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r8-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r8",
+    "artistChainId": "legacy-artist-sheet-r8c1",
+    "artistChainName": "水墨",
+    "title": "克洛丝 / Moonlit Voyage",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:healthyman::, 0.6::artist:kakure eria::, 1.2::wagashi (dagashiya)::, 0.6::artist:ie (raarami)::, 0.6::artist:kedama_milk::, kroos_the_keen_glint_(along_the_corridor)_(arknights), kroos_(moonlit_voyage)_(arknights), outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r8-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r9-styled",
+    "sourceId": "legacy-character-sheet-r9",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r8c3",
+    "artistChainName": "手绘",
+    "title": "巴拉巴拉",
+    "prompt": "masterpiece, best quality, anime illustration, artist:nixeu, artist:gomzi, 0.6::artist:nixeu::, 1.6::artist:stu dts::, artist:qiandaiyiyu, 0.8::artist:marushin (denwa0214)::, 0.4::artist:omone hokoma agm::, 1.3::artist:say hana::, 0.3::artist:58 (opal 00 58)::, nymph_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r9-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r10-styled",
+    "sourceId": "legacy-character-sheet-r10",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r8c5",
+    "artistChainName": "画师串 15",
+    "title": "莎草",
+    "prompt": "masterpiece, best quality, anime illustration, [artist:chen_bin], [artist:sho_(sho_lwlw)], [artist:ningen_mame], [artist:tianliang_duohe_fangdongye], [[artist:ciloranko]], [[artist:rella]], [[artist:konya_karasue]], papyrus_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r10-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r10-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r10-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r10",
+    "artistChainId": "legacy-artist-sheet-r8c7",
+    "artistChainName": "画师串 16",
+    "title": "莎草 / 变体 1",
+    "prompt": "masterpiece, best quality, anime illustration, artist:akiyama_enma, artist:ciloranko, artist:ningen_mame, papyrus_(arknights), loli, papyrus_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail::, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r10-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r11-styled",
+    "sourceId": "legacy-character-sheet-r11",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r10c1",
+    "artistChainName": "水墨",
+    "title": "初雪",
+    "prompt": "masterpiece, best quality, anime illustration, 1.4::artist:mokyukyu_2339 ::, 1.4::artist:sazaki_ichiri::, 0.8::artist:gmkj::, 1.1::artist:eonsang ::, 0.7::artist:modare::, 0.8::artist:at_kiwi::, 1.6::artist:smilesmile1312 ::, 0.8::artist:channel_(caststation) ::, 2.0::artist:amaderoka::, year 2025, year 2024, year 2023, pramanix_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r11-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r13-styled",
+    "sourceId": "legacy-character-sheet-r13",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r10c3",
+    "artistChainName": "手绘",
+    "title": "铃兰",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:chen_bin::, 0.5::artist:kakure eria ::, 1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::；, suzuran (spring praise) (arknights), fox girl, fox ears, fox tail, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r13-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r13-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r13-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r13",
+    "artistChainId": "legacy-artist-sheet-r10c5",
+    "artistChainName": "画师串 19",
+    "title": "铃兰 / Spring Praise",
+    "prompt": "masterpiece, best quality, anime illustration, 5::artist:lunch (shin new)::, 0.9::artist:try (lsc)::, 0.8::artist:gaou (umaiyo puyoman)::, 0.6::artist:null (nyanpyoun)::, 0.75::artist:toma (toma50)::, 1.2::artist:sonao::, 1.05::artist:kokosando::, 1.1::artist:freng::, 1.15::artist:wagashi (dagashiya)::, 1.8::artist:healthyman::, suzuran (spring praise) (arknights), fox girl, fox ears, fox tail, girl, loli, young, suzuran (spring praise) (arknights), fox girl, fox ears, fox tail, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r13-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r14-styled",
+    "sourceId": "legacy-character-sheet-r14",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r10c7",
+    "artistChainName": "画师串 21",
+    "title": "佩佩",
+    "prompt": "masterpiece, best quality, anime illustration, 2.5::artist:controlline3 ::, 1.5::artist:ohisashiburi::, artist:watao, artist:mx2j, 0.7::artist:ningen mame::, 0.7::artist:gogalking::, 1.2::artist:piromizu::, 0.6::artist:meme50 ::, volumetric lighting, girl, 2::loli::, pepe_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, Lotus flower headdress, -1.5::hood up, wearing hood, hood over head::, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r14-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r14-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r14-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r14",
+    "artistChainId": "legacy-artist-sheet-r10c7",
+    "artistChainName": "画师串 21",
+    "title": "佩佩 / 变体 1",
+    "prompt": "masterpiece, best quality, anime illustration, 2.5::artist:controlline3 ::, 1.5::artist:ohisashiburi::, artist:watao, artist:mx2j, 0.7::artist:ningen mame::, 0.7::artist:gogalking::, 1.2::artist:piromizu::, 0.6::artist:meme50 ::, volumetric lighting, girl, 2::loli::, pepe_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, Lotus flower headdress, -1.5::hood up, wearing hood, hood over head::, ancient_egyptian_clothes, dress, hair_flower, hair_ornament, jewelry, long_hair, purple_skirt, sistrum, skin_fang, skirt, usekh_collar, white_dress, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r14-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-styled",
+    "sourceId": "legacy-character-sheet-r15",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r12c1",
+    "artistChainName": "水墨",
+    "title": "迷迭香",
+    "prompt": "masterpiece, best quality, anime illustration, 1.5::artist:nixeu::, 1.3::artist:cutesexyrobutts::, 1.2::artist:wlop::, 1.1::artist:wanke::, 2::loli::, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r15-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r15-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "artistChainId": "legacy-artist-sheet-r12c3",
+    "artistChainName": "手绘",
+    "title": "迷迭香 / Become Anew",
+    "prompt": "masterpiece, best quality, anime illustration, 1.3::artist:torino aqua::, 1.2::artist:yunsang::, 1.2::artist:ask (askzy)::, 1.1::artist:cutesexyrobutts::, 1.1::artist:wanke::, 0.8::artist:nixeu::, 1.2::thickly coated::, 1.2::soft skin::, 1.1::blush on cheeks::, 1.1::skin blush::, 1.1::subsurface scattering::, soft shading, skin blush, 2::loli::, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, girl, loli, young, rosmontis_(become_anew)_(arknights), cat_ears, cat_girl, cat_tail, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r15-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-8-styled",
+    "sourceId": "legacy-character-sheet-r15-outfit-8",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "artistChainId": "legacy-artist-sheet-r12c1",
+    "artistChainName": "水墨",
+    "title": "迷迭香 / 上半身",
+    "prompt": "masterpiece, best quality, anime illustration, 1.5::artist:nixeu::, 1.3::artist:cutesexyrobutts::, 1.2::artist:wlop::, 1.1::artist:wanke::, 2::loli::, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, animal_ear_fluff, animal_ears, cat_ears, cat_girl, dress, long_hair, sidelocks, white_dress, white_hair, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r15-outfit-8-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-10-styled",
+    "sourceId": "legacy-character-sheet-r15-outfit-10",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "title": "迷迭香 / 下半身",
+    "prompt": "masterpiece, best quality, anime illustration, {{{chiaroscuro}}}, [[[artist:kedama_milk]]], [[[[[artist:na_tarapisu153]]]]], {[artist:fymrie}}, nalphanne, [[dino_(dinoartforame)]], [[ringouulu]], artist:ciloranko, [[[artist:quasarcake]]], artist:rella, [[[[[[ningen_mame]]]]]]], {{{{{loli}}}}}, {{{{{detailed eyes}}}}}, 2::loli::, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, bare_legs, cat_tail, dress, tail, white_dress, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r15-outfit-10-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r20-styled",
+    "sourceId": "legacy-character-sheet-r20",
+    "type": "character",
+    "artistChainId": "legacy-character-sheet-r1-outfit-7-artist-chain",
+    "artistChainName": "艾雅法拉 混合画师串",
+    "title": "绮良良",
+    "prompt": "masterpiece, best quality, anime illustration, {{{artist:quan_(kurisu_tina), }}}, [[artist:wanke, ]], [artist:min_(120716), ], [[[[artist:ningen_mame]]]], 0.6::mignon, artist:quasarcake, artist:houkisei, artist:kedama milk, 40hara::, piromizu, [ke-ta], [modare], year 2024, year 2025, 1.1::artist: zhibuji loom::, 1.3::artist: 3j dangan::, 1.2::artist:rsef::, 0.3::artist: hito komoru::, artist:jyt, artist:liduke, 0.6::artist:kitada_mo ::, 0.4::artist:ogipote::, artist:kararage_tsune, 0.8::artist:gamuo::, artist:iyasu_shikaku, 0.8::artist:yuyumu::, 1.3::artist:z3zz4 ::, artist:tyakomes, 0.6::artist:shano hiyori::, 0.7::artist:ciloranko, 2::artist:ningen mame, 0.8::artist:sho(sho lwlw), 0.5::artist:kedama_milk, artist:(shiratama (shiratamaco))::, artist:rella, 1.1::artist:maccha (mochancc)::0.8::artist:min_(120716), 1.2::chen_bin::, 1.6::artist:watakokyu, artist:roku6, ::, 0.7::artist:kantoku, artist:karory::, 1.5::artist:ciloranko, ::, 1.2::artist:chen_bin::, 1.1::artist:kantoku::, 0.8::artist:rurudo::, 0.8::artist:ningen_mame::, 0.5::artist:modare::, 1.7::artist:jyt::, artist:nixeu, artist:gomzi, 0.6::artist:nixeu::, 1.6::artist:stu dts::, artist:qiandaiyiyu, 0.8::artist:marushin (denwa0214)::, 0.4::artist:omone hokoma agm::, 1.3::artist:say hana::, 0.3::artist:58 (opal 00 58)::, artist:akiyama_enma, artist:ciloranko, artist:ningen_mame, artist:aka kan, artist:ainy, 1.4::artist:achiki::, 0.4::artist:akakura::, 0.3::artist:bubu2kufo::, artist:daifuku mame (kageroudt33), artist:deyui, artist:harogen pabirion, artist:hitobashira (1746164306), 0.9::artist:icecake::, 2::artist:chen_bin::, 0.5::artist:kakure eria :: 1.2::wagashi, dagashiya :: 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::, girl, 1.5::loli::, kirara (post office) (genshin impact), cat_girl, 3::cat_ears, cat_tail::, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r20-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r21-styled",
+    "sourceId": "legacy-character-sheet-r21",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r2c1",
+    "artistChainName": "画师串 01",
+    "title": "由艾尔",
+    "prompt": "masterpiece, best quality, anime illustration, {{artist:tiv}}, {artist:ask_(askzy)}, artist:hakushiro, artist:wanke, [artist:wlop], [artist:nixeu], girl, 3::loli, fox ears::, yuel_(granblue_fantasy), animal_ears, bell, fluffy_tail, fox_ears, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r21-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r21-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r21-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r21",
+    "artistChainId": "legacy-artist-sheet-r2c3",
+    "artistChainName": "画师串 02",
+    "title": "由艾尔 / Summer",
+    "prompt": "masterpiece, best quality, anime illustration, artist:jyt, artist:liduke, 0.6::artist:kitada_mo ::, 0.4::artist:ogipote::, artist:kararage_tsune, 0.8::artist:gamuo::, artist:iyasu_shikaku, 0.8::artist:yuyumu::, 1.3::artist:z3zz4 ::, artist:tyakomes, 1.2::glossy skin::, 1.2::soft skin::, 1.1::subsurface scattering::, girl, 3::loli, fox ears::, yuel_(granblue_fantasy), animal_ears, bell, fluffy_tail, fox_ears, girl, 3::loli, fox earsi::, yuel (summer) (granblue fantasy), animal_ears, bell, fluffy_tail, fox_ears, fox_, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r21-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-styled",
+    "sourceId": "legacy-character-sheet-r22",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r2c5",
+    "artistChainName": "画师串 03",
+    "title": "瓦基拉",
+    "prompt": "masterpiece, best quality, anime illustration, artist:aka kan, artist:ainy, 1.4::artist:achiki::, 0.4::artist:akakura::, 0.3::artist:bubu2kufo::, artist:daifuku mame (kageroudt33), artist:deyui, artist:harogen pabirion, artist:hitobashira (1746164306), 0.9::artist:icecake::, girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r22-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r22-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "artistChainId": "legacy-artist-sheet-r2c7",
+    "artistChainName": "画师串 04",
+    "title": "瓦基拉 / Summer",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:chen_bin::, 0.5::artist:kakure eria ::, 1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::, girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), girl, 1.5::loli, animal_ear::, vajra_(summer)_(granblue_fantasy), outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r22-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r22-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "artistChainId": "legacy-artist-sheet-r4c1",
+    "artistChainName": "画师串 05",
+    "title": "瓦基拉 / Ritual Robes",
+    "prompt": "masterpiece, best quality, anime illustration, 1.4::artist:wanke ::, 1.7::artist:dishwasher1910, artist: kim hyung tae ::, 0.3::artist:kidmo ::, 1.5::artist:ask (askzy) ::, 0.7::artist:freng ::, 0.7::artist:ratatatat74 ::, 0.8::artist:ssambatea ::, 0.3::artist:soon (c-u-soon) ::, artist:kedama milk, artist:clioranko, 0.8::artist:ningen mame ::, 2::3d, photorealistic::, girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), girl, 1.5::loli, animal_ear::, vajra (ritual robes) (granblue fantasy), animal_ears, bare_shoulders, brown_eyes, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r22-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-6-styled",
+    "sourceId": "legacy-character-sheet-r22-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "artistChainId": "legacy-artist-sheet-r4c3",
+    "artistChainName": "表情包",
+    "title": "瓦基拉 / 变体 3",
+    "prompt": "masterpiece, best quality, anime illustration, best quality, masterpiece, best quality, official art, extremely detailed CG unity 8k wallpaper, beautiful detailed glow, best illumination, cinematic lighting, detailed lighting, artist:jyt, artist:liduke, 0.6::artist:shano hiyori::, 0.7::artist:ciloranko, 2::artist:ningen mame, 0.8::artist:sho(sho lwlw), 0.5::artist:kedama_milk, artist:(shiratama (shiratamaco))::, artist:rella, 1.1::artist:maccha (mochancc)::0.8::artist:min_(120716), 1.2::chen_bin::, 1.6::artist:watakokyu, artist:roku6, ::, girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), bodystocking, china_dress, chinese_clothes, dress, erune, hair_ornament, pantyhose, pelvic_curtain, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r22-outfit-6-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-8-styled",
+    "sourceId": "legacy-character-sheet-r22-outfit-8",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "artistChainId": "legacy-artist-sheet-r4c5",
+    "artistChainName": "画师串 07",
+    "title": "瓦基拉 / Ritual Robes",
+    "prompt": "masterpiece, best quality, anime illustration, 1.1::artist: zhibuji loom::, 1.3::artist: 3j dangan::, 1.2::artist:rsef::, 0.3::artist: hito komoru::, girl, 1.5::loli, animal_ears::, vajra (granblue fantasy), girl, 1.5::loli, animal_ear::, vajra (ritual robes) (granblue fantasy), animal_ears, bare_shoulders, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r22-outfit-8-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r24-styled",
+    "sourceId": "legacy-character-sheet-r24",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r4c7",
+    "artistChainName": "反向词",
+    "title": "果宝",
+    "prompt": "masterpiece, best quality, anime illustration, 1.3::artist:hakushiro::, 1.2::artist:quasarcake::, 1.2::artist:betabeet::, 1.1::artist:wanke::, 0.6::artist:wlop::, 1girl, white hair, very long hair, twin braids, heterochromia, orange eye, blue eye, red eyeliner, little fang, green bonnet, frilled bonnet, hair bow, pink bow, green dress, chinese clothes, frog button, cleavage, detached sleeves, puffy sleeves, frilled sleeves, pleated skirt, pink sash, thigh highs, thigh strap, tassel, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r24-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r24-outfit-3-styled",
+    "sourceId": "legacy-character-sheet-r24-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r24",
+    "artistChainId": "legacy-artist-sheet-r6c1",
+    "artistChainName": "画师串 09",
+    "title": "果宝 / 变体 1",
+    "prompt": "masterpiece, best quality, anime illustration, 0.6::artist:lal!role::, ::artist:sil435 ::, artist:2015x127, 1.2::artist:chenpeipeiii::, 0.3::artist:aseupilin666 ::, muted color::, vivid, 1girl, white hair, very long hair, twin braids, heterochromia, orange eye, blue eye, red eyeliner, little fang, green bonnet, frilled bonnet, hair bow, pink bow, green dress, chinese clothes, frog button, cleavage, detached sleeves, puffy sleeves, frilled sleeves, pleated skirt, pink sash, thigh highs, thigh strap, tassel, 1girl, 1.5::loli::, white hair, very long hair, heterochromia, orange eye, blue eye, red eyeliner, beauty mark, little fang, lop rabbit ears, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r24-outfit-3-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r25-styled",
+    "sourceId": "legacy-character-sheet-r25",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r12c3",
+    "artistChainName": "手绘",
+    "title": "聚福福",
+    "prompt": "masterpiece, best quality, anime illustration, 1.3::artist:torino aqua::, 1.2::artist:yunsang::, 1.2::artist:ask (askzy)::, 1.1::artist:cutesexyrobutts::, 1.1::artist:wanke::, 0.8::artist:nixeu::, 1.2::thickly coated::, 1.2::soft skin::, 1.1::blush on cheeks::, 1.1::skin blush::, 1.1::subsurface scattering::, soft shading, skin blush, 1.5::loli, ju_fufu, animal_ear_fluff, animal_ears, colored_inner_hair, long_hair, multicolored_hair, tiger_ears, tiger_girl, tiger_stripes, tiger_tail, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r25-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r26-styled",
+    "sourceId": "legacy-character-sheet-r26",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r6c5",
+    "artistChainName": "画师串 11",
+    "title": "薄绿",
+    "prompt": "masterpiece, best quality, anime illustration, [[[artist:40hara]]], [artist:ningen_mame], artist:chen_bin, [[[[artist:hiten_(hiten_kei)]]]], 1.5::loli, mint (arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r26-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r26-outfit-6-styled",
+    "sourceId": "legacy-character-sheet-r26-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r26",
+    "artistChainId": "legacy-artist-sheet-r8c1",
+    "artistChainName": "水墨",
+    "title": "薄绿 / 服装",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:healthyman::, 0.6::artist:kakure eria::, 1.2::wagashi (dagashiya)::, 0.6::artist:ie (raarami)::, 0.6::artist:kedama_milk::, 1.5::loli, mint (arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail, ahoge, animal_ears, black_jacket, black_ribbon, black_thighhighs, blue_eyes, boots, cat_ears, cat_girl, cat_tail, coat, collar, collarbone, dress, hair_ribbon, infection_monitor_(arknights), long_hair, long_sleeves, open_clothes, open_coat, open_jacket, ribbon, thighhighs, white_dress, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r26-outfit-6-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r27-styled",
+    "sourceId": "legacy-character-sheet-r27",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r8c3",
+    "artistChainName": "手绘",
+    "title": "露露卡",
+    "prompt": "masterpiece, best quality, anime illustration, artist:nixeu, artist:gomzi, 0.6::artist:nixeu::, 1.6::artist:stu dts::, artist:qiandaiyiyu, 0.8::artist:marushin (denwa0214)::, 0.4::artist:omone hokoma agm::, 1.3::artist:say hana::, 0.3::artist:58 (opal 00 58)::, luruka (azur promilia), ahoge, animal_ear_fluff, animal_ears, black_hairband, blue_eyes, braid, breasts, cat_ears, covered_navel, dress, hairband, long_hair, low_twin_braids, pink_hair, short_dress, thigh_strap, twin_braids, white_dress, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r27-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r29-styled",
+    "sourceId": "legacy-character-sheet-r29",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r8c5",
+    "artistChainName": "画师串 15",
+    "title": "巫恋",
+    "prompt": "masterpiece, best quality, anime illustration, [artist:chen_bin], [artist:sho_(sho_lwlw)], [artist:ningen_mame], [artist:tianliang_duohe_fangdongye], [[artist:ciloranko]], [[artist:rella]], [[artist:konya_karasue]], shamare (arknights), fox girl, fox ears, fox tail, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r29-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30-styled",
+    "sourceId": "legacy-character-sheet-r30",
+    "type": "character",
+    "artistChainId": "legacy-artist-sheet-r8c7",
+    "artistChainName": "画师串 16",
+    "title": "缇缇",
+    "prompt": "masterpiece, best quality, anime illustration, artist:akiyama_enma, artist:ciloranko, artist:ningen_mame, titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail, character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r30-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30-outfit-4-styled",
+    "sourceId": "legacy-character-sheet-r30-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r30",
+    "artistChainId": "legacy-artist-sheet-r10c1",
+    "artistChainName": "水墨",
+    "title": "缇缇 / 上装",
+    "prompt": "masterpiece, best quality, anime illustration, 1.4::artist:mokyukyu_2339 ::, 1.4::artist:sazaki_ichiri::, 0.8::artist:gmkj::, 1.1::artist:eonsang ::, 0.7::artist:modare::, 0.8::artist:at_kiwi::, 1.6::artist:smilesmile1312 ::, 0.8::artist:channel_(caststation) ::, 2.0::artist:amaderoka::, year 2025, year 2024, year 2023, titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail, black_necktie, blunt_bangs, collared_shirt, extra_sleeves, jacket, jewelry, necktie, open_clothes, open_jacket, oversized_jacket, pocket, shirt, short_necktie, sleeveless, sleeveless_shirt, white_jacket, white_shirt, yellow_belt, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r30-outfit-4-styled.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30-outfit-6-styled",
+    "sourceId": "legacy-character-sheet-r30-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r30",
+    "artistChainId": "legacy-artist-sheet-r10c3",
+    "artistChainName": "手绘",
+    "title": "缇缇 / 下装",
+    "prompt": "masterpiece, best quality, anime illustration, 2::artist:chen_bin::, 0.5::artist:kakure eria ::, 1.2::wagashi, dagashiya ::, 0.6::artist:ie, raarami ::, 0.6:: artist:kedama_milk ::；, titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail, anklet, bandages, beetle, black_belt, black_dress, black_thighhighs, dress, highleg, highleg_dress, multiple_belts, thigh_belt, thigh_strap, thighhighs, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r30-outfit-6-styled.png"
+  }
+]

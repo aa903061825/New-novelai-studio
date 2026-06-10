@@ -1,9 +1,51 @@
 import 'package:flutter/foundation.dart';
+import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
+import 'package:nai_casrand/data/models/vibe_config_v4.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
 
-enum StudioWorkbenchAssetKind { character, outfit, artistChain, recipe, tag }
+enum StudioWorkbenchAssetKind {
+  character,
+  outfit,
+  outfitPart,
+  artistChain,
+  recipe,
+  tag,
+}
+
+abstract class StudioWorkbenchCharacterDropData {
+  String get label;
+
+  String get characterName;
+
+  String get characterPrompt;
+}
+
+abstract class StudioWorkbenchPromptDropData {
+  String get label;
+
+  void insertAt(int targetIndex);
+}
+
+class StudioWorkbenchFragmentDropData implements StudioWorkbenchPromptDropData {
+  final StudioWorkbenchAssetService service;
+  final String fragmentId;
+
+  @override
+  final String label;
+
+  StudioWorkbenchFragmentDropData({
+    required this.service,
+    required this.fragmentId,
+    required this.label,
+  });
+
+  @override
+  void insertAt(int targetIndex) {
+    service.moveFragment(fragmentId, targetIndex);
+  }
+}
 
 class StudioWorkbenchAssetFragment {
   final String id;
@@ -43,8 +85,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
   StudioWorkbenchAssetService({
     required this.payloadConfig,
     this.workspaceService,
-  })
-      : _manualPositivePrompt = payloadConfig.overridePrompt.trim();
+  }) : _manualPositivePrompt = payloadConfig.overridePrompt.trim();
 
   List<StudioWorkbenchAssetFragment> get fragments =>
       List.unmodifiable(_fragments);
@@ -52,6 +93,11 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
   String get manualPositivePrompt => _manualPositivePrompt;
 
   String get manualNegativePrompt => payloadConfig.paramConfig.negativePrompt;
+
+  void refreshFromPayload() {
+    _manualPositivePrompt = payloadConfig.overridePrompt.trim();
+    notifyListeners();
+  }
 
   void appendCharacter(CharacterEntry character) {
     _appendPromptFragment(
@@ -63,14 +109,77 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     );
   }
 
+  void insertCharacter(CharacterEntry character, int targetIndex) {
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.character,
+      sourceId: character.id,
+      typeLabel: '角色',
+      name: character.name,
+      fragment: character.traits.frontFull,
+      targetIndex: targetIndex,
+    );
+  }
+
   void appendOutfit(CharacterEntry character, WorkspaceOutfit outfit) {
     _appendPromptFragment(
       kind: StudioWorkbenchAssetKind.outfit,
       sourceId: outfit.id,
       sourceParentId: character.id,
       typeLabel: 'Outfit',
-      name: outfit.name,
+      name: '${character.name} / ${outfit.name}',
       fragment: outfit.tags.frontFull,
+    );
+  }
+
+  void insertOutfit(
+    CharacterEntry character,
+    WorkspaceOutfit outfit,
+    int targetIndex,
+  ) {
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.outfit,
+      sourceId: outfit.id,
+      sourceParentId: character.id,
+      typeLabel: 'Outfit',
+      name: '${character.name} / ${outfit.name}',
+      fragment: outfit.tags.frontFull,
+      targetIndex: targetIndex,
+    );
+  }
+
+  void appendOutfitPart({
+    required CharacterEntry character,
+    required String outfitId,
+    required String outfitName,
+    required String partLabel,
+    required String fragment,
+  }) {
+    _appendPromptFragment(
+      kind: StudioWorkbenchAssetKind.outfitPart,
+      sourceId: '$outfitId:$partLabel',
+      sourceParentId: character.id,
+      typeLabel: partLabel,
+      name: '${character.name} / $outfitName / $partLabel',
+      fragment: fragment,
+    );
+  }
+
+  void insertOutfitPart({
+    required CharacterEntry character,
+    required String outfitId,
+    required String outfitName,
+    required String partLabel,
+    required String fragment,
+    required int targetIndex,
+  }) {
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.outfitPart,
+      sourceId: '$outfitId:$partLabel',
+      sourceParentId: character.id,
+      typeLabel: partLabel,
+      name: '${character.name} / $outfitName / $partLabel',
+      fragment: fragment,
+      targetIndex: targetIndex,
     );
   }
 
@@ -84,6 +193,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
         name: artistChain.name,
         fragment: prompt,
       );
+      _mergeArtistChainVibes(artistChain.vibeRefs);
       return;
     }
     _appendPromptFragment(
@@ -96,6 +206,25 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
         ...artistChain.styleTags,
       ].join(', '),
     );
+    _mergeArtistChainVibes(artistChain.vibeRefs);
+  }
+
+  void insertArtistChain(ArtistChain artistChain, int targetIndex) {
+    final prompt = artistChain.prompt.trim();
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.artistChain,
+      sourceId: artistChain.id,
+      typeLabel: '画师串',
+      name: artistChain.name,
+      fragment: prompt.isNotEmpty
+          ? prompt
+          : [
+              ...artistChain.tags,
+              ...artistChain.styleTags,
+            ].join(', '),
+      targetIndex: targetIndex,
+    );
+    _mergeArtistChainVibes(artistChain.vibeRefs);
   }
 
   void appendRecipe(Recipe recipe) {
@@ -121,6 +250,19 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     );
   }
 
+  void insertRecipe(Recipe recipe, int targetIndex) {
+    final tags = recipe.tags.trim();
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.recipe,
+      sourceId: recipe.id,
+      sourceBlock: recipe.block,
+      typeLabel: '配方',
+      name: recipe.name,
+      fragment: tags.isNotEmpty ? tags : recipe.variants.values.join(', '),
+      targetIndex: targetIndex,
+    );
+  }
+
   void appendTag(TagEntry tag) {
     _appendPromptFragment(
       kind: StudioWorkbenchAssetKind.tag,
@@ -132,10 +274,38 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     );
   }
 
+  void insertTag(TagEntry tag, int targetIndex) {
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.tag,
+      sourceId: tag.id,
+      sourceBlock: tag.block,
+      typeLabel: 'Tag',
+      name: tag.zh.isEmpty ? tag.tag : tag.zh,
+      fragment: tag.tag,
+      targetIndex: targetIndex,
+    );
+  }
+
   void clearFragments() {
     if (_fragments.isEmpty) return;
     _fragments.clear();
     _syncPayload();
+  }
+
+  void resetCreativeState() {
+    _manualPositivePrompt = '';
+    _fragments.clear();
+    payloadConfig.overridePrompt = '';
+    payloadConfig.useOverridePrompt = false;
+    payloadConfig.useCharacterPromptWithOverride = false;
+    payloadConfig.characterConfigList = [];
+    payloadConfig.paramConfig = ParamConfig();
+    payloadConfig.i2iConfig.reset();
+    payloadConfig.vibeConfigList = [];
+    payloadConfig.vibeConfigListV4 = [];
+    payloadConfig.preciseReferenceList = [];
+    payloadConfig.usePreciseReference = false;
+    notifyListeners();
   }
 
   void setManualPositivePrompt(String value) {
@@ -158,8 +328,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     final currentIndex = _fragments.indexWhere((item) => item.id == id);
     if (currentIndex < 0) return;
 
-    final clampedIndex =
-        targetIndex.clamp(0, _fragments.length - 1).toInt();
+    final clampedIndex = targetIndex.clamp(0, _fragments.length - 1).toInt();
     final fragment = _fragments.removeAt(currentIndex);
     _fragments.insert(clampedIndex, fragment);
     _syncPayload();
@@ -171,7 +340,9 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
   }
 
   bool canSaveBack(StudioWorkbenchAssetFragment fragment) =>
-      workspaceService != null && fragment.isDirty;
+      workspaceService != null &&
+      fragment.isDirty &&
+      fragment.kind != StudioWorkbenchAssetKind.outfitPart;
 
   Future<void> saveBack(String id) async {
     final workspace = workspaceService;
@@ -186,6 +357,8 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
       case StudioWorkbenchAssetKind.outfit:
         await _saveOutfitPrompt(workspace, fragment);
         break;
+      case StudioWorkbenchAssetKind.outfitPart:
+        throw StateError('Outfit part fragments cannot be saved back.');
       case StudioWorkbenchAssetKind.artistChain:
         await _saveArtistChainPrompt(workspace, fragment);
         break;
@@ -209,22 +382,47 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     String? sourceBlock,
     String? sourceParentId,
   }) {
+    _insertPromptFragment(
+      kind: kind,
+      sourceId: sourceId,
+      sourceBlock: sourceBlock,
+      sourceParentId: sourceParentId,
+      typeLabel: typeLabel,
+      name: name,
+      fragment: fragment,
+      targetIndex: _fragments.length,
+    );
+  }
+
+  void _insertPromptFragment({
+    required StudioWorkbenchAssetKind kind,
+    required String sourceId,
+    required String typeLabel,
+    required String name,
+    required String fragment,
+    required int targetIndex,
+    String? sourceBlock,
+    String? sourceParentId,
+  }) {
     final normalized = _normalizeFragment(fragment);
     if (normalized.isEmpty) return;
 
-    _fragments.add(
-      StudioWorkbenchAssetFragment(
-        id: _nextFragmentId(kind, sourceId),
-        kind: kind,
-        sourceId: sourceId,
-        sourceBlock: sourceBlock,
-        sourceParentId: sourceParentId,
-        typeLabel: typeLabel,
-        name: name,
-        originalPositiveText: normalized,
-        positiveText: normalized,
-      ),
+    final newFragment = StudioWorkbenchAssetFragment(
+      id: _nextFragmentId(kind, sourceId),
+      kind: kind,
+      sourceId: sourceId,
+      sourceBlock: sourceBlock,
+      sourceParentId: sourceParentId,
+      typeLabel: typeLabel,
+      name: name,
+      originalPositiveText: normalized,
+      positiveText: normalized,
     );
+    _fragments.add(newFragment);
+    if (_fragments.length > 1) {
+      moveFragment(newFragment.id, targetIndex);
+      return;
+    }
     _syncPayload();
   }
 
@@ -252,6 +450,48 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _mergeArtistChainVibes(List<WorkspaceVibeReference> vibeRefs) {
+    final usableRefs = vibeRefs
+        .where((vibe) => vibe.vibeB64.trim().isNotEmpty)
+        .toList(growable: false);
+    if (usableRefs.isEmpty) {
+      return;
+    }
+
+    final next = payloadConfig.vibeConfigListV4.toList();
+    var changed = false;
+    for (final vibe in usableRefs) {
+      final encoding = vibe.vibeB64.trim();
+      final existingIndex = next.indexWhere(
+        (config) => config.vibeB64.trim() == encoding,
+      );
+      final nextConfig = VibeConfigV4(
+        fileName: vibe.name.trim().isEmpty ? vibe.id : vibe.name,
+        vibeB64: encoding,
+        referenceStrength: vibe.referenceStrength,
+        imageBytes: existingIndex >= 0 ? next[existingIndex].imageBytes : null,
+        sourceImagePath:
+            existingIndex >= 0 ? next[existingIndex].sourceImagePath : null,
+      );
+      if (existingIndex < 0) {
+        next.add(nextConfig);
+        changed = true;
+        continue;
+      }
+      final existing = next[existingIndex];
+      if (existing.fileName != nextConfig.fileName ||
+          existing.referenceStrength != nextConfig.referenceStrength) {
+        next[existingIndex] = nextConfig;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    payloadConfig.setScriptVibeConfigV4List(next);
+    notifyListeners();
+  }
+
   Future<void> _saveCharacterPrompt(
     WorkspaceService workspace,
     StudioWorkbenchAssetFragment fragment,
@@ -260,15 +500,8 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     final updated = [
       for (final character in characters)
         if (character.id == fragment.sourceId)
-          CharacterEntry(
-            id: character.id,
-            name: character.name,
+          character.copyWith(
             traits: _replaceFrontFull(character.traits, fragment.positiveText),
-            outfits: character.outfits,
-            defaultOutfitId: character.defaultOutfitId,
-            imageRefs: character.imageRefs,
-            source: character.source,
-            note: character.note,
           )
         else
           character,
@@ -295,10 +528,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     final updated = [
       for (final character in characters)
         if (character.id == parentId)
-          CharacterEntry(
-            id: character.id,
-            name: character.name,
-            traits: character.traits,
+          character.copyWith(
             outfits: [
               for (final outfit in character.outfits)
                 if (outfit.id == fragment.sourceId)
@@ -307,10 +537,6 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
                 else
                   outfit,
             ],
-            defaultOutfitId: character.defaultOutfitId,
-            imageRefs: character.imageRefs,
-            source: character.source,
-            note: character.note,
           )
         else
           character,
@@ -329,17 +555,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     final updated = [
       for (final artistChain in artistChains)
         if (artistChain.id == fragment.sourceId)
-          ArtistChain(
-            id: artistChain.id,
-            name: artistChain.name,
-            tags: artistChain.tags,
-            prompt: fragment.positiveText,
-            styleTags: artistChain.styleTags,
-            imageRefs: artistChain.imageRefs,
-            translations: artistChain.translations,
-            source: artistChain.source,
-            note: artistChain.note,
-          )
+          artistChain.copyWith(prompt: fragment.positiveText)
         else
           artistChain,
     ];

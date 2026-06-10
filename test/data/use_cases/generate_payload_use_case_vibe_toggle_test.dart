@@ -74,6 +74,33 @@ void main() {
     expect(params['reference_information_extracted_multiple'], [1.0]);
   });
 
+  test('enabled NAI4 vibe emits all configured V4 vibes', () {
+    final payloadConfig = _buildPayloadConfig();
+    payloadConfig.paramConfig.model = 'nai-diffusion-4-full';
+    payloadConfig.generationRuntimeState = GenerationRuntimeState(
+      vibeEnabled: true,
+    );
+    payloadConfig.vibeConfigListV4 = [
+      VibeConfigV4(
+        fileName: 'script-main.vibe',
+        vibeB64: 'script-vibe',
+        referenceStrength: 0.2,
+      ),
+      VibeConfigV4(
+        fileName: 'legacy-extra.vibe',
+        vibeB64: 'extra-vibe',
+        referenceStrength: 0.9,
+      ),
+    ];
+
+    final result = GeneratePayloadUseCase(payloadConfig: payloadConfig)();
+    final params = result.payload['parameters'] as Map<String, dynamic>;
+
+    expect(params['reference_image_multiple'], ['script-vibe', 'extra-vibe']);
+    expect(params['reference_strength_multiple'], [0.2, 0.9]);
+    expect(params['reference_information_extracted_multiple'], [1.0, 1.0]);
+  });
+
   test('disabled vibe omits NAI4 reference payload fields', () {
     final payloadConfig = _buildPayloadConfig();
     payloadConfig.paramConfig.model = 'nai-diffusion-4-5-full';

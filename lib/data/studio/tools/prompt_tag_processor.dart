@@ -30,7 +30,58 @@ class HeuristicBuckets {
   });
 }
 
+enum WorkshopTagWarning { none, suspectedMissingComma }
+
+class WorkshopTagAnalysis {
+  final String text;
+  final String displayText;
+  final double? weight;
+  final WorkshopTagWarning warning;
+  final List<String> suggestedParts;
+
+  const WorkshopTagAnalysis({
+    required this.text,
+    String? displayText,
+    this.weight,
+    this.warning = WorkshopTagWarning.none,
+    this.suggestedParts = const [],
+  }) : displayText = displayText ?? text;
+
+  String? get weightLabel {
+    final value = weight;
+    if (value == null) {
+      return null;
+    }
+    return 'x${value.toStringAsFixed(2)}';
+  }
+}
+
+class PromptTagDescriptor {
+  final String rawText;
+  final String displayText;
+  final double? weight;
+
+  const PromptTagDescriptor({
+    required this.rawText,
+    required this.displayText,
+    this.weight,
+  });
+
+  String? get weightLabel {
+    final value = weight;
+    if (value == null) {
+      return null;
+    }
+    return 'x${value.toStringAsFixed(2)}';
+  }
+}
+
 class PromptTagProcessor {
+  static const double _bracketWeightStep = 1.05;
+  static final RegExp _inlineWeight = RegExp(
+    r'^\s*([-+]?\d*\.?\d+)::(.*?)(?:::\s*)?$',
+  );
+  static final RegExp _sdWeight = RegExp(r'^\((.*):\s*([-+]?\d*\.?\d+)\)$');
   static final RegExp _ruleSplit = RegExp(r'[,，\n]');
   static final RegExp _weightStart = RegExp(r'^\s*([-+]?\d*\.?\d+)::(.*)$');
   static final RegExp _weightEnd = RegExp(r'^(.*?)(\s*::)\s*$');
@@ -38,8 +89,10 @@ class PromptTagProcessor {
     r'^(\d+(girl|boy|male|female)s?|solo|multiple (girls|boys)|absurdres|highres)$',
     caseSensitive: false,
   );
-  static final RegExp _artistPattern =
-      RegExp(r'artist\s*:', caseSensitive: false);
+  static final RegExp _artistPattern = RegExp(
+    r'artist\s*:',
+    caseSensitive: false,
+  );
   static final Set<String> _qualityWords = {
     'masterpiece',
     'best quality',
@@ -76,6 +129,49 @@ class PromptTagProcessor {
     'cinematic lighting',
   };
   static const List<String> _artistPrefixes = ['artist:', 'artis:', 'artsit:'];
+  static const Set<String> _knownCompoundTags = {
+    'best quality',
+    'high quality',
+    'amazing quality',
+    'very aesthetic',
+    'ultra detailed',
+    'official art',
+    'soft shading',
+    'flat color',
+    'vibrant color',
+    'muted color',
+    'cinematic lighting',
+    'blue eyes',
+    'red eyes',
+    'green eyes',
+    'yellow eyes',
+    'long hair',
+    'short hair',
+    'white hair',
+    'black hair',
+    'simple background',
+    'white background',
+    'depth of field',
+    'looking at viewer',
+    'open mouth',
+    'closed mouth',
+    'cat ears',
+  };
+  static const Set<String> _standaloneTags = {
+    'male',
+    'female',
+    'boy',
+    'girl',
+    'blush',
+    'standing',
+    'sitting',
+    'walking',
+    'running',
+    'smile',
+    'close-up',
+    'portrait',
+    'solo',
+  };
 
   static List<ReplaceRule> parseReplaceRulesText(String? text) {
     final rules = <ReplaceRule>[];
@@ -97,7 +193,14 @@ class PromptTagProcessor {
   static String fixMissingCommas(String text) {
     return text.replaceAllMapped(
       RegExp(r'(::)\s+(?=[-+]?\d*\.?\d+::)'),
-      (match) => '${match.group(1)} , ',
+      (match) => '${match.group(1)}, ',
+    );
+  }
+
+  static String repairWorkshopDelimiters(String text) {
+    return fixMissingCommas(text).replaceAllMapped(
+      RegExp(r'(^|[^-+\d.])::\s+(?=[^,，\n\s])'),
+      (match) => '${match.group(1)}, ',
     );
   }
 
@@ -105,14 +208,17 @@ class PromptTagProcessor {
     var cleanText = text.replaceAll('\n', ' ').replaceAll('\r', ' ').trim();
     cleanText = cleanText.replaceFirst(RegExp(r'^\s*[-+]?\d*\.?\d+::'), '');
     cleanText = cleanText.replaceFirst(RegExp(r'\s*::\s*$'), '');
-    cleanText =
-        cleanText.replaceFirst(RegExp(r'\s*:\s*[-+]?\d*\.?\d+\s*$'), '');
+    cleanText = cleanText.replaceFirst(
+      RegExp(r'\s*:\s*[-+]?\d*\.?\d+\s*$'),
+      '',
+    );
     return cleanText.trim();
   }
 
   static String cleanTagPure(String text) {
-    final lowered =
-        text.replaceAll(RegExp(r'[{}\[\]\(\)]+'), ' ').toLowerCase();
+    final lowered = text
+        .replaceAll(RegExp(r'[{}\[\]\(\)]+'), ' ')
+        .toLowerCase();
     return stripWeightMarkers(lowered);
   }
 
@@ -120,16 +226,189 @@ class PromptTagProcessor {
     return cleanTagPure(text).replaceAll(RegExp(r'[\s_]+'), ' ').trim();
   }
 
-  static String cleanTagDisplay(
-    String text, {
-    bool removeWeights = true,
-  }) {
+  static String cleanTagDisplay(String text, {bool removeWeights = true}) {
     var cleanText = text.replaceAll('\n', ' ').replaceAll('\r', ' ');
     if (!removeWeights) {
       return cleanText.trim();
     }
     cleanText = cleanText.replaceAll(RegExp(r'[{}\[\]]'), '');
     return stripWeightMarkers(cleanText);
+  }
+
+  static List<String> splitWorkshopTags(
+    String text, {
+    bool splitSpace = false,
+  }) {
+    if (!splitSpace) {
+      return [
+        for (final tag in analyzeWorkshopTags(text))
+          _materializeWorkshopTag(tag),
+      ];
+    }
+
+    final separator = RegExp(r'[ ,，\n]');
+    return repairWorkshopDelimiters(text)
+        .split(separator)
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static String _materializeWorkshopTag(WorkshopTagAnalysis tag) {
+    final raw = tag.text.trim();
+    final weight = tag.weight;
+    if (weight == null) {
+      return raw;
+    }
+    if (hasCompleteNonInlineWeightSyntax(raw)) {
+      return raw;
+    }
+    final display = tag.displayText.trim();
+    if (display.isEmpty) {
+      return raw;
+    }
+    return formatInlineWeightTag(display, weight);
+  }
+
+  static String formatInlineWeightTag(String tag, double weight) {
+    return '${_formatPromptWeight(weight)}:: ${tag.trim()} ::';
+  }
+
+  static bool hasCompleteNonInlineWeightSyntax(String tag) {
+    final value = tag.trim();
+    return RegExp(r'^\(.+:\s*[-+]?\d*\.?\d+\)$').hasMatch(value) ||
+        (value.length >= 2 &&
+            ((value.startsWith('{') && value.endsWith('}')) ||
+                (value.startsWith('[') && value.endsWith(']'))));
+  }
+
+  static String _formatPromptWeight(double weight) {
+    final text = weight.toStringAsFixed(6);
+    return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  static List<WorkshopTagAnalysis> analyzeWorkshopTags(
+    String text, {
+    bool splitSpace = false,
+  }) {
+    if (!splitSpace) {
+      final analyses = <WorkshopTagAnalysis>[];
+      for (final segment in _splitWeightedSegments(
+        repairWorkshopDelimiters(text),
+      )) {
+        if (!segment.isWeighted) {
+          analyses.add(_analyzeWorkshopTag(segment.text));
+          continue;
+        }
+        final inheritedWeight = _parseWeightPrefix(segment.prefix);
+        for (final (index, item) in segment.items.indexed) {
+          var rawText = item;
+          if (index == 0) {
+            rawText = '${segment.prefix}$rawText';
+          }
+          if (index == segment.items.length - 1) {
+            rawText = '$rawText${segment.suffix}';
+          }
+          analyses.add(
+            _analyzeWorkshopTag(
+              item,
+              inheritedWeight: inheritedWeight,
+              rawText: rawText,
+            ),
+          );
+        }
+      }
+      return analyses;
+    }
+    return [
+      for (final tag in splitWorkshopTags(text, splitSpace: splitSpace))
+        _analyzeWorkshopTag(tag),
+    ];
+  }
+
+  static WorkshopTagAnalysis _analyzeWorkshopTag(
+    String tag, {
+    double? inheritedWeight,
+    String? rawText,
+  }) {
+    final descriptor = describeWorkshopTag(
+      tag,
+      inheritedWeight: inheritedWeight,
+    );
+    final normalized = normalizeMatchKey(descriptor.displayText);
+    if (_knownCompoundTags.contains(normalized)) {
+      return WorkshopTagAnalysis(
+        text: rawText ?? tag,
+        displayText: descriptor.displayText,
+        weight: descriptor.weight,
+      );
+    }
+    final parts = normalized.split(RegExp(r'\s+'));
+    if (parts.length == 2 && parts.every(_standaloneTags.contains)) {
+      return WorkshopTagAnalysis(
+        text: rawText ?? tag,
+        displayText: descriptor.displayText,
+        weight: descriptor.weight,
+        warning: WorkshopTagWarning.suspectedMissingComma,
+        suggestedParts: parts,
+      );
+    }
+    return WorkshopTagAnalysis(
+      text: rawText ?? tag,
+      displayText: descriptor.displayText,
+      weight: descriptor.weight,
+    );
+  }
+
+  static PromptTagDescriptor describeWorkshopTag(
+    String text, {
+    double? inheritedWeight,
+  }) {
+    var display = text.replaceAll('\n', ' ').replaceAll('\r', ' ').trim();
+    var hasWeight = inheritedWeight != null;
+    var weight = inheritedWeight ?? 1.0;
+
+    final inlineMatch = _inlineWeight.firstMatch(display);
+    if (inlineMatch != null) {
+      final parsed = double.tryParse(inlineMatch.group(1) ?? '');
+      if (parsed != null) {
+        weight *= parsed;
+        hasWeight = true;
+        display = inlineMatch.group(2)?.trim() ?? display;
+      }
+    }
+
+    final sdMatch = _sdWeight.firstMatch(display);
+    if (sdMatch != null) {
+      final parsed = double.tryParse(sdMatch.group(2) ?? '');
+      if (parsed != null) {
+        weight *= parsed;
+        hasWeight = true;
+        display = sdMatch.group(1)?.trim() ?? display;
+      }
+    }
+
+    while (display.length >= 2 &&
+        display.startsWith('{') &&
+        display.endsWith('}')) {
+      weight *= _bracketWeightStep;
+      hasWeight = true;
+      display = display.substring(1, display.length - 1).trim();
+    }
+
+    while (display.length >= 2 &&
+        display.startsWith('[') &&
+        display.endsWith(']')) {
+      weight /= _bracketWeightStep;
+      hasWeight = true;
+      display = display.substring(1, display.length - 1).trim();
+    }
+
+    return PromptTagDescriptor(
+      rawText: text,
+      displayText: cleanTagDisplay(display),
+      weight: hasWeight ? weight : null,
+    );
   }
 
   static FilterTagsResult filterTags(
@@ -284,10 +563,10 @@ class PromptTagProcessor {
     if (_artistPattern.hasMatch(value)) {
       return 'Artist';
     }
-    if (_qualityWords.any(value.contains)) {
+    if (_qualityWords.any((term) => _containsHeuristicTerm(value, term))) {
       return 'Quality';
     }
-    if (_styleHints.any(value.contains)) {
+    if (_styleHints.any((term) => _containsHeuristicTerm(value, term))) {
       return 'Style';
     }
     if (value.contains('(') &&
@@ -298,29 +577,43 @@ class PromptTagProcessor {
     return 'Scene';
   }
 
+  static bool _containsHeuristicTerm(String value, String term) {
+    final cleanTerm = term.trim().toLowerCase();
+    if (cleanTerm.isEmpty) {
+      return false;
+    }
+    return RegExp(
+      '(^|[^a-z0-9])${RegExp.escape(cleanTerm)}([^a-z0-9]|\$)',
+    ).hasMatch(value);
+  }
+
   static HeuristicBuckets heuristicSplit(
     String promptText, {
     FilterRuleConfig config = const FilterRuleConfig(),
   }) {
     final filtered = filterTags(promptText, config: config);
-    final scene = [...filtered.quantity];
+    final scene = <String>[
+      for (final tag in filtered.quantity) ...splitWorkshopTags(tag),
+    ];
     final artist = <String>[];
     final style = <String>[];
     final quality = <String>[];
     final character = <String>[];
 
     for (final tag in filtered.clean) {
-      switch (heuristicBucket(tag)) {
-        case 'Artist':
-          artist.add(tag);
-        case 'Quality':
-          quality.add(tag);
-        case 'Style':
-          style.add(tag);
-        case 'Character':
-          character.add(tag);
-        default:
-          scene.add(tag);
+      for (final splitTag in splitWorkshopTags(tag)) {
+        switch (heuristicBucket(splitTag)) {
+          case 'Artist':
+            artist.add(splitTag);
+          case 'Quality':
+            quality.add(splitTag);
+          case 'Style':
+            style.add(splitTag);
+          case 'Character':
+            character.add(splitTag);
+          default:
+            scene.add(splitTag);
+        }
       }
     }
 
@@ -402,6 +695,14 @@ class PromptTagProcessor {
     return segments;
   }
 
+  static double? _parseWeightPrefix(String prefix) {
+    final match = RegExp(r'^\s*([-+]?\d*\.?\d+)::').firstMatch(prefix);
+    if (match == null) {
+      return null;
+    }
+    return double.tryParse(match.group(1) ?? '');
+  }
+
   static String _applyReplaceRules(String tag, List<ReplaceRule> rules) {
     var result = tag;
     for (final rule in rules) {
@@ -418,6 +719,10 @@ class PromptTagProcessor {
     List<String> items,
     String suffix,
   ) {
+    final weight = _parseWeightPrefix(prefix);
+    if (weight != null) {
+      return '${_formatPromptWeight(weight)}:: ${items.join(', ')} ::';
+    }
     final rebuilt = [...items];
     rebuilt[0] = '$prefix${rebuilt.first}';
     rebuilt[rebuilt.length - 1] = '${rebuilt.last}$suffix';
@@ -463,10 +768,7 @@ class PromptSegment {
   final String suffix;
   final List<String> items;
 
-  PromptSegment.tag(this.text)
-      : prefix = '',
-        suffix = '',
-        items = const [];
+  PromptSegment.tag(this.text) : prefix = '', suffix = '', items = const [];
 
   PromptSegment.weighted({
     required this.prefix,

@@ -2,6 +2,7 @@ class FilterRuleConfig {
   final String deleteKeywords;
   final String strongFilterKeywords;
   final String replaceRules;
+  final String globalPromptPrefix;
   final bool removeWeights;
   final bool exactMatch;
   final bool deleteArtistTags;
@@ -10,16 +11,38 @@ class FilterRuleConfig {
     this.deleteKeywords = '',
     this.strongFilterKeywords = '',
     this.replaceRules = '',
+    this.globalPromptPrefix = '',
     this.removeWeights = true,
     this.exactMatch = true,
     this.deleteArtistTags = false,
   });
+
+  FilterRuleConfig copyWith({
+    String? deleteKeywords,
+    String? strongFilterKeywords,
+    String? replaceRules,
+    String? globalPromptPrefix,
+    bool? removeWeights,
+    bool? exactMatch,
+    bool? deleteArtistTags,
+  }) {
+    return FilterRuleConfig(
+      deleteKeywords: deleteKeywords ?? this.deleteKeywords,
+      strongFilterKeywords: strongFilterKeywords ?? this.strongFilterKeywords,
+      replaceRules: replaceRules ?? this.replaceRules,
+      globalPromptPrefix: globalPromptPrefix ?? this.globalPromptPrefix,
+      removeWeights: removeWeights ?? this.removeWeights,
+      exactMatch: exactMatch ?? this.exactMatch,
+      deleteArtistTags: deleteArtistTags ?? this.deleteArtistTags,
+    );
+  }
 
   factory FilterRuleConfig.fromMap(Map<String, dynamic> json) {
     return FilterRuleConfig(
       deleteKeywords: json['delete_keywords'] as String? ?? '',
       strongFilterKeywords: json['strong_filter_keywords'] as String? ?? '',
       replaceRules: json['replace_rules'] as String? ?? '',
+      globalPromptPrefix: json['global_prompt_prefix'] as String? ?? '',
       removeWeights: json['remove_weights'] as bool? ?? true,
       exactMatch: json['exact_match'] as bool? ?? true,
       deleteArtistTags: json['delete_artist_tags'] as bool? ?? false,
@@ -31,6 +54,7 @@ class FilterRuleConfig {
       'delete_keywords': deleteKeywords,
       'strong_filter_keywords': strongFilterKeywords,
       'replace_rules': replaceRules,
+      'global_prompt_prefix': globalPromptPrefix,
       'remove_weights': removeWeights,
       'exact_match': exactMatch,
       'delete_artist_tags': deleteArtistTags,

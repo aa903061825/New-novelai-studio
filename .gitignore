@@ -12,6 +12,7 @@
 migrate_working_dir/
 dist/
 .superpowers/
+.codex-run/
 
 # IntelliJ related
 *.iml
@@ -33,6 +34,7 @@ dist/
 .pub-cache/
 .pub/
 /build/
+/web/
 
 # Symbolication related
 app.*.symbols

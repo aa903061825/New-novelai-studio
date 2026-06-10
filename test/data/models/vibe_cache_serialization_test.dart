@@ -42,21 +42,40 @@ void main() {
     expect(restored.referenceStrength, config.referenceStrength);
   });
 
-  test('VibeConfigV4 supports json roundtrip', () {
+  test('VibeConfigV4 stores an explicit image path instead of image bytes', () {
+    final fullSizePng = Uint8List.fromList(const [137, 80, 78, 71, 1, 2, 3]);
     final config = VibeConfigV4(
       fileName: 'v4.vibe',
       vibeB64: 'abc123',
       referenceStrength: 0.65,
-      imageBytes: Uint8List.fromList(const [7, 8, 9]),
+      imageBytes: fullSizePng,
+      sourceImagePath: r'C:\app\vibe-assets\current\v4.png',
     );
 
-    final restored = VibeConfigV4.fromJson(config.toJson());
+    final json = config.toJson();
+    final restored = VibeConfigV4.fromJson(json);
 
+    expect(json.keys, isNot(contains('image_b64')));
+    expect(json['source_image_path'], r'C:\app\vibe-assets\current\v4.png');
     expect(restored.fileName, config.fileName);
     expect(restored.vibeB64, config.vibeB64);
     expect(restored.referenceStrength, config.referenceStrength);
-    expect(restored.imageBytes, isNotNull);
-    expect(restored.imageBytes, config.imageBytes);
+    expect(restored.sourceImagePath, config.sourceImagePath);
+    expect(restored.imageBytes, isNull);
+  });
+
+  test('VibeConfigV4 still reads legacy json with image bytes', () {
+    final restored = VibeConfigV4.fromJson({
+      'file_name': 'legacy-v4.png',
+      'vibe_b64': 'abc123',
+      'reference_strength': 0.65,
+      'image_b64': 'BwgJ',
+    });
+
+    expect(restored.fileName, 'legacy-v4.png');
+    expect(restored.vibeB64, 'abc123');
+    expect(restored.referenceStrength, 0.65);
+    expect(restored.imageBytes, Uint8List.fromList(const [7, 8, 9]));
   });
 
   test('PayloadConfig persists vibe lists in json', () {
@@ -83,5 +102,32 @@ void main() {
     expect(restored.vibeConfigList.first.fileName, 'legacy-vibe.png');
     expect(restored.vibeConfigListV4.length, 1);
     expect(restored.vibeConfigListV4.first.vibeB64, 'vibe-encoding');
+  });
+
+  test('PayloadConfig persists all script-level V4 vibes', () {
+    final payloadConfig = _buildPayloadConfig();
+    payloadConfig.vibeConfigListV4 = [
+      VibeConfigV4(
+        fileName: 'script-main.png',
+        vibeB64: 'first-vibe',
+        referenceStrength: 0.4,
+      ),
+      VibeConfigV4(
+        fileName: 'extra.png',
+        vibeB64: 'second-vibe',
+        referenceStrength: 0.8,
+      ),
+    ];
+
+    final json = payloadConfig.toJson();
+    final jsonVibes = json['vibe_config_list_v4'] as List<dynamic>;
+    final restored = PayloadConfig.fromJson(json);
+
+    expect(jsonVibes.length, 2);
+    expect(restored.vibeConfigListV4.length, 2);
+    expect(
+      restored.vibeConfigListV4.map((vibe) => vibe.vibeB64),
+      ['first-vibe', 'second-vibe'],
+    );
   });
 }

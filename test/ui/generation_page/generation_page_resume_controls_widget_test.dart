@@ -1,19 +1,14 @@
-import 'dart:convert';
-
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_command/flutter_command.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:nai_casrand/data/models/command_status.dart';
 import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/models/info_card_content.dart';
 import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/models/prompt_config.dart';
 import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
@@ -87,20 +82,16 @@ class _TestGenerationPageViewmodel extends GenerationPageViewmodel {
   }
 }
 
-class _PreviewConfigService extends ConfigService {
-  int saveConfigIndexCallCount = 0;
-
-  @override
-  void saveConfigIndex() {
-    saveConfigIndexCallCount++;
-  }
-}
-
 class _EmptyCatalogService extends StudioAssetCatalogService {
   _EmptyCatalogService() : super(workspaceService: WorkspaceService());
 
   @override
-  Future<StudioAssetCatalogSnapshot> loadSnapshot() async {
+  Future<StudioAssetCatalogSnapshot> loadSnapshot({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+  }) async {
     return const StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
         characterCount: 0,
@@ -117,25 +108,6 @@ class _EmptyCatalogService extends StudioAssetCatalogService {
       tags: [],
     );
   }
-}
-
-Command<void, InfoCardContent> _cardCommand(Uint8List imageBytes) {
-  final content = InfoCardContent(
-    title: 'generated.png',
-    info: '',
-    additionalInfo: const {},
-    imageBytes: imageBytes,
-  );
-  return Command.createAsyncNoParam(
-    () async => content,
-    initialValue: content,
-  );
-}
-
-Uint8List _onePixelPngBytes() {
-  return base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-  );
 }
 
 class _LocalizedGenerationApp extends StatelessWidget {
@@ -216,8 +188,7 @@ void main() {
         .setMockMethodCallHandler(_sharedPreferencesChannel, null);
   });
 
-  testWidgets(
-      'shows continue buttons when resume is available and total is finite',
+  testWidgets('workbench hides batch controls even when resume is available',
       (tester) async {
     await GetIt.I.unregister<PayloadConfig>();
     GetIt.I.registerSingleton<PayloadConfig>(
@@ -230,83 +201,23 @@ void main() {
 
     await _pumpGenerationPage(tester, viewmodel);
 
-    expect(find.byTooltip('Continue From Last Time'), findsOneWidget);
-    expect(find.byTooltip('Continue From Number'), findsOneWidget);
-  });
-
-  testWidgets(
-      'hides continue buttons when no resume exists and total is unlimited',
-      (tester) async {
-    await GetIt.I.unregister<PayloadConfig>();
-    GetIt.I.registerSingleton<PayloadConfig>(
-      _buildPayloadConfig(
-        numberOfRequests: 0,
-        hasPendingBatchResume: false,
-      ),
-    );
-    final viewmodel = _TestGenerationPageViewmodel();
-
-    await _pumpGenerationPage(tester, viewmodel);
-
     expect(find.byTooltip('Continue From Last Time'), findsNothing);
     expect(find.byTooltip('Continue From Number'), findsNothing);
+    expect(find.byTooltip('Start/Stop Generation'), findsNothing);
   });
 
-  testWidgets('continue from number dialog forwards the entered value',
-      (tester) async {
-    await GetIt.I.unregister<PayloadConfig>();
-    GetIt.I.registerSingleton<PayloadConfig>(
-      _buildPayloadConfig(
-        numberOfRequests: 8,
-        hasPendingBatchResume: true,
-      ),
-    );
-    final viewmodel = _TestGenerationPageViewmodel();
-
-    await _pumpGenerationPage(tester, viewmodel);
-
-    await tester.tap(find.byTooltip('Continue From Number'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Continue From Number'), findsWidgets);
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byType(TextField),
-      ),
-      '5',
-    );
-    await tester.tap(find.text('Confirm'));
-    await tester.pumpAndSettle();
-
-    expect(viewmodel.resumeFromNumberValue, 5);
-  });
-
-  testWidgets('save config preview button stores the current generated image',
+  testWidgets('workbench does not keep preview actions as floating buttons',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final configService = _PreviewConfigService()
-      ..currentUuid = 'active'
-      ..configIndex = {
-        'active': SavedConfigInfo(
-          title: 'Active',
-          lastModified: DateTime.parse('2026-05-19T09:00:00Z'),
-        ),
-      };
-    GetIt.I.registerSingleton<ConfigService>(configService);
     final viewmodel = _TestGenerationPageViewmodel();
-    viewmodel.commandList.add(_cardCommand(_onePixelPngBytes()));
 
     await _pumpGenerationPage(tester, viewmodel);
 
-    await tester.tap(find.byTooltip('Save Config Preview'));
-
-    expect(
-        configService.configIndex['active']!.previewImages, ['thumb-widget']);
-    expect(configService.saveConfigIndexCallCount, 1);
+    expect(find.byTooltip('Save Config Preview'), findsNothing);
+    expect(find.byType(FloatingActionButton), findsNothing);
   });
 }

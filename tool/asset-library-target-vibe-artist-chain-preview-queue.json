@@ -1,0 +1,521 @@
+[
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1-qaq1-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "characterId": "legacy-character-sheet-r13",
+    "characterName": "铃兰",
+    "sizeKey": "portrait-832x1216",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1-qaq1-vibe.png",
+    "title": "画师串 24 / 铃兰 / portrait-832x1216",
+    "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, suzuran (spring praise) (arknights), fox girl, fox ears, fox tail, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, walking forward, hair and clothes gently flowing, sunlit flower garden background, petals in the air, soft natural light, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 832,
+    "height": 1216,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1-qaq1-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "characterId": "legacy-character-sheet-r26",
+    "characterName": "薄绿",
+    "sizeKey": "square-1024x1024",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1-qaq1-vibe.png",
+    "title": "画师串 24 / 薄绿 / square-1024x1024",
+    "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, mint (arknights), animal_ears, bell, fluffy_tail, cat_girl, cat_ears, cat_tail, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, cowboy shot, centered composition, looking at viewer, one hand raised slightly, calm confident expression, clean bright studio background, subtle decorative shapes, soft light, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 1024,
+    "height": 1024,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1-qaq1-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "characterId": "legacy-character-sheet-r5",
+    "characterName": "小刻",
+    "sizeKey": "wide-1216x832",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1-qaq1-vibe.png",
+    "title": "画师串 24 / 小刻 / wide-1216x832",
+    "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, Ceobe_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, centered composition, wide illustration layout, turning mid-step, ribbons and fabric in motion, night city street background, neon reflections, cinematic rim lighting, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 1216,
+    "height": 832,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r5-outfit-3-bg-1-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r5-outfit-3",
+    "subjectName": "小刻 / 变体 1",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-outfit-3-bg-1-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 小刻 / 变体 1 / strict 1",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, dog_girl, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, standing pose, one hand raised slightly, illustration with background, sunlit flower garden background, petals in the air, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r5-outfit-3-bg-1-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r8-plain-2-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r8",
+    "subjectName": "克洛丝",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r8-plain-2-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 克洛丝 / strict 2",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, kroos_the_keen_glint_(along_the_corridor)_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, walking forward, hair and clothes gently flowing, no detailed background, plain light gray background, no props, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r8-plain-2-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r11-bg-3-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r11",
+    "subjectName": "初雪",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r11-bg-3-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 初雪 / strict 3",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, pramanix_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, turning mid-step, soft dynamic motion, illustration with background, cozy atelier background, warm window light, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r11-bg-3-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r15-plain-4-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r15",
+    "subjectName": "迷迭香",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r15-plain-4-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 迷迭香 / strict 4",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, rosmontis_(arknights), cat_girl, cat_ears, cat_tail, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, reaching one hand forward, gentle foreshortening, no detailed background, simple white background, clean studio lighting, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r15-plain-4-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r21-bg-5-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r21",
+    "subjectName": "由艾尔",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r21-bg-5-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 由艾尔 / strict 5",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, yuel_(granblue_fantasy), fox ears, bell, fluffy_tail, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, holding a small glowing magic effect, confident stance, illustration with background, soft city street background, warm rim lighting, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r21-bg-5-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c5-legacy-character-sheet-r22-outfit-6-plain-6-qaq1-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "画师串 24",
+    "subjectId": "legacy-character-sheet-r22-outfit-6",
+    "subjectName": "瓦基拉 / 变体 3",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r22-outfit-6-plain-6-qaq1-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "画师串 24 / 瓦基拉 / 变体 3 / strict 6",
+    "prompt": "kedama_milk, ciloranko, ask_(askzy), :mignon, rhasta, vajra (granblue fantasy), bodystocking, china_dress, chinese_clothes, dress, erune, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, light step pose, ribbons and skirt in motion, no detailed background, minimal pale background, uncluttered, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c5-legacy-character-sheet-r22-outfit-6-plain-6-qaq1-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r22-portrait-832x1216-nai-v45-varsize-b1-qaq2-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "characterId": "legacy-character-sheet-r22",
+    "characterName": "瓦基拉",
+    "sizeKey": "portrait-832x1216",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r22-portrait-832x1216-nai-v45-varsize-b1-qaq2-vibe.png",
+    "title": "搭配vibe：QAQ 2号 / 瓦基拉 / portrait-832x1216",
+    "prompt": "{{{chiaroscuro}}}, [[[artist:kedama_milk]]], [[[[[artist:na_tarapisu153]]]]], {[artist:fymrie}}, nalphanne, [[dino_(dinoartforame)]], [[ringouulu]], artist:ciloranko, [[[artist:quasarcake]]], artist:rella, [[[[[[ningen_mame]]]]]]], {{{{{detailed eyes}}}}}, girl, animal_ears, vajra (granblue fantasy), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, walking forward, hair and clothes gently flowing, sunlit flower garden background, petals in the air, soft natural light, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 832,
+    "height": 1216,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r22-portrait-832x1216-nai-v45-varsize-b1-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r3-square-1024x1024-nai-v45-varsize-b1-qaq2-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "characterId": "legacy-character-sheet-r3",
+    "characterName": "桃金娘",
+    "sizeKey": "square-1024x1024",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r3-square-1024x1024-nai-v45-varsize-b1-qaq2-vibe.png",
+    "title": "搭配vibe：QAQ 2号 / 桃金娘 / square-1024x1024",
+    "prompt": "{{{chiaroscuro}}}, [[[artist:kedama_milk]]], [[[[[artist:na_tarapisu153]]]]], {[artist:fymrie}}, nalphanne, [[dino_(dinoartforame)]], [[ringouulu]], artist:ciloranko, [[[artist:quasarcake]]], artist:rella, [[[[[[ningen_mame]]]]]]], {{{{{detailed eyes}}}}}, myrtle_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, cowboy shot, centered composition, looking at viewer, one hand raised slightly, calm confident expression, clean bright studio background, subtle decorative shapes, soft light, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 1024,
+    "height": 1024,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r3-square-1024x1024-nai-v45-varsize-b1-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r10-wide-1216x832-nai-v45-varsize-b1-qaq2-vibe",
+    "type": "artist_chain_varsize_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "characterId": "legacy-character-sheet-r10",
+    "characterName": "莎草",
+    "sizeKey": "wide-1216x832",
+    "imageRef": "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r10-wide-1216x832-nai-v45-varsize-b1-qaq2-vibe.png",
+    "title": "搭配vibe：QAQ 2号 / 莎草 / wide-1216x832",
+    "prompt": "{{{chiaroscuro}}}, [[[artist:kedama_milk]]], [[[[[artist:na_tarapisu153]]]]], {[artist:fymrie}}, nalphanne, [[dino_(dinoartforame)]], [[ringouulu]], artist:ciloranko, [[[artist:quasarcake]]], artist:rella, [[[[[[ningen_mame]]]]]]], {{{{{detailed eyes}}}}}, papyrus_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, centered composition, wide illustration layout, turning mid-step, ribbons and fabric in motion, night city street background, neon reflections, cinematic rim lighting, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 1216,
+    "height": 832,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-chain-varsize-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r10-wide-1216x832-nai-v45-varsize-b1-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r8-outfit-3-bg-1-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r8-outfit-3",
+    "subjectName": "克洛丝 / Moonlit Voyage",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r8-outfit-3-bg-1-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 克洛丝 / Moonlit Voyage / strict 1",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, kroos_(moonlit_voyage)_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, standing pose, one hand raised slightly, illustration with background, sunlit flower garden background, petals in the air, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r8-outfit-3-bg-1-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r13-plain-2-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r13",
+    "subjectName": "铃兰",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r13-plain-2-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 铃兰 / strict 2",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, suzuran_(spring_praise)_(arknights), suzuran (spring praise) (arknights), fox girl, fox ears, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, walking forward, hair and clothes gently flowing, no detailed background, plain light gray background, no props, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r13-plain-2-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r15-outfit-4-bg-3-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r15-outfit-4",
+    "subjectName": "迷迭香 / Become Anew",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r15-outfit-4-bg-3-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 迷迭香 / Become Anew / strict 3",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, rosmontis_(become_anew)_(arknights), best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, turning mid-step, soft dynamic motion, illustration with background, cozy atelier background, warm window light, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r15-outfit-4-bg-3-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r21-outfit-3-plain-4-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r21-outfit-3",
+    "subjectName": "由艾尔 / Summer",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r21-outfit-3-plain-4-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 由艾尔 / Summer / strict 4",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, yuel (summer) (granblue fantasy), bell, fox_, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, reaching one hand forward, gentle foreshortening, no detailed background, simple white background, clean studio lighting, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r21-outfit-3-plain-4-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r22-outfit-8-bg-5-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r22-outfit-8",
+    "subjectName": "瓦基拉 / Ritual Robes",
+    "mode": "background",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r22-outfit-8-bg-5-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 瓦基拉 / Ritual Robes / strict 5",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, animal_ear, vajra (ritual robes) (granblue fantasy), bare_shoulders, cherry_blossoms, japanese_clothes, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, holding a small glowing magic effect, confident stance, illustration with background, soft city street background, warm rim lighting, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r22-outfit-8-bg-5-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  },
+  {
+    "id": "legacy-artist-sheet-r12c7-legacy-character-sheet-r26-outfit-3-plain-6-qaq2-vibe",
+    "type": "artist_chain_preview",
+    "artistChainId": "legacy-artist-sheet-r12c7",
+    "artistChainName": "搭配vibe：QAQ 2号",
+    "subjectId": "legacy-character-sheet-r26-outfit-3",
+    "subjectName": "薄绿 / Tsukiyoi",
+    "mode": "plain",
+    "imageRef": "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c7-legacy-character-sheet-r26-outfit-3-plain-6-qaq2-vibe.png",
+    "quality": "best quality, amazing quality, very aesthetic, absurdres",
+    "title": "搭配vibe：QAQ 2号 / 薄绿 / Tsukiyoi / strict 6",
+    "prompt": "artist:kedama_milk, artist:na_tarapisu153, artist:fymrie, artist:ciloranko, artist:quasarcake, artist:rella, chiaroscuro, nalphanne, dino_(dinoartforame), ringouulu, mint_(tsukiyoi)_(arknights), bell, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, feet visible, centered composition, light step pose, ribbons and skirt in motion, no detailed background, minimal pale background, uncluttered, clean readable pose, appealing character portrait, no text, no watermark",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\strict-artist-chain-previews\\legacy-artist-sheet-r12c7-legacy-character-sheet-r26-outfit-3-plain-6-qaq2-vibe.png",
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/269c14-666ee3.naiv4vibe"
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/2/ea2cc6-149e5d.naiv4vibe"
+      }
+    ]
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "probe-dishwasher-varsize-style",
+    "type": "artist_chain_preview_probe",
+    "artistChainId": "legacy-artist-sheet-r4c1",
+    "artistChainName": "dishwasher1910",
+    "imageRef": "assets/references/strict-artist-chain-previews/probe-dishwasher-varsize-style.png",
+    "title": "probe dishwasher varsize style",
+    "prompt": "1.4::artist:wanke ::, 1.7::artist:dishwasher1910, artist: kim hyung tae ::, 0.3::artist:kidmo ::, 1.5::artist:ask (askzy) ::, 0.7::artist:freng ::, 0.7::artist:ratatatat74 ::, 0.8::artist:ssambatea ::, 0.3::artist:soon (c-u-soon) ::, artist:kedama milk, artist:clioranko, 0.8::artist:ningen mame ::, 2::3d, photorealistic::, girl, loli, kirara (post office) (genshin impact), cat_girl, cat_ears, cat_tail, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, centered composition, wide illustration layout, turning mid-step, ribbons and fabric in motion, night city street background, neon reflections, cinematic rim lighting, clean readable pose, appealing character portrait, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, overexposed, oversaturated, high contrast, blown highlights, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 1216,
+    "height": 832,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/assets/references/strict-artist-chain-previews/probe-dishwasher-varsize-style.png"
+  }
+]

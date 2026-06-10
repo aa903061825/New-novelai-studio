@@ -203,7 +203,7 @@ class NavigationAppBarState extends State<NavigationAppBar>
     showDialog(
         context: context,
         builder: (context) => AlertDialog(
-              title: const Text('Debug Settings'),
+              title: const Text('调试设置'),
               content: DebugSettingsView(),
               actions: [
                 TextButton(

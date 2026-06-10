@@ -1,0 +1,339 @@
+[
+  {
+    "id": "legacy-character-sheet-r1",
+    "type": "character",
+    "title": "艾雅法拉",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 艾雅法拉 (eyjafjalla_(arknights)). Tags to suggest design: eyjafjalla_(arknights), animal_ears, sheep_horns. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r1.png"
+  },
+  {
+    "id": "legacy-character-sheet-r1-outfit-2",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r1",
+    "title": "艾雅法拉 / 泳装",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 艾雅法拉 泳装. Tags to suggest design: eyjafjalla_(arknights), animal_ears, sheep_horns, eyjafjalla_(summer_flower)_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r1-outfit-2.png"
+  },
+  {
+    "id": "legacy-character-sheet-r3",
+    "type": "character",
+    "title": "桃金娘",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 桃金娘 (myrtle_(arknights)). Tags to suggest design: myrtle_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r3-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r3",
+    "title": "桃金娘 / Summer Flowers",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 桃金娘 Summer Flowers. Tags to suggest design: myrtle_(arknights), myrtle_(summer_flowers)_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r3-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r4",
+    "type": "character",
+    "title": "粉色小猪",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 粉色小猪 (goldenglow_(arknights)). Tags to suggest design: goldenglow_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5",
+    "type": "character",
+    "title": "小刻",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 小刻 (ceobe_(arknights)). Tags to suggest design: ceobe_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r5.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "title": "小刻 / 变体 1",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 小刻 变体 1. Tags to suggest design: ceobe_(arknights), dog_girl, animal_ears, brown_hair, dog_ears, long_hair. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r5-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "title": "小刻 / 变体 2",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 小刻 变体 2. Tags to suggest design: ceobe_(arknights), thigh_boots, thighhighs, brown_boots, brown_dress, buckle, dress. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r5-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r5-outfit-5",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r5",
+    "title": "小刻 / 变体 3",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 小刻 变体 3. Tags to suggest design: ceobe_(arknights), multicolored_jacket, multiple_straps, open_clothes, open_jacket. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r5-outfit-5.png"
+  },
+  {
+    "id": "legacy-character-sheet-r6",
+    "type": "character",
+    "title": "红云",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 红云 (vermeil_(arknights)). Tags to suggest design: vermeil_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r6.png"
+  },
+  {
+    "id": "legacy-character-sheet-r7",
+    "type": "character",
+    "title": "杜林",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 杜林 (durin_(arknights)). Tags to suggest design: durin_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r7.png"
+  },
+  {
+    "id": "legacy-character-sheet-r8",
+    "type": "character",
+    "title": "克洛丝",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 克洛丝 (kroos_the_keen_glint_(along_the_corridor)_(arknights)). Tags to suggest design: kroos_the_keen_glint_(along_the_corridor)_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r8.png"
+  },
+  {
+    "id": "legacy-character-sheet-r8-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r8",
+    "title": "克洛丝 / Moonlit Voyage",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 克洛丝 Moonlit Voyage. Tags to suggest design: kroos_the_keen_glint_(along_the_corridor)_(arknights), kroos_(moonlit_voyage)_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r8-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r9",
+    "type": "character",
+    "title": "巴拉巴拉",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 巴拉巴拉 (nymph_(arknights)). Tags to suggest design: nymph_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r9.png"
+  },
+  {
+    "id": "legacy-character-sheet-r10",
+    "type": "character",
+    "title": "莎草",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 莎草 (papyrus_(arknights)). Tags to suggest design: papyrus_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r10.png"
+  },
+  {
+    "id": "legacy-character-sheet-r10-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r10",
+    "title": "莎草 / 变体 1",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 莎草 变体 1. Tags to suggest design: papyrus_(arknights), papyrus_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r10-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r11",
+    "type": "character",
+    "title": "初雪",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 初雪 (pramanix_(arknights)). Tags to suggest design: pramanix_(arknights). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r11.png"
+  },
+  {
+    "id": "legacy-character-sheet-r13",
+    "type": "character",
+    "title": "铃兰",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 铃兰 (suzuran_(spring_praise)_(arknights)). Tags to suggest design: suzuran_(spring_praise)_(arknights), fox_girl, fox_ears, fox_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r13.png"
+  },
+  {
+    "id": "legacy-character-sheet-r13-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r13",
+    "title": "铃兰 / Spring Praise",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 铃兰 Spring Praise. Tags to suggest design: suzuran_(spring_praise)_(arknights), fox_girl, fox_ears, fox_tail, girl, suzuran_(spring_praise)_(arknights), fox_girl, fox_ears, fox_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r13-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r14",
+    "type": "character",
+    "title": "佩佩",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 佩佩 (pepe_(arknights)). Tags to suggest design: girl, 2::loli, pepe_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail, lotus_flower_headdress, -1.5::hood_up, wearing_hood, hood_over_head. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r14.png"
+  },
+  {
+    "id": "legacy-character-sheet-r14-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r14",
+    "title": "佩佩 / 变体 1",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 佩佩 变体 1. Tags to suggest design: girl, 2::loli, pepe_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail, lotus_flower_headdress, -1.5::hood_up, wearing_hood, hood_over_head, ancient_egyptian_clothes, dress, hair_flower, hair_ornament, jewelry, long_hair, purple_skirt, sistrum, skin_fang, skirt, usekh_collar, white_dress. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r14-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15",
+    "type": "character",
+    "title": "迷迭香",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 迷迭香 (rosmontis_(arknights)). Tags to suggest design: 2::loli, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r15.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "title": "迷迭香 / Become Anew",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 迷迭香 Become Anew. Tags to suggest design: 2::loli, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail, girl, rosmontis_(become_anew)_(arknights), cat_ears, cat_girl, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r15-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-8",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "title": "迷迭香 / 上半身",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 迷迭香 上半身. Tags to suggest design: 2::loli, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, dress, long_hair, sidelocks, white_dress, white_hair. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r15-outfit-8.png"
+  },
+  {
+    "id": "legacy-character-sheet-r15-outfit-10",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r15",
+    "title": "迷迭香 / 下半身",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 迷迭香 下半身. Tags to suggest design: 2::loli, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail, bare_legs, cat_tail, dress, tail, white_dress. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r15-outfit-10.png"
+  },
+  {
+    "id": "legacy-character-sheet-r20",
+    "type": "character",
+    "title": "绮良良",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 绮良良 (kirara_(post_office)_(genshin_impact)). Tags to suggest design: girl, 1.5::loli, kirara_(post_office)_(genshin_impact), cat_girl, 3::cat_ears, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r20.png"
+  },
+  {
+    "id": "legacy-character-sheet-r21",
+    "type": "character",
+    "title": "由艾尔",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 由艾尔 (yuel_(granblue_fantasy)). Tags to suggest design: girl, 3::loli, fox_ears, yuel_(granblue_fantasy), animal_ears, bell, fluffy_tail, fox_ears. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r21.png"
+  },
+  {
+    "id": "legacy-character-sheet-r21-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r21",
+    "title": "由艾尔 / Summer",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 由艾尔 Summer. Tags to suggest design: girl, 3::loli, fox_ears, yuel_(granblue_fantasy), animal_ears, bell, fluffy_tail, fox_ears, girl, 3::loli, fox_earsi, yuel_(summer)_(granblue_fantasy), animal_ears, bell, fluffy_tail, fox_ears, fox_. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r21-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22",
+    "type": "character",
+    "title": "瓦基拉",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 瓦基拉 (vajra_(granblue_fantasy)). Tags to suggest design: girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r22.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "title": "瓦基拉 / Summer",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 瓦基拉 Summer. Tags to suggest design: girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy), girl, 1.5::loli, animal_ear, vajra_(summer)_(granblue_fantasy). Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r22-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "title": "瓦基拉 / Ritual Robes",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 瓦基拉 Ritual Robes. Tags to suggest design: girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy), girl, 1.5::loli, animal_ear, vajra_(ritual_robes)_(granblue_fantasy), animal_ears, bare_shoulders, brown_eyes, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r22-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "title": "瓦基拉 / 变体 3",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 瓦基拉 变体 3. Tags to suggest design: girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy), girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy), bodystocking, china_dress, chinese_clothes, dress, erune, hair_ornament, pantyhose, pelvic_curtain. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r22-outfit-6.png"
+  },
+  {
+    "id": "legacy-character-sheet-r22-outfit-8",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r22",
+    "title": "瓦基拉 / Ritual Robes",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 瓦基拉 Ritual Robes. Tags to suggest design: girl, 1.5::loli, animal_ears, vajra_(granblue_fantasy), girl, 1.5::loli, animal_ear, vajra_(ritual_robes)_(granblue_fantasy), animal_ears, bare_shoulders, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r22-outfit-8.png"
+  },
+  {
+    "id": "legacy-character-sheet-r24",
+    "type": "character",
+    "title": "果宝",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 果宝 (legacy-character-sheet-r24). Tags to suggest design: 1girl, white_hair, very_long_hair, twin_braids, heterochromia, orange_eye, blue_eye, red_eyeliner, little_fang, green_bonnet, frilled_bonnet, hair_bow, pink_bow, green_dress, chinese_clothes, frog_button, detached_sleeves, puffy_sleeves, frilled_sleeves, pleated_skirt, pink_sash, thigh_highs, thigh_strap, tassel. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r24.png"
+  },
+  {
+    "id": "legacy-character-sheet-r24-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r24",
+    "title": "果宝 / 变体 1",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 果宝 变体 1. Tags to suggest design: 1girl, white_hair, very_long_hair, twin_braids, heterochromia, orange_eye, blue_eye, red_eyeliner, little_fang, green_bonnet, frilled_bonnet, hair_bow, pink_bow, green_dress, chinese_clothes, frog_button, detached_sleeves, puffy_sleeves, frilled_sleeves, pleated_skirt, pink_sash, thigh_highs, thigh_strap, tassel, 1girl, 1.5::loli, white_hair, very_long_hair. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r24-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r25",
+    "type": "character",
+    "title": "聚福福",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 聚福福 (ju_fufu). Tags to suggest design: 1.5::loli, ju_fufu, animal_ear_fluff, animal_ears, colored_inner_hair, long_hair, multicolored_hair, tiger_ears, tiger_girl, tiger_stripes, tiger_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r25.png"
+  },
+  {
+    "id": "legacy-character-sheet-r26",
+    "type": "character",
+    "title": "薄绿",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 薄绿 (mint_(arknights)). Tags to suggest design: 1.5::loli, mint_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r26.png"
+  },
+  {
+    "id": "legacy-character-sheet-r26-outfit-3",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r26",
+    "title": "薄绿 / Tsukiyoi",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 薄绿 Tsukiyoi. Tags to suggest design: 1.5::loli, mint_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail, 1.5::loli, mint_(tsukiyoi)_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r26-outfit-3.png"
+  },
+  {
+    "id": "legacy-character-sheet-r26-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r26",
+    "title": "薄绿 / 服装",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 薄绿 服装. Tags to suggest design: 1.5::loli, mint_(arknights), animal_ears, bell, fluffy_tail, cat_girl, 1.5::cat_ears, cat_tail, ahoge, animal_ears, black_jacket, black_ribbon, black_thighhighs, blue_eyes, boots, cat_ears, cat_girl, cat_tail, coat, collar, collarbone, dress, hair_ribbon, infection_monitor_(arknights), long_hair, long_sleeves, open_clothes, open_coat. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r26-outfit-6.png"
+  },
+  {
+    "id": "legacy-character-sheet-r27",
+    "type": "character",
+    "title": "露露卡",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 露露卡 (luruka_(azur_promilia)). Tags to suggest design: luruka_(azur_promilia), ahoge, animal_ear_fluff, animal_ears, black_hairband, blue_eyes, braid, breasts, cat_ears, covered_navel, dress, hairband, long_hair, low_twin_braids, pink_hair, short_dress, thigh_strap, twin_braids, white_dress. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r27.png"
+  },
+  {
+    "id": "legacy-character-sheet-r29",
+    "type": "character",
+    "title": "巫恋",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 巫恋 (shamare_(arknights)). Tags to suggest design: shamare_(arknights), fox_girl, fox_ears, fox_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r29.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30",
+    "type": "character",
+    "title": "缇缇",
+    "prompt": "Safe non-explicit anime character reference sheet for asset library preview. Subject: 缇缇 (titi_(arknights)). Tags to suggest design: titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r30.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30-outfit-4",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r30",
+    "title": "缇缇 / 上装",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 缇缇 上装. Tags to suggest design: titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail, black_necktie, blunt_bangs, collared_shirt, extra_sleeves, jacket, jewelry, necktie, open_clothes, open_jacket, oversized_jacket, pocket, shirt, short_necktie, sleeveless, sleeveless_shirt, white_jacket. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r30-outfit-4.png"
+  },
+  {
+    "id": "legacy-character-sheet-r30-outfit-6",
+    "type": "outfit",
+    "characterId": "legacy-character-sheet-r30",
+    "title": "缇缇 / 下装",
+    "prompt": "Safe non-explicit anime outfit reference sheet for asset library preview. Subject: 缇缇 下装. Tags to suggest design: titi_(arknights), ancient_egyptian, animal_ear_fluff, animal_ears, black_hair, dark-skinned_female, dark_skin, tail, yellow_eyes, cat_ears, cat_girl, cat_tail, anklet, bandages, beetle, black_belt, black_dress, black_thighhighs, dress, highleg_dress, multiple_belts, thigh_belt, thigh_strap, thighhighs. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r30-outfit-6.png"
+  },
+  {
+    "id": "legacy-character-sheet-r1-outfit-7-artist-chain",
+    "type": "artist_chain",
+    "title": "艾雅法拉 混合画师串",
+    "prompt": "Safe non-explicit anime style sample reference sheet for asset library preview. Subject: 艾雅法拉 混合画师串. Tags to suggest design: 0.6::mignon, 40hara, piromizu, ke-ta, modare, year_2024, year_2025, 1.2::chen_bin, raarami. Single character, modest outfit, clean standing pose, clear silhouette, plain light background, no text, no watermark.",
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\legacy-character-sheet-r1-outfit-7-artist-chain.png"
+  }
+]

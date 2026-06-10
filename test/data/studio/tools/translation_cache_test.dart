@@ -21,6 +21,52 @@ void main() {
       expect(cache.entryFor('red dress')!.source, 'manual');
     });
 
+    test('reads prompt workshop text entries with numeric source', () {
+      final cache = TranslationCache.fromJson({
+        'depth of field_en2zh': {
+          'text': '景深',
+          'source': 1,
+        },
+      });
+
+      expect(cache.getCached('depth of field'), '景深');
+      expect(cache.entryFor('depth of field')!.source, '1');
+    });
+
+    test('zh2en lookup reuses reverse en2zh cache hits', () {
+      final cache = TranslationCache()
+        ..setManual('blue eyes', '\u84dd\u773c\u775b');
+
+      final result = cache.translate(
+        '\u84dd\u773c\u775b',
+        mode: 'zh2en',
+      );
+
+      expect(result.text, 'blue eyes');
+      expect(result.source, TranslationSource.cache);
+    });
+
+    test('reverse lookup updates after manual cache overwrite', () {
+      final cache = TranslationCache()
+        ..setManual('blue eyes', '\u84dd\u773c\u775b');
+
+      expect(
+        cache.translate('\u84dd\u773c\u775b', mode: 'zh2en').text,
+        'blue eyes',
+      );
+
+      cache.setManual('blue eyes', '\u78a7\u8272\u773c\u775b');
+
+      expect(
+        cache.translate('\u84dd\u773c\u775b', mode: 'zh2en').text,
+        isEmpty,
+      );
+      expect(
+        cache.translate('\u78a7\u8272\u773c\u775b', mode: 'zh2en').text,
+        'blue eyes',
+      );
+    });
+
     test('manual overrides are stored with source and timestamp', () {
       final cache = TranslationCache(clock: () => 1710000000);
 
@@ -28,6 +74,10 @@ void main() {
 
       expect(cache.getCached('jacket'), '外套');
       expect(cache.entryFor('jacket')!.source, 'manual');
+      expect(cache.length, 1);
+      expect(cache.isEmpty, isFalse);
+      expect(cache.entries.keys, ['jacket_en2zh']);
+      expect(TranslationCache.textFromCacheKey('jacket_en2zh'), 'jacket');
       expect(cache.toJson(), {
         'jacket_en2zh': {
           'translation': '外套',
@@ -47,6 +97,37 @@ void main() {
       expect(result.source, TranslationSource.cleanedCache);
     });
 
+    test('translation lookup falls back to prompt workshop local dictionary',
+        () {
+      final cache = TranslationCache();
+
+      final result = cache.translate('blue eyes');
+
+      expect(result.text, '蓝眼睛');
+      expect(result.source, TranslationSource.localDictionary);
+    });
+
+    test('local dictionary returns readable Simplified Chinese prompt labels',
+        () {
+      final cache = TranslationCache();
+
+      expect(cache.translate('blue eyes').text, '蓝眼睛');
+      expect(cache.translate('cat ears').text, '猫耳');
+      expect(cache.translate('best quality').text, '最佳画质');
+      expect(cache.translate('year_2023').text, '2023年');
+    });
+
+    test('underscore year tags normalize into local translation lookup', () {
+      final cache = TranslationCache();
+
+      expect(TranslationCache.cleanForTranslation('year_2023'), 'year 2023');
+
+      final result = cache.translate('year_2023');
+
+      expect(result.text, '2023年');
+      expect(result.source, TranslationSource.localDictionary);
+    });
+
     test('batch translation preserves order and reports empty or miss', () {
       final cache = TranslationCache();
       cache.setCached('blue eyes', '蓝眼睛', source: 'manual');
@@ -59,6 +140,21 @@ void main() {
         TranslationSource.empty,
         TranslationSource.miss,
       ]);
+    });
+
+    test('AI refusal-style translations are ignored as cache misses', () {
+      final cache = TranslationCache();
+      cache.setCached(
+        '(sincos)(year 2025)',
+        '抱歉，我无法回答这个问题，请提出其他合规的问题',
+        source: 'ai',
+      );
+
+      expect(cache.getCached('(sincos)(year 2025)'), isNull);
+
+      final result = cache.translate('(sincos)(year 2025)');
+      expect(result.text, isEmpty);
+      expect(result.source, TranslationSource.miss);
     });
 
     test('repository round trips cache files', () async {

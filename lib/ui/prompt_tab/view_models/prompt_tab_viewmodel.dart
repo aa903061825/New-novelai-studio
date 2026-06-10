@@ -11,6 +11,8 @@ enum PromptDashboardPanel {
 }
 
 class PromptTabViewmodel extends ChangeNotifier {
+  static const maxCharacterCount = 6;
+
   PromptConfig promptConfig;
   List<CharacterConfig> characterConfigList;
   List<PromptConfig> savedConfigList;
@@ -57,8 +59,10 @@ class PromptTabViewmodel extends ChangeNotifier {
   }
 
   void addCharacter() {
-    if (characterConfigList.length >= 5) return;
-    characterConfigList.add(CharacterConfig.fromEmpty());
+    if (characterConfigList.length >= maxCharacterCount) return;
+    characterConfigList.add(
+      CharacterConfig.fromEmpty(name: '角色 ${characterConfigList.length + 1}'),
+    );
     notifyListeners();
   }
 

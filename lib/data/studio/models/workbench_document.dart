@@ -17,6 +17,7 @@ class WorkbenchDocument {
     'use_character_prompt_with_override',
     'use_precise_reference',
     'precise_reference_list',
+    'i2i_config',
   };
 
   final int version;
@@ -71,6 +72,8 @@ class WorkbenchDocument {
     target.loadJson(
       {
         ...target.toJson(),
+        // Legacy documents omit I2I state; imports should clear it to defaults.
+        'i2i_config': const <String, dynamic>{},
         ...payload,
         'settings': target.settings.toJson(),
       },

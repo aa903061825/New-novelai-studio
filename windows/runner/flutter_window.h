@@ -2,7 +2,9 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -23,11 +25,24 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  void SetupWindowMethodChannel();
+  bool EnterImagePreviewFullscreen();
+  bool ExitImagePreviewFullscreen();
+
   // The project to run.
   flutter::DartProject project_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      window_method_channel_;
+
+  bool image_preview_fullscreen_ = false;
+  LONG_PTR image_preview_window_style_ = 0;
+  LONG_PTR image_preview_window_ex_style_ = 0;
+  RECT image_preview_window_rect_{};
+  WINDOWPLACEMENT image_preview_window_placement_{};
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

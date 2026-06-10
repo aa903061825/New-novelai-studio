@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
@@ -22,81 +23,194 @@ class PromptComposerPanel extends StatelessWidget {
       builder: (context, _) {
         return StudioPanel(
           color: StudioTokens.surface2,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.view_column_outlined,
-                      color: StudioTokens.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Prompt 编排',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    StudioChip(
-                      icon: Icons.layers_outlined,
-                      label: service.fragments.length.toString(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  key: const ValueKey('workbench-manual-positive-field'),
-                  initialValue: service.manualPositivePrompt,
-                  minLines: 2,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: '手写 Prompt',
-                    prefixIcon: Icon(Icons.edit_note),
+          child: ListView(
+            padding: EdgeInsets.zero,
+            primary: false,
+            shrinkWrap: true,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.view_column_outlined,
+                    color: StudioTokens.primary,
                   ),
-                  keyboardType: TextInputType.multiline,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Prompt 编排',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  StudioChip(
+                    icon: Icons.layers_outlined,
+                    label: service.fragments.length.toString(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              KeyedSubtree(
+                key: const ValueKey('workbench-manual-positive-editor'),
+                child: PromptTagEditor(
+                  value: service.manualPositivePrompt,
+                  label: '手写 Prompt',
+                  emptyText: '暂无手写 Prompt',
                   onChanged: service.setManualPositivePrompt,
                 ),
-                const SizedBox(height: 12),
-                if (service.fragments.isEmpty)
-                  const _EmptyBlockStack()
-                else
-                  for (var index = 0;
-                      index < service.fragments.length;
-                      index++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _PromptBlockRow(
+              ),
+              const SizedBox(height: 12),
+              _PromptDropTarget(index: 0),
+              for (var index = 0; index < service.fragments.length; index++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Column(
+                    children: [
+                      _PromptBlockDraggable(
                         service: service,
                         fragment: service.fragments[index],
-                        canMoveUp: index > 0,
-                        canMoveDown: index < service.fragments.length - 1,
+                        child: _PromptBlockRow(
+                          service: service,
+                          fragment: service.fragments[index],
+                          canMoveUp: index > 0,
+                          canMoveDown: index < service.fragments.length - 1,
+                        ),
                       ),
-                    ),
-                const SizedBox(height: 2),
-                TextFormField(
-                  key: const ValueKey('workbench-negative-field'),
-                  initialValue: service.manualNegativePrompt,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: '负面词',
-                    prefixIcon: Icon(Icons.do_not_disturb),
+                      const SizedBox(height: 6),
+                      _PromptDropTarget(index: index + 1),
+                    ],
                   ),
-                  keyboardType: TextInputType.multiline,
-                  onChanged: service.setManualNegativePrompt,
                 ),
-                const SizedBox(height: 12),
-                _PromptPreview(
-                  positive: service.payloadConfig.overridePrompt,
-                  negative: service.payloadConfig.paramConfig.negativePrompt,
-                ),
-              ],
-            ),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+class _PromptDropTarget extends StatelessWidget {
+  final int index;
+
+  const _PromptDropTarget({required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<Object>(
+      onWillAcceptWithDetails: (details) =>
+          details.data is StudioWorkbenchPromptDropData,
+      onAcceptWithDetails: (details) {
+        final data = details.data;
+        if (data is StudioWorkbenchPromptDropData) {
+          data.insertAt(index);
+        }
+      },
+      builder: (context, candidates, rejected) {
+        final active = candidates.isNotEmpty;
+        return AnimatedContainer(
+          key: ValueKey('prompt-drop-target-$index'),
+          duration: const Duration(milliseconds: 120),
+          margin: const EdgeInsets.only(bottom: 6),
+          height: active ? 32 : 18,
+          decoration: BoxDecoration(
+            color: active
+                ? StudioTokens.primary.withAlpha(28)
+                : StudioTokens.surface3.withAlpha(120),
+            borderRadius: StudioTokens.radiusSlot,
+            border: Border.all(
+              color: active ? StudioTokens.primary : StudioTokens.cardOutline,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            active ? '松开插入到这里' : '拖到这里',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: active ? StudioTokens.primary : StudioTokens.textMuted,
+                ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PromptBlockDraggable extends StatelessWidget {
+  final StudioWorkbenchAssetService service;
+  final StudioWorkbenchAssetFragment fragment;
+  final Widget child;
+
+  const _PromptBlockDraggable({
+    required this.service,
+    required this.fragment,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LongPressDraggable<Object>(
+      data: StudioWorkbenchFragmentDropData(
+        service: service,
+        fragmentId: fragment.id,
+        label: fragment.name,
+      ),
+      feedback: _PromptDragFeedback(
+        label: fragment.name,
+        typeLabel: fragment.typeLabel,
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.38,
+        child: child,
+      ),
+      child: child,
+    );
+  }
+}
+
+class _PromptDragFeedback extends StatelessWidget {
+  final String label;
+  final String typeLabel;
+
+  const _PromptDragFeedback({
+    required this.label,
+    required this.typeLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 220,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface3,
+          borderRadius: StudioTokens.radiusSlot,
+          border: Border.all(color: StudioTokens.primary),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 14,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.drag_indicator,
+              size: 18,
+              color: StudioTokens.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$typeLabel · $label',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -185,19 +299,16 @@ class _PromptBlockRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          TextFormField(
-            key: ValueKey('prompt-block-field-${fragment.id}'),
-            initialValue: fragment.positiveText,
-            minLines: 1,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Prompt 块',
-              isDense: true,
-            ),
-            keyboardType: TextInputType.multiline,
-            onChanged: (value) => service.updatePositiveText(
-              fragment.id,
-              value,
+          KeyedSubtree(
+            key: ValueKey('prompt-block-editor-${fragment.id}'),
+            child: PromptTagEditor(
+              value: fragment.positiveText,
+              label: 'Prompt 块',
+              dense: true,
+              onChanged: (value) => service.updatePositiveText(
+                fragment.id,
+                value,
+              ),
             ),
           ),
         ],
@@ -218,73 +329,5 @@ class _PromptBlockRow extends StatelessWidget {
         SnackBar(content: Text('保存失败：$error')),
       );
     }
-  }
-}
-
-class _PromptPreview extends StatelessWidget {
-  final String positive;
-  final String negative;
-
-  const _PromptPreview({
-    required this.positive,
-    required this.negative,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: StudioTokens.surfaceBase,
-        borderRadius: StudioTokens.radiusSlot,
-        border: StudioTokens.cardBorder,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('正向预览', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
-          Text(
-            positive.trim().isEmpty ? '暂无正向 Prompt' : positive,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: positive.trim().isEmpty
-                      ? StudioTokens.textMuted
-                      : StudioTokens.textPrimary,
-                ),
-          ),
-          const SizedBox(height: 12),
-          Text('负面预览', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
-          Text(
-            negative.trim().isEmpty ? '暂无负面词' : negative,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: negative.trim().isEmpty
-                      ? StudioTokens.textMuted
-                      : StudioTokens.textPrimary,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyBlockStack extends StatelessWidget {
-  const _EmptyBlockStack();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface3,
-        borderRadius: StudioTokens.radiusSlot,
-        border: StudioTokens.cardBorder,
-      ),
-      child: Text(
-        '还没有 Prompt 块',
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-    );
   }
 }

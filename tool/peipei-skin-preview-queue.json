@@ -1,0 +1,30 @@
+[
+  {
+    "id": "legacy-character-sheet-r14-legacy-character-sheet-r14-outfit-4-nai-v45-danbooru-clothing-v2",
+    "type": "outfit",
+    "sourceId": "legacy-character-sheet-r14-outfit-4",
+    "characterId": "legacy-character-sheet-r14",
+    "subjectName": "佩佩 / 星移",
+    "imageRef": "assets/references/novelai-character-previews/legacy-character-sheet-r14-legacy-character-sheet-r14-outfit-4-nai-v45-danbooru-clothing-v2.png",
+    "title": "佩佩 / 星移 / variant outfit preview",
+    "prompt": "artist:akiyama_enma, artist:ciloranko, artist:ningen_mame, 星移, pepe_(arknights), pepe_(nuit_of_the_nightsky)_(arknights), official_alternate_costume, ancient_egyptian_clothes, white_dress, dress, bare_shoulders, off-shoulder_dress, usekh_collar, armlet, gold_armlet, bracelet, gold_bracelet, anklet, gold_anklet, gold_jewelry, earrings, ankh, blue_flower, hair_flower, hair_ornament, headpiece, tail_ornament, tail_ring, bare_legs, thighs, cat_ears, animal_ear_fluff, animal_ears, brown_hair, long_hair, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, head-to-toe, entire body visible, feet visible, centered composition, standing pose, relaxed arms, calm expression, simple white background, clean studio lighting, clean readable outfit, accurate costume details, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, collage, grid, panel, comic, manga panel, speech bubble, chibi, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, upper body only, lower body only, close-up, portrait crop, cropped legs, feet only, extra arms, extra legs, duplicate, clone, bad feet, malformed feet, hood, hood up, hooded jacket, animal ear hood, hood over head, wearing hood, hooded cloak, hooded cape, black shorts, black jacket, platform shoes, large purple cape, purple_skirt, black_skirt, sistrum, staff",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 832,
+    "height": 1216,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\novelai-character-previews\\legacy-character-sheet-r14-legacy-character-sheet-r14-outfit-4-nai-v45-danbooru-clothing-v2.png"
+  }
+]

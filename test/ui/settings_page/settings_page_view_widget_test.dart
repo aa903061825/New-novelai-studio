@@ -7,6 +7,7 @@ import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/models/prompt_config.dart';
 import 'package:nai_casrand/data/models/settings.dart';
+import 'package:nai_casrand/ui/core/app_display_settings.dart';
 import 'package:nai_casrand/ui/settings_page/widgets/settings_page_view.dart';
 
 class _EnglishSettingsAssetLoader extends AssetLoader {
@@ -37,6 +38,7 @@ class _EnglishSettingsAssetLoader extends AssetLoader {
       'system_document_folder': 'System document folder',
       'output_file_name_prefix': 'Output File Name Prefix',
       'output_file_name_prefix_hint': 'Prefix used for generated files',
+      'nai_api_settings': 'NovelAI API',
       'proxy_settings': 'HTTP Proxy',
       'proxy_settings_notice': 'Example: 127.0.0.1:12345; blank means direct',
       'proxy_settings_direct': 'DIRECT',
@@ -127,42 +129,22 @@ void main() {
         .setMockMethodCallHandler(_sharedPreferencesChannel, null);
   });
 
-  testWidgets('settings page shows jitter inputs in batch settings', (
+  testWidgets('settings page does not expose batch execution settings', (
     tester,
   ) async {
     await _pumpLocalizedSettingsPage(tester);
 
-    await tester.tap(find.text('Batch settings'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Minimum random jitter (seconds)'), findsOneWidget);
-    expect(find.text('Maximum random jitter (seconds)'), findsOneWidget);
-  });
-
-  testWidgets('settings page shows 429 retry controls in batch settings', (
-    tester,
-  ) async {
-    await _pumpLocalizedSettingsPage(tester);
-
-    await tester.tap(find.text('Batch settings'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Fast retry on HTTP 429'), findsOneWidget);
-
-    final retryToggleFinder = find.text('Fast retry on HTTP 429');
-    await tester.ensureVisible(retryToggleFinder);
-    await tester.pumpAndSettle();
-
-    await tester.tap(retryToggleFinder);
-    await tester.pumpAndSettle();
-
-    expect(find.text('429 retry delay (seconds)'), findsOneWidget);
-    expect(
-      find.text(
-        'If enabled, HTTP 429 waits the configured seconds and retries the current request.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Batch settings'), findsNothing);
+    expect(find.text('Request per batch'), findsNothing);
+    expect(find.text('Interval between batches (seconds)'), findsNothing);
+    expect(find.text('Minimum random jitter (seconds)'), findsNothing);
+    expect(find.text('Maximum random jitter (seconds)'), findsNothing);
+    expect(find.text('Fast retry on HTTP 429'), findsNothing);
+    expect(find.text('429 retry delay (seconds)'), findsNothing);
+    expect(find.text('Total Generation Count'), findsNothing);
+    expect(find.text('Erase metadata in generated images'), findsNothing);
+    expect(find.text('Output Folder'), findsNothing);
+    expect(find.text('Output File Name Prefix'), findsNothing);
   });
 
   testWidgets('settings page does not expose workbench file exchange', (
@@ -172,5 +154,143 @@ void main() {
 
     expect(find.text('Import settings from file'), findsNothing);
     expect(find.text('Export settings to file'), findsNothing);
+  });
+
+  testWidgets('settings page exposes app font scaling', (tester) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    expect(find.text('界面显示'), findsOneWidget);
+    expect(find.text('字号缩放'), findsOneWidget);
+    expect(find.text('110%'), findsOneWidget);
+
+    await tester.tap(find.text('大'));
+    await tester.pumpAndSettle();
+
+    final config = GetIt.I<PayloadConfig>();
+    expect(config.settings.uiTextScale, 1.2);
+    expect(find.text('120%'), findsOneWidget);
+  });
+
+  testWidgets('settings page exposes prompt translation shortcut',
+      (tester) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    expect(find.text('提示词翻译快捷键'), findsOneWidget);
+    expect(find.text(AppDisplaySettings.promptTranslationShortcutLabel),
+        findsOneWidget);
+    expect(find.text('翻译鼠标悬停的提示词卡片。'), findsOneWidget);
+    expect(find.text('Prompt translation shortcut'), findsNothing);
+    expect(find.text('Translates the hovered prompt card.'), findsNothing);
+    expect(find.text('Translate hovered card'), findsNothing);
+    expect(find.text('语言'), findsOneWidget);
+    expect(find.text('Language'), findsNothing);
+    expect(find.text('跟随系统'), findsOneWidget);
+    expect(find.text('light'), findsNothing);
+    expect(find.text('system'), findsNothing);
+
+    final before = AppDisplaySettings.promptTranslationShortcutSerial.value;
+    await tester.tap(find.text('翻译悬停卡片'));
+    await tester.pump();
+
+    expect(
+      AppDisplaySettings.promptTranslationShortcutSerial.value,
+      before + 1,
+    );
+  });
+
+  testWidgets('settings page exposes NovelAI token and HTTP proxy inputs',
+      (tester) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    final tokenFinder = find.byKey(const ValueKey('settings-nai-api-token'));
+    final proxyFinder = find.byKey(const ValueKey('settings-nai-http-proxy'));
+
+    expect(find.text('NovelAI API'), findsOneWidget);
+    expect(find.text('NAI API Token'), findsOneWidget);
+    expect(tokenFinder, findsOneWidget);
+    expect(proxyFinder, findsOneWidget);
+
+    await tester.enterText(tokenFinder, ' pst-novelai-token ');
+    await tester.enterText(proxyFinder, '127.0.0.1:7890');
+    await tester.pump();
+
+    final config = GetIt.I<PayloadConfig>();
+    expect(config.settings.apiKey, 'pst-novelai-token');
+    expect(config.settings.proxy, '127.0.0.1:7890');
+  });
+
+  testWidgets('settings page exposes script and translation ai credentials',
+      (tester) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    expect(find.text('AI 设置'), findsOneWidget);
+    expect(find.text('剧本 AI'), findsOneWidget);
+    expect(find.text('翻译 AI'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-script-ai-base-url')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('settings-script-ai-token')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('settings-script-ai-model')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-script-ai-test-connection')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-script-ai-test-status')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-ai-base-url')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-provider')),
+        findsOneWidget);
+    expect(find.text('AI'), findsWidgets);
+    expect(find.text('Google'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-ai-token')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-ai-model')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('settings-translation-ai-test-connection')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-ai-test-status')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-translation-cache-ai-refresh')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('settings-translation-cache-refresh-status')),
+        findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settings-translation-provider')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Google').last, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    final config = GetIt.I<PayloadConfig>();
+    expect(config.settings.translationProvider, 'google');
+    expect(find.byKey(const ValueKey('settings-translation-ai-base-url')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('settings-translation-ai-token')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('settings-translation-ai-model')),
+        findsNothing);
+    expect(
+        find.byKey(const ValueKey('settings-translation-ai-test-connection')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('settings-translation-ai-test-status')),
+        findsNothing);
+    expect(find.byKey(const ValueKey('settings-translation-cache-ai-refresh')),
+        findsOneWidget);
+  });
+
+  testWidgets('settings page exposes cache package import actions',
+      (tester) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    expect(find.text('缓存包'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-cache-import-zip')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-cache-import-folder')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-cache-import-status')),
+        findsOneWidget);
   });
 }

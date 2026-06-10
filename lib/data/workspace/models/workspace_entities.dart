@@ -1,4 +1,4 @@
-final Object _omitValue = Object();
+const Object _omitValue = Object();
 
 Map<String, dynamic> _asMap(dynamic value, String fieldName) {
   if (value == null) return <String, dynamic>{};
@@ -50,6 +50,16 @@ String? _optionalStringValue(dynamic value, String fieldName) {
   if (value == null) return null;
   if (value is String) return value;
   throw FormatException('$fieldName must be a string.');
+}
+
+double _doubleValue(
+  dynamic value,
+  String fieldName, {
+  double defaultValue = 0,
+}) {
+  if (value == null) return defaultValue;
+  if (value is num) return value.toDouble();
+  throw FormatException('$fieldName must be a number.');
 }
 
 DateTime _dateTime(dynamic value, String fieldName) {
@@ -206,18 +216,84 @@ class ViewVariantTexts {
       };
 }
 
+class WorkspaceOutfitPartTags {
+  final List<String> upperBodyTags;
+  final List<String> upperClothingTags;
+  final List<String> lowerBodyTags;
+  final List<String> lowerClothingTags;
+  final List<String> weaponTags;
+
+  const WorkspaceOutfitPartTags({
+    this.upperBodyTags = const [],
+    this.upperClothingTags = const [],
+    this.lowerBodyTags = const [],
+    this.lowerClothingTags = const [],
+    this.weaponTags = const [],
+  });
+
+  factory WorkspaceOutfitPartTags.fromJson(dynamic json) {
+    final map = _asMap(json, 'outfit.partTags');
+    return WorkspaceOutfitPartTags(
+      upperBodyTags: _stringList(
+        map['upperBodyTags'],
+        'outfit.partTags.upperBodyTags',
+      ),
+      upperClothingTags: _stringList(
+        map['upperClothingTags'],
+        'outfit.partTags.upperClothingTags',
+      ),
+      lowerBodyTags: _stringList(
+        map['lowerBodyTags'],
+        'outfit.partTags.lowerBodyTags',
+      ),
+      lowerClothingTags: _stringList(
+        map['lowerClothingTags'],
+        'outfit.partTags.lowerClothingTags',
+      ),
+      weaponTags: _stringList(
+        map['weaponTags'],
+        'outfit.partTags.weaponTags',
+      ),
+    );
+  }
+
+  bool get isEmpty =>
+      upperBodyTags.isEmpty &&
+      upperClothingTags.isEmpty &&
+      lowerBodyTags.isEmpty &&
+      lowerClothingTags.isEmpty &&
+      weaponTags.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        if (_sanitizeWorkspaceStringList(upperBodyTags).isNotEmpty)
+          'upperBodyTags': _sanitizeWorkspaceStringList(upperBodyTags),
+        if (_sanitizeWorkspaceStringList(upperClothingTags).isNotEmpty)
+          'upperClothingTags': _sanitizeWorkspaceStringList(upperClothingTags),
+        if (_sanitizeWorkspaceStringList(lowerBodyTags).isNotEmpty)
+          'lowerBodyTags': _sanitizeWorkspaceStringList(lowerBodyTags),
+        if (_sanitizeWorkspaceStringList(lowerClothingTags).isNotEmpty)
+          'lowerClothingTags': _sanitizeWorkspaceStringList(lowerClothingTags),
+        if (_sanitizeWorkspaceStringList(weaponTags).isNotEmpty)
+          'weaponTags': _sanitizeWorkspaceStringList(weaponTags),
+      };
+}
+
 class WorkspaceOutfit {
   final String id;
   final String name;
   final ViewVariantTexts tags;
+  final WorkspaceOutfitPartTags partTags;
   final List<String> imageRefs;
+  final String negativePrompt;
   final String note;
 
   const WorkspaceOutfit({
     required this.id,
     required this.name,
     required this.tags,
+    this.partTags = const WorkspaceOutfitPartTags(),
     this.imageRefs = const [],
+    this.negativePrompt = '',
     this.note = '',
   });
 
@@ -227,7 +303,12 @@ class WorkspaceOutfit {
       id: _stringValue(map['id'], 'outfit.id'),
       name: _stringValue(map['name'], 'outfit.name'),
       tags: ViewVariantTexts.fromJson(map['tags']),
+      partTags: WorkspaceOutfitPartTags.fromJson(map['partTags']),
       imageRefs: _stringList(map['imageRefs'], 'outfit.imageRefs'),
+      negativePrompt: _stringValue(
+        map['negativePrompt'],
+        'outfit.negativePrompt',
+      ),
       note: _stringValue(map['note'], 'outfit.note'),
     );
   }
@@ -236,11 +317,40 @@ class WorkspaceOutfit {
         'id': id,
         'name': name,
         'tags': tags.toJson(),
+        if (!partTags.isEmpty) 'partTags': partTags.toJson(),
         if (_sanitizeWorkspaceStringList(imageRefs).isNotEmpty)
           'imageRefs': _sanitizeWorkspaceStringList(imageRefs),
+        if (negativePrompt.isNotEmpty &&
+            _sanitizeWorkspaceString(negativePrompt) != null)
+          'negativePrompt': negativePrompt,
         if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
           'note': note,
       };
+}
+
+class WorkspacePoint {
+  final double x;
+  final double y;
+
+  const WorkspacePoint({required this.x, required this.y});
+
+  factory WorkspacePoint.fromJson(dynamic json) {
+    final map = _asMap(json, 'workspace point');
+    return WorkspacePoint(
+      x: _doubleValue(map['x'], 'workspacePoint.x'),
+      y: _doubleValue(map['y'], 'workspacePoint.y'),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'x': x, 'y': y};
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WorkspacePoint && other.x == x && other.y == y;
+
+  @override
+  int get hashCode => Object.hash(x, y);
 }
 
 class CharacterEntry {
@@ -252,6 +362,12 @@ class CharacterEntry {
   final List<String> imageRefs;
   final SourceRef source;
   final String note;
+  final List<String> anchorTags;
+  final List<String> identityTags;
+  final List<String> conflictTags;
+  final List<WorkspacePoint> defaultCenters;
+  final List<String> aliases;
+  final String recastNotes;
 
   const CharacterEntry({
     required this.id,
@@ -262,6 +378,12 @@ class CharacterEntry {
     this.imageRefs = const [],
     this.source = const SourceRef(type: 'manual'),
     this.note = '',
+    this.anchorTags = const [],
+    this.identityTags = const [],
+    this.conflictTags = const [],
+    this.defaultCenters = const [],
+    this.aliases = const [],
+    this.recastNotes = '',
   });
 
   factory CharacterEntry.fromJson(dynamic json) {
@@ -282,6 +404,51 @@ class CharacterEntry {
           ? const SourceRef(type: 'manual')
           : SourceRef.fromJson(map['source']),
       note: _stringValue(map['note'], 'character.note'),
+      anchorTags: _stringList(map['anchorTags'], 'character.anchorTags'),
+      identityTags: _stringList(map['identityTags'], 'character.identityTags'),
+      conflictTags: _stringList(map['conflictTags'], 'character.conflictTags'),
+      defaultCenters: _asList(
+        map['defaultCenters'],
+        'character.defaultCenters',
+      ).map(WorkspacePoint.fromJson).toList(growable: false),
+      aliases: _stringList(map['aliases'], 'character.aliases'),
+      recastNotes: _stringValue(map['recastNotes'], 'character.recastNotes'),
+    );
+  }
+
+  CharacterEntry copyWith({
+    String? id,
+    String? name,
+    ViewVariantTexts? traits,
+    List<WorkspaceOutfit>? outfits,
+    Object? defaultOutfitId = _omitValue,
+    List<String>? imageRefs,
+    SourceRef? source,
+    String? note,
+    List<String>? anchorTags,
+    List<String>? identityTags,
+    List<String>? conflictTags,
+    List<WorkspacePoint>? defaultCenters,
+    List<String>? aliases,
+    String? recastNotes,
+  }) {
+    return CharacterEntry(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      traits: traits ?? this.traits,
+      outfits: outfits ?? this.outfits,
+      defaultOutfitId: identical(defaultOutfitId, _omitValue)
+          ? this.defaultOutfitId
+          : defaultOutfitId as String?,
+      imageRefs: imageRefs ?? this.imageRefs,
+      source: source ?? this.source,
+      note: note ?? this.note,
+      anchorTags: anchorTags ?? this.anchorTags,
+      identityTags: identityTags ?? this.identityTags,
+      conflictTags: conflictTags ?? this.conflictTags,
+      defaultCenters: defaultCenters ?? this.defaultCenters,
+      aliases: aliases ?? this.aliases,
+      recastNotes: recastNotes ?? this.recastNotes,
     );
   }
 
@@ -296,6 +463,20 @@ class CharacterEntry {
         'source': source.toJson(),
         if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
           'note': note,
+        if (_sanitizeWorkspaceStringList(anchorTags).isNotEmpty)
+          'anchorTags': _sanitizeWorkspaceStringList(anchorTags),
+        if (_sanitizeWorkspaceStringList(identityTags).isNotEmpty)
+          'identityTags': _sanitizeWorkspaceStringList(identityTags),
+        if (_sanitizeWorkspaceStringList(conflictTags).isNotEmpty)
+          'conflictTags': _sanitizeWorkspaceStringList(conflictTags),
+        if (defaultCenters.isNotEmpty)
+          'defaultCenters':
+              defaultCenters.map((center) => center.toJson()).toList(),
+        if (_sanitizeWorkspaceStringList(aliases).isNotEmpty)
+          'aliases': _sanitizeWorkspaceStringList(aliases),
+        if (recastNotes.isNotEmpty &&
+            _sanitizeWorkspaceString(recastNotes) != null)
+          'recastNotes': recastNotes,
       };
 }
 
@@ -417,6 +598,158 @@ class TagEntry {
       };
 }
 
+class WorkspaceWeightedTag {
+  final String tag;
+  final double weight;
+
+  const WorkspaceWeightedTag({required this.tag, required this.weight});
+
+  factory WorkspaceWeightedTag.fromJson(dynamic json) {
+    final map = _asMap(json, 'weighted tag');
+    return WorkspaceWeightedTag(
+      tag: _stringValue(map['tag'], 'weightedTag.tag'),
+      weight:
+          _doubleValue(map['weight'], 'weightedTag.weight', defaultValue: 1),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'tag': tag, 'weight': weight};
+}
+
+class ArtistEntry {
+  final String name;
+  final String prefix;
+  final double weight;
+  final String? groupedWith;
+
+  const ArtistEntry({
+    required this.name,
+    this.prefix = 'artist:',
+    this.weight = 1,
+    this.groupedWith,
+  });
+
+  factory ArtistEntry.fromJson(dynamic json) {
+    final map = _asMap(json, 'artist entry');
+    return ArtistEntry(
+      name: _stringValue(map['name'], 'artistEntry.name'),
+      prefix: _stringValue(
+        map['prefix'],
+        'artistEntry.prefix',
+        defaultValue: 'artist:',
+      ),
+      weight:
+          _doubleValue(map['weight'], 'artistEntry.weight', defaultValue: 1),
+      groupedWith: _optionalStringValue(
+        map['groupedWith'],
+        'artistEntry.groupedWith',
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        if (prefix != 'artist:') 'prefix': prefix,
+        if (weight != 1) 'weight': weight,
+        if (groupedWith != null) 'groupedWith': groupedWith,
+      };
+}
+
+class WorkspaceVibeReference {
+  final String id;
+  final String name;
+  final String vibeB64;
+  final double referenceStrength;
+  final double infoExtracted;
+  final SourceRef source;
+  final String note;
+
+  const WorkspaceVibeReference({
+    required this.id,
+    required this.name,
+    required this.vibeB64,
+    this.referenceStrength = 0.6,
+    this.infoExtracted = 1.0,
+    this.source = const SourceRef(type: 'manual'),
+    this.note = '',
+  });
+
+  WorkspaceVibeReference copyWith({
+    String? id,
+    String? name,
+    String? vibeB64,
+    double? referenceStrength,
+    double? infoExtracted,
+    SourceRef? source,
+    String? note,
+  }) {
+    return WorkspaceVibeReference(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      vibeB64: vibeB64 ?? this.vibeB64,
+      referenceStrength: (referenceStrength ?? this.referenceStrength)
+          .clamp(0.0, 1.0)
+          .toDouble(),
+      infoExtracted:
+          (infoExtracted ?? this.infoExtracted).clamp(0.0, 1.0).toDouble(),
+      source: source ?? this.source,
+      note: note ?? this.note,
+    );
+  }
+
+  factory WorkspaceVibeReference.fromJson(dynamic json) {
+    if (json is String) {
+      return WorkspaceVibeReference(
+        id: json,
+        name: json,
+        vibeB64: '',
+      );
+    }
+    final map = _asMap(json, 'vibe reference');
+    final name = _stringValue(map['name'], 'vibeReference.name');
+    final vibeB64 = _stringValue(
+      map['vibeB64'] ?? map['vibe_b64'] ?? map['encoding'],
+      'vibeReference.vibeB64',
+    );
+    return WorkspaceVibeReference(
+      id: _stringValue(
+        map['id'],
+        'vibeReference.id',
+        defaultValue: name.isNotEmpty ? name : vibeB64,
+      ),
+      name: name,
+      vibeB64: vibeB64,
+      referenceStrength: _doubleValue(
+        map['referenceStrength'] ?? map['reference_strength'],
+        'vibeReference.referenceStrength',
+        defaultValue: 0.6,
+      ).clamp(0.0, 1.0),
+      infoExtracted: _doubleValue(
+        map['infoExtracted'] ?? map['info_extracted'],
+        'vibeReference.infoExtracted',
+        defaultValue: 1.0,
+      ).clamp(0.0, 1.0),
+      source: map['source'] == null
+          ? const SourceRef(type: 'manual')
+          : SourceRef.fromJson(map['source']),
+      note: _stringValue(map['note'], 'vibeReference.note'),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        if (vibeB64.isNotEmpty && _sanitizeWorkspaceString(vibeB64) != null)
+          'vibeB64': vibeB64,
+        if (referenceStrength != 0.6) 'referenceStrength': referenceStrength,
+        if (infoExtracted != 1.0) 'infoExtracted': infoExtracted,
+        if (source.type != 'manual' || source.id != null || source.path != null)
+          'source': source.toJson(),
+        if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
+          'note': note,
+      };
+}
+
 class ArtistChain {
   final String id;
   final String name;
@@ -427,6 +760,10 @@ class ArtistChain {
   final Map<String, String> translations;
   final SourceRef source;
   final String note;
+  final List<ArtistEntry> artists;
+  final List<WorkspaceWeightedTag> globalNegatives;
+  final List<WorkspaceWeightedTag> styleHintsWeighted;
+  final List<WorkspaceVibeReference> vibeRefs;
 
   const ArtistChain({
     required this.id,
@@ -438,6 +775,10 @@ class ArtistChain {
     this.translations = const {},
     this.source = const SourceRef(type: 'manual'),
     this.note = '',
+    this.artists = const [],
+    this.globalNegatives = const [],
+    this.styleHintsWeighted = const [],
+    this.vibeRefs = const [],
   });
 
   factory ArtistChain.fromJson(dynamic json) {
@@ -454,6 +795,52 @@ class ArtistChain {
           ? const SourceRef(type: 'manual')
           : SourceRef.fromJson(map['source']),
       note: _stringValue(map['note'], 'artistChain.note'),
+      artists: _asList(map['artists'], 'artistChain.artists')
+          .map(ArtistEntry.fromJson)
+          .toList(growable: false),
+      globalNegatives:
+          _asList(map['globalNegatives'], 'artistChain.globalNegatives')
+              .map(WorkspaceWeightedTag.fromJson)
+              .toList(growable: false),
+      styleHintsWeighted:
+          _asList(map['styleHintsWeighted'], 'artistChain.styleHintsWeighted')
+              .map(WorkspaceWeightedTag.fromJson)
+              .toList(growable: false),
+      vibeRefs: _asList(map['vibeRefs'], 'artistChain.vibeRefs')
+          .map(WorkspaceVibeReference.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  ArtistChain copyWith({
+    String? id,
+    String? name,
+    List<String>? tags,
+    String? prompt,
+    List<String>? styleTags,
+    List<String>? imageRefs,
+    Map<String, String>? translations,
+    SourceRef? source,
+    String? note,
+    List<ArtistEntry>? artists,
+    List<WorkspaceWeightedTag>? globalNegatives,
+    List<WorkspaceWeightedTag>? styleHintsWeighted,
+    List<WorkspaceVibeReference>? vibeRefs,
+  }) {
+    return ArtistChain(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      tags: tags ?? this.tags,
+      prompt: prompt ?? this.prompt,
+      styleTags: styleTags ?? this.styleTags,
+      imageRefs: imageRefs ?? this.imageRefs,
+      translations: translations ?? this.translations,
+      source: source ?? this.source,
+      note: note ?? this.note,
+      artists: artists ?? this.artists,
+      globalNegatives: globalNegatives ?? this.globalNegatives,
+      styleHintsWeighted: styleHintsWeighted ?? this.styleHintsWeighted,
+      vibeRefs: vibeRefs ?? this.vibeRefs,
     );
   }
 
@@ -473,6 +860,16 @@ class ArtistChain {
         'source': source.toJson(),
         if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
           'note': note,
+        if (artists.isNotEmpty)
+          'artists': artists.map((artist) => artist.toJson()).toList(),
+        if (globalNegatives.isNotEmpty)
+          'globalNegatives':
+              globalNegatives.map((tag) => tag.toJson()).toList(),
+        if (styleHintsWeighted.isNotEmpty)
+          'styleHintsWeighted':
+              styleHintsWeighted.map((tag) => tag.toJson()).toList(),
+        if (vibeRefs.isNotEmpty)
+          'vibeRefs': vibeRefs.map((vibe) => vibe.toJson()).toList(),
       };
 }
 
@@ -724,9 +1121,8 @@ class WorkspacePromptConfig {
         'id': id,
         'name': name,
         'rootConfig': _sanitizeWorkspaceMap(rootConfig),
-        'savedBlocks': savedBlocks
-            .map(_sanitizeWorkspaceMap)
-            .toList(growable: false),
+        'savedBlocks':
+            savedBlocks.map(_sanitizeWorkspaceMap).toList(growable: false),
         if (replaceRuleIds.isNotEmpty) 'replaceRuleIds': replaceRuleIds,
         if (generationProfileId != null)
           'generationProfileId': generationProfileId,

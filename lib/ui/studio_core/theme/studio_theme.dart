@@ -114,6 +114,12 @@ class StudioTheme {
           borderColor: StudioTokens.borderStrong,
         ),
       ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: _segmentedButtonStyle(),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: _iconButtonStyle(),
+      ),
       chipTheme: ChipThemeData(
         backgroundColor: StudioTokens.surface2,
         selectedColor: StudioTokens.primary,
@@ -124,7 +130,8 @@ class StudioTheme {
           color: StudioTokens.onPrimary,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        shape: const StadiumBorder(
+        shape: const RoundedRectangleBorder(
+          borderRadius: StudioTokens.radiusTag,
           side: BorderSide(color: StudioTokens.border),
         ),
       ),
@@ -207,14 +214,36 @@ class StudioTheme {
     Color? borderColor,
   }) {
     return ButtonStyle(
-      foregroundColor: WidgetStateProperty.all(foregroundColor),
-      backgroundColor: WidgetStateProperty.all(backgroundColor),
-      overlayColor: WidgetStateProperty.resolveWith((states) {
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return StudioTokens.textMuted;
+        }
+        return foregroundColor;
+      }),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return backgroundColor == Colors.transparent
+              ? Colors.transparent
+              : StudioTokens.surface2;
+        }
         if (states.contains(WidgetState.pressed)) {
-          return StudioTokens.primary.withAlpha(46);
+          return _pressedButtonBackground(backgroundColor);
         }
         if (states.contains(WidgetState.hovered)) {
-          return StudioTokens.primary.withAlpha(24);
+          return _hoveredButtonBackground(backgroundColor);
+        }
+        return backgroundColor;
+      }),
+      overlayColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.pressed)) {
+          return backgroundColor == Colors.transparent
+              ? StudioTokens.primary.withAlpha(46)
+              : Colors.black.withAlpha(18);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return backgroundColor == Colors.transparent
+              ? StudioTokens.primary.withAlpha(30)
+              : Colors.white.withAlpha(16);
         }
         return null;
       }),
@@ -225,13 +254,148 @@ class StudioTheme {
       shape: WidgetStateProperty.all(
         const StadiumBorder(),
       ),
-      side: WidgetStateProperty.all(
-        BorderSide(color: borderColor ?? Colors.transparent),
-      ),
+      side: WidgetStateProperty.resolveWith((states) {
+        final base = borderColor ?? Colors.transparent;
+        if (states.contains(WidgetState.disabled)) {
+          return BorderSide(
+            color:
+                borderColor == null ? Colors.transparent : StudioTokens.border,
+          );
+        }
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.pressed)) {
+          return BorderSide(
+            color:
+                borderColor == null ? Colors.transparent : StudioTokens.primary,
+          );
+        }
+        return BorderSide(color: base);
+      }),
       textStyle: WidgetStateProperty.all(
         const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
       ),
       elevation: WidgetStateProperty.all(0),
+    );
+  }
+
+  static Color _hoveredButtonBackground(Color backgroundColor) {
+    if (backgroundColor == Colors.transparent) {
+      return StudioTokens.surface3;
+    }
+    if (backgroundColor == StudioTokens.primary) {
+      return const Color(0xFFFFF04A);
+    }
+    if (backgroundColor == StudioTokens.secondary) {
+      return const Color(0xFFB8EC4E);
+    }
+    if (backgroundColor == StudioTokens.warning) {
+      return const Color(0xFFFFAD63);
+    }
+    if (backgroundColor == StudioTokens.danger) {
+      return const Color(0xFFFF6666);
+    }
+    return Color.lerp(backgroundColor, Colors.white, 0.08) ?? backgroundColor;
+  }
+
+  static Color _pressedButtonBackground(Color backgroundColor) {
+    if (backgroundColor == Colors.transparent) {
+      return StudioTokens.surface4;
+    }
+    return Color.lerp(backgroundColor, Colors.black, 0.08) ?? backgroundColor;
+  }
+
+  static ButtonStyle _segmentedButtonStyle() {
+    return ButtonStyle(
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return StudioTokens.textMuted;
+        }
+        if (states.contains(WidgetState.selected)) {
+          return StudioTokens.onPrimary;
+        }
+        return StudioTokens.textPrimary;
+      }),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return StudioTokens.surface2;
+        }
+        if (states.contains(WidgetState.selected)) {
+          return states.contains(WidgetState.hovered)
+              ? StudioTokens.secondary
+              : StudioTokens.primary;
+        }
+        if (states.contains(WidgetState.pressed)) {
+          return StudioTokens.surface4;
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return StudioTokens.surface3;
+        }
+        return Colors.transparent;
+      }),
+      overlayColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.pressed)) {
+          return StudioTokens.primary.withAlpha(42);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return StudioTokens.primary.withAlpha(24);
+        }
+        return null;
+      }),
+      side: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.selected)) {
+          return const BorderSide(color: StudioTokens.primary);
+        }
+        return const BorderSide(color: StudioTokens.borderStrong);
+      }),
+      shape: WidgetStateProperty.all(const StadiumBorder()),
+      padding: WidgetStateProperty.all(
+        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      ),
+      textStyle: WidgetStateProperty.all(
+        const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0),
+      ),
+    );
+  }
+
+  static ButtonStyle _iconButtonStyle() {
+    return ButtonStyle(
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return StudioTokens.textMuted;
+        }
+        if (states.contains(WidgetState.selected)) {
+          return StudioTokens.onPrimary;
+        }
+        return StudioTokens.textSecondary;
+      }),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.disabled)) {
+          return Colors.transparent;
+        }
+        if (states.contains(WidgetState.selected)) {
+          return states.contains(WidgetState.hovered)
+              ? StudioTokens.secondary
+              : StudioTokens.primary;
+        }
+        if (states.contains(WidgetState.pressed)) {
+          return StudioTokens.surface4;
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return StudioTokens.surface3;
+        }
+        return Colors.transparent;
+      }),
+      overlayColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.pressed)) {
+          return StudioTokens.primary.withAlpha(40);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return StudioTokens.primary.withAlpha(22);
+        }
+        return null;
+      }),
+      shape: WidgetStateProperty.all(const CircleBorder()),
     );
   }
 

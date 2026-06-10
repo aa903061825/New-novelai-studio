@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:easy_localization/easy_localization.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:nai_casrand/core/constants/settings.dart';
+import 'package:nai_casrand/data/models/settings.dart';
+import 'package:nai_casrand/ui/core/app_display_settings.dart';
 import 'package:nai_casrand/ui/settings_page/view_models/settings_page_viewmodel.dart';
 import 'package:nai_casrand/ui/core/widgets/editable_list_tile.dart';
 import 'package:nai_casrand/ui/settings_page/widgets/config_selection_page_view.dart';
@@ -11,12 +10,11 @@ import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/constants/defaults.dart';
-
 class SettingsPageView extends StatelessWidget {
+  final Widget? knowledgeAndRulesSection;
   final SettingsPageViewmodel viewmodel = SettingsPageViewmodel();
 
-  SettingsPageView({super.key});
+  SettingsPageView({super.key, this.knowledgeAndRulesSection});
 
   @override
   Widget build(BuildContext context) {
@@ -38,37 +36,8 @@ class SettingsPageView extends StatelessWidget {
     BuildContext context,
     BoxConstraints constraints,
   ) {
-    final isWide = constraints.maxWidth >= 980;
     final horizontalPadding = constraints.maxWidth >= 900 ? 24.0 : 14.0;
 
-    final accountSection = _buildSettingsSection(
-      context,
-      title: tr('NAI_API_key'),
-      icon: Icons.key,
-      accentColor: StudioTokens.primary,
-      children: [_buildApiKeyTile()],
-    );
-    final generationSection = _buildSettingsSection(
-      context,
-      title: tr('generation'),
-      icon: Icons.auto_awesome,
-      accentColor: StudioTokens.warning,
-      children: [
-        _buildBatchTile(),
-        _buildEraseMetadataTile(context),
-      ],
-    );
-    final outputSection = _buildSettingsSection(
-      context,
-      title: tr('output_folder'),
-      icon: Icons.folder_copy_outlined,
-      accentColor: StudioTokens.info,
-      children: [
-        if (!kIsWeb && Platform.isWindows) _buildOutputSelectionTile(),
-        _buildPrefixKeyTile(),
-        if (!kIsWeb) _buildProxyTile(),
-      ],
-    );
     final profileSection = _buildSettingsSection(
       context,
       title: tr('saved_config'),
@@ -76,10 +45,21 @@ class SettingsPageView extends StatelessWidget {
       accentColor: StudioTokens.active,
       children: [
         _buildSavedConfigTile(context),
+        _buildDisplayScaleTile(context),
+        _buildPromptTranslationShortcutTile(context),
         _buildThemeModeTile(context),
         _buildLanguageTile(context),
       ],
     );
+    final naiApiSection = _buildNaiApiSettingsSection(context);
+    final aiSection = _buildAiSettingsSection(context);
+    final cacheSection = _buildCachePackageSection(context);
+    final knowledgeSection = knowledgeAndRulesSection == null
+        ? null
+        : KeyedSubtree(
+            key: const ValueKey('settings-knowledge-and-rules-section'),
+            child: knowledgeAndRulesSection!,
+          );
 
     return SingleChildScrollView(
       padding:
@@ -92,32 +72,13 @@ class SettingsPageView extends StatelessWidget {
             children: [
               _buildSettingsHeader(context),
               const SizedBox(height: 18),
-              if (isWide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _buildSectionColumn([
-                        generationSection,
-                        outputSection,
-                      ]),
-                    ),
-                    const SizedBox(width: 20),
-                    Expanded(
-                      child: _buildSectionColumn([
-                        accountSection,
-                        profileSection,
-                      ]),
-                    ),
-                  ],
-                )
-              else
-                _buildSectionColumn([
-                  generationSection,
-                  accountSection,
-                  outputSection,
-                  profileSection,
-                ]),
+              _buildSectionColumn([
+                profileSection,
+                cacheSection,
+                naiApiSection,
+                aiSection,
+                if (knowledgeSection != null) knowledgeSection,
+              ]),
             ],
           ),
         ),
@@ -213,262 +174,502 @@ class SettingsPageView extends StatelessWidget {
     );
   }
 
-  Widget _buildApiKeyTile() {
-    return EditableListTile(
-        leading: const Icon(Icons.token_outlined),
-        title: tr('NAI_API_key'),
-        notice: tr('NAI_API_key_hint'),
-        currentValue: viewmodel.settings.apiKey,
-        confirmOnSubmit: true,
-        onEditComplete: (value) => viewmodel.setApiKey(value));
-  }
-
-  Widget _buildBatchTile() {
-    final displayedNumberOfRequests = viewmodel.settings.numberOfRequests == 0
-        ? '∞'
-        : viewmodel.settings.numberOfRequests.toString();
-    return ExpansionTile(
-      leading: const Icon(Icons.schedule),
-      title: Text(tr('batch_settings')),
-      subtitle: Text(tr('batch_settings_info', namedArgs: {
-        'batch_count': viewmodel.settings.batchCount.toString(),
-        'interval': viewmodel.settings.batchIntervalSec.toString(),
-        'number_of_requests': displayedNumberOfRequests,
-      })),
+  Widget _buildNaiApiSettingsSection(BuildContext context) {
+    return _buildSettingsSection(
+      context,
+      title: tr('nai_api_settings'),
+      icon: Icons.cloud_sync_outlined,
+      accentColor: StudioTokens.primary,
       children: [
-        // Batch count
         Padding(
-          padding: const EdgeInsets.only(left: 20),
-          child: EditableListTile(
-              leading: const Icon(Icons.checklist),
-              title: tr('batch_count'),
-              currentValue: viewmodel.settings.batchCount.toString(),
-              keyboardType: TextInputType.number,
-              confirmOnSubmit: true,
-              onEditComplete: (value) => viewmodel.setBatchCount(value)),
-        ),
-        // Batch interval
-        Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: EditableListTile(
-                leading: const Icon(Icons.hourglass_empty),
-                title: tr('batch_interval'),
-                currentValue: viewmodel.settings.batchIntervalSec.toString(),
-                keyboardType: TextInputType.number,
-                confirmOnSubmit: true,
-                onEditComplete: (value) =>
-                    viewmodel.setBatchIntervalSet(value))),
-        Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: EditableListTile(
-                leading: const Icon(Icons.tune),
-                title: tr('batch_interval_jitter_min'),
-                currentValue:
-                    viewmodel.settings.batchIntervalJitterMinSec.toString(),
-                keyboardType: TextInputType.number,
-                confirmOnSubmit: true,
-                onEditComplete: (value) =>
-                    viewmodel.setBatchIntervalJitterMin(value))),
-        Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: EditableListTile(
-                leading: const Icon(Icons.tune),
-                title: tr('batch_interval_jitter_max'),
-                currentValue:
-                    viewmodel.settings.batchIntervalJitterMaxSec.toString(),
-                keyboardType: TextInputType.number,
-                confirmOnSubmit: true,
-                onEditComplete: (value) =>
-                    viewmodel.setBatchIntervalJitterMax(value))),
-        Padding(
-          padding: const EdgeInsets.only(left: 20),
-          child: CheckboxListTile(
-            secondary: const Icon(Icons.refresh),
-            title: Text(tr('retry_on_429_enabled')),
-            value: viewmodel.settings.retryOn429Enabled,
-            onChanged: (value) => viewmodel.setRetryOn429Enabled(value),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= 760;
+              final tokenField = TextFormField(
+                key: const ValueKey('settings-nai-api-token'),
+                initialValue: viewmodel.settings.apiKey,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: tr('NAI_API_key'),
+                  helperText: tr('NAI_API_key_hint'),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: viewmodel.setApiKey,
+              );
+              final proxyField = TextFormField(
+                key: const ValueKey('settings-nai-http-proxy'),
+                initialValue: viewmodel.settings.proxy,
+                decoration: InputDecoration(
+                  labelText: tr('proxy_settings'),
+                  helperText: tr('proxy_settings_notice'),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: viewmodel.setProxy,
+              );
+
+              if (!twoColumns) {
+                return Column(
+                  children: [
+                    tokenField,
+                    const SizedBox(height: 12),
+                    proxyField,
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: tokenField),
+                  const SizedBox(width: 12),
+                  Expanded(child: proxyField),
+                ],
+              );
+            },
           ),
         ),
-        if (viewmodel.settings.retryOn429Enabled)
-          Padding(
-            padding: const EdgeInsets.only(left: 40),
-            child: EditableListTile(
-              leading: const Icon(Icons.timer_outlined),
-              title: tr('retry_on_429_delay_sec'),
-              currentValue: viewmodel.settings.retryOn429DelaySec.toString(),
-              keyboardType: TextInputType.number,
-              confirmOnSubmit: true,
-              onEditComplete: (value) => viewmodel.setRetryOn429DelaySec(value),
-            ),
-          ),
-        if (viewmodel.settings.retryOn429Enabled)
-          Builder(
-            builder: (context) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-              child: Text(
-                tr('retry_on_429_description'),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
-        // Number of requests
-        Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: EditableListTile(
-              leading: const Icon(Icons.alarm),
-              title: tr('image_number_to_generate'),
-              currentValue: displayedNumberOfRequests,
-              editValue: viewmodel.settings.numberOfRequests.toString(),
-              notice: '0 → ∞',
-              onEditComplete: (value) => viewmodel.setNumberOfRequests(value),
-              keyboardType: TextInputType.number,
-              confirmOnSubmit: true,
-            )),
       ],
     );
   }
 
-  Widget _buildEraseMetadataTile(BuildContext context) {
-    List<Widget> tiles = [
-      CheckboxListTile(
-          secondary: const Icon(Icons.delete_sweep),
-          title: Text(tr('metadata_erase_enabled')),
-          value: viewmodel.settings.metadataEraseEnabled,
-          onChanged: (value) => viewmodel.setEraseMetadataEnabled(value))
-    ];
-    if (viewmodel.settings.metadataEraseEnabled) {
-      tiles.add(Padding(
-          padding: const EdgeInsets.only(left: 20),
-          child: CheckboxListTile(
-              secondary: const Icon(Icons.edit_note),
-              title: Text(tr('custom_metadata_enabled')),
-              value: viewmodel.settings.customMetadataEnabled,
-              onChanged: (value) =>
-                  viewmodel.setCustomMetadataEnabled(value))));
-    }
-    if (viewmodel.settings.metadataEraseEnabled &&
-        viewmodel.settings.customMetadataEnabled) {
-      tiles.add(Padding(
-          padding: const EdgeInsets.only(left: 30),
-          child: ListTile(
-            title: Text(tr('custom_metadata_content')),
-            subtitle: Text(
-              viewmodel.settings.customMetadataContent,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onTap: () => _showEditCustomMetadataDialog(context),
-          )));
-    }
-    return Column(
-      children: tiles,
-    );
-  }
-
-  Widget _buildOutputSelectionTile() {
-    if (kIsWeb || Platform.isAndroid) return const SizedBox.shrink();
-    final outputDirPath = viewmodel.settings.outputFolderPath == ''
-        ? '<${tr('system_document_folder')}>\\nai_generated'
-        : viewmodel.settings.outputFolderPath;
-    return ListTile(
-      leading: const Icon(Icons.folder_outlined),
-      title: Text(tr('output_folder')),
-      subtitle: Text(outputDirPath),
-      onTap: () => viewmodel.pickOutputFolderPath(),
-    );
-  }
-
-  Widget _buildProxyTile() {
-    if (kIsWeb) return const SizedBox.shrink();
-    final proxy = viewmodel.settings.proxy;
-    return EditableListTile(
-      leading: const Icon(Icons.route),
-      title: tr('proxy_settings'),
-      currentValue: proxy == '' ? tr('proxy_settings_direct') : proxy,
-      editValue: proxy,
-      notice: tr('proxy_settings_notice'),
-      confirmOnSubmit: true,
-      onEditComplete: (value) => viewmodel.setProxy(value),
-    );
-  }
-
-  void _showEditCustomMetadataDialog(context) {
-    final controller =
-        TextEditingController(text: viewmodel.settings.customMetadataContent);
-    submit() {
-      viewmodel.setCustomMetadataContent(controller.text);
-      Navigator.of(context).pop();
-    }
-
-    showDialog(
-        context: context,
-        builder: (context) => StatefulBuilder(
-              builder: (context, setState) => AlertDialog(
-                title: Text(
-                    tr('edit') + tr('colon') + tr('custom_metadata_content')),
-                content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(tr('edit_custom_metadata_content_hint')),
-                      TextField(
-                        maxLines: null,
-                        autofocus: true,
-                        controller: controller,
-                        onSubmitted: (_) => submit(),
-                      )
-                    ]),
-                actions: [
-                  Row(
-                    children: [
-                      TextButton(
-                          onPressed: () => setState(
-                              () => controller.text = defaultWatermarkContent),
-                          child: const Text('👻')),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(tr('cancel')),
+  Widget _buildAiSettingsSection(BuildContext context) {
+    return _buildSettingsSection(
+      context,
+      title: 'AI 设置',
+      icon: Icons.smart_toy_outlined,
+      accentColor: StudioTokens.info,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= 760;
+              final cards = [
+                _buildAiCredentialCard(
+                  context,
+                  title: '剧本 AI',
+                  description: '用于后续自动识别剧本角色、服装阶段和映射建议。',
+                  baseUrlKey: const ValueKey('settings-script-ai-base-url'),
+                  tokenKey: const ValueKey('settings-script-ai-token'),
+                  modelKey: const ValueKey('settings-script-ai-model'),
+                  baseUrlValue: viewmodel.settings.scriptAiBaseUrl,
+                  tokenValue: viewmodel.settings.scriptAiToken,
+                  modelValue: viewmodel.settings.scriptAiModel,
+                  onBaseUrlChanged: viewmodel.setScriptAiBaseUrl,
+                  onTokenChanged: viewmodel.setScriptAiToken,
+                  onModelChanged: viewmodel.setScriptAiModel,
+                  testConnectionKey:
+                      const ValueKey('settings-script-ai-test-connection'),
+                  testStatusKey:
+                      const ValueKey('settings-script-ai-test-status'),
+                  testStatus: viewmodel.scriptAiTestStatus,
+                  isTestingConnection: viewmodel.isTestingScriptAiConnection,
+                  onTestConnection: viewmodel.testScriptAiConnection,
+                ),
+                _buildAiCredentialCard(
+                  context,
+                  title: '翻译 AI',
+                  description: '用于提示词翻译、标签解释和翻译缓存补全。',
+                  baseUrlKey:
+                      const ValueKey('settings-translation-ai-base-url'),
+                  tokenKey: const ValueKey('settings-translation-ai-token'),
+                  modelKey: const ValueKey('settings-translation-ai-model'),
+                  headerExtras: [
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: SegmentedButton<TranslationProviderMode>(
+                        key: const ValueKey('settings-translation-provider'),
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(
+                            value: TranslationProviderMode.ai,
+                            label: Text('AI'),
+                          ),
+                          ButtonSegment(
+                            value: TranslationProviderMode.google,
+                            label: Text('Google'),
+                          ),
+                        ],
+                        selected: {
+                          viewmodel.settings.translationProviderMode,
+                        },
+                        onSelectionChanged: (selection) {
+                          final mode = selection.firstOrNull;
+                          if (mode == null) {
+                            return;
+                          }
+                          viewmodel.setTranslationProvider(mode.name);
+                        },
                       ),
-                      TextButton(
-                        onPressed: () => submit(),
-                        child: Text(tr('confirm')),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '默认翻译先查本地缓存；在线翻译按这里的提供方选择。',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: StudioTokens.textMuted,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        FilledButton.icon(
+                          key: const ValueKey(
+                            'settings-translation-cache-ai-refresh',
+                          ),
+                          onPressed:
+                              viewmodel.isRefreshingTranslationCacheWithAi
+                                  ? null
+                                  : viewmodel.refreshTranslationCacheWithAi,
+                          icon: viewmodel.isRefreshingTranslationCacheWithAi
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.auto_fix_high_outlined),
+                          label: const Text('AI 更新缓存'),
+                        ),
+                        Text(
+                          viewmodel.translationCacheRefreshStatus,
+                          key: const ValueKey(
+                            'settings-translation-cache-refresh-status',
+                          ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textMuted,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  baseUrlValue: viewmodel.settings.translationAiBaseUrl,
+                  tokenValue: viewmodel.settings.translationAiToken,
+                  modelValue: viewmodel.settings.translationAiModel,
+                  onBaseUrlChanged: viewmodel.setTranslationAiBaseUrl,
+                  onTokenChanged: viewmodel.setTranslationAiToken,
+                  onModelChanged: viewmodel.setTranslationAiModel,
+                  testConnectionKey: const ValueKey(
+                    'settings-translation-ai-test-connection',
+                  ),
+                  testStatusKey:
+                      const ValueKey('settings-translation-ai-test-status'),
+                  testStatus: viewmodel.translationAiTestStatus,
+                  isTestingConnection:
+                      viewmodel.isTestingTranslationAiConnection,
+                  onTestConnection: viewmodel.testTranslationAiConnection,
+                ),
+              ];
+              if (!twoColumns) {
+                return Column(
+                  children: [
+                    cards[0],
+                    const SizedBox(height: 12),
+                    cards[1],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: cards[0]),
+                  const SizedBox(width: 12),
+                  Expanded(child: cards[1]),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCachePackageSection(BuildContext context) {
+    return _buildSettingsSection(
+      context,
+      title: '缓存包',
+      icon: Icons.inventory_2_outlined,
+      accentColor: StudioTokens.warning,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.icon(
+                key: const ValueKey('settings-cache-import-zip'),
+                onPressed: viewmodel.isImportingStudioCache
+                    ? null
+                    : () => viewmodel.importStudioCacheFromZip(context),
+                icon: viewmodel.isImportingStudioCache
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    ],
+                    : const Icon(Icons.archive_outlined),
+                label: const Text('载入缓存 ZIP'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('settings-cache-import-folder'),
+                onPressed: viewmodel.isImportingStudioCache
+                    ? null
+                    : () => viewmodel.importStudioCacheFromDirectory(context),
+                icon: const Icon(Icons.folder_open_outlined),
+                label: const Text('载入缓存文件夹'),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: Text(
+                  viewmodel.studioCacheImportStatus,
+                  key: const ValueKey('settings-cache-import-status'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiCredentialCard(
+    BuildContext context, {
+    required String title,
+    required String description,
+    required Key baseUrlKey,
+    required Key tokenKey,
+    List<Widget> headerExtras = const [],
+    bool showCredentialFields = true,
+    Key? modelKey,
+    required String baseUrlValue,
+    required String tokenValue,
+    String? modelValue,
+    required ValueChanged<String> onBaseUrlChanged,
+    required ValueChanged<String> onTokenChanged,
+    ValueChanged<String>? onModelChanged,
+    Key? testConnectionKey,
+    Key? testStatusKey,
+    String? testStatus,
+    bool isTestingConnection = false,
+    VoidCallback? onTestConnection,
+  }) {
+    final translationGoogleSelected =
+        tokenKey == const ValueKey('settings-translation-ai-token') &&
+            viewmodel.settings.translationProviderMode ==
+                TranslationProviderMode.google;
+    final showFields = showCredentialFields && !translationGoogleSelected;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: StudioTokens.surface3,
+        borderRadius: StudioTokens.radiusSlot,
+        border: StudioTokens.cardBorder,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: StudioTokens.textMuted,
+                ),
+          ),
+          ...headerExtras,
+          if (showFields) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              key: baseUrlKey,
+              initialValue: baseUrlValue,
+              decoration: const InputDecoration(
+                labelText: '接口地址',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: onBaseUrlChanged,
+            ),
+            if (modelKey != null &&
+                modelValue != null &&
+                onModelChanged != null) ...[
+              const SizedBox(height: 10),
+              TextFormField(
+                key: modelKey,
+                initialValue: modelValue,
+                decoration: const InputDecoration(
+                  labelText: '模型',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: onModelChanged,
+              ),
+            ],
+            const SizedBox(height: 10),
+            TextFormField(
+              key: tokenKey,
+              initialValue: tokenValue,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Token',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: onTokenChanged,
+            ),
+            if (testStatus != null && onTestConnection != null) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 360),
+                    child: Text(
+                      testStatus,
+                      key: testStatusKey,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: StudioTokens.textMuted,
+                          ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: testConnectionKey,
+                    onPressed: isTestingConnection ? null : onTestConnection,
+                    icon: isTestingConnection
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.network_check_outlined),
+                    label: Text(isTestingConnection ? '测试中' : '测试连通性'),
                   ),
                 ],
               ),
-            ));
-  }
-
-  Widget _buildPrefixKeyTile() {
-    final shownPrefix = viewmodel.settings.fileNamePrefixKey.isNotEmpty
-        ? viewmodel.settings.fileNamePrefixKey
-        : 'nai-generated';
-    return EditableListTile(
-      leading: const Icon(Icons.description),
-      title: tr('output_file_name_prefix'),
-      notice: tr('output_file_name_prefix_hint'),
-      editValue: viewmodel.settings.fileNamePrefixKey,
-      currentValue: shownPrefix,
-      confirmOnSubmit: true,
-      onEditComplete: (value) => viewmodel.setFileNamePrefixKey(value),
+            ],
+          ] else ...[
+            const SizedBox(height: 12),
+            Text(
+              'Google 模式会直接使用内置翻译接口，不需要这里的 AI 地址、模型或 Token。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: StudioTokens.textSecondary,
+                  ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
   Widget _buildThemeModeTile(BuildContext context) {
+    final themeMode = viewmodel.payloadConfig.settings.themeMode;
     return SelectableListTile(
       title: tr('theme_mode'),
       leading: const Icon(Icons.dark_mode_outlined),
-      currentValue: viewmodel.payloadConfig.settings.themeMode,
+      currentValue: themeMode,
+      currentValueText: _themeModeLabel(themeMode),
       options: themeModeStrings,
+      optionsText: const ['浅色', '深色', '跟随系统'],
       onSelectComplete: (value) => viewmodel.setThemeMode(value, context),
+    );
+  }
+
+  Widget _buildDisplayScaleTile(BuildContext context) {
+    final scale = viewmodel.payloadConfig.settings.uiTextScale;
+    final percent = (scale * 100).round();
+    final selectedScale = _nearestDisplayScale(scale);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.format_size_outlined),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '字号缩放',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$percent%',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              SegmentedButton<double>(
+                segments: const [
+                  ButtonSegment(value: 1.0, label: Text('标准')),
+                  ButtonSegment(value: 1.1, label: Text('舒适')),
+                  ButtonSegment(value: 1.2, label: Text('大')),
+                  ButtonSegment(value: 1.3, label: Text('特大')),
+                ],
+                selected: {selectedScale},
+                onSelectionChanged: (values) {
+                  viewmodel.setUiTextScale(values.single);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '界面显示',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromptTranslationShortcutTile(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.sell_outlined),
+      title: const Text('提示词翻译快捷键'),
+      subtitle: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(AppDisplaySettings.promptTranslationShortcutLabel),
+          Text('翻译鼠标悬停的提示词卡片。'),
+        ],
+      ),
+      trailing: TextButton(
+        onPressed: AppDisplaySettings.translateHoveredPromptCard,
+        child: const Text('翻译悬停卡片'),
+      ),
+    );
+  }
+
+  double _nearestDisplayScale(double scale) {
+    const options = [1.0, 1.1, 1.2, 1.3];
+    return options.reduce(
+      (best, option) =>
+          (option - scale).abs() < (best - scale).abs() ? option : best,
     );
   }
 
   Widget _buildLanguageTile(BuildContext context) {
     return ListTile(
-      title: const Text('Language'),
+      title: const Text('语言'),
       leading: const Icon(Icons.translate),
       subtitle: Text(context.locale.toLanguageTag()),
       onTap: () => _showLanguageSelectionDialog(context),
@@ -488,7 +689,7 @@ class SettingsPageView extends StatelessWidget {
     showDialog(
         context: context,
         builder: (context) => AlertDialog(
-                title: const Text('Select language...'),
+                title: const Text('选择语言'),
                 content: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: locales
@@ -524,4 +725,13 @@ class SettingsPageView extends StatelessWidget {
       },
     );
   }
+}
+
+String _themeModeLabel(String value) {
+  return switch (value) {
+    'light' => '浅色',
+    'dark' => '深色',
+    'system' => '跟随系统',
+    _ => value,
+  };
 }

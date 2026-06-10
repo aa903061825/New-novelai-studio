@@ -62,6 +62,126 @@ void main() {
     expect(character.toJson()['id'], 'char-1');
   });
 
+  test('CharacterEntry Recast fields default empty for old JSON', () {
+    final character = CharacterEntry.fromJson({
+      'id': 'char-1',
+      'name': 'Heroine',
+      'traits': {'front_full': 'blue eyes'},
+    });
+
+    expect(character.anchorTags, isEmpty);
+    expect(character.identityTags, isEmpty);
+    expect(character.conflictTags, isEmpty);
+    expect(character.defaultCenters, isEmpty);
+    expect(character.aliases, isEmpty);
+    expect(character.recastNotes, '');
+  });
+
+  test('CharacterEntry Recast fields round trip', () {
+    final character = CharacterEntry.fromJson({
+      'id': 'char-1',
+      'name': 'Heroine',
+      'traits': {'front_full': 'blue eyes'},
+      'anchorTags': ['vulpisfoglia_(arknights)'],
+      'identityTags': ['fox_tail'],
+      'conflictTags': ['cat_tail'],
+      'defaultCenters': [
+        {'x': 0.25, 'y': 0.55},
+      ],
+      'aliases': ['vulpisfoglia'],
+      'recastNotes': 'source script extraction',
+    });
+
+    final restored = CharacterEntry.fromJson(character.toJson());
+
+    expect(restored.anchorTags, ['vulpisfoglia_(arknights)']);
+    expect(restored.identityTags, ['fox_tail']);
+    expect(restored.conflictTags, ['cat_tail']);
+    expect(restored.defaultCenters.single.x, 0.25);
+    expect(restored.defaultCenters.single.y, 0.55);
+    expect(restored.aliases, ['vulpisfoglia']);
+    expect(restored.recastNotes, 'source script extraction');
+    expect(restored.toJson(), character.toJson());
+  });
+
+  test('WorkspaceOutfit part tags round trip', () {
+    final character = CharacterEntry.fromJson({
+      'id': 'char-1',
+      'name': 'Heroine',
+      'traits': {'front_full': 'blue eyes'},
+      'outfits': [
+        {
+          'id': 'outfit-1',
+          'name': 'Garden Dress',
+          'tags': {
+            'front_full': 'white dress, fox_tail',
+            'front_upper': 'white dress',
+            'front_lower': 'white dress',
+          },
+          'partTags': {
+            'upperBodyTags': ['blue_eyes', 'fox_ears'],
+            'upperClothingTags': ['white_dress'],
+            'lowerBodyTags': ['fox_tail'],
+            'lowerClothingTags': ['white_dress'],
+            'weaponTags': ['staff'],
+          },
+        }
+      ],
+    });
+
+    final restored = CharacterEntry.fromJson(character.toJson());
+    final outfit = restored.outfits.single;
+
+    expect(outfit.partTags.upperBodyTags, ['blue_eyes', 'fox_ears']);
+    expect(outfit.partTags.upperClothingTags, ['white_dress']);
+    expect(outfit.partTags.lowerBodyTags, ['fox_tail']);
+    expect(outfit.partTags.lowerClothingTags, ['white_dress']);
+    expect(outfit.partTags.weaponTags, ['staff']);
+    expect(restored.toJson(), character.toJson());
+  });
+
+  test('ArtistChain structured Recast fields round trip', () {
+    final chain = ArtistChain.fromJson({
+      'id': 'artist-1',
+      'name': 'Painter Mix',
+      'artists': [
+        {
+          'name': 'terasu_mc',
+          'prefix': 'artist:',
+          'weight': 0.8,
+          'groupedWith': 'main',
+        }
+      ],
+      'globalNegatives': [
+        {'tag': 'artist:collaboration', 'weight': -6}
+      ],
+      'styleHintsWeighted': [
+        {'tag': 'year 2024', 'weight': 1}
+      ],
+      'vibeRefs': [
+        {
+          'id': 'qaq-2',
+          'name': 'QAQ 2',
+          'vibeB64': 'encoded-vibe',
+          'referenceStrength': 0.4,
+        }
+      ],
+    });
+
+    final restored = ArtistChain.fromJson(chain.toJson());
+
+    expect(restored.artists.single.name, 'terasu_mc');
+    expect(restored.artists.single.prefix, 'artist:');
+    expect(restored.artists.single.weight, 0.8);
+    expect(restored.artists.single.groupedWith, 'main');
+    expect(restored.globalNegatives.single.weight, -6);
+    expect(restored.styleHintsWeighted.single.tag, 'year 2024');
+    expect(restored.vibeRefs.single.id, 'qaq-2');
+    expect(restored.vibeRefs.single.vibeB64, 'encoded-vibe');
+    expect(restored.vibeRefs.single.referenceStrength, 0.4);
+    expect(restored.toJson(), chain.toJson());
+  });
+
   test('GenerationProfile keeps secret refs separate from raw secrets', () {
     final profile = GenerationProfile.fromJson({
       'id': 'profile-1',
@@ -75,7 +195,8 @@ void main() {
     expect(profile.params['steps'], 28);
     expect(profile.secretRef, 'default_nai_token');
     expect(profile.toJson()['api_key'], isNull);
-    expect(profile.toJson().toString(), isNot(contains('pst-ignored-top-level')));
+    expect(
+        profile.toJson().toString(), isNot(contains('pst-ignored-top-level')));
   });
 
   test('GenerationProfile sanitizes nested secret-shaped values', () {
@@ -128,10 +249,18 @@ void main() {
       rootConfig: {
         'selectionMethod': 'all',
         'strs': ['safe prompt', 'Bearer local-only-token'],
-        'private_block': {'strs': ['private prompt']},
+        'private_block': {
+          'strs': ['private prompt']
+        },
         'children': [
-          {'comment': 'camera', 'strs': ['wide shot']},
-          {'comment': 'token', 'strs': ['pst-nested-secret']},
+          {
+            'comment': 'camera',
+            'strs': ['wide shot']
+          },
+          {
+            'comment': 'token',
+            'strs': ['pst-nested-secret']
+          },
         ],
       },
       savedBlocks: [
@@ -145,8 +274,8 @@ void main() {
 
     final json = promptConfig.toJson();
     final rootConfig = json['rootConfig'] as Map<String, dynamic>;
-    final savedBlock = (json['savedBlocks'] as List<dynamic>).single
-        as Map<String, dynamic>;
+    final savedBlock =
+        (json['savedBlocks'] as List<dynamic>).single as Map<String, dynamic>;
     final encoded = json.toString();
 
     expect(rootConfig['strs'], ['safe prompt']);
@@ -179,8 +308,8 @@ void main() {
     );
 
     final json = batchPlan.toJson();
-    final item = (json['items'] as List<dynamic>).single
-        as Map<String, dynamic>;
+    final item =
+        (json['items'] as List<dynamic>).single as Map<String, dynamic>;
     final nested = item['nested'] as Map<String, dynamic>;
     final statusSnapshot = json['statusSnapshot'] as Map<String, dynamic>;
     final encoded = json.toString();

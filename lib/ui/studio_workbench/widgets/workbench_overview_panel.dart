@@ -5,6 +5,7 @@ import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
 
 class WorkbenchOverviewPanel extends StatelessWidget {
   final PayloadConfig payloadConfig;
@@ -35,8 +36,7 @@ class WorkbenchOverviewPanel extends StatelessWidget {
     final prompt = payloadConfig.useOverridePrompt
         ? payloadConfig.overridePrompt
         : payloadConfig.rootPromptConfig.comment;
-    final promptText =
-        prompt.trim().isEmpty ? '把素材送进来，或直接写下这次想生成的 Prompt。' : prompt;
+    final promptGroups = promptTagGroupsFromPayloadConfig(payloadConfig);
     final fragments = service?.fragments ?? const [];
 
     return Padding(
@@ -70,22 +70,33 @@ class WorkbenchOverviewPanel extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Container(
-              constraints: const BoxConstraints(minHeight: 54),
+              constraints: const BoxConstraints(minHeight: 54, maxHeight: 260),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: StudioTokens.surfaceBase,
                 borderRadius: StudioTokens.radiusSlot,
                 border: StudioTokens.cardBorder,
               ),
-              child: Text(
-                promptText,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: prompt.trim().isEmpty
-                          ? StudioTokens.textMuted
-                          : StudioTokens.textPrimary,
-                    ),
+              child: SingleChildScrollView(
+                child: promptGroups.isNotEmpty
+                    ? PromptTagGroupDisplay(
+                        key: const ValueKey('workbench-overview-prompt-tags'),
+                        groups: promptGroups,
+                        groupKeyPrefix: 'workbench-overview-prompt-group',
+                        tagKeyPrefix: 'workbench-overview-prompt-group-tags',
+                        dense: true,
+                        maxTags: 8,
+                        enableHoverShortcut: true,
+                        initialLayoutMode: PromptTagLayoutMode.grouped,
+                      )
+                    : PromptTagDisplay(
+                        text: prompt,
+                        dense: true,
+                        maxTags: 8,
+                        emptyText:
+                            '\u628a\u7d20\u6750\u9001\u8fdb\u6765\uff0c\u6216\u76f4\u63a5\u5199\u4e0b\u8fd9\u6b21\u60f3\u751f\u6210\u7684 Prompt\u3002',
+                        enableHoverShortcut: prompt.trim().isNotEmpty,
+                      ),
               ),
             ),
             if (fragments.isNotEmpty) ...[

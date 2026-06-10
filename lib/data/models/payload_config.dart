@@ -71,10 +71,21 @@ class PayloadConfig {
     required this.overridePrompt,
     required this.useOverridePrompt,
     required this.useCharacterPromptWithOverride,
-  }) : globalGenerationParams =
-            globalGenerationParams ?? GlobalGenerationParams.fromParamConfig(paramConfig),
+  })  : globalGenerationParams = globalGenerationParams ??
+            GlobalGenerationParams.fromParamConfig(paramConfig),
         generationRuntimeState =
             generationRuntimeState ?? GenerationRuntimeState();
+
+  VibeConfigV4? get scriptVibeConfigV4 =>
+      vibeConfigListV4.isEmpty ? null : vibeConfigListV4.first;
+
+  void setScriptVibeConfigV4(VibeConfigV4? config) {
+    vibeConfigListV4 = config == null ? [] : [config];
+  }
+
+  void setScriptVibeConfigV4List(List<VibeConfigV4> configs) {
+    vibeConfigListV4 = List.unmodifiable(configs);
+  }
 
   Map<String, String> getHeaders() {
     return {
@@ -105,6 +116,7 @@ class PayloadConfig {
       'use_precise_reference': usePreciseReference,
       'precise_reference_list':
           preciseReferenceList.map((elem) => elem.toJson()).toList(),
+      'i2i_config': i2iConfig.toJson(),
     };
   }
 
@@ -164,8 +176,11 @@ class PayloadConfig {
     payloadConfig.promptReplaceRules = replaceRuleList;
     payloadConfig.vibeConfigList = vibeList;
     payloadConfig.vibeConfigListV4 = vibeV4List;
-    payloadConfig.usePreciseReference = jsonData['use_precise_reference'] ?? false;
+    payloadConfig.usePreciseReference =
+        jsonData['use_precise_reference'] ?? false;
     payloadConfig.preciseReferenceList = preciseList;
+    payloadConfig.i2iConfig =
+        I2IConfig.fromJson(_readObject(jsonData['i2i_config']));
     return payloadConfig;
   }
 
@@ -229,6 +244,7 @@ class PayloadConfig {
         .whereType<Map<String, dynamic>>()
         .map((configJson) => PreciseReferenceConfig.fromJson(configJson))
         .toList();
+    i2iConfig.loadJson(_readObject(jsonData['i2i_config']));
     if (preserveCurrentApiKey) {
       settings.apiKey = currentApiKey;
     }
@@ -242,5 +258,12 @@ class PayloadConfig {
     for (final characterConfig in characterConfigList) {
       characterConfig.positivePromptConfig.resetSelectionState();
     }
+  }
+
+  static Map<String, dynamic> _readObject(dynamic value) {
+    if (value is Map) {
+      return value.cast<String, dynamic>();
+    }
+    return const <String, dynamic>{};
   }
 }

@@ -187,6 +187,22 @@ class PromptConfig {
     this.enabled = true,
   });
 
+  static List<String> splitStrRows(String value) {
+    return value
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static List<String> normalizeStrRows(Iterable<Object?> values) {
+    return values
+        .expand((value) => splitStrRows(value?.toString() ?? ''))
+        .toList(growable: false);
+  }
+
   factory PromptConfig.fromJson(Map<String, dynamic> json) {
     int upper, lower;
     if (json['randomBrackets'] != null) {
@@ -208,9 +224,7 @@ class PromptConfig {
       type: json['type'],
       comment: json['comment'],
       filter: json['filter'],
-      strs:
-          (json['strs'] as List<dynamic>?)?.map((e) => e as String).toList() ??
-              [],
+      strs: normalizeStrRows(json['strs'] as List<dynamic>? ?? const []),
       prompts: (json['prompts'] as List<dynamic>?)
               ?.map((e) => PromptConfig.fromJson(e))
               .toList() ??
@@ -245,6 +259,10 @@ class PromptConfig {
   }
 
   String addRandomBrackets(String s) {
+    final content = s.trim();
+    if (content.isEmpty) {
+      return '';
+    }
     int n = randomBracketsLower +
         Random().nextInt(randomBracketsUpper - randomBracketsLower + 1);
     List<String> brackets;
@@ -257,7 +275,7 @@ class PromptConfig {
     }
 
     final bracketString = List.from(brackets.map((b) => b * n));
-    return bracketString[0] + s + bracketString[1];
+    return bracketString[0] + content + bracketString[1];
   }
 
   NestedPrompt getPrmpts() {
@@ -324,7 +342,11 @@ class PromptConfig {
           : const PromptSelectionMetadata();
       return NestedPromptString(
         title: comment,
-        content: chosenPrompts.map((p) => addRandomBrackets(p)).join(', '),
+        content: chosenPrompts
+            .whereType<String>()
+            .map(addRandomBrackets)
+            .where((prompt) => prompt.isNotEmpty)
+            .join(', '),
         metadata: metadata,
       );
     } else if (type == 'config') {

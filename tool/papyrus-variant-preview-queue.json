@@ -1,0 +1,30 @@
+[
+  {
+    "id": "legacy-character-sheet-r10-legacy-character-sheet-r10-outfit-3-nai-v45-danbooru-clothing-v2",
+    "type": "outfit",
+    "sourceId": "legacy-character-sheet-r10-outfit-3",
+    "characterId": "legacy-character-sheet-r10",
+    "subjectName": "莎草 / 下一个任务",
+    "imageRef": "assets/references/novelai-character-previews/legacy-character-sheet-r10-legacy-character-sheet-r10-outfit-3-nai-v45-danbooru-clothing-v2.png",
+    "title": "莎草 / 下一个任务 / variant outfit preview",
+    "prompt": "artist:akiyama_enma, artist:ciloranko, artist:ningen_mame, 下一个任务, papyrus_(arknights), papyrus_(the_next_side_quest)_(arknights), official_alternate_costume, white_shirt, black_hoodie, hood_down, hood, sleeveless, bare_shoulders, red_ribbon, red_bow, white_belt, clothing_cutout, cleavage_cutout, elbow_gloves, fingerless_gloves, white_gloves, red_skirt, high-waist_skirt, pleated_skirt, black_boots, thigh_boots, zettai_ryouiki, sword, sheath, skirt, boots, animal_ears, cat_ears, green_eyes, orange_hair, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, single character, one person only, full body, head-to-toe, entire body visible, feet visible, centered composition, standing pose, relaxed arms, calm expression, simple white background, clean studio lighting, clean readable outfit, accurate costume details, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, collage, grid, panel, comic, manga panel, speech bubble, chibi, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, upper body only, lower body only, close-up, portrait crop, cropped legs, feet only, extra arms, extra legs, duplicate, clone, bad feet, malformed feet, green_dress, grey_dress, long_dress, multicolored_dress, white_hood, green_sandals, sandals, id_card, lanyard, staff, holding_staff, hood_up, animal_ear_hood, witch_hat, oversized_hood, hat",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 832,
+    "height": 1216,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\novelai-character-previews\\legacy-character-sheet-r10-legacy-character-sheet-r10-outfit-3-nai-v45-danbooru-clothing-v2.png"
+  }
+]

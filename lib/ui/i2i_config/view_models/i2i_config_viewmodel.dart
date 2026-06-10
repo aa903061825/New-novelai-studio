@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:nai_casrand/core/constants/image_formats.dart';
+import 'package:nai_casrand/data/models/generation_size.dart';
 import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/services/image_service.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
@@ -20,21 +23,43 @@ class I2iVibeViewmodel extends ChangeNotifier {
 
   void setOverridePromptEnabled(bool? value) {
     if (value == null) return;
-    config.overridePromptEnabled = value;
+    config.setOverridePromptEnabled(value);
     notifyListeners();
   }
 
   void setOverridePrompt(String value) {
-    config.overridePrompt = value;
+    config.setOverridePrompt(value);
     notifyListeners();
   }
 
   void removeImage() {
-    config.imageB64 = null;
+    config.clearImage();
     notifyListeners();
   }
 
-  addImage(BuildContext context) {}
+  Future<void> addImage(
+    BuildContext context,
+    Function(Map<String, dynamic>) paramReadSuccessEvent,
+    Function paramReadFailureEvent,
+  ) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+
+    final bytes = file.bytes ??
+        (file.path == null ? null : await File(file.path!).readAsBytes());
+    if (bytes == null || bytes.isEmpty) return;
+
+    await loadImageBytes(
+      bytes,
+      paramReadSuccessEvent,
+      paramReadFailureEvent,
+    );
+  }
 
   handleDragEvent(
     PerformDropEvent event,
@@ -50,7 +75,6 @@ class I2iVibeViewmodel extends ChangeNotifier {
         paramReadSuccessEvent,
         paramReadFailureEvent,
       );
-      notifyListeners();
     });
   }
 
@@ -63,7 +87,10 @@ class I2iVibeViewmodel extends ChangeNotifier {
     config.setImage(bytes);
 
     // Skip metadata reading for images > 5M
-    if (bytes.length > 5e6) return;
+    if (bytes.length > 5e6) {
+      notifyListeners();
+      return;
+    }
 
     // Try parse and import metadata
     final image = img.decodeImage(bytes);
@@ -74,11 +101,46 @@ class I2iVibeViewmodel extends ChangeNotifier {
       parameters = json.decode(metadata['Comment']);
     } catch (err) {
       paramReadFailureEvent();
+      notifyListeners();
       return;
     }
     if (parameters != null) {
       paramReadSuccessEvent(parameters);
     }
+    notifyListeners();
+  }
+
+  int importMetadataParameters(Map<String, dynamic> parameters) {
+    final count = paramConfig.loadJson(parameters);
+    notifyListeners();
+    return count;
+  }
+
+  List<GenerationSize> getTargetSizeOptions() {
+    if (config.width <= 0 || config.height <= 0) {
+      return paramConfig.sizes;
+    }
+
+    final options = <GenerationSize>[
+      GenerationSize(width: config.width, height: config.height),
+      for (final factor in getPossibleScaleFactors(config.width, config.height))
+        GenerationSize(
+          width: (factor * config.width / 64).ceil() * 64,
+          height: (factor * config.height / 64).ceil() * 64,
+        ),
+      ...paramConfig.sizes,
+    ];
+
+    final seen = <String>{};
+    return [
+      for (final option in options)
+        if (seen.add('${option.width}x${option.height}')) option,
+    ];
+  }
+
+  void setTargetSize(GenerationSize size) {
+    paramConfig.sizes = [size];
+    notifyListeners();
   }
 
   String getSizeChangeText() {
@@ -110,18 +172,17 @@ class I2iVibeViewmodel extends ChangeNotifier {
       [0.6, 0],
       [0.7, 0.1]
     ][value.toInt() - 1];
-    config.strength = result[0].toDouble();
-    config.noise = result[1].toDouble();
+    config.updateStrengthAndNoise(result[0].toDouble(), result[1].toDouble());
     notifyListeners();
   }
 
   void setStrength(double value) {
-    config.strength = value;
+    config.updateStrength(value);
     notifyListeners();
   }
 
   void setNoise(double value) {
-    config.noise = value;
+    config.updateNoise(value);
     notifyListeners();
   }
 

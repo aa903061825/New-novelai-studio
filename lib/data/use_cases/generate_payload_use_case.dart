@@ -133,6 +133,13 @@ class GeneratePayloadUseCase {
     final effectiveParamConfig =
         payloadConfig.globalGenerationParams.resolveParamConfig(paramConfig);
     final paramPayload = effectiveParamConfig.getPayload();
+    final i2iImageB64 = payloadConfig.i2iConfig.imageB64;
+    final i2iResult = i2iImageB64 == null || i2iImageB64.isEmpty
+        ? null
+        : payloadConfig.i2iConfig.getConfigResult();
+    if (i2iResult?.overridePrompts case final overridePrompt?) {
+      basePair.prompt = _applyPromptReplaceRules(overridePrompt);
+    }
     String payloadComment = basePair.comment;
 
     // Get character prompt
@@ -289,6 +296,12 @@ class GeneratePayloadUseCase {
     final contentOrderIndexes = basePromptResult.metadata.contentOrderIndexes;
     final contentOrderText =
         contentOrderIndexes.isEmpty ? null : contentOrderIndexes.join(',');
+    if (i2iResult != null) {
+      paramPayload['image'] = i2iResult.imageB64;
+      paramPayload['strength'] = i2iResult.strength.clamp(0.0, 1.0);
+      paramPayload['noise'] = i2iResult.noise.clamp(0.0, 1.0);
+      paramPayload['extra_noise_seed'] = i2iResult.extraNoiseSeed;
+    }
 
     return PayloadGenerationResult(
       comment: payloadComment,
@@ -297,7 +310,7 @@ class GeneratePayloadUseCase {
       payload: {
         'input': basePair.prompt,
         'model': effectiveParamConfig.model,
-        'action': 'generate',
+        'action': i2iResult == null ? 'generate' : 'img2img',
         'parameters': paramPayload,
       },
     );
@@ -320,7 +333,7 @@ class GeneratePayloadUseCase {
 
   bool _isCharacterPromptPlaceholder(String prompt) {
     final trimmed = prompt.trim();
-    return trimmed == ',' || trimmed == '，';
+    return trimmed.isEmpty || trimmed == ',' || trimmed == '，';
   }
 
   String _applyPromptReplaceRules(String input, {bool isComment = false}) {

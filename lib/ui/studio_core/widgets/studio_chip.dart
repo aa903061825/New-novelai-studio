@@ -23,36 +23,59 @@ class StudioChip extends StatelessWidget {
         selected ? accentColor ?? StudioTokens.primary : StudioTokens.surface2;
     final foreground =
         selected ? StudioTokens.onPrimary : StudioTokens.textSecondary;
-    final content = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 15, color: foreground),
-          const SizedBox(width: 6),
-        ],
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: foreground,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-        ),
-      ],
+    final textStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: foreground,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        );
+
+    final shape = RoundedRectangleBorder(
+      borderRadius: StudioTokens.radiusTag,
+      side: BorderSide(
+        color: selected ? fill : StudioTokens.border,
+      ),
     );
 
     return Material(
       color: fill,
-      shape: StadiumBorder(
-        side: BorderSide(
-          color: selected ? fill : StudioTokens.border,
-        ),
-      ),
+      clipBehavior: Clip.antiAlias,
+      shape: shape,
       child: InkWell(
-        customBorder: const StadiumBorder(),
+        customBorder: shape,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          child: content,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final text = Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textStyle,
+              );
+              final iconSpace = icon == null ? 0.0 : 21.0;
+              final labelWidget = constraints.maxWidth.isFinite
+                  ? ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: (constraints.maxWidth - iconSpace)
+                            .clamp(0.0, constraints.maxWidth)
+                            .toDouble(),
+                      ),
+                      child: text,
+                    )
+                  : text;
+
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 15, color: foreground),
+                    const SizedBox(width: 6),
+                  ],
+                  labelWidget,
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

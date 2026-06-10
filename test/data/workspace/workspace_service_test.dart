@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nai_casrand/data/studio/models/script_recast.dart';
+import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_paths.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
@@ -69,6 +71,35 @@ void main() {
     expect(characters.single.traits.frontFull, 'blue eyes');
   });
 
+  test('writes and reads CharacterEntry Recast fields', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path, name: 'Test Studio');
+
+    await service.saveCharacters([
+      const CharacterEntry(
+        id: 'char-1',
+        name: 'Heroine',
+        traits: ViewVariantTexts(frontFull: 'blue eyes'),
+        anchorTags: ['vulpisfoglia_(arknights)'],
+        identityTags: ['fox_tail'],
+        conflictTags: ['cat_tail'],
+        defaultCenters: [WorkspacePoint(x: 0.25, y: 0.55)],
+        aliases: ['vulpisfoglia'],
+        recastNotes: 'source script extraction',
+      ),
+    ]);
+
+    final characters = await service.loadCharacters();
+
+    expect(characters.single.anchorTags, ['vulpisfoglia_(arknights)']);
+    expect(characters.single.identityTags, ['fox_tail']);
+    expect(characters.single.conflictTags, ['cat_tail']);
+    expect(characters.single.defaultCenters.single.x, 0.25);
+    expect(characters.single.defaultCenters.single.y, 0.55);
+    expect(characters.single.aliases, ['vulpisfoglia']);
+    expect(characters.single.recastNotes, 'source script extraction');
+  });
+
   test('writes and reads artist chains, recipes, and tags', () async {
     final service = WorkspaceService();
     await service.createWorkspace(tempDir.path);
@@ -95,6 +126,198 @@ void main() {
     expect(artistChains.single.tags, ['soft light']);
     expect(recipes.single.tags, 'watercolor, soft');
     expect(tags.single.tag, 'watercolor');
+  });
+
+  test('writes and reads asset favorite keys', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    await service.saveAssetFavorites({
+      'tag:scene/tag-2',
+      'character:char-1',
+      '',
+      '  ',
+    });
+
+    final favoriteKeys = await service.loadAssetFavorites();
+    final raw = await File(
+      '${tempDir.path}${Platform.pathSeparator}library${Platform.pathSeparator}favorites.json',
+    ).readAsString();
+
+    expect(favoriteKeys, {'character:char-1', 'tag:scene/tag-2'});
+    expect(raw, contains('character:char-1'));
+    expect(raw, contains('tag:scene/tag-2'));
+
+    await service.setAssetFavorite('tag:scene/tag-2', false);
+    await service.setAssetFavorite('artist:artist-1', true);
+
+    expect(await service.loadAssetFavorites(), {
+      'artist:artist-1',
+      'character:char-1',
+    });
+  });
+
+  test('writes and reads ArtistChain structured Recast fields', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    await service.saveArtistChains([
+      const ArtistChain(
+        id: 'artist-1',
+        name: 'Painter Mix',
+        artists: [
+          ArtistEntry(
+            name: 'terasu_mc',
+            prefix: 'artist:',
+            weight: 0.8,
+            groupedWith: 'main',
+          ),
+        ],
+        globalNegatives: [
+          WorkspaceWeightedTag(tag: 'artist:collaboration', weight: -6),
+        ],
+        styleHintsWeighted: [
+          WorkspaceWeightedTag(tag: 'year 2024', weight: 1),
+        ],
+        vibeRefs: [
+          WorkspaceVibeReference(
+            id: 'qaq-2',
+            name: 'QAQ 2',
+            vibeB64: 'encoded-vibe',
+            referenceStrength: 0.4,
+          ),
+        ],
+      ),
+    ]);
+
+    final artistChains = await service.loadArtistChains();
+
+    expect(artistChains.single.artists.single.name, 'terasu_mc');
+    expect(artistChains.single.globalNegatives.single.weight, -6);
+    expect(artistChains.single.styleHintsWeighted.single.tag, 'year 2024');
+    expect(artistChains.single.vibeRefs.single.name, 'QAQ 2');
+    expect(artistChains.single.vibeRefs.single.vibeB64, 'encoded-vibe');
+  });
+
+  test('writes and reads script recast long-term knowledge', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    await service.saveRecastKnowledgeBase({
+      'confirmedOnly': true,
+      'scripts': {
+        'script-1': {
+          'roles': [
+            {'displayName': 'Alice'},
+          ],
+        },
+      },
+      'nai_token': 'pst-secret-token',
+    });
+
+    final knowledge = await service.loadRecastKnowledgeBase();
+
+    expect(knowledge['confirmedOnly'], isTrue);
+    expect((knowledge['scripts'] as Map)['script-1']['roles'], hasLength(1));
+    expect(knowledge.containsKey('nai_token'), isFalse);
+  });
+
+  test('missing script recast knowledge file loads as an empty knowledge base',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final knowledgeFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast${Platform.pathSeparator}knowledge.json',
+    );
+    if (await knowledgeFile.exists()) {
+      await knowledgeFile.delete();
+    }
+
+    final knowledge = await service.loadRecastKnowledgeBase();
+
+    expect(knowledge, isEmpty);
+  });
+
+  test('writes script recast caches with external absolute script ids',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const externalScriptId = r'E:\NAI的脚本群\作品集\白银ノエル 脱北 中出し';
+
+    await service.saveRecastScriptCaches([
+      RecastScriptCache(
+        scriptId: externalScriptId,
+        scriptName: '白银ノエル',
+        sourceRootPath: externalScriptId,
+        sourceFingerprint: 'fingerprint',
+        updatedAt: DateTime.utc(2026, 5, 30),
+        mapping: RecastMapping.defaults(externalScriptId),
+      ),
+    ]);
+
+    final caches = await service.loadRecastScriptCaches();
+
+    expect(caches.single.scriptId, externalScriptId);
+    expect(
+      await Directory(
+        '${tempDir.path}${Platform.pathSeparator}script_recast'
+        '${Platform.pathSeparator}cache',
+      )
+          .list()
+          .where((entry) => entry is File && entry.path.endsWith('.json'))
+          .length,
+      1,
+    );
+  });
+
+  test('loads a single script recast cache without scanning sibling files',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const scriptId = 'script-target-cache';
+
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: scriptId,
+        scriptName: 'Target Cache',
+        sourceRootPath: r'C:\scripts\target',
+        sourceFingerprint: 'fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 8),
+        mapping: RecastMapping.defaults(scriptId),
+      ),
+    );
+    await File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}unrelated-corrupt.json',
+    ).writeAsString('{ not json');
+
+    final cache = await service.loadRecastScriptCache(scriptId);
+
+    expect(cache, isNotNull);
+    expect(cache!.scriptId, scriptId);
+    expect(cache.scriptName, 'Target Cache');
+  });
+
+  test('openWorkspace backfills script recast files for legacy workspaces',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final knowledgeFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast${Platform.pathSeparator}knowledge.json',
+    );
+    final cacheDirectory = Directory(
+      '${tempDir.path}${Platform.pathSeparator}script_recast${Platform.pathSeparator}cache',
+    );
+    await knowledgeFile.delete();
+    await cacheDirectory.delete(recursive: true);
+
+    final reopened = WorkspaceService();
+    await reopened.openWorkspace(tempDir.path);
+
+    expect(await reopened.loadRecastKnowledgeBase(), isEmpty);
+    expect(await knowledgeFile.exists(), isTrue);
+    expect(await cacheDirectory.exists(), isTrue);
   });
 
   test('writes and reads prompt configs and generation profiles by id',
@@ -151,7 +374,9 @@ void main() {
       const WorkflowEntry(
         id: 'workflow-1',
         name: 'City Stack',
-        payload: {'graph': {'nodes': 4}},
+        payload: {
+          'graph': {'nodes': 4}
+        },
       ),
     ]);
     await service.saveBatchPlans([
@@ -169,7 +394,9 @@ void main() {
       const AssemblyPresetEntry(
         id: 'assembly-1',
         name: 'City Assembly',
-        payload: {'blocks': ['style', 'scene']},
+        payload: {
+          'blocks': ['style', 'scene']
+        },
       ),
     ]);
 

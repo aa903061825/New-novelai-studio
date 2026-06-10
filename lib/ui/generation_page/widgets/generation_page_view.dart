@@ -1,17 +1,16 @@
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
 import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/core/widgets/slider_list_tile.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
 import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:nai_casrand/ui/studio_workbench/widgets/generation_preview_panel.dart';
 import 'package:nai_casrand/ui/studio_workbench/widgets/prompt_composer_panel.dart';
 import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_transfer_actions.dart';
+import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_single_image_console.dart';
+import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 class GenerationPageView extends StatelessWidget {
   final GenerationPageViewmodel viewmodel;
@@ -25,192 +24,42 @@ class GenerationPageView extends StatelessWidget {
         : null;
     final assetService = GetIt.I<StudioWorkbenchAssetService>();
     final catalogService = GetIt.I<StudioAssetCatalogService>();
-    final buttons = ListenableBuilder(
-      listenable:
-          Listenable.merge([viewmodel, viewmodel.commandStatus.isBatchActive]),
-      builder: (context, _) {
-        final isBatchActive = viewmodel.commandStatus.isBatchActive.value;
-        final hasPendingResume = viewmodel
-            .payloadConfig.generationRuntimeState.hasPendingBatchResume;
-        final canResumeFromNumber =
-            viewmodel.payloadConfig.settings.numberOfRequests > 0;
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            FloatingActionButton(
-              heroTag: 'gpfab1',
-              onPressed: () => _showDisplaySettingsDialog(context),
-              tooltip: tr('generation_settings'),
-              child: const Icon(Icons.handyman_outlined),
-            ),
-            const SizedBox(height: 20.0),
-            FloatingActionButton(
-              heroTag: 'gpfab2',
-              onPressed: () => viewmodel.addTestPromptInfoCardContent(),
-              tooltip: tr('generate_one_prompt'),
-              child: const Icon(Icons.add),
-            ),
-            const SizedBox(height: 20.0),
-            FloatingActionButton(
-              heroTag: 'gpfab-preview',
-              onPressed: () => _saveConfigPreview(context),
-              tooltip: tr('save_config_preview'),
-              child: const Icon(Icons.add_photo_alternate_outlined),
-            ),
-            if (hasPendingResume) ...[
-              const SizedBox(height: 20.0),
-              FloatingActionButton(
-                heroTag: 'gpfab3',
-                onPressed: isBatchActive ? null : viewmodel.resumeBatchFromLast,
-                tooltip: tr('continue_from_last_time'),
-                child: const Icon(Icons.history),
-              ),
-            ],
-            if (canResumeFromNumber) ...[
-              const SizedBox(height: 20.0),
-              FloatingActionButton(
-                heroTag: 'gpfab4',
-                onPressed: isBatchActive
-                    ? null
-                    : () => _showResumeFromNumberDialog(context),
-                tooltip: tr('continue_from_number'),
-                child: const Icon(Icons.format_list_numbered),
-              ),
-            ],
-            const SizedBox(height: 20.0),
-            FloatingActionButton(
-              heroTag: 'gpfab5',
-              onPressed: () => viewmodel.toggleBatch(),
-              tooltip: tr('toggle_generation'),
-              child: Icon(
-                isBatchActive ? Icons.stop : Icons.play_arrow,
-              ),
-            ),
-          ],
-        );
-      },
-    );
     return Scaffold(
       backgroundColor: StudioTokens.surface1,
-      body: Column(
-        children: [
-          if (transferViewModel != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 12, 0),
-                child: WorkbenchTransferActions(
-                  viewModel: transferViewModel,
-                ),
-              ),
-            ),
-          Expanded(
-            child: _WorkbenchLayout(
-              viewmodel: viewmodel,
-              assetService: assetService,
-              catalogService: catalogService,
-            ),
+      body: ScrollConfiguration(
+        key: const ValueKey('workbench-scrollbar-suppression'),
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: _WorkbenchImportDropZone(
+          transferViewModel: transferViewModel,
+          child: ListenableBuilder(
+            listenable: Listenable.merge([
+              assetService,
+              transferViewModel,
+            ]),
+            builder: (context, _) {
+              return _WorkbenchLayout(
+                viewmodel: viewmodel,
+                transferViewModel: transferViewModel,
+                assetService: assetService,
+                catalogService: catalogService,
+              );
+            },
           ),
-        ],
-      ),
-      floatingActionButton: buttons,
-    );
-  }
-
-  void _saveConfigPreview(BuildContext context) {
-    final savedCount = viewmodel.saveCurrentConfigPreview();
-    if (savedCount == 0) {
-      showWarningBar(context, tr('config_preview_no_images'));
-      return;
-    }
-    showInfoBar(
-      context,
-      tr(
-        'config_preview_saved',
-        namedArgs: {'num': savedCount.toString()},
-      ),
-    );
-  }
-
-  void _showDisplaySettingsDialog(BuildContext context) {
-    showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: Text(tr('generation_settings')),
-              content: DisplaySettingsView(viewmodel: viewmodel),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(tr('confirm')))
-              ],
-            ));
-  }
-
-  Future<void> _showResumeFromNumberDialog(BuildContext context) async {
-    final controller = TextEditingController();
-    String? errorText;
-    final totalCount = viewmodel.payloadConfig.settings.numberOfRequests;
-
-    final result = await showDialog<int>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(tr('continue_from_number_title')),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              hintText: tr('continue_from_number_hint'),
-              errorText: errorText,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(tr('cancel')),
-            ),
-            TextButton(
-              onPressed: () {
-                final parsed = int.tryParse(controller.text.trim());
-                if (parsed == null || parsed <= 0) {
-                  setState(() {
-                    errorText = tr('continue_from_number_invalid');
-                  });
-                  return;
-                }
-                if (totalCount > 0 && parsed > totalCount) {
-                  setState(() {
-                    errorText = tr(
-                      'continue_from_number_out_of_range',
-                      namedArgs: {
-                        'total': totalCount.toString(),
-                      },
-                    );
-                  });
-                  return;
-                }
-                Navigator.of(context).pop(parsed);
-              },
-              child: Text(tr('confirm')),
-            ),
-          ],
         ),
       ),
     );
-
-    if (result != null) {
-      viewmodel.resumeBatchFromNumber(result);
-    }
   }
 }
 
 class _WorkbenchLayout extends StatelessWidget {
   final GenerationPageViewmodel viewmodel;
+  final WorkbenchTransferViewModel? transferViewModel;
   final StudioWorkbenchAssetService assetService;
   final StudioAssetCatalogService catalogService;
 
   const _WorkbenchLayout({
     required this.viewmodel,
+    required this.transferViewModel,
     required this.assetService,
     required this.catalogService,
   });
@@ -224,7 +73,19 @@ class _WorkbenchLayout extends StatelessWidget {
           workbenchAssetService: assetService,
         );
         final composer = PromptComposerPanel(service: assetService);
+        final parametersViewmodel = WorkbenchSingleImageParametersViewmodel(
+          viewmodel.payloadConfig,
+        );
+        final creativeInputs = WorkbenchCreativeInputsPanel(
+          parametersViewmodel: parametersViewmodel,
+        );
         final generation = GenerationPreviewPanel(viewmodel: viewmodel);
+        final console = WorkbenchSingleImageConsole(
+          generationViewmodel: viewmodel,
+          parametersViewmodel: parametersViewmodel,
+          workbenchAssetService: assetService,
+          transferViewModel: transferViewModel,
+        );
 
         if (constraints.maxWidth < 1180) {
           return ListView(
@@ -232,9 +93,13 @@ class _WorkbenchLayout extends StatelessWidget {
             children: [
               SizedBox(height: 360, child: drawer),
               const SizedBox(height: 12),
-              composer,
+              SizedBox(height: 300, child: composer),
               const SizedBox(height: 12),
-              SizedBox(height: 640, child: generation),
+              SizedBox(height: 860, child: creativeInputs),
+              const SizedBox(height: 12),
+              SizedBox(height: 620, child: console),
+              const SizedBox(height: 12),
+              SizedBox(height: 540, child: generation),
             ],
           );
         }
@@ -242,12 +107,38 @@ class _WorkbenchLayout extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(width: 300, child: drawer),
+              SizedBox(width: 280, child: drawer),
               const SizedBox(width: 12),
-              Expanded(flex: 5, child: composer),
+              Expanded(
+                flex: 6,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight * 0.34,
+                      ),
+                      child: composer,
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(child: creativeInputs),
+                  ],
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(flex: 5, child: generation),
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 5, child: console),
+                    const SizedBox(height: 12),
+                    Expanded(flex: 6, child: generation),
+                  ],
+                ),
+              ),
             ],
           ),
         );
@@ -256,47 +147,92 @@ class _WorkbenchLayout extends StatelessWidget {
   }
 }
 
-class DisplaySettingsView extends StatelessWidget {
-  final GenerationPageViewmodel viewmodel;
+class _WorkbenchImportDropZone extends StatefulWidget {
+  final WorkbenchTransferViewModel? transferViewModel;
+  final Widget child;
 
-  const DisplaySettingsView({super.key, required this.viewmodel});
+  const _WorkbenchImportDropZone({
+    required this.transferViewModel,
+    required this.child,
+  });
+
+  @override
+  State<_WorkbenchImportDropZone> createState() =>
+      _WorkbenchImportDropZoneState();
+}
+
+class _WorkbenchImportDropZoneState extends State<_WorkbenchImportDropZone> {
+  bool _dragging = false;
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-        listenable: viewmodel,
-        builder: (context, _) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SliderListTile(
-                title: '${tr('column_number')}: ${viewmodel.colNum.toString()}',
-                sliderValue: viewmodel.colNum.toDouble(),
-                min: 1.0,
-                max: 5.0,
-                divisions: 4,
-                onChanged: (value) => viewmodel.setCardsPerCol(value.toInt()),
-              ),
-              ListTile(
-                title: Text(tr('clear_list')),
-                leading: const Icon(Icons.clear_all),
-                onTap: viewmodel.clearCommandList,
-              ),
-              CheckboxListTile(
-                title: Text(tr('override_random_prompts')),
-                secondary: const Icon(Icons.edit),
-                value: viewmodel.payloadConfig.useOverridePrompt,
-                onChanged: (value) => viewmodel.setOverride(value),
-              ),
-              if (viewmodel.payloadConfig.useOverridePrompt)
-                CheckboxListTile(
-                  title: Text(tr('use_character_prompt')),
-                  secondary: const Icon(Icons.edit),
-                  value: viewmodel.payloadConfig.useCharacterPromptWithOverride,
-                  onChanged: (value) => viewmodel.setCharacterOverride(value),
+    final transferViewModel = widget.transferViewModel;
+    if (transferViewModel == null) {
+      return widget.child;
+    }
+
+    return DropRegion(
+      formats: Formats.standardFormats,
+      onDropOver: (_) => DropOperation.copy,
+      onDropEnter: (_) => setState(() => _dragging = true),
+      onDropLeave: (_) => setState(() => _dragging = false),
+      onPerformDrop: (event) => _handleDrop(context, event, transferViewModel),
+      child: Stack(
+        children: [
+          widget.child,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: _dragging ? 1 : 0,
+                duration: const Duration(milliseconds: 160),
+                child: Container(
+                  color: StudioTokens.surfaceBase.withValues(alpha: 0.84),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: StudioTokens.surface2,
+                        borderRadius: BorderRadius.circular(
+                          StudioTokens.radiusPanel,
+                        ),
+                        border: StudioTokens.cardBorder,
+                      ),
+                      child: Text(
+                        '拖入 NovelAI PNG / JSON 导入到工作台',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ),
                 ),
-            ],
-          );
-        });
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleDrop(
+    BuildContext context,
+    PerformDropEvent event,
+    WorkbenchTransferViewModel transferViewModel,
+  ) async {
+    setState(() => _dragging = false);
+    if (event.session.items.isEmpty) return;
+    final item = event.session.items.first;
+    final reader = item.dataReader;
+    if (reader == null) return;
+    reader.getFile(null, (file) async {
+      final bytes = await file.readAll();
+      if (!context.mounted) return;
+      await transferViewModel.importBytes(
+        context,
+        file.fileName ?? 'dropped-file',
+        bytes,
+      );
+    });
   }
 }

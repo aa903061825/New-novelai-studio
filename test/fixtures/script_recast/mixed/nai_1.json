@@ -1,0 +1,34 @@
+{
+  "Description": "vulpisfoglia_(arknights), city lights, suzuran_(arknights)",
+  "Source": "NovelAI Diffusion V4.5",
+  "Comment": {
+    "seed": 445566,
+    "steps": 26,
+    "scale": 6,
+    "sampler": "k_euler",
+    "width": 1216,
+    "height": 832,
+    "v4_prompt": {
+      "caption": {
+        "base_caption": "vulpisfoglia_(arknights), city lights, suzuran_(arknights)",
+        "char_captions": [
+          {
+            "char_caption": "vulpisfoglia_(arknights), fox_tail",
+            "centers": [
+              {
+                "x": 0.4,
+                "y": 0.55
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "v4_negative_prompt": {
+      "caption": {
+        "base_caption": "lowres",
+        "char_captions": []
+      }
+    }
+  }
+}

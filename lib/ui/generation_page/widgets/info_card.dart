@@ -11,6 +11,7 @@ import 'package:nai_casrand/data/models/settings.dart';
 import 'package:nai_casrand/ui/core/utils/flushbar.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:flutter_command/flutter_command.dart';
 
 class InfoCard extends StatelessWidget {
@@ -103,11 +104,11 @@ class InfoCard extends StatelessWidget {
                 title: _buildTitle(content),
               ),
               ListTile(
-                subtitle: Text(
-                  content.info,
-                  maxLines: 20,
-                  softWrap: true,
-                  overflow: TextOverflow.ellipsis,
+                subtitle: _PromptInfoDisplay(
+                  text: content.info,
+                  groups: _contentPromptGroups(content),
+                  dense: true,
+                  maxTags: 12,
                 ),
               )
             ],
@@ -194,10 +195,24 @@ class InfoDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     List<Widget> contents = [
       buildInfoTile(tr('title'), content.title, context),
-      buildInfoTile(tr('info'), content.info, context),
+      buildInfoTile(
+        tr('info'),
+        content.info,
+        context,
+        asPrompt: true,
+        groups: _contentPromptGroups(content),
+      ),
     ];
     for (final item in content.additionalInfo.entries) {
-      contents.add(buildInfoTile(item.key, item.value.toString(), context));
+      contents.add(
+        buildInfoTile(
+          item.key,
+          item.value.toString(),
+          context,
+          asPrompt: _isPromptLikeKey(item.key),
+          groups: _promptGroupsForInfoEntry(item.key, item.value),
+        ),
+      );
     }
 
     final body = Scaffold(
@@ -219,12 +234,20 @@ class InfoDetailPage extends StatelessWidget {
     );
   }
 
-  Widget buildInfoTile(String title, String content, BuildContext context) {
+  Widget buildInfoTile(
+    String title,
+    String content,
+    BuildContext context, {
+    bool asPrompt = false,
+    List<PromptTagDisplayGroup> groups = const [],
+  }) {
     return Column(children: [
       ListTile(
         titleAlignment: ListTileTitleAlignment.top,
         title: Text(title),
-        subtitle: SelectableText(content),
+        subtitle: asPrompt
+            ? _PromptInfoDisplay(text: content, groups: groups)
+            : SelectableText(content),
         trailing: IconButton(
             onPressed: () {
               Navigator.of(context).pop();
@@ -235,6 +258,13 @@ class InfoDetailPage extends StatelessWidget {
       ),
       const Divider(),
     ]);
+  }
+
+  bool _isPromptLikeKey(String key) {
+    final normalized = key.toLowerCase();
+    return normalized.contains('prompt') ||
+        normalized.contains('tag') ||
+        normalized == 'input';
   }
 
   void _copyContent(String content, BuildContext context) async {
@@ -254,4 +284,88 @@ class InfoDetailPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PromptInfoDisplay extends StatelessWidget {
+  final String text;
+  final List<PromptTagDisplayGroup> groups;
+  final bool dense;
+  final int? maxTags;
+
+  const _PromptInfoDisplay({
+    required this.text,
+    this.groups = const [],
+    this.dense = false,
+    this.maxTags,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleGroups =
+        groups.where((group) => group.hasText).toList(growable: false);
+    if (visibleGroups.isNotEmpty) {
+      return PromptTagGroupDisplay(
+        key: const ValueKey('info-card-prompt-groups'),
+        groups: visibleGroups,
+        groupKeyPrefix: 'info-card-prompt-group',
+        tagKeyPrefix: 'info-card-prompt-group-tags',
+        defaultTranslated: true,
+        dense: dense,
+        maxTags: maxTags,
+        enableHoverShortcut: text.trim().isNotEmpty,
+        enableTagActions: true,
+        initialLayoutMode: PromptTagLayoutMode.grouped,
+      );
+    }
+    return PromptTagDisplay(
+      text: text,
+      defaultTranslated: true,
+      dense: dense,
+      maxTags: maxTags,
+    );
+  }
+}
+
+List<PromptTagDisplayGroup> _contentPromptGroups(InfoCardContent content) {
+  return _promptGroupsForInfoEntry(
+    'v4_prompt',
+    content.additionalInfo['v4_prompt'] ??
+        _infoMapValue(content.additionalInfo['parameters'])['v4_prompt'] ??
+        _infoMapValue(content.additionalInfo['Comment'])['v4_prompt'],
+  );
+}
+
+List<PromptTagDisplayGroup> _promptGroupsForInfoEntry(
+  String key,
+  Object? value,
+) {
+  final normalized = key.toLowerCase();
+  if (normalized == 'v4_prompt') {
+    return promptTagGroupsFromV4Prompt(_infoMapValue(value));
+  }
+  if (normalized == 'v4_negative_prompt') {
+    return promptTagGroupsFromV4Prompt(
+      _infoMapValue(value),
+      negative: true,
+    );
+  }
+  final map = _infoMapValue(value);
+  if (map.isNotEmpty) {
+    final prompt = _infoMapValue(map['v4_prompt']);
+    if (prompt.isNotEmpty) {
+      return promptTagGroupsFromV4Prompt(prompt);
+    }
+    final negativePrompt = _infoMapValue(map['v4_negative_prompt']);
+    if (negativePrompt.isNotEmpty) {
+      return promptTagGroupsFromV4Prompt(negativePrompt, negative: true);
+    }
+  }
+  return const [];
+}
+
+Map<String, dynamic> _infoMapValue(Object? value) {
+  if (value is Map) {
+    return value.cast<String, dynamic>();
+  }
+  return const <String, dynamic>{};
 }

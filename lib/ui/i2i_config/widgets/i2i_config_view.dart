@@ -15,35 +15,41 @@ class I2iConfigView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _buildImageWidget(context),
+    return ListenableBuilder(
+      listenable: viewmodel,
+      builder: (context, _) {
+        return Column(
+          children: [
+            _buildImageWidget(context),
 
-        Row(children: [
-          Expanded(child: _buildSizeTile(context)),
-          Expanded(child: _buildPresetTile(context)),
-        ]),
-        Row(children: [
-          Expanded(child: _buildStrengthTile(context)),
-          Expanded(child: _buildNoiseTile(context)),
-        ]),
-        // Prompt override settings
-        CheckboxListTile(
-            title: Text(context.tr('override_random_prompts')),
-            secondary: const Icon(Icons.edit_note),
-            value: viewmodel.config.overridePromptEnabled,
-            onChanged: (value) => viewmodel.setOverridePromptEnabled(value)),
-        viewmodel.config.overridePromptEnabled
-            ? Padding(
-                padding: const EdgeInsets.only(left: 20),
-                child: EditableListTile(
-                    title: context.tr('override_prompt'),
-                    currentValue: viewmodel.config.overridePrompt,
-                    confirmOnSubmit: true,
-                    onEditComplete: (value) =>
-                        viewmodel.setOverridePrompt(value)))
-            : const SizedBox.shrink(),
-      ],
+            Row(children: [
+              Expanded(child: _buildSizeTile(context)),
+              Expanded(child: _buildPresetTile(context)),
+            ]),
+            Row(children: [
+              Expanded(child: _buildStrengthTile(context)),
+              Expanded(child: _buildNoiseTile(context)),
+            ]),
+            // Prompt override settings
+            CheckboxListTile(
+                title: Text(context.tr('override_random_prompts')),
+                secondary: const Icon(Icons.edit_note),
+                value: viewmodel.config.overridePromptEnabled,
+                onChanged: (value) =>
+                    viewmodel.setOverridePromptEnabled(value)),
+            viewmodel.config.overridePromptEnabled
+                ? Padding(
+                    padding: const EdgeInsets.only(left: 20),
+                    child: EditableListTile(
+                        title: context.tr('override_prompt'),
+                        currentValue: viewmodel.config.overridePrompt,
+                        confirmOnSubmit: true,
+                        onEditComplete: (value) =>
+                            viewmodel.setOverridePrompt(value)))
+                : const SizedBox.shrink(),
+          ],
+        );
+      },
     );
   }
 
@@ -60,8 +66,23 @@ class I2iConfigView extends StatelessWidget {
         filterQuality: FilterQuality.medium,
       );
     }
+
+    void readFailureEvent() {
+      showWarningBar(context, context.tr('metadata_not_found'));
+    }
+
+    void readSuccessEvent(Map<String, dynamic> parameters) {
+      showInfoBar(context, context.tr('metadata_found'));
+      _showImportMetadataDialog(context, parameters);
+    }
+
     final dropArea = InkWell(
-        onTap: viewmodel.addImage(context),
+        key: const ValueKey('workbench-i2i-source-image'),
+        onTap: () => viewmodel.addImage(
+              context,
+              readSuccessEvent,
+              readFailureEvent,
+            ),
         child: SizedBox(
             width: viewmodel.imageSize + 40.0,
             height: viewmodel.imageSize + 40.0,
@@ -91,15 +112,6 @@ class I2iConfigView extends StatelessWidget {
                 icon: const Icon(Icons.delete_outline)))
     ]);
 
-    void readFailureEvent() {
-      showWarningBar(context, 'No metadta found in imported picture.');
-    }
-
-    void readSuccessEvent(Map<String, dynamic> parameters) {
-      showInfoBar(context, 'Found metadata in imported picture.');
-      _showImportMetadataDialog(context, parameters);
-    }
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -120,7 +132,43 @@ class I2iConfigView extends StatelessWidget {
 
   void _showImportMetadataDialog(
       BuildContext context, Map<String, dynamic> parameters) {
-    // TODO
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.tr('import_metadata_from_image')),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Text(
+              const JsonEncoder.withIndent('  ').convert(parameters),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                  ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(context.tr('cancel')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final count = viewmodel.importMetadataParameters(parameters);
+              Navigator.of(dialogContext).pop();
+              showInfoBar(
+                context,
+                context.tr(
+                  'loaded_parameters_count',
+                  namedArgs: {'num': count.toString()},
+                ),
+              );
+            },
+            child: Text(context.tr('import_all_metadata_from_image')),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSizeTile(BuildContext context) {
@@ -132,7 +180,43 @@ class I2iConfigView extends StatelessWidget {
     );
   }
 
-  void _showI2ISizeDialog(BuildContext context) {}
+  void _showI2ISizeDialog(BuildContext context) {
+    final options = viewmodel.getTargetSizeOptions();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('鐩爣鍥惧儚灏哄'),
+        content: SizedBox(
+          width: 360,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: options.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, index) {
+              final size = options[index];
+              final selected = viewmodel.paramConfig.sizes.contains(size);
+              return ListTile(
+                leading: Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
+                title: Text('${size.width} x ${size.height}'),
+                onTap: () {
+                  viewmodel.setTargetSize(size);
+                  Navigator.of(dialogContext).pop();
+                  showInfoBar(
+                    context,
+                    '鐩爣灏哄宸茶涓?${size.width} x ${size.height}銆?',
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildPresetTile(BuildContext context) {
     final presetLevel = viewmodel.getEnhancePresetValue();
@@ -152,8 +236,9 @@ class I2iConfigView extends StatelessWidget {
 
   Widget _buildStrengthTile(BuildContext context) {
     return SliderListTile(
+      key: const ValueKey('workbench-i2i-strength-slider'),
       title:
-          'Strength${context.tr('colon')}${viewmodel.config.strength.toStringAsFixed(2)}',
+          "鍥剧敓鍥惧己搴?${context.tr('colon')}${viewmodel.config.strength.toStringAsFixed(2)}",
       leading: const Icon(Icons.grain),
       sliderValue: viewmodel.config.strength,
       min: 0.0,
@@ -165,8 +250,9 @@ class I2iConfigView extends StatelessWidget {
 
   Widget _buildNoiseTile(BuildContext context) {
     return SliderListTile(
+      key: const ValueKey('workbench-i2i-noise-slider'),
       title:
-          'Noise${context.tr('colon')}${viewmodel.config.noise.toStringAsFixed(2)}',
+          '鍣０寮哄害${context.tr('colon')}${viewmodel.config.noise.toStringAsFixed(2)}',
       leading: const Icon(Icons.waves),
       sliderValue: viewmodel.config.noise,
       min: 0.0,

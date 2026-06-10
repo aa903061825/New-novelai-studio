@@ -1,0 +1,10 @@
+{
+  "Description": "this frame is malformed",
+  "Comment": {
+    "seed": 1,
+    "v4_prompt": {
+      "caption": {
+        "base_caption": "broken"
+      }
+    }
+  }

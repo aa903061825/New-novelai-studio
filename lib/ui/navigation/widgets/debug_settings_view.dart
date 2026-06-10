@@ -21,7 +21,7 @@ class DebugSettingsViewState extends State<DebugSettingsView> {
       mainAxisSize: MainAxisSize.min,
       children: [
         CheckboxListTile(
-            title: const Text('Debug API'),
+            title: const Text('调试 API'),
             value: widget.payloadConfig.settings.debugApiEnabled,
             onChanged: (value) => setState(
                   () {
@@ -30,7 +30,7 @@ class DebugSettingsViewState extends State<DebugSettingsView> {
                   },
                 )),
         EditableListTile(
-            title: 'Debug API Endpoint',
+            title: '调试 API 地址',
             currentValue: widget.payloadConfig.settings.debugApiPath,
             onEditComplete: (value) => setState(
                   () {
@@ -38,7 +38,7 @@ class DebugSettingsViewState extends State<DebugSettingsView> {
                   },
                 )),
         ListTile(
-          title: const Text('Reset welcome dialog version'),
+          title: const Text('重置欢迎弹窗版本'),
           onTap: () {
             GetIt.I<PayloadConfig>().settings.welcomeMessageVersion = '';
             // Save the config

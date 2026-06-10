@@ -1,1 +1,10 @@
-enum StudioShellSection { home, assets, workbench, batch, gallery, settings }
+enum StudioShellSection {
+  home,
+  assets,
+  workbench,
+  script,
+  batch,
+  scriptExhibition,
+  gallery,
+  settings,
+}

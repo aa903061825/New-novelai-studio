@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>素材库重做交互样本</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="workspace">
+      <header class="top-bar" aria-labelledby="pageTitle">
+        <div class="title-block">
+          <div class="title-icon" aria-hidden="true">库</div>
+          <div>
+            <h1 id="pageTitle">素材展览室</h1>
+            <p>角色、服装、画师串词和预览统一收纳。</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button class="ghost-button" id="refreshButton" type="button">刷新</button>
+          <button class="primary-button" id="newAssetButton" type="button">新建素材</button>
+        </div>
+      </header>
+
+      <section class="metric-row" aria-label="素材统计">
+        <article class="metric-card">
+          <span class="metric-icon metric-yellow" aria-hidden="true">角</span>
+          <div>
+            <strong id="metricCharacters">0</strong>
+            <span>角色</span>
+          </div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon metric-blue" aria-hidden="true">串</span>
+          <div>
+            <strong id="metricArtists">0</strong>
+            <span>画师串词</span>
+          </div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon metric-green" aria-hidden="true">图</span>
+          <div>
+            <strong id="metricPreviews">0</strong>
+            <span>预览</span>
+          </div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon metric-orange" aria-hidden="true">待</span>
+          <div>
+            <strong id="metricNeeds">0</strong>
+            <span>待处理</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="command-strip" aria-label="素材筛选">
+        <label class="search-field">
+          <span>搜索</span>
+          <input id="searchInput" type="search" autocomplete="off" placeholder="角色、tag、画师、来源" />
+        </label>
+        <div class="segmented" role="group" aria-label="显示密度">
+          <button class="segment is-active" type="button" data-density="gallery">展览</button>
+          <button class="segment" type="button" data-density="compact">紧凑</button>
+        </div>
+      </section>
+
+      <section class="category-board" aria-label="分类馆区">
+        <div id="categoryRail" class="category-rail"></div>
+        <button class="new-category-card" id="newCategoryButton" type="button">
+          <span>+</span>
+          <strong>新建分类</strong>
+        </button>
+      </section>
+
+      <section class="asset-section" aria-labelledby="assetSectionTitle">
+        <div class="section-head">
+          <div>
+            <h2 id="assetSectionTitle">素材书架</h2>
+            <p id="sectionSummary"></p>
+          </div>
+          <span class="count-pill" id="visibleCount">0</span>
+        </div>
+        <div class="asset-grid" id="assetGrid"></div>
+      </section>
+    </main>
+
+    <div class="modal-shell" id="assetModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal></div>
+      <section class="asset-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <header class="modal-header">
+          <div>
+            <span class="type-pill" id="modalType">角色</span>
+            <h2 id="modalTitle">素材详情</h2>
+            <p id="modalSubtitle"></p>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost-button" id="sendButton" type="button">发送到工作台</button>
+            <button class="ghost-button" id="copyPromptButton" type="button">复制串词</button>
+            <button class="icon-button" type="button" data-close-modal aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <div class="modal-body">
+          <section class="preview-panel" aria-label="预览">
+            <div class="preview-outfit-slot" id="previewOutfitSlot"></div>
+            <div class="preview-stage" id="previewStage"></div>
+            <div class="preview-toolbar">
+              <div class="preview-status" id="previewStatus"></div>
+              <div class="preview-buttons">
+                <button class="ghost-button" id="addPreviewButton" type="button">新增预览</button>
+                <button class="danger-button" id="deletePreviewButton" type="button">删除预览</button>
+                <button class="primary-button" id="generatePreviewButton" type="button">立即生成</button>
+              </div>
+            </div>
+            <div class="preview-rail" id="previewRail" aria-label="预览列表"></div>
+          </section>
+
+          <section class="tag-system-panel" aria-label="标签系统">
+            <div class="panel-head">
+              <div>
+                <h3>角色词与画师串词</h3>
+                <p id="tagSyncStatus">已按标签系统分组。</p>
+              </div>
+              <button class="ghost-button" id="syncTagsButton" type="button">同步标签系统</button>
+            </div>
+            <div class="tag-groups" id="tagGroups"></div>
+            <div class="prompt-output">
+              <label for="promptOutput">Prompt 拼接结果</label>
+              <textarea id="promptOutput" rows="4"></textarea>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

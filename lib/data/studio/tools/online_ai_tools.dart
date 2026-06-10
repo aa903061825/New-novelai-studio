@@ -1,13 +1,20 @@
 import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
 
-typedef OnlineTranslatorProvider = Future<OnlineTranslationProviderResult>
-    Function(OnlineTranslationRequest request);
+typedef OnlineTranslatorProvider =
+    Future<OnlineTranslationProviderResult> Function(
+      OnlineTranslationRequest request,
+    );
 
-typedef OnlineTranslationFallback = Future<OnlineTranslationFallbackResult?>
-    Function(OnlineTranslationRequest request, Object? error);
+typedef OnlineTranslationFallback =
+    Future<OnlineTranslationFallbackResult?> Function(
+      OnlineTranslationRequest request,
+      Object? error,
+    );
 
-typedef OnlineClassifierProvider = Future<OnlineClassificationProviderResult>
-    Function(OnlineClassificationRequest request);
+typedef OnlineClassifierProvider =
+    Future<OnlineClassificationProviderResult> Function(
+      OnlineClassificationRequest request,
+    );
 
 enum OnlineAiMode { google, ai }
 
@@ -90,9 +97,7 @@ class OnlineTranslationResult {
 class OnlineClassificationRequest {
   final List<String> tags;
 
-  const OnlineClassificationRequest({
-    required this.tags,
-  });
+  const OnlineClassificationRequest({required this.tags});
 }
 
 class OnlineClassificationProviderResult {

@@ -1,6 +1,7 @@
 import 'package:nai_casrand/data/models/generation_runtime_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:nai_casrand/data/models/i2i_config.dart';
 import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/models/prompt_config.dart';
@@ -53,5 +54,23 @@ void main() {
     expect(configService.saveGenerationRuntimeStateCallCount, 1);
     expect(configService.lastSavedState, isNotNull);
     expect(configService.lastSavedState!.vibeEnabled, isFalse);
+  });
+
+  test('creates i2i viewmodel from active payload i2i and parameter configs',
+      () {
+    final payload = GetIt.I<PayloadConfig>();
+    final activeI2iConfig = I2IConfig(
+      imageB64: 'active-source',
+      strength: 0.72,
+      noise: 0.18,
+    );
+    final activeParamConfig = ParamConfig(model: 'nai-diffusion-4-5-full');
+    payload.i2iConfig = activeI2iConfig;
+    payload.paramConfig = activeParamConfig;
+
+    final i2iViewmodel = I2iTabViewmodel().createI2iViewmodel();
+
+    expect(identical(i2iViewmodel.config, activeI2iConfig), isTrue);
+    expect(identical(i2iViewmodel.paramConfig, activeParamConfig), isTrue);
   });
 }

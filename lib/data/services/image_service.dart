@@ -30,7 +30,7 @@ class ImageService {
     return base64Encode(img.encodePng(thumbnail));
   }
 
-  /// Process response bytes and return image bytes
+  /// Process response bytes and return image bytes.
   Uint8List processResponse(Uint8List zippedResponseBytes) {
     try {
       var archive = ZipDecoder().decodeBytes(zippedResponseBytes);
@@ -42,7 +42,9 @@ class ImageService {
     } catch (e) {
       final bytes = zippedResponseBytes;
       throw Exception(
-          'Error unpacking response: ${e.toString()};\nResponse data: ${bytes.length < 1000 ? utf8.decode(bytes) : '${bytes.length} bytes'}');
+        'Error unpacking response: ${e.toString()};\nResponse data: '
+        "${bytes.length < 1000 ? utf8.decode(bytes) : '${bytes.length} bytes'}",
+      );
     }
   }
 
@@ -55,7 +57,7 @@ class ImageService {
       throw Exception('Image decode failed while embedding metadata.');
     }
     final codec = GZipCodec();
-    final magicBytes = utf8.encode("stealth_pngcomp");
+    final magicBytes = utf8.encode('stealth_pngcomp');
     final encodedData = codec.encode(utf8.encode(metadataString));
     final bitLength = encodedData.length * 8;
     final bitLengthInBytes = ByteData(4);
@@ -63,7 +65,7 @@ class ImageService {
     final dataToEmbed = [
       ...magicBytes,
       ...bitLengthInBytes.buffer.asUint8List(),
-      ...encodedData
+      ...encodedData,
     ];
 
     var bitIndex = 0;
@@ -82,43 +84,80 @@ class ImageService {
   }
 
   Future<String?> extractMetadata(img.Image image) async {
-    final magicBytes = utf8.encode("stealth_pngcomp");
-    final List<int> extractedBytes = [];
-    int bitIndex = 0;
-    int byteValue = 0;
+    final magicBytes = utf8.encode('stealth_pngcomp');
+    final reader = _AlphaBitReader(image);
+    final headerBytes = reader.readBytes(magicBytes.length);
+    if (!listEquals(headerBytes, magicBytes)) {
+      return null;
+    }
 
-    // 读取整个图片中的数据位
-    for (var x = 0; x < image.width; x++) {
-      for (var y = 0; y < image.height; y++) {
-        final pixel = image.getPixel(x, y);
-        final alpha = pixel.a as int;
-        final bit = (alpha & 1);
-        byteValue = (byteValue << 1) | bit;
-        if (++bitIndex % 8 == 0) {
-          extractedBytes.add(byteValue);
-          byteValue = 0;
+    final bitLengthBytes = reader.readBytes(4);
+    if (bitLengthBytes.length < 4) {
+      return null;
+    }
+
+    final bitLength =
+        ByteData.sublistView(Uint8List.fromList(bitLengthBytes)).getInt32(0);
+    if (bitLength <= 0) {
+      return null;
+    }
+
+    final dataLength = (bitLength / 8).ceil();
+    if (dataLength > reader.remainingByteCapacity) {
+      return null;
+    }
+
+    final compressedData = reader.readBytes(dataLength);
+    if (compressedData.length < dataLength) {
+      return null;
+    }
+
+    final codec = GZipCodec();
+    final decodedData = codec.decode(Uint8List.fromList(compressedData));
+    return utf8.decode(decodedData);
+  }
+}
+
+class _AlphaBitReader {
+  final img.Image image;
+  var _x = 0;
+  var _y = 0;
+  var _bitsRead = 0;
+
+  _AlphaBitReader(this.image);
+
+  int get _totalBits => image.width * image.height;
+
+  int get remainingByteCapacity => (_totalBits - _bitsRead) ~/ 8;
+
+  List<int> readBytes(int length) {
+    final bytes = <int>[];
+    for (var i = 0; i < length; i++) {
+      var value = 0;
+      for (var bit = 0; bit < 8; bit++) {
+        final nextBit = _readBit();
+        if (nextBit == null) {
+          return bytes;
         }
+        value = (value << 1) | nextBit;
       }
+      bytes.add(value);
     }
+    return bytes;
+  }
 
-    // 检查是否包含特定的魔法字节
-    final magicByteLength = magicBytes.length;
-    if (listEquals(extractedBytes.take(magicByteLength).toList(), magicBytes)) {
-      // 读取数据长度
-      final bitLengthBytes =
-          extractedBytes.sublist(magicByteLength, magicByteLength + 4);
-      final bitLength =
-          ByteData.sublistView(Uint8List.fromList(bitLengthBytes)).getInt32(0);
-      final dataLength = (bitLength / 8).ceil();
-
-      // 读取实际数据并解压缩
-      final compressedData = extractedBytes.sublist(
-          magicByteLength + 4, magicByteLength + 4 + dataLength);
-      final codec = GZipCodec();
-      final decodedData = codec.decode(Uint8List.fromList(compressedData));
-      return utf8.decode(decodedData);
+  int? _readBit() {
+    if (_x >= image.width) {
+      return null;
     }
-
-    return null; // 如果没有找到特定的魔法字节
+    final pixel = image.getPixel(_x, _y);
+    final bit = pixel.a.toInt() & 1;
+    _bitsRead++;
+    _y++;
+    if (_y >= image.height) {
+      _y = 0;
+      _x++;
+    }
+    return bit;
   }
 }

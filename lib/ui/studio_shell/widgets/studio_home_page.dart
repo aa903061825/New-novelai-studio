@@ -151,7 +151,7 @@ class _StudioHomePageState extends State<StudioHomePage> {
 
   Future<_StudioHomeSnapshot> _loadSnapshot() async {
     final summary = await widget.catalogService.loadSummary();
-    final records = await widget.galleryService.loadRecords();
+    final records = await widget.galleryService.loadCreativeRecords();
     return _StudioHomeSnapshot(
       assetCount: summary.totalAssetCount,
       galleryCount: records.length,
@@ -206,25 +206,8 @@ class _HomeHero extends StatelessWidget {
                     ),
               ),
               const SizedBox(height: 18),
-              Container(
-                constraints: const BoxConstraints(minHeight: 82),
-                decoration: BoxDecoration(
-                  color: StudioTokens.surfaceBase,
-                  borderRadius: StudioTokens.radiusCard,
-                  border: StudioTokens.cardBorder,
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  promptPreview,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: prompt.trim().isEmpty
-                            ? StudioTokens.textMuted
-                            : StudioTokens.textPrimary,
-                      ),
-                ),
-              ),
+              _HomePromptCard(
+                  prompt: promptPreview, isEmpty: prompt.trim().isEmpty),
             ],
           );
           final actions = Column(
@@ -267,6 +250,95 @@ class _HomeHero extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _HomePromptCard extends StatelessWidget {
+  final String prompt;
+  final bool isEmpty;
+
+  const _HomePromptCard({required this.prompt, required this.isEmpty});
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = prompt
+        .split(',')
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .take(8)
+        .toList(growable: false);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 118),
+      decoration: BoxDecoration(
+        color: StudioTokens.surfaceBase,
+        borderRadius: StudioTokens.radiusCard,
+        border: StudioTokens.cardBorder,
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_outlined,
+                  size: 18, color: StudioTokens.primary),
+              const SizedBox(width: 8),
+              Text(
+                '当前提示词',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (isEmpty)
+            Text(
+              prompt,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: StudioTokens.textMuted),
+            )
+          else ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tag in tags)
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: StudioTokens.primary.withAlpha(20),
+                      borderRadius: StudioTokens.radiusPill,
+                      border: Border.all(
+                        color: StudioTokens.primary.withAlpha(90),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      child: Text(
+                        tag,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: StudioTokens.primary),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              prompt,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ],
       ),
     );
   }

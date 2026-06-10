@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:nai_casrand/data/workspace/workspace_paths.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tempDir;
   late WorkspaceService workspaceService;
 
@@ -97,9 +101,36 @@ void main() {
     expect(summary.workflowCount, 1);
     expect(summary.batchPlanCount, 1);
     expect(summary.assemblyPresetCount, 1);
-    expect(summary.totalAssetCount, 11);
+    expect(summary.totalAssetCount, 10);
     expect(summary.recipeCountsByBlock['style'], 2);
     expect(summary.tagCountsByBlock['scene'], 1);
+  });
+
+  test('character prompts without explicit outfits do not create outfit assets',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-default',
+        name: 'Heroine',
+        traits: ViewVariantTexts(
+          frontFull: 'heroine identity',
+          frontUpper: 'silver hair, white blouse',
+          frontLower: 'fox tail, pleated skirt',
+        ),
+        imageRefs: ['refs/heroine.png'],
+      ),
+    ]);
+
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    );
+    final summary = await service.loadSummary();
+    final snapshot = await service.loadSnapshot();
+    final outfits = await service.loadWorkbenchOutfits();
+
+    expect(summary.outfitCount, 0);
+    expect(snapshot.summary.outfitCount, 0);
+    expect(outfits, isEmpty);
   });
 
   test('loadSnapshot returns concrete assets for library browsing', () async {
@@ -175,7 +206,7 @@ void main() {
     ).loadSnapshot();
 
     expect(snapshot.summary.outfitCount, 1);
-    expect(snapshot.summary.totalAssetCount, 10);
+    expect(snapshot.summary.totalAssetCount, 9);
     expect(snapshot.characters.single.name, 'Heroine');
     expect(snapshot.outfits.single.character.name, 'Heroine');
     expect(snapshot.outfits.single.outfit.name, 'Rain Coat');
@@ -187,5 +218,493 @@ void main() {
     expect(snapshot.workflows.single.name, 'City Stack');
     expect(snapshot.batchPlans.single.name, 'Night Queue');
     expect(snapshot.assemblyPresets.single.name, 'City Assembly');
+  });
+
+  test(
+      'loadSnapshot prunes legacy generic outfit variants and dedupes repeated outfit names',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r5',
+        name: 'Ceobe',
+        traits: ViewVariantTexts(frontFull: 'ceobe_(arknights)'),
+        imageRefs: ['assets/references/ceobe.png'],
+        source: SourceRef(type: 'legacy_artist_workbook'),
+        outfits: [
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r5-outfit-3',
+            name: '变体 1',
+            tags: ViewVariantTexts(frontFull: 'dog ears, brown hair'),
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r5-outfit-4',
+            name: '变体 2',
+            tags: ViewVariantTexts(frontFull: 'brown dress'),
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r5-outfit-5',
+            name: 'Cozy Coat',
+            tags: ViewVariantTexts(frontFull: 'warm coat'),
+            imageRefs: ['assets/references/cozy-a.png'],
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r5-outfit-6',
+            name: 'Cozy Coat',
+            tags: ViewVariantTexts(frontFull: 'warm coat, scarf'),
+            imageRefs: ['assets/references/cozy-b.png'],
+          ),
+        ],
+      ),
+    ]);
+
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    expect(snapshot.summary.characterCount, 1);
+    expect(snapshot.summary.outfitCount, 1);
+    expect(snapshot.characters.single.outfits, hasLength(1));
+    expect(snapshot.characters.single.outfits.single.name, 'Cozy Coat');
+    expect(snapshot.characters.single.outfits.single.imageRefs, [
+      'assets/references/cozy-a.png',
+      'assets/references/cozy-b.png',
+    ]);
+    expect(snapshot.outfits.single.outfit.name, 'Cozy Coat');
+  });
+
+  test('loadSnapshot keeps structured legacy generic outfit prompts', () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r14',
+        name: 'Pepe',
+        traits: ViewVariantTexts(frontFull: 'pepe_(arknights)'),
+        source: SourceRef(type: 'legacy_artist_workbook'),
+        outfits: [
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r14-outfit-4',
+            name: '服装',
+            tags: ViewVariantTexts(
+              frontFull: 'ancient egyptian clothes, white dress, skirt',
+              frontUpper: 'ancient egyptian clothes, white dress',
+              frontLower: 'purple skirt',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['ancient egyptian clothes', 'white dress'],
+              lowerClothingTags: ['purple skirt'],
+            ),
+          ),
+        ],
+      ),
+    ]);
+
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    expect(snapshot.summary.outfitCount, 1);
+    expect(snapshot.characters.single.outfits.single.id,
+        'legacy-character-sheet-r14-outfit-4');
+    expect(snapshot.characters.single.outfits.single.name, '服装');
+    expect(snapshot.outfits.single.outfit.name, '服装');
+  });
+
+  test('loadSnapshot excludes legacy codex unless explicitly requested',
+      () async {
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'insp-1',
+        name: 'Night Alley',
+        prompt: 'rainy alley',
+      ),
+      const InspirationEntry(
+        id: 'legacy-codex-regular-0001',
+        name: 'Fantasy',
+        prompt: 'artist:wlop, dnd, fantasy',
+        source: SourceRef(type: 'legacy_codex'),
+      ),
+      const InspirationEntry(
+        id: 'adult-codex-0001',
+        name: 'Imported Codex',
+        prompt: 'cinematic lighting, solo',
+        source: SourceRef(type: 'novalai_codex_adult_docx'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [
+        InspirationEntry(
+          id: 'legacy-codex-regular-0001',
+          name: 'Fantasy',
+          prompt: 'artist:wlop, dnd, fantasy',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+    );
+
+    final defaultSnapshot = await service.loadSnapshot();
+    final codexSnapshot = await service.loadSnapshot(includeLegacyCodex: true);
+    final summary = await service.loadSummary();
+
+    expect(defaultSnapshot.inspirations.map((entry) => entry.id), ['insp-1']);
+    expect(defaultSnapshot.summary.inspirationCount, 1);
+    expect(summary.inspirationCount, 1);
+    expect(codexSnapshot.inspirations.map((entry) => entry.id), [
+      'insp-1',
+      'legacy-codex-regular-0001',
+      'adult-codex-0001',
+    ]);
+  });
+
+  test('loadSnapshot exposes bundled legacy codex before entries load',
+      () async {
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    expect(snapshot.legacyCodexAvailable, isTrue);
+    expect(snapshot.legacyCodexLoadedCount, 0);
+    expect(snapshot.legacyCodexTotalCount, 0);
+  });
+
+  test('loadSnapshot limits and searches legacy codex entries', () async {
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => [
+        for (var index = 1; index <= 5; index++)
+          InspirationEntry(
+            id: 'legacy-codex-$index',
+            name: 'Codex $index',
+            prompt: index == 5 ? 'dragon shrine' : 'forest path $index',
+            source: const SourceRef(type: 'legacy_codex'),
+          ),
+      ],
+    );
+
+    final limited = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 2,
+    );
+    final searched = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 2,
+      legacyCodexQuery: 'dragon',
+    );
+
+    expect(limited.legacyCodexLoadedCount, 2);
+    expect(limited.legacyCodexTotalCount, 5);
+    expect(limited.inspirations.map((entry) => entry.id), [
+      'legacy-codex-1',
+      'legacy-codex-2',
+    ]);
+    expect(searched.legacyCodexLoadedCount, 1);
+    expect(searched.legacyCodexTotalCount, 1);
+    expect(searched.inspirations.single.id, 'legacy-codex-5');
+  });
+
+  test('loadSnapshot filters legacy codex category before paging', () async {
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [
+        InspirationEntry(
+          id: 'legacy-codex-style',
+          name: 'Painter Style',
+          prompt: 'artist:wlop, painterly, official art',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+        InspirationEntry(
+          id: 'legacy-codex-dress',
+          name: 'Dress Notes',
+          prompt: 'red dress, white gloves, leather boots',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+        InspirationEntry(
+          id: 'legacy-codex-coat',
+          name: 'Coat Notes',
+          prompt: 'long coat, uniform jacket, black skirt',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+    );
+
+    final snapshot = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 1,
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.clothing.key,
+    );
+
+    expect(snapshot.legacyCodexLoadedCount, 1);
+    expect(snapshot.legacyCodexTotalCount, 2);
+    expect(snapshot.inspirations.single.id, 'legacy-codex-dress');
+    expect(
+      snapshot.legacyCodexCategoryCounts[
+          StudioLegacyCodexCategories.artistStyle.key],
+      1,
+    );
+    expect(
+      snapshot
+          .legacyCodexCategoryCounts[StudioLegacyCodexCategories.clothing.key],
+      2,
+    );
+  });
+
+  test('legacy codex categories avoid broad token false positives', () {
+    List<String> keysFor(String prompt) {
+      return StudioLegacyCodexCategories.keysFor(
+        InspirationEntry(
+          id: 'sample',
+          name: 'Sample',
+          prompt: prompt,
+          source: const SourceRef(type: 'legacy_codex'),
+        ),
+      );
+    }
+
+    expect(keysFor('1girl, solo, slight smile'), [
+      StudioLegacyCodexCategories.poseExpression.key,
+    ]);
+    expect(keysFor('1girl, solo, looking at viewer, from side'), [
+      StudioLegacyCodexCategories.composition.key,
+    ]);
+    expect(
+        keysFor('dragon claw, flame wings, magic circle'),
+        containsAll([
+          StudioLegacyCodexCategories.fantasyCreature.key,
+          StudioLegacyCodexCategories.magicEffects.key,
+        ]));
+    expect(keysFor('mechanical arms, cyberpunk city, robot joints'),
+        contains(StudioLegacyCodexCategories.mechanicalSciFi.key));
+    expect(keysFor('red dress, white gloves, leather boots'), [
+      StudioLegacyCodexCategories.clothing.key,
+    ]);
+  });
+
+  test('legacy codex category terms avoid substring-only matches', () {
+    final keys = StudioLegacyCodexCategories.keysFor(
+      const InspirationEntry(
+        id: 'sample',
+        name: 'Sample',
+        prompt: 'eyeshadow, negative space, multiple views, highlight',
+        source: SourceRef(type: 'legacy_codex'),
+      ),
+    );
+
+    expect(keys, [StudioLegacyCodexCategories.general.key]);
+  });
+
+  test('legacy codex categories cover common accessory and subject clusters',
+      () {
+    List<String> keysFor(String prompt) {
+      return StudioLegacyCodexCategories.keysFor(
+        InspirationEntry(
+          id: 'sample',
+          name: 'Sample',
+          prompt: prompt,
+          source: const SourceRef(type: 'legacy_codex'),
+        ),
+      );
+    }
+
+    expect(keysFor('black thighhighs, toeless legwear'), [
+      StudioLegacyCodexCategories.clothing.key,
+    ]);
+    expect(keysFor('black fur, doberman, furry, bird boy'), [
+      StudioLegacyCodexCategories.fantasyCreature.key,
+    ]);
+    expect(
+        keysFor('abstract art, cubism, greyscale'),
+        containsAll([
+          StudioLegacyCodexCategories.artistStyle.key,
+          StudioLegacyCodexCategories.lightingColor.key,
+        ]));
+    expect(keysFor('pink bikini, swimsuit, mittens, fur shawl'), [
+      StudioLegacyCodexCategories.clothing.key,
+    ]);
+    expect(
+        keysFor('transparent wing, crystal wing, pink slime'),
+        contains(
+          StudioLegacyCodexCategories.fantasyCreature.key,
+        ));
+    expect(keysFor('white tank top, striped underwear, side slit'), [
+      StudioLegacyCodexCategories.clothing.key,
+    ]);
+    expect(
+        keysFor('space helmet, spacesuit, underwater, heroic stance'),
+        containsAll([
+          StudioLegacyCodexCategories.poseExpression.key,
+          StudioLegacyCodexCategories.scene.key,
+          StudioLegacyCodexCategories.mechanicalSciFi.key,
+        ]));
+  });
+
+  test('loadSnapshot writes a durable catalog cache file', () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-cache',
+        name: 'Cached Hero',
+        traits: ViewVariantTexts(frontFull: 'blue eyes'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    );
+
+    final snapshot = await service.loadSnapshot();
+
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache}',
+    );
+    expect(await cacheFile.exists(), isTrue);
+    final cacheJson = jsonDecode(await cacheFile.readAsString());
+    expect(cacheJson['schemaVersion'], 3);
+    final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
+    expect(entries, hasLength(1));
+    final cacheEntry = Map<String, dynamic>.from(entries.values.single as Map);
+    expect(cacheEntry['snapshot']['characters'].single['id'], 'char-cache');
+    expect(snapshot.characters.single.name, 'Cached Hero');
+  });
+
+  test('loadSnapshotWithCache restores a persisted snapshot after restart',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-before-restart',
+        name: 'Before Restart',
+        traits: ViewVariantTexts(frontFull: 'silver hair'),
+      ),
+    ]);
+    await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    final reopenedWorkspace = WorkspaceService();
+    await reopenedWorkspace.openWorkspace(tempDir.path);
+    final reopenedService = StudioAssetCatalogService(
+      workspaceService: reopenedWorkspace,
+    );
+
+    final result = await reopenedService.loadSnapshotWithCache();
+
+    expect(result.fromCache, isTrue);
+    expect(result.isStale, isFalse);
+    expect(result.snapshot.characters.single.id, 'char-before-restart');
+  });
+
+  test('loadSnapshot cache keeps default and codex requests side by side',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-default-cache',
+        name: 'Default Cache Hero',
+        traits: ViewVariantTexts(frontFull: 'silver hair'),
+      ),
+    ]);
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'legacy-codex-cache',
+        name: 'Codex Cache',
+        prompt: 'artist:wlop, fantasy',
+        source: SourceRef(type: 'legacy_codex'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    );
+
+    await service.loadSnapshot();
+    await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 1,
+    );
+
+    final reopenedWorkspace = WorkspaceService();
+    await reopenedWorkspace.openWorkspace(tempDir.path);
+    final reopenedService = StudioAssetCatalogService(
+      workspaceService: reopenedWorkspace,
+    );
+
+    final defaultResult = await reopenedService.loadSnapshotWithCache();
+    final codexResult = await reopenedService.loadSnapshotWithCache(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 1,
+    );
+
+    expect(defaultResult.fromCache, isTrue);
+    expect(defaultResult.snapshot.characters.single.id, 'char-default-cache');
+    expect(defaultResult.snapshot.inspirations, isEmpty);
+    expect(codexResult.fromCache, isTrue);
+    expect(codexResult.snapshot.legacyCodexLoadedCount, 1);
+    expect(codexResult.snapshot.inspirations.single.id, 'legacy-codex-cache');
+  });
+
+  test('loadSnapshotWithCache marks persisted cache stale after external edit',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-old',
+        name: 'Old Hero',
+        traits: ViewVariantTexts(frontFull: 'green eyes'),
+      ),
+    ]);
+    await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-new',
+        name: 'New Hero',
+        traits: ViewVariantTexts(frontFull: 'gold eyes, long braid'),
+      ),
+    ]);
+    final reopenedWorkspace = WorkspaceService();
+    await reopenedWorkspace.openWorkspace(tempDir.path);
+    final reopenedService = StudioAssetCatalogService(
+      workspaceService: reopenedWorkspace,
+    );
+
+    final cached = await reopenedService.loadSnapshotWithCache();
+    final rebuilt = await reopenedService.refreshSnapshotCache();
+
+    expect(cached.fromCache, isTrue);
+    expect(cached.isStale, isTrue);
+    expect(cached.snapshot.characters.single.id, 'char-old');
+    expect(rebuilt.characters.single.id, 'char-new');
+  });
+
+  test('loadSnapshotWithCache can skip stale check for fast cache display',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-old',
+        name: 'Old Hero',
+        traits: ViewVariantTexts(frontFull: 'green eyes'),
+      ),
+    ]);
+    await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-new',
+        name: 'New Hero',
+        traits: ViewVariantTexts(frontFull: 'gold eyes, long braid'),
+      ),
+    ]);
+    final reopenedWorkspace = WorkspaceService();
+    await reopenedWorkspace.openWorkspace(tempDir.path);
+    final reopenedService = StudioAssetCatalogService(
+      workspaceService: reopenedWorkspace,
+    );
+
+    final unchecked = await reopenedService.loadSnapshotWithCache(
+      checkStaleness: false,
+    );
+    final checked = await reopenedService.loadSnapshotWithCache();
+
+    expect(unchecked.fromCache, isTrue);
+    expect(unchecked.isStale, isFalse);
+    expect(unchecked.snapshot.characters.single.id, 'char-old');
+    expect(checked.fromCache, isTrue);
+    expect(checked.isStale, isTrue);
   });
 }

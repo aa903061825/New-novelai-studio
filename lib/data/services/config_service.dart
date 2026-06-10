@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import 'package:nai_casrand/data/models/generation_runtime_state.dart';
 import 'package:nai_casrand/data/models/global_generation_params.dart';
+import 'package:nai_casrand/data/models/payload_config.dart';
+import 'package:nai_casrand/data/services/vibe_source_image_store.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -116,16 +118,8 @@ class ConfigService {
   }
 
   Future<Map<String, dynamic>> loadSavedConfig() async {
-    if (kIsWeb) {
-      currentUuid = const Uuid().v4();
-      configIndex = {};
-      return json.decode(await loadDefaultConfig());
-    }
-
-    if (!kIsWeb) {
-      final dir = await getApplicationDocumentsDirectory();
-      Hive.init(dir.path);
-    }
+    final dir = await getApplicationDocumentsDirectory();
+    Hive.init(dir.path);
     saveBox = await Hive.openBox('savedBox');
     configIndex = loadConfigIndex();
     String? savedUuid = saveBox.get('savedUuid');
@@ -147,9 +141,7 @@ class ConfigService {
       currentUuid = savedUuid;
     }
     await saveBox.delete('savedConfig');
-    if (!kIsWeb) {
-      await saveBox.compact();
-    }
+    await saveBox.compact();
 
     if (kDebugMode) {
       print('Loaded keys:\n${saveBox.keys.toList().join('\n')}');
@@ -164,6 +156,27 @@ class ConfigService {
     if (!_hasSaveBox) return;
     await saveBox.put('savedUuid', currentUuid);
     saveConfigByUuid(currentUuid, jsonData);
+  }
+
+  Future<String> saveV4VibeSourceImage({
+    required String fileName,
+    required Uint8List bytes,
+  }) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return VibeSourceImageStore(rootDirectory: dir).savePng(
+      configUuid: _hasSaveBox ? currentUuid : 'current',
+      fileName: fileName,
+      bytes: bytes,
+    );
+  }
+
+  Future<bool> externalizeV4VibeSourceImages(
+      PayloadConfig payloadConfig) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return VibeSourceImageStore(rootDirectory: dir).externalizeV4Vibes(
+      configUuid: _hasSaveBox ? currentUuid : 'current',
+      vibes: payloadConfig.vibeConfigListV4,
+    );
   }
 
   /// Returns
