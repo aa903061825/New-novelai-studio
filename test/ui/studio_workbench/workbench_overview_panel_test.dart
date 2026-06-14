@@ -130,6 +130,7 @@ void main() {
     expect(payload.overridePrompt, 'manual base');
     expect(find.text('角色 · 璃夏'), findsNothing);
   });
+
   testWidgets(
       'workbench overview keeps character prompt layers before grouping',
       (tester) async {
@@ -182,11 +183,21 @@ void main() {
     final roleTwo = find.byKey(
       const ValueKey('workbench-overview-prompt-group-role-2'),
     );
+    final blueEyesTranslation = GetIt.I<TranslationCache>().getCached(
+      'blue eyes',
+    )!;
 
     expect(roleOne, findsOneWidget);
     expect(roleTwo, findsOneWidget);
     expect(
       find.descendant(of: roleOne, matching: find.text('first character')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: roleOne,
+        matching: find.text(blueEyesTranslation),
+      ),
       findsOneWidget,
     );
     expect(

@@ -160,6 +160,49 @@ void main() {
       expect(prompt, isNot(contains('environment')));
     });
 
+    test('character preview uses base identity for legacy outfit skins',
+        () async {
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'legacy-character-sheet-r13',
+          name: 'Suzuran',
+          traits:
+              'suzuran (spring praise) (arknights), fox girl, fox ears, fox tail',
+          identityTags: ['suzuran_(spring_praise)_(arknights)'],
+          anchorTags: ['suzuran_(spring_praise)_(arknights)'],
+          source: const SourceRef(type: 'legacy_artist_workbook'),
+          outfits: [
+            _outfit(
+              id: 'legacy-character-sheet-r13-outfit-3',
+              name: 'Yukibare',
+              full: 'suzuran (yukibare) (arknights)',
+              upper: 'japanese_clothes, kimono',
+              lower: 'hakama_skirt, sandals',
+            ),
+          ],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 2468],
+      );
+
+      await service.generateCharacterPreview('legacy-character-sheet-r13');
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('suzuran (arknights)'));
+      expect(prompt, contains('suzuran_(arknights)'));
+      expect(prompt, isNot(contains('suzuran (spring praise) (arknights)')));
+      expect(prompt, isNot(contains('suzuran_(spring_praise)_(arknights)')));
+      expect(prompt, contains('fox girl'));
+      expect(prompt, contains('fox ears'));
+      expect(prompt, contains('fox tail'));
+    });
+
     test('generates an outfit preview from character and outfit terms',
         () async {
       await workspaceService.saveCharacters([
@@ -525,6 +568,64 @@ void main() {
           ['existing.png', 'generated/preview.png']);
     });
 
+    test('discarding a generated character preview removes only that image',
+        () async {
+      final generatedFile = File(
+        '${tempDir.path}${Platform.pathSeparator}generated-character.png',
+      )..writeAsBytesSync([1, 2, 3]);
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          imageRefs: [
+            'existing.png',
+            generatedFile.path,
+            'concurrent.png',
+          ],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+      );
+
+      await service.discardCharacterPreview('char-1', generatedFile.path);
+
+      final characters = await workspaceService.loadCharacters();
+      expect(characters.single.imageRefs, ['existing.png', 'concurrent.png']);
+      expect(generatedFile.existsSync(), isFalse);
+    });
+
+    test('discarding a generated artist preview removes only that image',
+        () async {
+      final generatedFile = File(
+        '${tempDir.path}${Platform.pathSeparator}generated-artist.png',
+      )..writeAsBytesSync([1, 2, 3]);
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-1',
+          name: 'Painter Chain',
+          imageRefs: [
+            'existing.png',
+            generatedFile.path,
+            'concurrent.png',
+          ],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+      );
+
+      await service.discardArtistChainPreview('chain-1', generatedFile.path);
+
+      final chains = await workspaceService.loadArtistChains();
+      expect(chains.single.imageRefs, ['existing.png', 'concurrent.png']);
+      expect(generatedFile.existsSync(), isFalse);
+    });
+
     test('selects all three preview sizes through deterministic randomInt',
         () async {
       await workspaceService.saveCharacters([
@@ -643,6 +744,7 @@ CharacterEntry _character({
   List<String> anchorTags = const [],
   List<String> imageRefs = const [],
   List<WorkspaceOutfit> outfits = const [],
+  SourceRef source = const SourceRef(type: 'manual'),
 }) {
   return CharacterEntry(
     id: id,
@@ -652,6 +754,7 @@ CharacterEntry _character({
     identityTags: identityTags,
     anchorTags: anchorTags,
     imageRefs: imageRefs,
+    source: source,
   );
 }
 

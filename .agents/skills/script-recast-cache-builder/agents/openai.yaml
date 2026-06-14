@@ -1,0 +1,4 @@
+interface:
+  display_name: "Script Recast Cache Builder"
+  short_description: "Build and proofread project Script Recast caches."
+  default_prompt: "Use $script-recast-cache-builder to build and proofread a Script Recast cache for this project."

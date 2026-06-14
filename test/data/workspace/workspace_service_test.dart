@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nai_casrand/data/studio/models/script_recast.dart';
 import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
+import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_paths.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
@@ -299,6 +300,253 @@ void main() {
     expect(cache.scriptName, 'Target Cache');
   });
 
+  test('compacts heavy reference payloads when saving script recast caches',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+
+    await service.saveRecastScriptCache(
+      _bloatedRecastScriptCache('script-heavy-save', heavyReference),
+    );
+
+    final cacheFile = await Directory(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache',
+    )
+        .list()
+        .where((entry) => entry is File && entry.path.endsWith('.json'))
+        .cast<File>()
+        .single;
+    final rawText = await cacheFile.readAsString();
+    final cache = await service.loadRecastScriptCache('script-heavy-save');
+    final frame = Script.fromJson(cache!.scriptSnapshot).frames.single;
+    final comment =
+        jsonDecode(frame.parsed.sourcePayload['Comment'] as String) as Map;
+
+    expect(rawText.contains(heavyReference), isFalse);
+    expect(rawText.contains('reference_image_multiple'), isFalse);
+    expect(frame.rawJson.contains(heavyReference), isFalse);
+    expect(frame.parsed.generationParams['seed'], 123456);
+    expect(frame.parsed.generationParams.containsKey('reference_strength'),
+        isFalse);
+    expect(comment['prompt'], 'artist:test, scenic lighting');
+    expect(comment.containsKey('reference_image_multiple'), isFalse);
+  });
+
+  test('compacts legacy heavy script recast cache files while loading',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}legacy-heavy.json',
+    );
+    await cacheFile.parent.create(recursive: true);
+    await cacheFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(
+        _bloatedRecastScriptCache(
+          'script-heavy-load',
+          heavyReference,
+        ).toJson(),
+      ),
+    );
+    final beforeBytes = await cacheFile.length();
+
+    final caches = await service.loadRecastScriptCaches();
+
+    final afterBytes = await cacheFile.length();
+    final rawText = await cacheFile.readAsString();
+    final frame = Script.fromJson(caches.single.scriptSnapshot).frames.single;
+    final sourcePayload = frame.parsed.sourcePayload;
+    final comment = jsonDecode(sourcePayload['Comment'] as String) as Map;
+    expect(afterBytes, lessThan(beforeBytes));
+    expect(rawText.contains(heavyReference), isFalse);
+    expect(rawText.contains('reference_image_multiple'), isFalse);
+    expect(sourcePayload['Description'], 'artist:test, scenic lighting');
+    expect(sourcePayload.containsKey('reference_image_multiple'), isFalse);
+    expect(comment['seed'], 123456);
+    expect(comment.containsKey('reference_strength_multiple'), isFalse);
+  });
+
+  test('quarantines empty script recast cache files while loading', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}empty-cache.json',
+    );
+    await cacheFile.parent.create(recursive: true);
+    await cacheFile.writeAsString('');
+
+    final caches = await service.loadRecastScriptCaches();
+
+    expect(caches, isEmpty);
+    expect(await cacheFile.exists(), isFalse);
+    final invalidDirectory = Directory(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}_invalid',
+    );
+    final invalidFiles = await invalidDirectory
+        .list()
+        .where((entry) => entry is File && entry.path.endsWith('.json'))
+        .cast<File>()
+        .toList();
+    expect(invalidFiles, hasLength(1));
+    expect(invalidFiles.single.path, endsWith('empty-cache.json'));
+  });
+
+  test('repairs legacy script recast caches with unescaped backslashes',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}legacy-path-cache.json',
+    );
+    await cacheFile.parent.create(recursive: true);
+    await cacheFile.writeAsString(r'''
+{
+  "scriptId": "legacy-path-cache",
+  "scriptName": "Legacy Path Cache",
+  "sourceRootPath": "E:\legacy\bad-path",
+  "sourceFingerprint": "E:\legacy\bad-path|1",
+  "sourceContentFingerprint": "content-fingerprint",
+  "updatedAt": "2026-06-10T00:00:00.000Z",
+  "mapping": {
+    "id": "mapping-legacy-path-cache",
+    "scriptId": "legacy-path-cache"
+  },
+  "scriptSnapshot": {}
+}
+''');
+
+    final caches = await service.loadRecastScriptCaches();
+
+    expect(caches, hasLength(1));
+    expect(caches.single.sourceRootPath, r'E:\legacy\bad-path');
+    final rewritten = jsonDecode(await cacheFile.readAsString()) as Map;
+    expect(rewritten['sourceRootPath'], r'E:\legacy\bad-path');
+    expect(rewritten['sourceFingerprint'], r'E:\legacy\bad-path|1');
+  });
+
+  test('quarantines empty tokenizer script files while loading', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final scriptFile = File(
+      '${tempDir.path}${Platform.pathSeparator}tokenizer_scripts'
+      '${Platform.pathSeparator}scripts'
+      '${Platform.pathSeparator}empty-script.json',
+    );
+    await scriptFile.parent.create(recursive: true);
+    await scriptFile.writeAsString('');
+
+    final scripts = await service.loadTokenizerScripts();
+
+    expect(scripts, isEmpty);
+    expect(await scriptFile.exists(), isFalse);
+    final invalidDirectory = Directory(
+      '${tempDir.path}${Platform.pathSeparator}tokenizer_scripts'
+      '${Platform.pathSeparator}scripts'
+      '${Platform.pathSeparator}_invalid',
+    );
+    final invalidFiles = await invalidDirectory
+        .list()
+        .where((entry) => entry is File && entry.path.endsWith('.json'))
+        .cast<File>()
+        .toList();
+    expect(invalidFiles, hasLength(1));
+    expect(invalidFiles.single.path, endsWith('empty-script.json'));
+  });
+
+  test('migrates legacy tokenizer scripts into recast caches and clears them',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final source = TokenizerSourceFile(
+      fileId: 'source-1',
+      fileName: '001.json',
+      path: r'C:\stories\legacy\001.json',
+      kind: TokenizerScriptSourceKind.json,
+      defaultImagePath: r'C:\stories\legacy\001.png',
+      modifiedAt: DateTime.utc(2026, 6, 1),
+    );
+    await service.saveTokenizerScripts([
+      TokenizerScript(
+        scriptId: 'legacy-script',
+        name: 'Legacy Script',
+        sourceFolder: r'C:\stories\legacy',
+        sourceMode: TokenizerScriptSourceMode.auto,
+        createdAt: DateTime.utc(2026, 6, 1),
+        updatedAt: DateTime.utc(2026, 6, 2),
+        status: TokenizerScriptStatus.ready,
+        sourceFiles: [source],
+        sampleFileIds: const ['source-1'],
+        characterIdentities: const [],
+        styleStages: const [],
+        knowledgeCandidates: const [],
+        imageTasks: [
+          TokenizerImageTask(
+            taskId: 'task-1',
+            sourceFile: source,
+            parseStatus: 'parsed',
+            originalPrompt: 'legacy prompt',
+            promptMode: TokenizerScriptPromptMode.tag,
+            parsedPrompt: 'legacy prompt',
+            finalPrompt: 'legacy prompt, [画师串]',
+            artistEvidence: const ['artist:ahemaru'],
+            characterSlotMatches: const [],
+            resolution: '832x1216',
+            generationParams: const {'width': 832, 'height': 1216},
+            confidence: 0.9,
+            reviewStatus: TokenizerTaskReviewStatus.confirmed,
+            details: const TokenizerParseDetails(sceneTags: ['rain']),
+          ),
+        ],
+        imageAttachments: [
+          TokenizerScriptImageAttachment(
+            attachmentId: 'attachment-1',
+            imagePath: r'C:\stories\legacy\alt-001.png',
+            label: 'Alt frame',
+            versionId: 'script-image-version-1',
+            versionLabel: 'Imported Image 1',
+            frameIndex: 1,
+            sourceFileName: '001.json',
+            prompt: 'legacy attachment prompt',
+            createdAt: DateTime.utc(2026, 6, 2, 1),
+          ),
+        ],
+      ),
+    ]);
+
+    final caches = await service.loadRecastScriptCaches();
+
+    expect(caches, hasLength(1));
+    final cache = caches.single;
+    expect(cache.scriptId, 'legacy-script');
+    expect(cache.scriptName, 'Legacy Script');
+    expect(cache.sourceRootPath, r'C:\stories\legacy');
+    final snapshot = Script.fromJson(cache.scriptSnapshot);
+    expect(snapshot.frames.single.sourcePath, r'C:\stories\legacy\001.json');
+    expect(
+      snapshot.frames.single.sourceImagePath,
+      r'C:\stories\legacy\001.png',
+    );
+    expect(snapshot.frames.single.parsed.baseCaption, 'legacy prompt');
+    final attachments = snapshot.meta['legacyImageAttachments'] as List;
+    expect(attachments, hasLength(1));
+    final attachment = attachments.single as Map;
+    expect(attachment['attachmentId'], 'attachment-1');
+    expect(attachment['imagePath'], r'C:\stories\legacy\alt-001.png');
+    expect(attachment['prompt'], 'legacy attachment prompt');
+    expect(await service.loadTokenizerScripts(), isEmpty);
+  });
+
   test('openWorkspace backfills script recast files for legacy workspaces',
       () async {
     final service = WorkspaceService();
@@ -348,6 +596,29 @@ void main() {
     expect(promptConfig.rootConfig['enabled'], isTrue);
     expect(generationProfile.negativePrompt, 'bad anatomy');
     expect(generationProfile.secretRef, 'nai-token');
+  });
+
+  test('writes and reads local prompt chunks', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    await service.savePromptChunks([
+      const PromptChunkEntry(
+        id: 'chunk-1',
+        name: 'Hair randomizer',
+        prompt: '||red hair|blue hair|green hair||',
+        negativePrompt: 'bad hair',
+        tags: ['hair', 'randomizer'],
+      ),
+    ]);
+
+    final chunks = await service.loadPromptChunks();
+
+    expect(chunks, hasLength(1));
+    expect(chunks.single.name, 'Hair randomizer');
+    expect(chunks.single.prompt, '||red hair|blue hair|green hair||');
+    expect(chunks.single.insertIntoPrompt('1girl'),
+        '1girl, ||red hair|blue hair|green hair||');
   });
 
   test('writes and reads non-basic asset files and production directories',
@@ -560,4 +831,75 @@ void main() {
       throwsArgumentError,
     );
   });
+}
+
+String _heavyReferencePayload() {
+  return List.filled(4096, 'abcd').join();
+}
+
+RecastScriptCache _bloatedRecastScriptCache(
+  String scriptId,
+  String heavyReference,
+) {
+  return RecastScriptCache(
+    scriptId: scriptId,
+    scriptName: 'Heavy Recast Cache',
+    sourceRootPath: r'C:\scripts\heavy',
+    sourceFingerprint: 'fingerprint',
+    sourceContentFingerprint: 'content-fingerprint',
+    updatedAt: DateTime.utc(2026, 6, 10),
+    mapping: RecastMapping.defaults(scriptId),
+    scriptSnapshot: _bloatedRecastScript(scriptId, heavyReference).toJson(),
+  );
+}
+
+Script _bloatedRecastScript(String scriptId, String heavyReference) {
+  final sourcePayload = <String, dynamic>{
+    'Description': 'artist:test, scenic lighting',
+    'Comment': jsonEncode({
+      'prompt': 'artist:test, scenic lighting',
+      'seed': 123456,
+      'reference_image_multiple': [heavyReference],
+      'reference_strength_multiple': [0.6],
+      'reference_information_extracted_multiple': [1],
+    }),
+    'height': 1216,
+    'parameters': {
+      'sampler': 'k_euler',
+      'reference_image_multiple': [heavyReference],
+      'reference_strength_multiple': [0.6],
+      'reference_information_extracted_multiple': [1],
+    },
+    'reference_image_multiple': [heavyReference],
+    'reference_strength': 0.6,
+    'seed': 123456,
+    'width': 832,
+  };
+  return Script(
+    id: scriptId,
+    name: 'Heavy Recast Cache',
+    rootPath: r'C:\scripts\heavy',
+    frames: [
+      ScriptFrame(
+        index: 0,
+        fileName: '001.json',
+        sourcePath: r'C:\scripts\heavy\001.json',
+        rawJson: jsonEncode(sourcePayload),
+        parsed: ParsedFrame(
+          baseCaption: 'artist:test, scenic lighting',
+          generationParams: {
+            'height': 1216,
+            'reference_image_multiple': [heavyReference],
+            'reference_strength': 0.6,
+            'seed': 123456,
+            'width': 832,
+          },
+          sourcePayload: sourcePayload,
+        ),
+        detectedSchema: ScriptSchema.baseInline,
+        parseStatus: ScriptFrameParseStatus.parsed,
+      ),
+    ],
+    detectedSchema: ScriptSchema.baseInline,
+  );
 }

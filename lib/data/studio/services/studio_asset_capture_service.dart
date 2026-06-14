@@ -262,7 +262,7 @@ class StudioAssetCaptureService {
     }
 
     final existing = characters[targetIndex];
-    final merged = existing.copyWith(
+    final merged = _manualizedCharacter(existing.copyWith(
       traits: _mergeViewVariantTexts(existing.traits, incoming.traits),
       outfits: _mergeCharacterOutfits(existing.outfits, incoming.outfits),
       defaultOutfitId: existing.defaultOutfitId ?? incoming.defaultOutfitId,
@@ -284,7 +284,7 @@ class StudioAssetCaptureService {
       ),
       aliases: _mergeTags(existing.aliases, incoming.aliases),
       recastNotes: _mergeNote(existing.recastNotes, incoming.recastNotes),
-    );
+    ));
     final updated = [...characters]..[targetIndex] = merged;
     await workspaceService.saveCharacters(updated);
     return StudioAssetCaptureResult(
@@ -340,9 +340,11 @@ class StudioAssetCaptureService {
       outfits.add(savedOutfit);
     }
 
-    final updatedParent = parent.copyWith(
-      outfits: outfits,
-      defaultOutfitId: parent.defaultOutfitId ?? savedOutfit.id,
+    final updatedParent = _manualizedCharacter(
+      parent.copyWith(
+        outfits: outfits,
+        defaultOutfitId: parent.defaultOutfitId ?? savedOutfit.id,
+      ),
     );
     final updatedCharacters = [...characters]..[parentIndex] = updatedParent;
     await workspaceService.saveCharacters(updatedCharacters);
@@ -373,6 +375,11 @@ extension on WorkspaceOutfit {
       note: note ?? this.note,
     );
   }
+}
+
+CharacterEntry _manualizedCharacter(CharacterEntry character) {
+  if (character.source.type == 'manual') return character;
+  return character.copyWith(source: const SourceRef(type: 'manual'));
 }
 
 WorkspaceOutfit _mergeOutfit(

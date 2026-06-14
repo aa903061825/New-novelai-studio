@@ -54,6 +54,14 @@ String promptTagRawValueForAnalysis(WorkshopTagAnalysis tag) {
   );
 }
 
+String formatPromptTagWeightedValue(String tag, double weight) {
+  return PromptTagProcessor.formatInlineWeightTag(tag, weight);
+}
+
+String formatPromptTagWeightText(double weight) {
+  return weight.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+}
+
 PromptTagClassification classifyPromptTagForPresentation(
   String tag, {
   bool negative = false,

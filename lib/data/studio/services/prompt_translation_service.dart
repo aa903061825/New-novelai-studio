@@ -13,6 +13,7 @@ typedef PromptTranslationProviderRunner
   OnlineTranslationRequest request,
   Settings settings,
 );
+typedef PromptTranslationCacheReloader = Future<TranslationCache> Function();
 
 abstract interface class PromptTranslationService {
   OnlineAiMode get currentMode;
@@ -28,12 +29,14 @@ class DefaultPromptTranslationService implements PromptTranslationService {
   final Settings Function() settingsProvider;
   final PromptTranslationProviderRunner aiProvider;
   final PromptTranslationProviderRunner googleProvider;
+  final PromptTranslationCacheReloader? translationCacheReloader;
 
   DefaultPromptTranslationService({
     required this.translationCache,
     required this.settingsProvider,
     PromptTranslationProviderRunner? aiProvider,
     PromptTranslationProviderRunner? googleProvider,
+    this.translationCacheReloader,
     ApiService? apiService,
   })  : aiProvider =
             aiProvider ?? buildAiTranslationProvider(apiService: apiService),
@@ -62,8 +65,10 @@ class DefaultPromptTranslationService implements PromptTranslationService {
     );
 
     if (preferCache) {
-      final cached =
-          translationCache.translate(request.text, mode: cacheMode).text.trim();
+      final cached = await _cachedTranslationWithRefresh(
+        request.text,
+        mode: cacheMode,
+      );
       if (cached.isNotEmpty) {
         return OnlineTranslationResult(
           text: cached,
@@ -92,15 +97,19 @@ class DefaultPromptTranslationService implements PromptTranslationService {
       );
     } catch (error) {
       final failureMessage = _translationFailureMessage(error);
-      final cached =
-          translationCache.translate(request.text, mode: cacheMode).text.trim();
-      if (cached.isNotEmpty) {
-        return OnlineTranslationResult(
-          text: cached,
-          source: OnlineAiResultSource.localFallback,
-          providerName: 'translation-cache',
-          error: failureMessage,
+      if (preferCache) {
+        final cached = await _cachedTranslationWithRefresh(
+          request.text,
+          mode: cacheMode,
         );
+        if (cached.isNotEmpty) {
+          return OnlineTranslationResult(
+            text: cached,
+            source: OnlineAiResultSource.localFallback,
+            providerName: 'translation-cache',
+            error: failureMessage,
+          );
+        }
       }
       return OnlineTranslationResult(
         text: '',
@@ -108,6 +117,27 @@ class DefaultPromptTranslationService implements PromptTranslationService {
         error: failureMessage,
       );
     }
+  }
+
+  Future<String> _cachedTranslationWithRefresh(
+    String text, {
+    required String mode,
+  }) async {
+    final cached = translationCache.translate(text, mode: mode).text.trim();
+    if (cached.isNotEmpty) {
+      return cached;
+    }
+    final reloader = translationCacheReloader;
+    if (reloader == null) {
+      return '';
+    }
+    try {
+      final refreshed = await reloader();
+      translationCache.mergeMissingFrom(refreshed);
+    } catch (_) {
+      return '';
+    }
+    return translationCache.translate(text, mode: mode).text.trim();
   }
 }
 

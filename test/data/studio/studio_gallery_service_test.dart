@@ -114,6 +114,125 @@ void main() {
     expect(target.settings.proxy, '127.0.0.1:7890');
   });
 
+  test('useRecordAsI2iSource sets source image without restoring prompt',
+      () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final imageFile = File(
+      [tempDir.path, 'gallery-source.png'].join(Platform.pathSeparator),
+    );
+    await imageFile.writeAsBytes(base64Decode(_tinyPngBase64));
+    final record = await service.saveSnapshot(
+      config: _payload(
+        prompt: 'saved gallery prompt',
+        apiKey: 'pst-export',
+        proxy: '',
+      ),
+      imagePath: imageFile.path,
+      id: 'record-i2i-source',
+      createdAt: DateTime.parse('2026-05-22T12:30:00Z'),
+    );
+    final target = _payload(
+      prompt: 'current workbench prompt',
+      apiKey: 'pst-current',
+      proxy: '',
+    );
+
+    await service.useRecordAsI2iSource(record, target);
+
+    expect(target.overridePrompt, 'current workbench prompt');
+    expect(target.i2iConfig.imageB64, _tinyPngBase64);
+    expect(target.i2iConfig.width, 1);
+    expect(target.i2iConfig.height, 1);
+  });
+
+  test('useRecordAsI2iSource rejects records without readable images',
+      () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final missing = StudioGalleryRecord.fromPayloadConfig(
+      config: _payload(
+        prompt: 'saved gallery prompt',
+        apiKey: 'pst-export',
+        proxy: '',
+      ),
+      id: 'missing-image',
+      createdAt: DateTime.parse('2026-05-22T12:30:00Z'),
+      imagePath: [tempDir.path, 'missing.png'].join(Platform.pathSeparator),
+    );
+    final target = _payload(
+      prompt: 'current workbench prompt',
+      apiKey: 'pst-current',
+      proxy: '',
+    );
+
+    expect(
+      () => service.useRecordAsI2iSource(missing, target),
+      throwsA(isA<StateError>()),
+    );
+    expect(target.i2iConfig.imageB64, isNull);
+  });
+
+  test('gallery lineage round trips through saved records', () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final record = await service.saveSnapshot(
+      config: _payload(prompt: 'enhanced prompt', apiKey: 'pst', proxy: ''),
+      title: 'enhanced.png',
+      imagePath: r'C:\outputs\enhanced.png',
+      info: 'enhanced prompt',
+      id: 'record-enhanced',
+      createdAt: DateTime.parse('2026-06-10T08:00:00Z'),
+      lineage: const StudioGalleryLineage(
+        operation: StudioGalleryOperation.enhance,
+        sourceRecordId: 'record-source',
+        sourceImagePath: r'C:\outputs\source.png',
+        parameters: {'strength': 0.35, 'noise': 0.12},
+      ),
+    );
+
+    final reopened = await StudioGalleryService(
+      workspaceService: workspaceService,
+    ).loadRecords();
+
+    expect(record.lineage?.operation, StudioGalleryOperation.enhance);
+    expect(reopened.single.lineage?.sourceRecordId, 'record-source');
+    expect(reopened.single.lineage?.parameters['strength'], 0.35);
+  });
+
+  test('saveOperationSnapshot stores result before the source record',
+      () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    await service.saveSnapshot(
+      config: _payload(prompt: 'source prompt', apiKey: 'pst', proxy: ''),
+      title: 'source.png',
+      imagePath: r'C:\outputs\source.png',
+      info: 'source prompt',
+      id: 'source-record',
+      createdAt: DateTime.parse('2026-06-10T08:00:00Z'),
+    );
+
+    await service.saveOperationSnapshot(
+      config: _payload(prompt: 'enhanced prompt', apiKey: 'pst', proxy: ''),
+      sourceRecordId: 'source-record',
+      sourceImagePath: r'C:\outputs\source.png',
+      operation: StudioGalleryOperation.enhance,
+      title: 'enhanced.png',
+      imagePath: r'C:\outputs\enhanced.png',
+      info: 'enhanced prompt',
+      parameters: {'strength': 0.35},
+      id: 'enhanced-record',
+      createdAt: DateTime.parse('2026-06-10T08:01:00Z'),
+    );
+
+    final records = await service.loadRecords();
+
+    expect(records.map((record) => record.id), [
+      'enhanced-record',
+      'source-record',
+    ]);
+    expect(records.first.lineage?.operation, StudioGalleryOperation.enhance);
+    expect(records.first.lineage?.sourceRecordId, 'source-record');
+    expect(records.first.lineage?.sourceImagePath, r'C:\outputs\source.png');
+  });
+
   test('loadRecords treats an older library without gallery data as empty',
       () async {
     final file = File(
@@ -321,3 +440,6 @@ void main() {
     expect(creativeRecords.map((record) => record.id), ['creative-record']);
   });
 }
+
+const _tinyPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';

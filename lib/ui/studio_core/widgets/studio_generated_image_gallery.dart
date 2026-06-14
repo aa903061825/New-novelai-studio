@@ -83,6 +83,8 @@ class StudioGeneratedImageGallery extends StatelessWidget {
       onOpen;
   final Widget Function(BuildContext context, StudioGeneratedImageItem item)?
       trailingBuilder;
+  final Widget Function(BuildContext context, StudioGeneratedImageItem item)?
+      imageOverlayBuilder;
 
   const StudioGeneratedImageGallery({
     super.key,
@@ -96,6 +98,7 @@ class StudioGeneratedImageGallery extends StatelessWidget {
     this.itemKeys = const {},
     this.onOpen,
     this.trailingBuilder,
+    this.imageOverlayBuilder,
   });
 
   @override
@@ -130,6 +133,7 @@ class StudioGeneratedImageGallery extends StatelessWidget {
               selected: item.id == selectedId,
               onTap: onOpen == null ? null : () => onOpen!(context, item),
               trailing: trailingBuilder?.call(context, item),
+              imageOverlay: imageOverlayBuilder?.call(context, item),
               cardKeyPrefix: cardKeyPrefix,
               imageKeyPrefix: imageKeyPrefix,
             );
@@ -155,6 +159,8 @@ class StudioGeneratedImageSliverGallery extends StatelessWidget {
       onOpen;
   final Widget Function(BuildContext context, StudioGeneratedImageItem item)?
       trailingBuilder;
+  final Widget Function(BuildContext context, StudioGeneratedImageItem item)?
+      imageOverlayBuilder;
 
   const StudioGeneratedImageSliverGallery({
     super.key,
@@ -166,6 +172,7 @@ class StudioGeneratedImageSliverGallery extends StatelessWidget {
     this.itemKeys = const {},
     this.onOpen,
     this.trailingBuilder,
+    this.imageOverlayBuilder,
   });
 
   @override
@@ -191,6 +198,7 @@ class StudioGeneratedImageSliverGallery extends StatelessWidget {
                 selected: item.id == selectedId,
                 onTap: onOpen == null ? null : () => onOpen!(context, item),
                 trailing: trailingBuilder?.call(context, item),
+                imageOverlay: imageOverlayBuilder?.call(context, item),
                 cardKeyPrefix: cardKeyPrefix,
                 imageKeyPrefix: imageKeyPrefix,
               );
@@ -212,6 +220,7 @@ class _StudioGeneratedImageCard extends StatelessWidget {
   final bool selected;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final Widget? imageOverlay;
   final String cardKeyPrefix;
   final String imageKeyPrefix;
 
@@ -220,6 +229,7 @@ class _StudioGeneratedImageCard extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.trailing,
+    this.imageOverlay,
     required this.cardKeyPrefix,
     required this.imageKeyPrefix,
   });
@@ -247,9 +257,19 @@ class _StudioGeneratedImageCard extends StatelessWidget {
               _ImageNameRow(item: item, trailing: trailing)
             else
               const SizedBox.shrink(),
-            _StudioGeneratedImage(
-              item: item,
-              imageKey: ValueKey('$imageKeyPrefix-${item.id}'),
+            Stack(
+              children: [
+                _StudioGeneratedImage(
+                  item: item,
+                  imageKey: ValueKey('$imageKeyPrefix-${item.id}'),
+                ),
+                if (imageOverlay != null)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: imageOverlay!,
+                  ),
+              ],
             ),
             if (trailing == null) _ImageNameRow(item: item),
           ],
@@ -671,7 +691,20 @@ class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
                 ),
           ),
         ),
-        ...actions,
+        if (actions.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            flex: 3,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(width: 8),
         IconButton(
           key: fullscreenButtonKey,
@@ -942,8 +975,12 @@ class _OverlayPanel extends StatelessWidget {
 File? _existingImageFile(String? path) {
   final trimmed = path?.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
-  final file = File(trimmed);
-  return file.existsSync() ? file : null;
+  try {
+    final file = File(trimmed);
+    return file.existsSync() ? file : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 Size? _sourceImageSize(StudioGeneratedImageItem item) {

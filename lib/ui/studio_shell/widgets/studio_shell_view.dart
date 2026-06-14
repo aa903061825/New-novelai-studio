@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -9,6 +10,8 @@ import 'package:get_it/get_it.dart';
 import 'package:nai_casrand/data/models/command_status.dart';
 import 'package:nai_casrand/data/services/config_service.dart';
 import 'package:nai_casrand/data/studio/models/production_task.dart';
+import 'package:nai_casrand/data/studio/models/script_recast.dart';
+import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
 import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
 import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
@@ -18,8 +21,11 @@ import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.da
 import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
 import 'package:nai_casrand/data/studio/services/tokenizer_script_service.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:nai_casrand/data/workspace/workspace_service.dart';
 import 'package:nai_casrand/ui/generation_page/widgets/generation_page_view.dart';
 import 'package:nai_casrand/ui/navigation/view_models/navigation_view_model.dart';
 import 'package:nai_casrand/ui/navigation/widgets/metadata_drop_area.dart';
@@ -135,6 +141,7 @@ class _StudioShellViewState extends State<StudioShellView> {
             previewGenerationService:
                 GetIt.I<StudioAssetPreviewGenerationService>(),
             onSendToScript: _openScriptAsset,
+            saveCharacters: GetIt.I<WorkspaceService>().saveCharacters,
           )),
       StudioShellSection.workbench => GenerationPageView(viewmodel: GetIt.I()),
       StudioShellSection.script => _withAssetCapture(
@@ -184,6 +191,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       saveFilterRuleConfig: _scriptViewModel.saveFilterRuleConfig,
       loadRecastKnowledgeBase: _scriptViewModel.loadRecastKnowledgeBase,
       translationCache: _translationCacheFromGetIt(),
+      classificationCache: _classificationCacheFromGetIt(),
       saveTranslationCache: _translationCacheSaverFromGetIt(),
       translationService: _translationServiceFromGetIt(),
       loadRecastCaches: _scriptViewModel.loadRecastCaches,
@@ -223,7 +231,10 @@ class _StudioShellViewState extends State<StudioShellView> {
 
   ScriptExhibitionRoomViewModel _scriptExhibitionRoomViewModelFromGetIt() {
     return ScriptExhibitionRoomViewModel(
-      loadScripts: GetIt.I<TokenizerScriptService>().loadScripts,
+      loadScripts: GetIt.I.isRegistered<TokenizerScriptService>()
+          ? GetIt.I<TokenizerScriptService>().loadScripts
+          : null,
+      loadRecastCaches: GetIt.I<WorkspaceService>().loadRecastScriptCaches,
       loadProductionPlans: GetIt.I<ProductionQueueService>().loadPlans,
       loadGalleryRecords: GetIt.I<StudioGalleryService>().loadRecords,
       importScriptFolder: _importScriptExhibitionFolder,
@@ -232,14 +243,23 @@ class _StudioShellViewState extends State<StudioShellView> {
       deleteItemRecord: _deleteScriptExhibitionItem,
       renameScriptRecord: _renameScriptExhibitionScript,
       assignScriptCategory: _assignScriptExhibitionScriptCategory,
+      deleteCategoryRecord: _deleteScriptExhibitionCategory,
       renameImageAttachment: _renameScriptImageAttachment,
       renameVersionLabel: _renameScriptExhibitionVersionLabel,
+      setCoverItemRecord: _setScriptExhibitionCoverItem,
     );
   }
 
   TranslationCache? _translationCacheFromGetIt() {
     if (GetIt.I.isRegistered<TranslationCache>()) {
       return GetIt.I<TranslationCache>();
+    }
+    return null;
+  }
+
+  PromptTagClassificationCache? _classificationCacheFromGetIt() {
+    if (GetIt.I.isRegistered<PromptTagClassificationCache>()) {
+      return GetIt.I<PromptTagClassificationCache>();
     }
     return null;
   }
@@ -341,17 +361,13 @@ class _StudioShellViewState extends State<StudioShellView> {
     }
     assert(_folderName(path).isNotEmpty);
     final directory = Directory(path);
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final result = await tokenizerService.scanDirectory(directory);
-    if (result.sources.isEmpty) {
+    final script = await ScriptRecastParserService().parseDirectory(directory);
+    if (script.frames.isEmpty) {
       throw const FormatException('没有找到可导入的剧本 JSON 或图片。');
     }
-    final script = tokenizerService.createDraftFromSources(
-      name: _folderName(path),
-      sourceFolder: path,
-      sources: result.sources,
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _recastCacheFromScript(script),
     );
-    await tokenizerService.saveScript(script);
   }
 
   Future<void> _importScriptImagesForExhibitionScript(
@@ -370,63 +386,71 @@ class _StudioShellViewState extends State<StudioShellView> {
     if (paths.isEmpty) {
       return;
     }
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final tokenizerScript = await _findTokenizerScriptForExhibition(
+    final cache = await _findRecastCacheForExhibition(
       scriptId: script.scriptId,
       title: script.title,
       sourceFolder: script.sourceFolder,
     );
-    if (tokenizerScript == null) {
-      throw StateError('Cannot find tokenizer script for ${script.title}.');
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+    if (cache == null || snapshot == null) {
+      return;
     }
-    final updated = tokenizerService.addImageAttachments(
-      tokenizerScript,
+    final updated = _scriptWithLegacyImageAttachments(
+      snapshot,
       imagePaths: paths,
-      labelPrefix: '\u9ed8\u8ba4',
     );
-    await tokenizerService.saveScript(updated);
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(cache, updated),
+    );
   }
 
   Future<void> _renameScriptImageAttachment(
     ScriptExhibitionItem item,
     String label,
   ) async {
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final tokenizerScript = await _findTokenizerScriptForExhibition(
+    final attachmentId = item.imageAttachmentId?.trim();
+    final cache = await _findRecastCacheForExhibition(
       scriptId: item.scriptId,
       title: item.scriptTitle,
       sourceFolder: item.sourceFolder,
     );
-    final attachmentId = item.imageAttachmentId?.trim();
-    if (tokenizerScript == null ||
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+    if (cache == null ||
+        snapshot == null ||
         attachmentId == null ||
         attachmentId.isEmpty) {
       return;
     }
-    final updated = tokenizerService.renameImageAttachment(
-      tokenizerScript,
+    final updated = _scriptWithRenamedLegacyImageAttachment(
+      snapshot,
       attachmentId: attachmentId,
       label: label,
     );
-    await tokenizerService.saveScript(updated);
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(cache, updated),
+    );
   }
 
   Future<void> _renameScriptExhibitionScript(
     ScriptExhibitionScript script,
     String label,
   ) async {
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final tokenizerScript = await _findTokenizerScriptForExhibition(
+    final cache = await _findRecastCacheForExhibition(
       scriptId: script.scriptId,
       title: script.title,
       sourceFolder: script.sourceFolder,
     );
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
     final trimmed = label.trim();
-    if (tokenizerScript == null || trimmed.isEmpty) {
+    if (cache == null || snapshot == null || trimmed.isEmpty) {
       return;
     }
-    await tokenizerService.saveScript(
-      tokenizerScript.copyWith(name: trimmed),
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithName(snapshot, trimmed),
+        scriptName: trimmed,
+      ),
     );
   }
 
@@ -435,24 +459,47 @@ class _StudioShellViewState extends State<StudioShellView> {
     ScriptExhibitionVersion version,
     String label,
   ) async {
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final tokenizerScript = await _findTokenizerScriptForExhibition(
+    final cache = await _findRecastCacheForExhibition(
       scriptId: script.scriptId,
       title: script.title,
       sourceFolder: script.sourceFolder,
     );
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
     final trimmed = label.trim();
-    if (tokenizerScript == null ||
+    if (cache == null ||
+        snapshot == null ||
         version.id.trim().isEmpty ||
         trimmed.isEmpty) {
       return;
     }
-    await tokenizerService.saveScript(
-      tokenizerScript.copyWith(
-        exhibitionVersionLabels: {
-          ...tokenizerScript.exhibitionVersionLabels,
-          version.id: trimmed,
-        },
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithLegacyVersionLabel(
+          snapshot,
+          versionId: version.id,
+          label: trimmed,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setScriptExhibitionCoverItem(
+    ScriptExhibitionItem item,
+  ) async {
+    final cache = await _findRecastCacheForExhibition(
+      scriptId: item.scriptId,
+      title: item.scriptTitle,
+      sourceFolder: item.sourceFolder,
+    );
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+    if (cache == null || snapshot == null || !item.hasImage) {
+      return;
+    }
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithLegacyCoverItemId(snapshot, item.id),
       ),
     );
   }
@@ -461,25 +508,54 @@ class _StudioShellViewState extends State<StudioShellView> {
     ScriptExhibitionScript script,
     String categoryName,
   ) async {
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
-    final tokenizerScript = await _findTokenizerScriptForExhibition(
+    final cache = await _findRecastCacheForExhibition(
       scriptId: script.scriptId,
       title: script.title,
       sourceFolder: script.sourceFolder,
     );
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
     final trimmed = categoryName.trim();
-    if (tokenizerScript == null || trimmed.isEmpty) {
+    if (cache == null || snapshot == null || trimmed.isEmpty) {
       return;
     }
-    final nextCategories = [
-      ...tokenizerScript.categoryNames.where(
-        (name) => name.trim().toLowerCase() != trimmed.toLowerCase(),
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithLegacyCategory(snapshot, trimmed),
       ),
-      trimmed,
-    ];
-    await tokenizerService.saveScript(
-      tokenizerScript.copyWith(categoryNames: nextCategories),
     );
+  }
+
+  Future<void> _deleteScriptExhibitionCategory(String categoryName) async {
+    final trimmed = categoryName.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final workspaceService = GetIt.I<WorkspaceService>();
+    final caches = await workspaceService.loadRecastScriptCaches();
+    var changed = false;
+    final nextCaches = [
+      for (final cache in caches)
+        if (_scriptFromRecastCache(cache) case final snapshot?)
+          if (_legacyCategoryNames(snapshot).any(
+            (name) => name.trim().toLowerCase() == trimmed.toLowerCase(),
+          ))
+            () {
+              changed = true;
+              return _cacheWithScriptSnapshot(
+                cache,
+                _scriptWithoutLegacyCategory(snapshot, trimmed),
+              );
+            }()
+          else
+            cache
+        else
+          cache,
+    ];
+    if (!changed) {
+      return;
+    }
+    await workspaceService.saveRecastScriptCaches(nextCaches);
   }
 
   String _folderName(String path) {
@@ -494,30 +570,414 @@ class _StudioShellViewState extends State<StudioShellView> {
     return parts.isEmpty ? path : parts.last;
   }
 
-  Future<TokenizerScript?> _findTokenizerScriptForExhibition({
+  RecastScriptCache _recastCacheFromScript(Script script) {
+    final now = DateTime.now().toUtc();
+    final sourceFingerprint = fingerprintJson(jsonEncode([
+      script.id,
+      script.rootPath,
+      for (final frame in script.frames)
+        [
+          frame.index,
+          frame.fileName,
+          frame.sourcePath,
+          frame.sourceImagePath,
+          frame.rawJson,
+        ],
+    ]));
+    return RecastScriptCache(
+      scriptId: script.id,
+      scriptName: script.name,
+      sourceRootPath: script.rootPath,
+      sourceFingerprint: sourceFingerprint,
+      sourceContentFingerprint: fingerprintJson(jsonEncode(script.toJson())),
+      updatedAt: now,
+      mapping: RecastMapping.defaults(script.id),
+      scriptSnapshot: script.toJson(),
+    );
+  }
+
+  Future<RecastScriptCache?> _findRecastCacheForExhibition({
     required String scriptId,
     required String title,
     required String sourceFolder,
   }) async {
-    final scripts = await GetIt.I<TokenizerScriptService>().loadScripts();
-    for (final script in scripts) {
-      if (_sameNonEmpty(script.scriptId, scriptId) ||
-          _sameNonEmpty(script.sourceFolder, sourceFolder) ||
-          _sameNonEmpty(script.name, title)) {
-        return script;
+    final caches = await GetIt.I<WorkspaceService>().loadRecastScriptCaches();
+    for (final cache in caches) {
+      if (_recastCacheMatchesExhibitionScript(
+        cache,
+        scriptId: scriptId,
+        title: title,
+        sourceFolder: sourceFolder,
+      )) {
+        return cache;
       }
     }
     return null;
   }
 
+  bool _recastCacheMatchesExhibitionScript(
+    RecastScriptCache cache, {
+    required String scriptId,
+    required String title,
+    required String sourceFolder,
+  }) {
+    if (_sameNonEmpty(cache.scriptId, scriptId) ||
+        _sameNonEmpty(cache.sourceRootPath, sourceFolder) ||
+        _sameNonEmpty(cache.scriptName, title)) {
+      return true;
+    }
+    final snapshot = _scriptFromRecastCache(cache);
+    return snapshot != null &&
+        (_sameNonEmpty(snapshot.id, scriptId) ||
+            _sameNonEmpty(snapshot.rootPath, sourceFolder) ||
+            _sameNonEmpty(snapshot.name, title));
+  }
+
+  Script? _scriptFromRecastCache(RecastScriptCache cache) {
+    if (cache.scriptSnapshot.isEmpty) {
+      return null;
+    }
+    try {
+      return Script.fromJson(cache.scriptSnapshot);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  RecastScriptCache _cacheWithScriptSnapshot(
+    RecastScriptCache cache,
+    Script script, {
+    String? scriptName,
+  }) {
+    final snapshot = script.toJson();
+    return RecastScriptCache(
+      scriptId: cache.scriptId,
+      scriptName: scriptName ?? cache.scriptName,
+      sourceRootPath: cache.sourceRootPath,
+      sourceFingerprint: cache.sourceFingerprint,
+      sourceContentFingerprint: fingerprintJson(jsonEncode(snapshot)),
+      updatedAt: DateTime.now().toUtc(),
+      roleCandidates: cache.roleCandidates,
+      mapping: cache.mapping,
+      aiRoleExtraction: cache.aiRoleExtraction,
+      aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
+      aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
+      scriptBlockWords: cache.scriptBlockWords,
+      knowledgeSnapshot: cache.knowledgeSnapshot,
+      scriptSnapshot: snapshot,
+    );
+  }
+
+  Script _scriptWithName(Script script, String name) {
+    return Script(
+      id: script.id,
+      name: name,
+      rootPath: script.rootPath,
+      frames: script.frames,
+      detectedSchema: script.detectedSchema,
+      parseWarnings: script.parseWarnings,
+      meta: script.meta,
+    );
+  }
+
+  Script _scriptWithLegacyImageAttachments(
+    Script script, {
+    required List<String> imagePaths,
+  }) {
+    final sortedPaths = imagePaths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((left, right) => _fileName(left).compareTo(_fileName(right)));
+    if (sortedPaths.isEmpty) {
+      return script;
+    }
+
+    final now = DateTime.now().toUtc();
+    final versionId = _id('script-image-version', now);
+    final versionLabel =
+        'Imported Image ${_nextImageAttachmentVersionNumber(script)}';
+    final attachments = [
+      ..._legacyImageAttachments(script),
+      for (final (index, path) in sortedPaths.indexed)
+        _legacyImageAttachmentFromPath(
+          script: script,
+          path: path,
+          createdAt: now.add(Duration(microseconds: index)),
+          index: index,
+          versionId: versionId,
+          versionLabel: versionLabel,
+        ),
+    ];
+    return _scriptWithLegacyImageAttachmentList(script, attachments);
+  }
+
+  TokenizerScriptImageAttachment _legacyImageAttachmentFromPath({
+    required Script script,
+    required String path,
+    required DateTime createdAt,
+    required int index,
+    required String versionId,
+    required String versionLabel,
+  }) {
+    final frame = index < script.frames.length ? script.frames[index] : null;
+    return TokenizerScriptImageAttachment(
+      attachmentId: _id('script-image', createdAt),
+      imagePath: path,
+      label: 'Frame ${index + 1}',
+      versionId: versionId,
+      versionLabel: versionLabel,
+      frameIndex: frame?.index ?? index + 1,
+      sourceFileName: frame?.fileName ?? _fileName(path),
+      prompt: frame == null ? '' : _promptFromRecastFrame(frame),
+      payload: const {},
+      createdAt: createdAt,
+    );
+  }
+
+  Script _scriptWithRenamedLegacyImageAttachment(
+    Script script, {
+    required String attachmentId,
+    required String label,
+  }) {
+    final normalizedId = attachmentId.trim();
+    final normalizedLabel = label.trim();
+    if (normalizedId.isEmpty || normalizedLabel.isEmpty) {
+      return script;
+    }
+    return _scriptWithLegacyImageAttachmentList(
+      script,
+      [
+        for (final attachment in _legacyImageAttachments(script))
+          attachment.attachmentId == normalizedId
+              ? attachment.copyWith(label: normalizedLabel)
+              : attachment,
+      ],
+    );
+  }
+
+  Script _scriptWithoutLegacyImageAttachment(
+    Script script, {
+    required String attachmentId,
+  }) {
+    final normalizedId = attachmentId.trim();
+    if (normalizedId.isEmpty) {
+      return script;
+    }
+    return _scriptWithLegacyImageAttachmentList(
+      script,
+      _legacyImageAttachments(script)
+          .where((attachment) => attachment.attachmentId != normalizedId)
+          .toList(growable: false),
+    );
+  }
+
+  Script _scriptWithLegacyImageAttachmentList(
+    Script script,
+    List<TokenizerScriptImageAttachment> attachments,
+  ) {
+    return _scriptWithMetaValue(
+      script,
+      'legacyImageAttachments',
+      [
+        for (final attachment in attachments)
+          if (attachment.imagePath.trim().isNotEmpty) attachment.toJson(),
+      ],
+    );
+  }
+
+  Script _scriptWithLegacyCategory(
+    Script script,
+    String categoryName,
+  ) {
+    final normalized = categoryName.trim();
+    if (normalized.isEmpty) {
+      return script;
+    }
+    final categories = <String>[
+      ..._legacyCategoryNames(script),
+      if (!_legacyCategoryNames(script).any(
+        (name) => name.trim().toLowerCase() == normalized.toLowerCase(),
+      ))
+        normalized,
+    ];
+    return _scriptWithMetaValue(
+      script,
+      'legacyCategoryNames',
+      categories,
+    );
+  }
+
+  Script _scriptWithoutLegacyCategory(
+    Script script,
+    String categoryName,
+  ) {
+    final normalized = categoryName.trim();
+    if (normalized.isEmpty) {
+      return script;
+    }
+    final categories = _legacyCategoryNames(script)
+        .where(
+          (name) => name.trim().toLowerCase() != normalized.toLowerCase(),
+        )
+        .toList(growable: false);
+    return _scriptWithMetaValue(
+      script,
+      'legacyCategoryNames',
+      categories,
+    );
+  }
+
+  Script _scriptWithLegacyVersionLabel(
+    Script script, {
+    required String versionId,
+    required String label,
+  }) {
+    final normalizedId = versionId.trim();
+    final normalizedLabel = label.trim();
+    if (normalizedId.isEmpty || normalizedLabel.isEmpty) {
+      return script;
+    }
+    return _scriptWithMetaValue(
+      script,
+      'legacyExhibitionVersionLabels',
+      {
+        ..._legacyVersionLabels(script),
+        normalizedId: normalizedLabel,
+      },
+    );
+  }
+
+  Script _scriptWithLegacyCoverItemId(
+    Script script,
+    String itemId,
+  ) {
+    final normalized = itemId.trim();
+    if (normalized.isEmpty) {
+      return script;
+    }
+    return _scriptWithMetaValue(
+      script,
+      'legacyExhibitionCoverItemId',
+      normalized,
+    );
+  }
+
+  Script _scriptWithMetaValue(
+    Script script,
+    String key,
+    dynamic value,
+  ) {
+    return Script(
+      id: script.id,
+      name: script.name,
+      rootPath: script.rootPath,
+      frames: script.frames,
+      detectedSchema: script.detectedSchema,
+      parseWarnings: script.parseWarnings,
+      meta: {
+        ...script.meta,
+        key: value,
+      },
+    );
+  }
+
+  List<TokenizerScriptImageAttachment> _legacyImageAttachments(Script script) {
+    final raw = script.meta['legacyImageAttachments'];
+    if (raw is! List) {
+      return const [];
+    }
+    final attachments = <TokenizerScriptImageAttachment>[];
+    for (final value in raw) {
+      if (value is! Map) {
+        continue;
+      }
+      try {
+        attachments.add(
+          TokenizerScriptImageAttachment.fromJson(
+            value.cast<String, dynamic>(),
+          ),
+        );
+      } catch (_) {
+        // Ignore malformed legacy attachment records.
+      }
+    }
+    return attachments;
+  }
+
+  int _nextImageAttachmentVersionNumber(Script script) {
+    final existingVersionIds = {
+      for (final attachment in _legacyImageAttachments(script))
+        if (attachment.versionId.trim().isNotEmpty) attachment.versionId.trim(),
+    };
+    return existingVersionIds.length + 1;
+  }
+
+  String _id(String prefix, DateTime time) {
+    return '$prefix-${time.microsecondsSinceEpoch}';
+  }
+
+  List<String> _legacyCategoryNames(Script script) {
+    final raw = script.meta['legacyCategoryNames'];
+    if (raw is! List) {
+      return const [];
+    }
+    return [
+      for (final value in raw)
+        if (value.toString().trim().isNotEmpty) value.toString(),
+    ];
+  }
+
+  Map<String, String> _legacyVersionLabels(Script script) {
+    final raw = script.meta['legacyExhibitionVersionLabels'];
+    if (raw is! Map) {
+      return const {};
+    }
+    return {
+      for (final entry in raw.entries)
+        if (entry.key.toString().trim().isNotEmpty &&
+            entry.value.toString().trim().isNotEmpty)
+          entry.key.toString(): entry.value.toString(),
+    };
+  }
+
+  String _promptFromRecastFrame(ScriptFrame frame) {
+    final rows = [
+      if (frame.parsed.baseCaption.trim().isNotEmpty)
+        frame.parsed.baseCaption.trim(),
+      for (final caption in frame.parsed.charCaptions)
+        if (caption.trim().isNotEmpty) caption.trim(),
+    ];
+    return rows.join(', ');
+  }
+
   Future<void> _deleteScriptExhibitionScript(
-    ScriptExhibitionScript script,
-  ) async {
-    final tokenizerService = GetIt.I<TokenizerScriptService>();
+    ScriptExhibitionScript script, {
+    bool deleteLocalFiles = false,
+  }) async {
+    final workspaceService = GetIt.I<WorkspaceService>();
     final productionService = GetIt.I<ProductionQueueService>();
     final galleryService = GetIt.I<StudioGalleryService>();
+    final localImagePaths = deleteLocalFiles
+        ? _localImagePathsForExhibitionScript(script)
+        : const <String>[];
 
-    await tokenizerService.removeScript(script.scriptId);
+    await _deleteTokenizerScriptsForExhibitionScript(script);
+
+    final caches = await workspaceService.loadRecastScriptCaches();
+    await workspaceService.saveRecastScriptCaches(
+      caches
+          .where(
+            (cache) => !_recastCacheMatchesExhibitionScript(
+              cache,
+              scriptId: script.scriptId,
+              title: script.title,
+              sourceFolder: script.sourceFolder,
+            ),
+          )
+          .toList(growable: false),
+    );
 
     final plans = await productionService.loadPlans();
     final now = DateTime.now().toUtc();
@@ -543,7 +1003,31 @@ class _StudioShellViewState extends State<StudioShellView> {
           .where((record) => !_galleryRecordMatchesScript(record, script))
           .toList(growable: false),
     );
+    if (deleteLocalFiles) {
+      await _deleteLocalImageFiles(localImagePaths);
+    }
     unawaited(_productionQueueViewModel.load());
+  }
+
+  Future<void> _deleteTokenizerScriptsForExhibitionScript(
+    ScriptExhibitionScript script,
+  ) async {
+    if (!GetIt.I.isRegistered<TokenizerScriptService>()) {
+      return;
+    }
+    final tokenizerService = GetIt.I<TokenizerScriptService>();
+    final tokenizerScripts = await tokenizerService.loadScripts();
+    final scriptIds = tokenizerScripts
+        .where((tokenizerScript) => _tokenizerScriptMatchesExhibitionScript(
+              tokenizerScript,
+              script,
+            ))
+        .map((tokenizerScript) => tokenizerScript.scriptId.trim())
+        .where((scriptId) => scriptId.isNotEmpty)
+        .toSet();
+    for (final scriptId in scriptIds) {
+      await tokenizerService.removeScript(scriptId);
+    }
   }
 
   Future<void> _deleteScriptExhibitionItem(
@@ -551,20 +1035,22 @@ class _StudioShellViewState extends State<StudioShellView> {
   ) async {
     final attachmentId = item.imageAttachmentId?.trim();
     if (attachmentId != null && attachmentId.isNotEmpty) {
-      final tokenizerService = GetIt.I<TokenizerScriptService>();
-      final tokenizerScript = await _findTokenizerScriptForExhibition(
+      final cache = await _findRecastCacheForExhibition(
         scriptId: item.scriptId,
         title: item.scriptTitle,
         sourceFolder: item.sourceFolder,
       );
-      if (tokenizerScript == null) {
+      final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+      if (cache == null || snapshot == null) {
         return;
       }
-      final updated = tokenizerService.removeImageAttachment(
-        tokenizerScript,
+      final updated = _scriptWithoutLegacyImageAttachment(
+        snapshot,
         attachmentId: attachmentId,
       );
-      await tokenizerService.saveScript(updated);
+      await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+        _cacheWithScriptSnapshot(cache, updated),
+      );
       return;
     }
 
@@ -606,9 +1092,12 @@ class _StudioShellViewState extends State<StudioShellView> {
     ScriptExhibitionScript script,
   ) {
     final source = task.source;
-    return _sameNonEmpty(source.scriptId, script.scriptId) ||
-        _sameNonEmpty(source.scriptPath, script.sourceFolder) ||
-        _sameNonEmpty(source.scriptName, script.title);
+    return _matchesExhibitionScriptIdentity(
+      script,
+      scriptId: source.scriptId,
+      sourceFolder: source.scriptPath,
+      title: source.scriptName,
+    );
   }
 
   bool _galleryRecordMatchesScript(
@@ -617,19 +1106,93 @@ class _StudioShellViewState extends State<StudioShellView> {
   ) {
     final provenance = record.provenance;
     if (provenance == null) return false;
-    return _sameNonEmpty(provenance.scriptId, script.scriptId) ||
-        _sameNonEmpty(provenance.scriptPath, script.sourceFolder) ||
-        _sameNonEmpty(provenance.scriptName, script.title);
+    return _matchesExhibitionScriptIdentity(
+      script,
+      scriptId: provenance.scriptId,
+      sourceFolder: provenance.scriptPath,
+      title: provenance.scriptName,
+    );
+  }
+
+  bool _tokenizerScriptMatchesExhibitionScript(
+    TokenizerScript tokenizerScript,
+    ScriptExhibitionScript script,
+  ) {
+    return _matchesExhibitionScriptIdentity(
+      script,
+      scriptId: tokenizerScript.scriptId,
+      sourceFolder: tokenizerScript.sourceFolder,
+      title: tokenizerScript.name,
+    );
+  }
+
+  bool _matchesExhibitionScriptIdentity(
+    ScriptExhibitionScript target, {
+    required String? scriptId,
+    required String? sourceFolder,
+    required String? title,
+  }) {
+    return _sameNonEmpty(scriptId, target.scriptId) ||
+        _sameNonEmpty(sourceFolder, target.sourceFolder) ||
+        _sameNonEmpty(title, target.title);
+  }
+
+  List<String> _localImagePathsForExhibitionScript(
+    ScriptExhibitionScript script,
+  ) {
+    final paths = <String>{};
+    for (final item in script.items) {
+      if (item.sourceKind == ScriptExhibitionItemSourceKind.original) {
+        continue;
+      }
+      _addLocalImagePath(paths, item.imagePath);
+      _addLocalImagePath(paths, item.galleryRecord?.imagePath);
+      _addLocalImagePath(
+        paths,
+        item.galleryRecord?.provenance?.outputImagePath,
+      );
+    }
+    return paths.toList(growable: false);
+  }
+
+  void _addLocalImagePath(Set<String> paths, String? path) {
+    final trimmed = path?.trim();
+    if (trimmed == null || trimmed.isEmpty) return;
+    if (trimmed.contains('://')) return;
+    paths.add(trimmed);
+  }
+
+  Future<void> _deleteLocalImageFiles(List<String> paths) async {
+    for (final path in paths) {
+      try {
+        final type = await FileSystemEntity.type(path, followLinks: false);
+        if (type == FileSystemEntityType.file) {
+          await File(path).delete();
+        }
+      } on FileSystemException {
+        // Best effort: a stale or locked image should not restore deleted
+        // exhibition metadata.
+      }
+    }
   }
 
   bool _sameNonEmpty(String? left, String? right) {
-    final normalizedLeft = left?.trim();
-    final normalizedRight = right?.trim();
+    final normalizedLeft = _normalizedComparisonText(left);
+    final normalizedRight = _normalizedComparisonText(right);
     return normalizedLeft != null &&
-        normalizedLeft.isNotEmpty &&
         normalizedRight != null &&
-        normalizedRight.isNotEmpty &&
         normalizedLeft == normalizedRight;
+  }
+
+  String? _normalizedComparisonText(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed
+        .replaceAll('\\', '/')
+        .replaceFirst(RegExp(r'/+$'), '')
+        .toLowerCase();
   }
 
   StudioScriptAssetFocus _focusWithNonce(

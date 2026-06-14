@@ -5,8 +5,10 @@ import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
+import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
 import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
 import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
 import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
@@ -136,6 +138,11 @@ class _StudioGalleryPageState extends State<StudioGalleryPage> {
                           }),
                           onPreview: _showPreview,
                           onRestore: _restoreRecord,
+                          onUseAsI2iSource: _useRecordAsI2iSource,
+                          onEnhance: _enhanceRecord,
+                          onUpscale: _upscaleRecord,
+                          onDirectorTool: _directorToolRecord,
+                          onInpaint: _inpaintRecord,
                         ),
                       ],
                     );
@@ -192,6 +199,66 @@ class _StudioGalleryPageState extends State<StudioGalleryPage> {
       actionsBuilder: (context, generatedItem) {
         final galleryItem = generatedItem.source as _GalleryDisplayItem;
         return [
+          if (galleryItem.hasExistingImage)
+            KeyedSubtree(
+              key: const ValueKey('gallery-preview-use-as-i2i'),
+              child: FilledButton.icon(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _useRecordAsI2iSource(galleryItem.record);
+                },
+                icon: const Icon(Icons.image_search_outlined),
+                label: const Text('作为 I2I 源图'),
+              ),
+            ),
+          if (galleryItem.hasExistingImage)
+            KeyedSubtree(
+              key: const ValueKey('gallery-preview-enhance'),
+              child: FilledButton.icon(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _enhanceRecord(galleryItem.record);
+                },
+                icon: const Icon(Icons.auto_fix_high_outlined),
+                label: const Text('Enhance'),
+              ),
+            ),
+          if (galleryItem.hasExistingImage)
+            KeyedSubtree(
+              key: const ValueKey('gallery-preview-upscale'),
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _upscaleRecord(galleryItem.record);
+                },
+                icon: const Icon(Icons.zoom_out_map_outlined),
+                label: const Text('Upscale'),
+              ),
+            ),
+          if (galleryItem.hasExistingImage)
+            KeyedSubtree(
+              key: const ValueKey('gallery-preview-director'),
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _directorToolRecord(galleryItem.record);
+                },
+                icon: const Icon(Icons.auto_awesome_motion_outlined),
+                label: const Text('Director'),
+              ),
+            ),
+          if (galleryItem.hasExistingImage)
+            KeyedSubtree(
+              key: const ValueKey('gallery-preview-inpaint'),
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _inpaintRecord(galleryItem.record);
+                },
+                icon: const Icon(Icons.brush_outlined),
+                label: const Text('Inpaint'),
+              ),
+            ),
           KeyedSubtree(
             key: const ValueKey('gallery-preview-restore'),
             child: FilledButton.icon(
@@ -224,6 +291,429 @@ class _StudioGalleryPageState extends State<StudioGalleryPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已送回工作台')));
+  }
+
+  Future<void> _useRecordAsI2iSource(StudioGalleryRecord record) async {
+    try {
+      await widget.galleryService.useRecordAsI2iSource(
+        record,
+        widget.payloadConfig,
+      );
+      widget.viewModel.notifyConfigChanged();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已设为 I2I 源图')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _enhanceRecord(StudioGalleryRecord record) {
+    return _runGalleryOperation(
+      () => widget.viewModel.enhanceGalleryRecord(record),
+      successMessage: 'Enhance operation started',
+    );
+  }
+
+  Future<void> _upscaleRecord(StudioGalleryRecord record) {
+    return _runGalleryOperation(
+      () => widget.viewModel.upscaleGalleryRecord(record),
+      successMessage: 'Upscale operation started',
+    );
+  }
+
+  Future<void> _directorToolRecord(StudioGalleryRecord record) async {
+    final options = await showDialog<StudioDirectorToolOptions>(
+      context: context,
+      builder: (context) => const _DirectorToolDialog(),
+    );
+    if (options == null) return;
+    return _runGalleryOperation(
+      () => widget.viewModel.runDirectorToolGalleryRecord(record, options),
+      successMessage: 'Director Tool operation started',
+    );
+  }
+
+  Future<void> _inpaintRecord(StudioGalleryRecord record) async {
+    final result = await showDialog<_InpaintDialogResult>(
+      context: context,
+      builder: (context) => _InpaintDialog(record: record),
+    );
+    if (result == null) return;
+    return _runGalleryOperation(
+      () => widget.viewModel.runInpaintGalleryRecord(
+        record,
+        maskImagePath: result.maskImagePath,
+        strength: result.strength,
+      ),
+      successMessage: 'Inpaint operation started',
+    );
+  }
+
+  Future<void> _runGalleryOperation(
+    Future<void> Function() operation, {
+    required String successMessage,
+  }) async {
+    try {
+      await operation();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+}
+
+class _DirectorToolDialog extends StatefulWidget {
+  const _DirectorToolDialog();
+
+  @override
+  State<_DirectorToolDialog> createState() => _DirectorToolDialogState();
+}
+
+class _DirectorToolDialogState extends State<_DirectorToolDialog> {
+  final _promptController = TextEditingController();
+  StudioDirectorTool _selectedTool = StudioDirectorTool.removeBackground;
+  int _defry = 0;
+
+  @override
+  void dispose() {
+    _promptController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final usesPrompt = _selectedTool == StudioDirectorTool.colorize ||
+        _selectedTool == StudioDirectorTool.emotion;
+    return AlertDialog(
+      key: const ValueKey('gallery-director-tool-dialog'),
+      title: const Text('Director Tools'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final tool in StudioDirectorTool.values)
+                    _DirectorToolChoice(
+                      tool: tool,
+                      selected: tool == _selectedTool,
+                      onPressed: () => setState(() {
+                        _selectedTool = tool;
+                      }),
+                    ),
+                ],
+              ),
+              if (usesPrompt) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  key: const ValueKey('gallery-director-tool-prompt'),
+                  controller: _promptController,
+                  decoration: const InputDecoration(
+                    labelText: 'Prompt',
+                    border: OutlineInputBorder(),
+                  ),
+                  minLines: 2,
+                  maxLines: 4,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  key: const ValueKey('gallery-director-tool-defry'),
+                  initialValue: _defry,
+                  decoration: const InputDecoration(
+                    labelText: 'Defry',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (var value = 0; value <= 5; value++)
+                      DropdownMenuItem(
+                        value: value,
+                        child: Text(value.toString()),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() {
+                    _defry = value ?? 0;
+                  }),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('gallery-director-tool-run'),
+          onPressed: () => Navigator.of(context).pop(
+            StudioDirectorToolOptions(
+              tool: _selectedTool,
+              prompt: _promptController.text,
+              defry: _defry,
+            ),
+          ),
+          child: const Text('Run'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DirectorToolChoice extends StatelessWidget {
+  final StudioDirectorTool tool;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _DirectorToolChoice({
+    required this.tool,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (tool) {
+      StudioDirectorTool.removeBackground => 'Remove BG',
+      StudioDirectorTool.lineArt => 'Line Art',
+      StudioDirectorTool.sketch => 'Sketch',
+      StudioDirectorTool.colorize => 'Colorize',
+      StudioDirectorTool.emotion => 'Emotion',
+      StudioDirectorTool.declutter => 'Declutter',
+    };
+    final child = Text(label);
+    if (selected) {
+      return FilledButton(
+        key: ValueKey('gallery-director-tool-option-${tool.name}'),
+        onPressed: onPressed,
+        child: child,
+      );
+    }
+    return OutlinedButton(
+      key: ValueKey('gallery-director-tool-option-${tool.name}'),
+      onPressed: onPressed,
+      child: child,
+    );
+  }
+}
+
+class _InpaintDialogResult {
+  final String maskImagePath;
+  final double strength;
+
+  const _InpaintDialogResult({
+    required this.maskImagePath,
+    required this.strength,
+  });
+}
+
+class _InpaintDialog extends StatefulWidget {
+  final StudioGalleryRecord record;
+
+  const _InpaintDialog({required this.record});
+
+  @override
+  State<_InpaintDialog> createState() => _InpaintDialogState();
+}
+
+class _InpaintDialogState extends State<_InpaintDialog> {
+  String? _maskImagePath;
+  double _strength = 1;
+  bool _writingMask = false;
+  String? _error;
+
+  Future<void> _paintFullMask() async {
+    setState(() {
+      _writingMask = true;
+      _error = null;
+    });
+
+    try {
+      final sourcePath = widget.record.imagePath?.trim();
+      if (sourcePath == null || sourcePath.isEmpty) {
+        throw StateError('No source image is available for this record.');
+      }
+
+      final sourceFile = File(sourcePath);
+      final sourceImage = img.decodeImage(sourceFile.readAsBytesSync());
+      if (sourceImage == null) {
+        throw StateError('Could not decode the source image.');
+      }
+
+      final mask = img.Image(
+        width: sourceImage.width,
+        height: sourceImage.height,
+        numChannels: 4,
+      );
+      img.fill(mask, color: img.ColorRgba8(255, 255, 255, 255));
+
+      final safeId =
+          widget.record.id.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '-');
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final maskFile = File(
+        '${sourceFile.parent.path}${Platform.pathSeparator}'
+        'nai-inpaint-mask-$safeId-$stamp.png',
+      );
+      maskFile.writeAsBytesSync(img.encodePng(mask), flush: true);
+
+      if (!mounted) return;
+      setState(() {
+        _maskImagePath = maskFile.path;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _maskImagePath = null;
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _writingMask = false;
+        });
+      }
+    }
+  }
+
+  void _clearMask() {
+    setState(() {
+      _maskImagePath = null;
+      _error = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canRun = _maskImagePath != null && !_writingMask;
+    final maskLabel = _maskImagePath == null
+        ? 'Mask required'
+        : 'Mask ready: ${File(_maskImagePath!).uri.pathSegments.last}';
+    final recordTitle = widget.record.title.trim();
+
+    return AlertDialog(
+      key: const ValueKey('gallery-inpaint-dialog'),
+      title: const Text('Inpaint'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                recordTitle.isEmpty ? widget.record.id : recordTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: StudioTokens.border),
+                  borderRadius: BorderRadius.circular(8),
+                  color: StudioTokens.surface2,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      maskLabel,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: StudioTokens.danger,
+                            ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          key: const ValueKey('gallery-inpaint-paint-mask'),
+                          onPressed: _writingMask ? null : _paintFullMask,
+                          icon: _writingMask
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.brush_outlined),
+                          label: const Text('Paint mask'),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('gallery-inpaint-clear-mask'),
+                          onPressed: _maskImagePath == null ? null : _clearMask,
+                          icon: const Icon(Icons.layers_clear_outlined),
+                          label: const Text('Clear'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Strength ${_strength.toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+              Slider(
+                value: _strength,
+                min: 0,
+                max: 1,
+                divisions: 20,
+                label: _strength.toStringAsFixed(2),
+                onChanged: (value) => setState(() {
+                  _strength = value;
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('gallery-inpaint-run'),
+          onPressed: canRun
+              ? () => Navigator.of(context).pop(
+                    _InpaintDialogResult(
+                      maskImagePath: _maskImagePath!,
+                      strength: _strength,
+                    ),
+                  )
+              : null,
+          child: const Text('Generate'),
+        ),
+      ],
+    );
   }
 }
 
@@ -428,6 +918,11 @@ class _GalleryContent extends StatelessWidget {
   final void Function(_GalleryDisplayItem item, List<_GalleryDisplayItem> items)
       onPreview;
   final ValueChanged<StudioGalleryRecord> onRestore;
+  final ValueChanged<StudioGalleryRecord> onUseAsI2iSource;
+  final ValueChanged<StudioGalleryRecord> onEnhance;
+  final ValueChanged<StudioGalleryRecord> onUpscale;
+  final ValueChanged<StudioGalleryRecord> onDirectorTool;
+  final ValueChanged<StudioGalleryRecord> onInpaint;
 
   const _GalleryContent({
     required this.items,
@@ -435,6 +930,11 @@ class _GalleryContent extends StatelessWidget {
     required this.onSelect,
     required this.onPreview,
     required this.onRestore,
+    required this.onUseAsI2iSource,
+    required this.onEnhance,
+    required this.onUpscale,
+    required this.onDirectorTool,
+    required this.onInpaint,
   });
 
   @override
@@ -455,12 +955,22 @@ class _GalleryContent extends StatelessWidget {
           onSelect: onSelect,
           onPreview: onPreview,
           onRestore: onRestore,
+          onUseAsI2iSource: onUseAsI2iSource,
+          onEnhance: onEnhance,
+          onUpscale: onUpscale,
+          onDirectorTool: onDirectorTool,
+          onInpaint: onInpaint,
         );
         final drawer = _GalleryDetailDrawer(
           item: selectedItem,
           items: items,
           onPreview: onPreview,
           onRestore: onRestore,
+          onUseAsI2iSource: onUseAsI2iSource,
+          onEnhance: onEnhance,
+          onUpscale: onUpscale,
+          onDirectorTool: onDirectorTool,
+          onInpaint: onInpaint,
         );
 
         if (constraints.maxWidth < 980) {
@@ -490,6 +1000,11 @@ class _GalleryBoard extends StatelessWidget {
   final void Function(_GalleryDisplayItem item, List<_GalleryDisplayItem> items)
       onPreview;
   final ValueChanged<StudioGalleryRecord> onRestore;
+  final ValueChanged<StudioGalleryRecord> onUseAsI2iSource;
+  final ValueChanged<StudioGalleryRecord> onEnhance;
+  final ValueChanged<StudioGalleryRecord> onUpscale;
+  final ValueChanged<StudioGalleryRecord> onDirectorTool;
+  final ValueChanged<StudioGalleryRecord> onInpaint;
 
   const _GalleryBoard({
     required this.items,
@@ -497,6 +1012,11 @@ class _GalleryBoard extends StatelessWidget {
     required this.onSelect,
     required this.onPreview,
     required this.onRestore,
+    required this.onUseAsI2iSource,
+    required this.onEnhance,
+    required this.onUpscale,
+    required this.onDirectorTool,
+    required this.onInpaint,
   });
 
   @override
@@ -515,24 +1035,60 @@ class _GalleryBoard extends StatelessWidget {
       },
       trailingBuilder: (context, generatedItem) {
         final item = generatedItem.source as _GalleryDisplayItem;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            StudioIconButton(
-              key: ValueKey('gallery-card-details-${item.record.id}'),
-              tooltip: '查看详情',
-              icon: Icons.info_outline,
-              selected: item.record.id == selectedId,
-              onPressed: () => onSelect(item),
-            ),
-            const SizedBox(width: 4),
-            StudioIconButton(
-              key: ValueKey('gallery-card-restore-${item.record.id}'),
-              tooltip: '送回工作台',
-              icon: Icons.keyboard_return,
-              onPressed: () => onRestore(item.record),
-            ),
-          ],
+        return SizedBox(
+          width: item.hasExistingImage ? 172 : 108,
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              StudioIconButton(
+                key: ValueKey('gallery-card-details-${item.record.id}'),
+                tooltip: '查看详情',
+                icon: Icons.info_outline,
+                selected: item.record.id == selectedId,
+                onPressed: () => onSelect(item),
+              ),
+              if (item.hasExistingImage) ...[
+                StudioIconButton(
+                  key: ValueKey('gallery-card-use-as-i2i-${item.record.id}'),
+                  tooltip: '作为 I2I 源图',
+                  icon: Icons.image_search_outlined,
+                  onPressed: () => onUseAsI2iSource(item.record),
+                ),
+                StudioIconButton(
+                  key: ValueKey('gallery-card-enhance-${item.record.id}'),
+                  tooltip: 'Enhance',
+                  icon: Icons.auto_fix_high_outlined,
+                  onPressed: () => onEnhance(item.record),
+                ),
+                StudioIconButton(
+                  key: ValueKey('gallery-card-upscale-${item.record.id}'),
+                  tooltip: 'Upscale',
+                  icon: Icons.zoom_out_map_outlined,
+                  onPressed: () => onUpscale(item.record),
+                ),
+                StudioIconButton(
+                  key: ValueKey('gallery-card-director-${item.record.id}'),
+                  tooltip: 'Director Tools',
+                  icon: Icons.auto_awesome_motion_outlined,
+                  onPressed: () => onDirectorTool(item.record),
+                ),
+                StudioIconButton(
+                  key: ValueKey('gallery-card-inpaint-${item.record.id}'),
+                  tooltip: 'Inpaint',
+                  icon: Icons.brush_outlined,
+                  onPressed: () => onInpaint(item.record),
+                ),
+              ],
+              StudioIconButton(
+                key: ValueKey('gallery-card-restore-${item.record.id}'),
+                tooltip: '送回工作台',
+                icon: Icons.keyboard_return,
+                onPressed: () => onRestore(item.record),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -783,12 +1339,22 @@ class _GalleryDetailDrawer extends StatelessWidget {
   final void Function(_GalleryDisplayItem item, List<_GalleryDisplayItem> items)
       onPreview;
   final ValueChanged<StudioGalleryRecord> onRestore;
+  final ValueChanged<StudioGalleryRecord> onUseAsI2iSource;
+  final ValueChanged<StudioGalleryRecord> onEnhance;
+  final ValueChanged<StudioGalleryRecord> onUpscale;
+  final ValueChanged<StudioGalleryRecord> onDirectorTool;
+  final ValueChanged<StudioGalleryRecord> onInpaint;
 
   const _GalleryDetailDrawer({
     required this.item,
     required this.items,
     required this.onPreview,
     required this.onRestore,
+    required this.onUseAsI2iSource,
+    required this.onEnhance,
+    required this.onUpscale,
+    required this.onDirectorTool,
+    required this.onInpaint,
   });
 
   @override
@@ -812,24 +1378,85 @@ class _GalleryDetailDrawer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '记录详情',
-                  style: Theme.of(context).textTheme.titleMedium,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 160,
+                  child: Text(
+                    '记录详情',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
-              ),
-              SizedBox(
-                width: 154,
-                child: StudioButton(
-                  key: const ValueKey('gallery-detail-restore'),
-                  label: '送回工作台',
-                  icon: Icons.keyboard_return,
-                  onPressed: () => onRestore(entry.record),
+                if (entry.hasExistingImage) ...[
+                  SizedBox(
+                    width: 220,
+                    child: StudioButton(
+                      key: const ValueKey('gallery-detail-use-as-i2i'),
+                      label: '作为 I2I 源图',
+                      icon: Icons.image_search_outlined,
+                      tone: StudioButtonTone.secondary,
+                      onPressed: () => onUseAsI2iSource(entry.record),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 170,
+                    child: StudioButton(
+                      key: const ValueKey('gallery-detail-enhance'),
+                      label: 'Enhance',
+                      icon: Icons.auto_fix_high_outlined,
+                      tone: StudioButtonTone.secondary,
+                      onPressed: () => onEnhance(entry.record),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 170,
+                    child: StudioButton(
+                      key: const ValueKey('gallery-detail-upscale'),
+                      label: 'Upscale',
+                      icon: Icons.zoom_out_map_outlined,
+                      tone: StudioButtonTone.secondary,
+                      onPressed: () => onUpscale(entry.record),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 170,
+                    child: StudioButton(
+                      key: const ValueKey('gallery-detail-director'),
+                      label: 'Director',
+                      icon: Icons.auto_awesome_motion_outlined,
+                      tone: StudioButtonTone.secondary,
+                      onPressed: () => onDirectorTool(entry.record),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 170,
+                    child: StudioButton(
+                      key: const ValueKey('gallery-detail-inpaint'),
+                      label: 'Inpaint',
+                      icon: Icons.brush_outlined,
+                      tone: StudioButtonTone.secondary,
+                      onPressed: () => onInpaint(entry.record),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                SizedBox(
+                  width: 220,
+                  child: StudioButton(
+                    key: const ValueKey('gallery-detail-restore'),
+                    label: '送回工作台',
+                    icon: Icons.keyboard_return,
+                    onPressed: () => onRestore(entry.record),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           _MetadataStatusChip(item: entry),
@@ -851,6 +1478,10 @@ class _GalleryDetailDrawer extends StatelessWidget {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
+          _GalleryLineageBlock(
+            key: ValueKey('gallery-detail-lineage-${entry.record.id}'),
+            lineage: entry.record.lineage,
+          ),
           _DetailPromptBlock(label: 'Prompt', item: entry),
           if (captureDrafts.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -927,6 +1558,105 @@ class _GalleryAssetCaptureActions extends StatelessWidget {
       ],
     );
   }
+}
+
+class _GalleryLineageBlock extends StatelessWidget {
+  final StudioGalleryLineage? lineage;
+  final bool dense;
+
+  const _GalleryLineageBlock({
+    super.key,
+    required this.lineage,
+    this.dense = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final value = lineage;
+    if (value == null) {
+      return const SizedBox.shrink();
+    }
+    final details = [
+      _GalleryDetailLine(
+        label: 'Operation',
+        value: _galleryOperationLabel(value.operation),
+      ),
+      if (value.sourceRecordId != null && value.sourceRecordId!.isNotEmpty)
+        _GalleryDetailLine(
+            label: 'Source record', value: value.sourceRecordId!),
+      if (value.sourceImagePath != null && value.sourceImagePath!.isNotEmpty)
+        _GalleryDetailLine(
+            label: 'Source image', value: value.sourceImagePath!),
+      if (value.parameters.isNotEmpty)
+        _GalleryDetailLine(
+          label: 'Parameters',
+          value: _stringifyLineageParameters(value.parameters),
+        ),
+    ];
+
+    if (dense) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final detail in details)
+              StudioChip(
+                label: '${detail.label}: ${detail.value}',
+                icon: detail.label == 'Operation'
+                    ? Icons.history_outlined
+                    : Icons.account_tree_outlined,
+              ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: StudioTokens.surface3,
+          borderRadius: StudioTokens.radiusCard,
+          border: Border.all(color: StudioTokens.cardOutline),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Operation lineage',
+                  style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              for (final detail in details)
+                _DetailBlock(label: detail.label, value: detail.value),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _galleryOperationLabel(StudioGalleryOperation operation) {
+  return switch (operation) {
+    StudioGalleryOperation.generate => 'Generate',
+    StudioGalleryOperation.imageToImage => 'Image to image',
+    StudioGalleryOperation.enhance => 'Enhance',
+    StudioGalleryOperation.upscale => 'Upscale',
+    StudioGalleryOperation.inpaint => 'Inpaint',
+    StudioGalleryOperation.directorTool => 'Director Tool',
+  };
+}
+
+String _stringifyLineageParameters(Map<String, dynamic> parameters) {
+  final keys = parameters.keys.toList(growable: false)..sort();
+  return [
+    for (final key in keys)
+      if (_stringifyMetadataValue(parameters[key]).isNotEmpty)
+        '$key: ${_stringifyMetadataValue(parameters[key])}',
+  ].join(', ');
 }
 
 IconData _galleryAssetCaptureIcon(StudioAssetCaptureKind kind) {
@@ -1498,6 +2228,11 @@ class _GalleryPreviewPromptPanel extends StatelessWidget {
           visibleGroupIds: visibleCaptureGroupIds,
           assetCaptureHost: assetCaptureHost,
         ),
+        _GalleryLineageBlock(
+          key: ValueKey('gallery-preview-lineage-${item.record.id}'),
+          lineage: item.record.lineage,
+          dense: true,
+        ),
         const SizedBox(height: 6),
         Text(
           meta,
@@ -1821,6 +2556,8 @@ class _GalleryDisplayItem {
   bool get hasMetadata => metadataEntries.isNotEmpty;
 
   bool get hasImagePath => record.imagePath?.trim().isNotEmpty == true;
+
+  bool get hasExistingImage => _existingImageFile(record.imagePath) != null;
 
   bool matches(String query) {
     return searchText.contains(query);

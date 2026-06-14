@@ -132,7 +132,11 @@ function auditCache(filePath, classificationCache, sourceRoot) {
     ? fs.existsSync(sourceRootPath)
     : false;
 
-  const slotCoverageIssues = slotCoverageAudit(cache, parsedFrames);
+  const slotCoverageIssues = slotCoverageAudit(
+    cache,
+    parsedFrames,
+    classificationCache,
+  );
   const roleIdentityIssues = roleIdentityAudit(
     cache,
     parsedFrames,
@@ -245,7 +249,7 @@ function roleFrameReferenceAudit(cache, frames) {
   return issues;
 }
 
-function slotCoverageAudit(cache, parsedFrames) {
+function slotCoverageAudit(cache, parsedFrames, classificationCache) {
   const slotFrameToRoles = new Map();
   for (const role of roles(cache)) {
     for (const appearance of appearances(role)) {
@@ -268,7 +272,7 @@ function slotCoverageAudit(cache, parsedFrames) {
       ? frame.parsed.charCaptions
       : [];
     captions.forEach((caption, slot) => {
-      if (!stringValue(caption).trim()) return;
+      if (!roleRelevantCaption(caption, classificationCache)) return;
       const rolesForSlot = slotFrameToRoles.get(`${frameIndex}:${slot}`) ?? [];
       if (rolesForSlot.length !== 1) {
         issues.push({
@@ -285,6 +289,205 @@ function slotCoverageAudit(cache, parsedFrames) {
     });
   }
   return issues;
+}
+
+function roleRelevantCaption(caption, classificationCache) {
+  const tags = parsePromptTerms(caption);
+  const normalized = tags.map(normalizedTagKey).filter(Boolean);
+  if (normalized.length === 0) return false;
+  if (
+    normalized.every((tag) => isContextTerm(tag) || isHardNoRoleTerm(tag))
+  ) {
+    return false;
+  }
+
+  if (tags.some(hasConcreteCharacterShape)) return true;
+
+  const hasBasicIdentity = normalized.some(isBasicGenericIdentity);
+  const hasSpecificIdentity = normalized.some(isSpecificGenericIdentity);
+  const hasAnyIdentity = hasBasicIdentity || hasSpecificIdentity;
+  if (
+    !hasAnyIdentity &&
+    normalized.some((tag) => /\b(pov hands?|only hands?|disembodied hands?)\b/.test(tag))
+  ) {
+    return false;
+  }
+  const hasStableEvidence = hasStableRoleEvidence(tags, classificationCache);
+  const hasWholePresence = hasWholeCharacterPresenceEvidence(tags);
+
+  if (!hasAnyIdentity && !hasStableEvidence) return false;
+  if (
+    hasOnlyPartialHumanEvidence(tags, classificationCache) &&
+    !hasSpecificIdentity &&
+    !hasDurablePartialRoleEvidence(tags, classificationCache)
+  ) {
+    return false;
+  }
+  if (hasBasicIdentity && (hasStableEvidence || hasWholePresence)) return true;
+  if (hasSpecificIdentity || hasStableEvidence) return true;
+  return false;
+}
+
+function parsePromptTerms(value) {
+  return stripNegativeWeightedGroups(stringValue(value))
+    .replace(/\r?\n/g, ',')
+    .replace(/::\s*[+-]?\d+(?:\.\d+)?\s*::/g, ',')
+    .replace(/::+/g, ',')
+    .split(/[，、；;,|]+/)
+    .map(cleanPromptTerm)
+    .filter((term) => term.length > 0);
+}
+
+function stripNegativeWeightedGroups(text) {
+  return stringValue(text).replace(/-\d+(?:\.\d+)?\s*::[\s\S]*?::/g, ',');
+}
+
+function hasConcreteCharacterShape(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized || /^artist[:\s]/.test(normalized) || normalized.startsWith('@')) {
+    return false;
+  }
+  if (isHardNoRoleTerm(normalized) || isContextTerm(normalized)) return false;
+  if (!/\([^)]{2,}\)/.test(tag)) return false;
+  if (
+    /\b(?:artist|channel|caststation|nyanpyoun|raarami|ahemaru|ratatatat|eonsang|freng)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function hasStableRoleEvidence(tags, classificationCache) {
+  if (hasWholeCharacterPresenceEvidence(tags)) return true;
+  for (const tag of tags) {
+    const normalized = normalizedTagKey(tag);
+    if (!normalized || isHardNoRoleTerm(normalized)) continue;
+    const category = auditCategoryForTag(tag, classificationCache);
+    if (
+      category === 'upperBody' ||
+      category === 'lowerBody' ||
+      category === 'upperClothing' ||
+      category === 'lowerClothing'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasOnlyPartialHumanEvidence(tags, classificationCache) {
+  const normalized = tags.map(normalizedTagKey).filter(Boolean);
+  const partial = normalized.some((tag) =>
+    /\b(pov|disembodied hands?|pov hands?|pov arms?|only hands?|only lower body|only upper body|large hands?|transparent body|huge penis|penis|hand on pussy|fingering|licking nipple|suck .*nipple|pant bulge)\b/.test(
+      tag,
+    ),
+  );
+  if (!partial) return false;
+  return !hasWholeCharacterPresenceEvidence(tags);
+}
+
+function hasDurablePartialRoleEvidence(tags, classificationCache) {
+  for (const tag of tags) {
+    const normalized = normalizedTagKey(tag);
+    if (!normalized || isHardNoRoleTerm(normalized)) continue;
+    if (
+      /\b(student|hair|eyes?|shirt|pants|trousers|jacket|dress|skirt|robe|hat|ribbon|tail|ears?|uniform|suit|clothed|nude|naked|topless|bottomless|standing|sitting|lying)\b/.test(
+        normalized,
+      )
+    ) {
+      return true;
+    }
+    const category = auditCategoryForTag(tag, classificationCache);
+    if (
+      category === 'upperBody' ||
+      category === 'lowerBody' ||
+      category === 'upperClothing' ||
+      category === 'lowerClothing'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasWholeCharacterPresenceEvidence(tags) {
+  const normalized = tags.map(normalizedTagKey).filter(Boolean).join(', ');
+  return /\b(full body|whole body|entire body|body visible|torso|upper body|lower body|back view|from behind|standing|sitting|lying|kneeling|on back|on stomach|clothed|nude|naked|completely nude|naked man|naked male|nude male|shirtless|faceless|bald)\b/.test(
+    normalized,
+  );
+}
+
+function auditCategoryForTag(tag, classificationCache) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return 'nonRole';
+  if (isHardNoRoleTerm(normalized)) return 'nonRole';
+  if (isBasicGenericIdentity(normalized) || isSpecificGenericIdentity(normalized)) {
+    return 'identity';
+  }
+  if (/\b(tail|paw|hooves?)\b/.test(normalized)) return 'lowerBody';
+  if (
+    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fang|fangs|skin|face|hat|cap|hair ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|hairclip|hairband|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'upperBody';
+  }
+  if (
+    /\b(thighs?|thick thighs?|bare legs?|legs?|navel|stomach|hips?|waist|barefoot|toes?|thighcut)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'lowerBody';
+  }
+  if (
+    /\b(shoes?|boots?|sneakers?|socks?|thighhigs|thighhighs?|pantyhose|stockings?|sandals?|heels?|pants|shorts|skirt|miniskirt|panties|underwear|briefs|trousers|leggings|garter|legwear|buruma|bikini bottoms?|bikini bottom only|side tie bikini bottom|side-tie bikini bottom)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'lowerClothing';
+  }
+  if (
+    /\b(shirt|tanktop|blouse|jacket|hoodie|hood|coat|suit|dress|uniform|serafuku|school swimsuit|kimono|yukata|bra|bikini|swimsuit|leotard|sleeves?|robe|armor|apron|overalls|tank top|crop top|cropped shirt|camisole|vest|cloak|hooded jacket|blazer|sweater|gloves?)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'upperClothing';
+  }
+  const classified = classificationCache.get(`positive:${normalized}`);
+  if (classified === 'upperBody') return 'upperBody';
+  if (classified === 'lowerBody') return 'lowerBody';
+  if (classified === 'upperClothing') return 'upperClothing';
+  if (classified === 'lowerClothing') return 'lowerClothing';
+  if (classified === 'character') return 'identity';
+  if (classified === 'scene') return 'context';
+  return 'nonRole';
+}
+
+function isBasicGenericIdentity(term) {
+  return /^(?:1\s*)?(?:girl|girls|female|woman|loli|boy|boys|male|man|men|guy|guys)$|^2\s*(?:girls|boys|males|men|guys)$/.test(
+    normalizedTagKey(term),
+  );
+}
+
+function isSpecificGenericIdentity(term) {
+  return /\b(fat man|fat men|fat male|big man|old man|bald man|bald head|male bald head|african|black man|black skinned male|dark skinned male|dark-skinned male|muscular male|faceless male|bandit|orc|giant orc|homeless man|homless man|goblin|monster|monster boy|tentacle monster|flower tentacle vine monster|tentacle vine monster|vine monster|student|thief)\b/.test(
+    normalizedTagKey(term),
+  );
+}
+
+function isContextTerm(normalized) {
+  return /\b(bathroom|bath|bathtub|shower|onsen|hot spring|workshop|factory|garage|mechanic|school|classroom|campus|train|subway|station|street|city|bedroom|bed|indoors|outdoors|building)\b/.test(
+    normalized,
+  );
+}
+
+function isHardNoRoleTerm(normalized) {
+  if (/^artist[:\s]/.test(normalized) || normalized.startsWith('@')) return true;
+  return /\b(quality|masterpiece|aesthetic|absurdres|highres|simple illustration|artist collaboration|solo|solo focus|multiple views|text|no text|looking|watching|closed eyes|open mouth|blush|crying|pain|sex|cum|orgy|fingering|petting|penetration|spread legs|spreading legs|spreading another|breast squeeze|breast grobbed|breast grabbed|breast grab|grab breast|grabbing breast|hair grab|grab .*hair|grabbing .*hair|pulling .*hair|face grab|grab .*face|leg grab|legs? grab|grab .*legs?|thigh grab|thighs? grab|hands? on another|hand on another|arms? on another|pov arms?|bare arms?|onee shota|grab panties|panties grab|grab another|grabbing another|ass|pussy|penis|nipples|areola|pubic|vaginal|anal|censored|mosaic|pov hands?|disembodied hands?|disemdbodied hands?|large hands?|transparent body|huge penis|veiny penis|erection|motion blur|motion lines|no humans|only face|only hands?|only lower body|only upper body|out of frame|head out of frame|head ouf of the frame|legs? lock|leg lock|holding|grabbing|caressing|licking|sucking|food|plate|skewer|bikini aside|swimsuit aside|leotard aside|skirt aside|skirt lift|covering .*mouth|finger on pussy|stethoscope on pussy|penis insert|insert .*mouth)\b/.test(
+    normalized,
+  );
 }
 
 function roleIdentityAudit(cache, parsedFrames, classificationCache) {
@@ -380,6 +583,7 @@ function roleIdentityNames(role) {
 
 function isRoleIdentityTerm(term) {
   const normalized = normalizedTagKey(term);
+  if (/^(?:solo|solo focus|nsfw)$/.test(normalized)) return false;
   if (/\b(hair|eyes?|pupils?|iris|irises|skin|ears?|face|mouth|teeth|blush|horns?|tail)\b/.test(normalized)) {
     return false;
   }
@@ -549,6 +753,11 @@ function cleanPromptTerm(value) {
     .replace(/\b-?\d+(?:\.\d+)?::/g, '')
     .replace(/::/g, '')
     .replace(/\|/g, '')
+    .trim()
+    .replace(
+      /^((?:1\s*)?(?:girl|girls|female|woman|loli|boy|boys|male|man|men))\s+[+-]?\d+(?:\.\d+)?$/i,
+      '$1',
+    )
     .trim();
 }
 
@@ -682,11 +891,13 @@ function parseArgs(args) {
     if (equalIndex < 0) index += 1;
     if (key === 'cache-dir') parsed.cacheDir = value;
     if (key === 'classification-cache') parsed.classificationCache = value;
-    if (key === 'source-root') parsed.sourceRoot = value;
+    if (key === 'source-root' || key === 'sourceRoot') parsed.sourceRoot = value;
     if (key === 'report') parsed.reportPath = value;
     if (key === 'from') parsed.from = Number(value) || 0;
     if (key === 'to') parsed.to = value === '' ? undefined : Number(value);
-    if (key === 'max-print') parsed.maxPrint = Number(value) || parsed.maxPrint;
+    if (key === 'max-print' || key === 'maxPrint') {
+      parsed.maxPrint = Number(value) || parsed.maxPrint;
+    }
   }
   return parsed;
 }

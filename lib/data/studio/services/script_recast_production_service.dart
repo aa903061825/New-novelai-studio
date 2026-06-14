@@ -36,41 +36,54 @@ class ScriptRecastProductionService {
       requestedPlanId: requestedPlanId,
       resolvedPlanId: resolvedPlanId,
     );
+    final resolvedPlanName = _nonConflictingPlanName(
+      requestedName: planName,
+      timestamp: timestamp,
+      existingPlanNames: existingPlans.map((plan) => plan.name),
+    );
     final previousPlan = _findPlan(existingPlans, requestedPlanId);
     final lastUsedSettings = await queueService.loadLastExecutionSettings();
     final inheritedSettings = lastUsedSettings ??
         previousPlan?.executionSettings ??
         _latestExecutionSettings(existingPlans);
+    final tasks = <ProductionTask>[];
+    for (var index = 0; index < result.frames.length; index += 1) {
+      final frame = result.frames[index];
+      tasks.add(
+        ProductionTask.scriptRecastFrame(
+          id: '$resolvedPlanId:frame-${frame.frameIndex}',
+          planId: resolvedPlanId,
+          title: frame.sourceFileName,
+          scriptId: result.scriptId,
+          scriptName: scriptName,
+          scriptPath: scriptPath,
+          recastRunId: resolvedRecastRunId,
+          mappingConfigFingerprint: result.configFingerprint,
+          frameIndex: frame.frameIndex,
+          sourceFileName: frame.sourceFileName,
+          payload: payloadAdapter.toNaiRequestPayload(frame.payload),
+          payloadFingerprint: frame.payloadFingerprint,
+          suggestedFileName: _suggestedPngName(
+            planId: resolvedPlanId,
+            sourceFileName: frame.sourceFileName,
+          ),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
+      if ((index + 1) % 8 == 0 && index + 1 < result.frames.length) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
     final plan = ProductionPlan(
       id: resolvedPlanId,
-      name: planName,
-      tasks: [
-        for (final frame in result.frames)
-          ProductionTask.scriptRecastFrame(
-            id: '$resolvedPlanId:frame-${frame.frameIndex}',
-            planId: resolvedPlanId,
-            title: frame.sourceFileName,
-            scriptId: result.scriptId,
-            scriptName: scriptName,
-            scriptPath: scriptPath,
-            recastRunId: resolvedRecastRunId,
-            mappingConfigFingerprint: result.configFingerprint,
-            frameIndex: frame.frameIndex,
-            sourceFileName: frame.sourceFileName,
-            payload: payloadAdapter.toNaiRequestPayload(frame.payload),
-            payloadFingerprint: frame.payloadFingerprint,
-            suggestedFileName: _suggestedPngName(
-              planId: resolvedPlanId,
-              sourceFileName: frame.sourceFileName,
-            ),
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          ),
-      ],
+      name: resolvedPlanName,
+      tasks: tasks,
       executionSettings: inheritedSettings,
       createdAt: timestamp,
       updatedAt: timestamp,
-    );
+    ).compactSharedPayloadParameters();
 
     await queueService.savePlans([
       plan,
@@ -88,6 +101,38 @@ class ScriptRecastProductionService {
       suffix += 1;
     }
     return '$base-$suffix';
+  }
+
+  String _nonConflictingPlanName({
+    required String requestedName,
+    required DateTime timestamp,
+    required Iterable<String> existingPlanNames,
+  }) {
+    final existing = existingPlanNames
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    final requested = requestedName.trim();
+    if (requested.isNotEmpty && !existing.contains(requested)) {
+      return requested;
+    }
+    final dateLabel = _dateLabel(timestamp);
+    if (!existing.contains(dateLabel)) {
+      return dateLabel;
+    }
+    var suffix = 2;
+    while (existing.contains('$dateLabel-$suffix')) {
+      suffix += 1;
+    }
+    return '$dateLabel-$suffix';
+  }
+
+  String _dateLabel(DateTime timestamp) {
+    final date = timestamp.toUtc();
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 
   String _recastRunIdForPlan(

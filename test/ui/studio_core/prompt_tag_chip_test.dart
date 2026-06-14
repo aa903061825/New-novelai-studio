@@ -52,7 +52,8 @@ void main() {
     expect(deleted, isTrue);
   });
 
-  testWidgets('renders loading label only without a translation', (tester) async {
+  testWidgets('renders loading label only without a translation',
+      (tester) async {
     await tester.pumpWidget(
       host(
         const PromptTagChip(
@@ -84,5 +85,47 @@ void main() {
 
     expect(find.text('silver translated'), findsOneWidget);
     expect(find.text('loading...'), findsNothing);
+  });
+
+  testWidgets('preview chrome skips implicit animation during drag hover', (
+    tester,
+  ) async {
+    const bodyKey = ValueKey('preview-chip-body');
+
+    await tester.pumpWidget(
+      host(
+        const PromptTagChip(
+          label: 'black jacket',
+          translation: 'black jacket translated',
+          category: PromptTagCategory.upperBody,
+          previewed: true,
+          bodyKey: bodyKey,
+        ),
+      ),
+    );
+
+    expect(find.byKey(bodyKey), findsOneWidget);
+    expect(tester.widget(find.byKey(bodyKey)), isNot(isA<AnimatedContainer>()));
+  });
+
+  testWidgets('preview chrome omits action controls during drag hover', (
+    tester,
+  ) async {
+    const deleteKey = ValueKey('preview-chip-delete');
+
+    await tester.pumpWidget(
+      host(
+        PromptTagChip(
+          label: 'black jacket',
+          translation: '',
+          category: PromptTagCategory.upperBody,
+          previewed: true,
+          deleteKey: deleteKey,
+          onDeleted: () {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(deleteKey), findsNothing);
   });
 }

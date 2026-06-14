@@ -22,6 +22,7 @@ void main() {
       exhibitionVersionLabels: const {
         'gallery': '精选收纳',
       },
+      exhibitionCoverItemId: 'production-plan-1-task-1',
     );
 
     final restored = TokenizerScript.fromJson(script.toJson());
@@ -32,5 +33,10 @@ void main() {
     expect(restored.toJson()['exhibitionVersionLabels'], {
       'gallery': '精选收纳',
     });
+    expect(restored.exhibitionCoverItemId, 'production-plan-1-task-1');
+    expect(
+      restored.toJson()['exhibitionCoverItemId'],
+      'production-plan-1-task-1',
+    );
   });
 }

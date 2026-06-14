@@ -931,6 +931,71 @@ class InspirationEntry {
       };
 }
 
+class PromptChunkEntry {
+  final String id;
+  final String name;
+  final String prompt;
+  final String negativePrompt;
+  final List<String> tags;
+  final SourceRef source;
+  final String note;
+
+  const PromptChunkEntry({
+    required this.id,
+    required this.name,
+    required this.prompt,
+    this.negativePrompt = '',
+    this.tags = const [],
+    this.source = const SourceRef(type: 'manual'),
+    this.note = '',
+  });
+
+  factory PromptChunkEntry.fromJson(dynamic json) {
+    final map = _asMap(json, 'prompt chunk');
+    return PromptChunkEntry(
+      id: _stringValue(map['id'], 'promptChunk.id'),
+      name: _stringValue(map['name'], 'promptChunk.name'),
+      prompt: _stringValue(map['prompt'], 'promptChunk.prompt'),
+      negativePrompt: _stringValue(
+        map['negativePrompt'],
+        'promptChunk.negativePrompt',
+      ),
+      tags: _stringList(map['tags'], 'promptChunk.tags'),
+      source: map['source'] == null
+          ? const SourceRef(type: 'manual')
+          : SourceRef.fromJson(map['source']),
+      note: _stringValue(map['note'], 'promptChunk.note'),
+    );
+  }
+
+  String insertIntoPrompt(
+    String basePrompt, {
+    bool prepend = false,
+    String separator = ', ',
+  }) {
+    final chunk = prompt.trim();
+    final base = basePrompt.trim();
+    if (chunk.isEmpty) return base;
+    if (base.isEmpty) return chunk;
+    return prepend ? '$chunk$separator$base' : '$base$separator$chunk';
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        if (prompt.isNotEmpty && _sanitizeWorkspaceString(prompt) != null)
+          'prompt': prompt,
+        if (negativePrompt.isNotEmpty &&
+            _sanitizeWorkspaceString(negativePrompt) != null)
+          'negativePrompt': negativePrompt,
+        if (_sanitizeWorkspaceStringList(tags).isNotEmpty)
+          'tags': _sanitizeWorkspaceStringList(tags),
+        'source': source.toJson(),
+        if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
+          'note': note,
+      };
+}
+
 class LoraEntry {
   final String id;
   final String name;

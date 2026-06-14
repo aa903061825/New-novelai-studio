@@ -54,6 +54,7 @@ class StudioGalleryService {
     Map<String, dynamic> additionalInfo = const {},
     DateTime? createdAt,
     String? id,
+    StudioGalleryLineage? lineage,
   }) async {
     final created = createdAt ?? DateTime.now().toUtc();
     final record = StudioGalleryRecord.fromPayloadConfig(
@@ -64,6 +65,41 @@ class StudioGalleryService {
       imagePath: imagePath,
       info: info,
       additionalInfo: additionalInfo,
+      lineage: lineage,
+    );
+    final records = await loadRecords();
+    await saveRecords([record, ...records]);
+    return record;
+  }
+
+  Future<StudioGalleryRecord> saveOperationSnapshot({
+    required PayloadConfig config,
+    required StudioGalleryOperation operation,
+    required String sourceRecordId,
+    String? sourceImagePath,
+    String? title,
+    String? imagePath,
+    String? info,
+    Map<String, dynamic> parameters = const {},
+    Map<String, dynamic> additionalInfo = const {},
+    DateTime? createdAt,
+    String? id,
+  }) async {
+    final created = createdAt ?? DateTime.now().toUtc();
+    final record = StudioGalleryRecord.fromPayloadConfig(
+      config: config,
+      id: id ?? 'gallery-${created.microsecondsSinceEpoch}',
+      createdAt: created,
+      title: title,
+      imagePath: imagePath,
+      info: info,
+      additionalInfo: additionalInfo,
+      lineage: StudioGalleryLineage(
+        operation: operation,
+        sourceRecordId: sourceRecordId,
+        sourceImagePath: sourceImagePath,
+        parameters: parameters,
+      ),
     );
     final records = await loadRecords();
     await saveRecords([record, ...records]);
@@ -117,6 +153,23 @@ class StudioGalleryService {
     PayloadConfig target,
   ) {
     record.restoreTo(target);
+  }
+
+  Future<void> useRecordAsI2iSource(
+    StudioGalleryRecord record,
+    PayloadConfig target,
+  ) async {
+    final imagePath = record.imagePath?.trim();
+    if (imagePath == null || imagePath.isEmpty) {
+      throw StateError('Gallery record has no image path.');
+    }
+
+    final file = File(imagePath);
+    if (!await file.exists()) {
+      throw StateError('Gallery image file does not exist: $imagePath');
+    }
+
+    target.i2iConfig.setImage(await file.readAsBytes());
   }
 
   File _recordsFile() {
@@ -177,6 +230,7 @@ class StudioGalleryService {
         info: record.info,
         additionalInfo: record.additionalInfo,
         provenance: record.provenance,
+        lineage: record.lineage,
         document: record.document,
       );
     } catch (_) {

@@ -47,8 +47,8 @@ class TokenizerScriptDirectoryScanResult {
   int get failureCount => failures.length;
 
   List<String> get warnings => [
-    if (failureCount > 0) '$failureCount files could not be scanned.',
-  ];
+        if (failureCount > 0) '$failureCount files could not be scanned.',
+      ];
 }
 
 class TokenizerScriptScanFailure {
@@ -87,9 +87,9 @@ class PromptWorkshopPreview {
   const PromptWorkshopPreview({required this.tags});
 
   List<String> get missingTranslations => [
-    for (final tag in tags)
-      if (tag.translationSource == TranslationSource.miss) tag.text,
-  ];
+        for (final tag in tags)
+          if (tag.translationSource == TranslationSource.miss) tag.text,
+      ];
 }
 
 class TokenizerScriptService {
@@ -133,40 +133,56 @@ class TokenizerScriptService {
     );
   }
 
-  TokenizerScript addImageAttachments(
+  Future<TokenizerScript> addImageAttachmentVersion(
     TokenizerScript script, {
     required List<String> imagePaths,
     DateTime? createdAt,
-    String labelPrefix = 'Image ',
-  }) {
-    final sortedPaths =
-        imagePaths
-            .map((path) => path.trim())
-            .where((path) => path.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort(
-            (left, right) => _naturalCompare(
-              _fileNameFromPath(left),
-              _fileNameFromPath(right),
-            ),
-          );
+    String? versionLabel,
+  }) async {
+    final sortedPaths = imagePaths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort(
+        (left, right) => _naturalCompare(
+          _fileNameFromPath(left),
+          _fileNameFromPath(right),
+        ),
+      );
     if (sortedPaths.isEmpty) return script;
+
     final now = createdAt ?? DateTime.now();
+    final versionId = _id('script-image-version', now);
+    final resolvedVersionLabel = versionLabel?.trim().isNotEmpty == true
+        ? versionLabel!.trim()
+        : _nextImageAttachmentVersionLabel(script);
     final matches = _matchImagePathsToSourceFiles(
       sourceFiles: script.sourceFiles,
       imagePaths: sortedPaths,
     );
-    final startIndex = script.imageAttachments.length + 1;
+    final tasksBySourceFileId = {
+      for (final task in script.imageTasks) task.sourceFile.fileId: task,
+    };
+
     final attachments = <TokenizerScriptImageAttachment>[];
     for (final (index, path) in sortedPaths.indexed) {
       final source = matches[path];
-      final frameIndex = source == null
-          ? null
-          : script.sourceFiles.indexWhere(
-                  (sourceFile) => sourceFile.fileId == source.fileId,
-                ) +
-                1;
+      final task = source == null ? null : tasksBySourceFileId[source.fileId];
+      final metadata = await _metadataForImageAttachment(
+        imagePath: path,
+        sourceFile: source,
+      );
+      final prompt = _firstNonEmpty([
+            metadata?.prompt,
+            task?.originalPrompt,
+            task?.parsedPrompt,
+            task?.finalPrompt,
+          ]) ??
+          '';
+      final payload = metadata?.payload ??
+          _payloadForImageTask(task) ??
+          (prompt.isEmpty ? const <String, dynamic>{} : {'input': prompt});
       attachments.add(
         TokenizerScriptImageAttachment(
           attachmentId: _id(
@@ -174,13 +190,18 @@ class TokenizerScriptService {
             now.add(Duration(microseconds: index)),
           ),
           imagePath: path,
-          label: '$labelPrefix${startIndex + index}',
-          frameIndex: frameIndex == null || frameIndex <= 0 ? null : frameIndex,
-          sourceFileName: source?.fileName,
-          createdAt: now,
+          label: 'Frame ${index + 1}',
+          versionId: versionId,
+          versionLabel: resolvedVersionLabel,
+          frameIndex: index + 1,
+          sourceFileName: metadata?.sourceFileName ?? source?.fileName,
+          prompt: prompt,
+          payload: payload,
+          createdAt: now.add(Duration(microseconds: index)),
         ),
       );
     }
+
     return script.copyWith(
       updatedAt: now,
       imageAttachments: [...script.imageAttachments, ...attachments],
@@ -270,13 +291,10 @@ class TokenizerScriptService {
           ? TokenizerScriptStatus.needsReview
           : TokenizerScriptStatus.ready,
       sourceFiles: tasks.map((task) => task.sourceFile).toList(),
-      sampleFileIds: tasks
-          .take(3)
-          .map((task) => task.sourceFile.fileId)
-          .toList(),
-      characterIdentities: identitiesByKey.values
-          .map((entry) => entry.toIdentity())
-          .toList(),
+      sampleFileIds:
+          tasks.take(3).map((task) => task.sourceFile.fileId).toList(),
+      characterIdentities:
+          identitiesByKey.values.map((entry) => entry.toIdentity()).toList(),
       styleStages: const [],
       knowledgeCandidates: const [
         TokenizerKnowledgeCandidate(
@@ -671,9 +689,8 @@ class TokenizerScriptService {
     return _copyTask(
       task,
       finalPrompt: updatedPrompt,
-      reviewStatus: markAdjusted
-          ? TokenizerTaskReviewStatus.adjusted
-          : task.reviewStatus,
+      reviewStatus:
+          markAdjusted ? TokenizerTaskReviewStatus.adjusted : task.reviewStatus,
       placeholderMappings: updatedMappings,
     );
   }
@@ -805,8 +822,8 @@ class TokenizerScriptService {
           sceneTags: bucket.scene,
           naturalLanguageSegments:
               _promptMode(prompt) == TokenizerScriptPromptMode.naturalLanguage
-              ? [prompt]
-              : const [],
+                  ? [prompt]
+                  : const [],
           warnings: warnings,
         ),
       );
@@ -1234,9 +1251,8 @@ class TokenizerScriptService {
         continue;
       }
       final existing = bySourceFolder[sourceFolder];
-      bySourceFolder[sourceFolder] = existing == null
-          ? script
-          : _newerScript(existing, script);
+      bySourceFolder[sourceFolder] =
+          existing == null ? script : _newerScript(existing, script);
     }
     return [...unkeyed, ...bySourceFolder.values]
       ..sort((left, right) => _compareScriptRecency(right, left));
@@ -1350,8 +1366,7 @@ class TokenizerScriptService {
   }) {
     final sortedSources = [...sourceFiles]
       ..sort((left, right) => _naturalCompare(left.fileName, right.fileName));
-    final sortedImages = [...imagePaths]
-      ..sort(
+    final sortedImages = [...imagePaths]..sort(
         (left, right) =>
             _naturalCompare(_fileNameFromPath(left), _fileNameFromPath(right)),
       );
@@ -1397,6 +1412,121 @@ class TokenizerScriptService {
       }
     }
     return result;
+  }
+
+  String _nextImageAttachmentVersionLabel(TokenizerScript script) {
+    final existingVersionIds = {
+      for (final attachment in script.imageAttachments)
+        if (attachment.versionId.trim().isNotEmpty) attachment.versionId.trim(),
+    };
+    return '导入图片 ${existingVersionIds.length + 1}';
+  }
+
+  Future<_ImageAttachmentMetadata?> _metadataForImageAttachment({
+    required String imagePath,
+    required TokenizerSourceFile? sourceFile,
+  }) async {
+    final jsonPath = await _jsonPathForImageAttachment(
+      imagePath: imagePath,
+      sourceFile: sourceFile,
+    );
+    if (jsonPath != null) {
+      final metadata = await _metadataFromJsonFile(jsonPath);
+      if (metadata != null) return metadata;
+    }
+
+    final imageFile = File(imagePath);
+    if (!await imageFile.exists()) {
+      return null;
+    }
+    final payload = await _imageMetadataPayload(imageFile);
+    final parsed = NaiMetadataParser.parse(payload);
+    return _metadataFromParsed(
+      parsed,
+      sourceFileName: _fileNameFromPath(imagePath),
+    );
+  }
+
+  Future<String?> _jsonPathForImageAttachment({
+    required String imagePath,
+    required TokenizerSourceFile? sourceFile,
+  }) async {
+    final sourcePath = sourceFile?.path.trim();
+    if (sourcePath != null && sourcePath.toLowerCase().endsWith('.json')) {
+      final file = File(sourcePath);
+      if (await file.exists()) return sourcePath;
+    }
+    final sameStemPath = _replaceExtension(imagePath, '.json');
+    if (sameStemPath != null && await File(sameStemPath).exists()) {
+      return sameStemPath;
+    }
+    return null;
+  }
+
+  Future<_ImageAttachmentMetadata?> _metadataFromJsonFile(String path) async {
+    try {
+      final decoded = jsonDecode(await File(path).readAsString());
+      final parsed = NaiMetadataParser.parse(decoded);
+      return _metadataFromParsed(
+        parsed,
+        sourceFileName: _fileNameFromPath(path),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _ImageAttachmentMetadata _metadataFromParsed(
+    NaiMetadataParseResult parsed, {
+    required String sourceFileName,
+  }) {
+    final prompt = _firstNonEmpty([
+      parsed.prompt,
+      ...parsed.charCaptions,
+      parsed.rawContent,
+    ]);
+    return _ImageAttachmentMetadata(
+      prompt: prompt,
+      payload: _payloadForParsedMetadata(parsed, prompt: prompt),
+      sourceFileName: sourceFileName,
+    );
+  }
+
+  Map<String, dynamic> _payloadForParsedMetadata(
+    NaiMetadataParseResult parsed, {
+    required String? prompt,
+  }) {
+    final payload = <String, dynamic>{};
+    final cleanedPrompt = prompt?.trim();
+    if (cleanedPrompt != null && cleanedPrompt.isNotEmpty) {
+      payload['input'] = cleanedPrompt;
+    }
+    final negativePrompt = parsed.negativePrompt?.trim();
+    if (negativePrompt != null && negativePrompt.isNotEmpty) {
+      payload['uc'] = negativePrompt;
+    }
+    final parameters = _generationParams(parsed);
+    if (parameters.isNotEmpty) {
+      payload['parameters'] = parameters;
+    }
+    return Map.unmodifiable(payload);
+  }
+
+  Map<String, dynamic>? _payloadForImageTask(TokenizerImageTask? task) {
+    if (task == null) return null;
+    final prompt = _firstNonEmpty([
+      task.originalPrompt,
+      task.parsedPrompt,
+      task.finalPrompt,
+    ]);
+    final payload = <String, dynamic>{};
+    if (prompt != null) {
+      payload['input'] = prompt;
+    }
+    if (task.generationParams.isNotEmpty) {
+      payload['parameters'] = Map.unmodifiable(task.generationParams);
+    }
+    return payload.isEmpty ? null : Map.unmodifiable(payload);
   }
 
   static String? _firstMatchingImagePath(
@@ -1525,6 +1655,20 @@ class TokenizerScriptService {
     final normalized = fileName.replaceAll('\\', '/').split('/').last;
     final dot = normalized.lastIndexOf('.');
     return dot <= 0 ? normalized : normalized.substring(0, dot);
+  }
+
+  static String? _replaceExtension(String path, String extension) {
+    final dot = path.lastIndexOf('.');
+    if (dot <= 0) return null;
+    return '${path.substring(0, dot)}$extension';
+  }
+
+  static String? _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final trimmed = value?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
   }
 
   static int _naturalCompare(String left, String right) {
@@ -1877,6 +2021,18 @@ class _TokenizerPairedDraftSource {
   const _TokenizerPairedDraftSource({
     required this.source,
     required this.defaultImagePath,
+  });
+}
+
+class _ImageAttachmentMetadata {
+  final String? prompt;
+  final Map<String, dynamic> payload;
+  final String sourceFileName;
+
+  const _ImageAttachmentMetadata({
+    required this.prompt,
+    required this.payload,
+    required this.sourceFileName,
   });
 }
 

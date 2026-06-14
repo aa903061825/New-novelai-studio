@@ -63,5 +63,65 @@ void main() {
         everyElement(hasLength(1)),
       );
     });
+
+    test('skips nested image sidecars below a prompt-bearing script directory',
+        () async {
+      final script =
+          Directory('${sourceRoot.path}${Platform.pathSeparator}funds');
+      final sidecar = Directory('${script.path}${Platform.pathSeparator}PNG');
+      await sidecar.create(recursive: true);
+      await File('${script.path}${Platform.pathSeparator}p1.json')
+          .writeAsString(jsonEncode({'Description': 'artist:parent, garage'}));
+      await File('${sidecar.path}${Platform.pathSeparator}p1.json')
+          .writeAsString(jsonEncode({'Description': 'artist:sidecar, garage'}));
+
+      final service = WorkspaceService();
+      await service.createWorkspace(workspaceRoot.path);
+
+      final report = await importScriptRecastImageSetCaches(
+        sourceRoot: sourceRoot.path,
+        workspaceRoot: workspaceRoot.path,
+        recursive: true,
+      );
+      final caches = await service.loadRecastScriptCaches();
+
+      expect(report.written, 1);
+      expect(report.skipped, 1);
+      expect(caches.map((cache) => cache.scriptName), ['funds']);
+      expect(
+        report.rows.singleWhere((row) => row.scriptName == 'PNG').status,
+        'skipped_nested_sidecar',
+      );
+    });
+
+    test('keeps a sidecar-like child when its parent has no prompt frames',
+        () async {
+      final parent =
+          Directory('${sourceRoot.path}${Platform.pathSeparator}container');
+      final child = Directory('${parent.path}${Platform.pathSeparator}PNG');
+      await child.create(recursive: true);
+      await File('${parent.path}${Platform.pathSeparator}notes.json')
+          .writeAsString('{}');
+      await File('${child.path}${Platform.pathSeparator}p1.json')
+          .writeAsString(jsonEncode({'Description': 'artist:child, bath'}));
+
+      final service = WorkspaceService();
+      await service.createWorkspace(workspaceRoot.path);
+
+      final report = await importScriptRecastImageSetCaches(
+        sourceRoot: sourceRoot.path,
+        workspaceRoot: workspaceRoot.path,
+        recursive: true,
+      );
+      final caches = await service.loadRecastScriptCaches();
+
+      expect(report.written, 1);
+      expect(report.skipped, 1);
+      expect(caches.map((cache) => cache.scriptName), ['PNG']);
+      expect(
+        report.rows.singleWhere((row) => row.scriptName == 'container').status,
+        'skipped_no_frames',
+      );
+    });
   });
 }

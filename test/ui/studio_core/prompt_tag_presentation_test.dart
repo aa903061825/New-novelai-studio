@@ -84,7 +84,7 @@ void main() {
       );
       expect(
         formatPromptTagWeightedValue('animal ear hood', -2),
-        '-2.0:: animal ear hood ::',
+        '-2:: animal ear hood ::',
       );
     });
   });

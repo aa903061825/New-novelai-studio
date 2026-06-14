@@ -21,3 +21,29 @@ bd prime                # Refresh Beads context
 - Run `bd prime` when Beads context is missing or stale.
 - Keep persistent project memory in Beads via `bd remember`; do not create ad hoc memory files.
 <!-- END BEADS CODEX SETUP -->
+
+## Bug / Regression Root Cause Protocol
+
+When the user reports something broken, empty, unexpected, regressed, flaky, or asks "why" something happened, treat it as a root-cause investigation by default.
+
+- Use the `root-cause-thinking` skill before implementing fixes.
+- Do not stop at a UI fallback, null guard, retry, or compatibility patch unless the upstream mechanism has been identified or the remaining uncertainty is stated clearly.
+- Separate symptom relief from root-cause repair in updates and final answers.
+- Before changing code, identify the failing mechanism: the data shape, lifecycle step, state transition, stale cache, filtering rule, merge rule, permission boundary, or invariant that produced the visible symptom.
+- Add or run a regression test that would fail for the mechanism, not only for the visible UI state.
+- If a fallback is still needed for old data, keep it as a compatibility layer and also fix the shared path that creates new bad data.
+
+## Script / Translation Cache API Ban
+
+When modifying scripts, building or repairing Script Recast caches, translating
+cache display names, or filling translation cache entries, never use the user's
+configured API, OpenAI-compatible endpoint, NAI token, proxy, or any
+project-stored credential.
+
+- Use Codex's own reasoning/model capacity plus local repository files, cache
+  JSON, source frame prompts, and user-provided instructions instead.
+- Do not run project tools or scripts that would trigger API-backed translation,
+  extraction, or cache generation unless the user explicitly grants a one-time
+  exception in the current chat.
+- Treat this as a hard project rule for "改剧本", "剧本缓存", "翻译缓存", and
+  related Script Recast work.

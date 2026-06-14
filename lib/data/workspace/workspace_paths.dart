@@ -3,6 +3,7 @@ class WorkspacePaths {
   static const characters = 'library/characters.json';
   static const artistChains = 'library/artist_chains.json';
   static const inspirations = 'library/inspirations.json';
+  static const promptChunks = 'library/prompt_chunks.json';
   static const loras = 'library/loras.json';
   static const assetFavorites = 'library/favorites.json';
   static const assetCatalogCache = 'library/asset_catalog_cache.json';
@@ -56,6 +57,7 @@ class WorkspacePaths {
         characters,
         artistChains,
         inspirations,
+        promptChunks,
         loras,
         assetFavorites,
         promptReplaceRules,

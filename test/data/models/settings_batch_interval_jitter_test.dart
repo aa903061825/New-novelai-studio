@@ -104,6 +104,35 @@ void main() {
     expect(json['script_ai_model'], 'gpt-4.1-mini');
   });
 
+  test('settings persists script ai reasoning effort', () {
+    for (final effort in [
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh'
+    ]) {
+      final settings = Settings.fromJson({
+        'script_ai_reasoning_effort': ' $effort ',
+      });
+
+      final json = settings.toJson();
+
+      expect(settings.scriptAiReasoningEffort, effort);
+      expect(json['script_ai_reasoning_effort'], effort);
+    }
+  });
+
+  test('settings ignores unsupported script ai reasoning effort values', () {
+    final settings = Settings.fromJson({
+      'script_ai_reasoning_effort': 'ultra',
+    });
+
+    expect(settings.scriptAiReasoningEffort, '');
+    expect(settings.toJson()['script_ai_reasoning_effort'], '');
+  });
+
   test('settings always uses the official NovelAI image endpoint', () {
     final settings = Settings.fromJson({
       'nai_api_endpoint': 'https://proxy.example/ai/generate-image',

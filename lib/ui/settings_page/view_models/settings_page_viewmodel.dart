@@ -83,6 +83,12 @@ class SettingsPageViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setScriptAiReasoningEffort(String value) {
+    payloadConfig.settings.scriptAiReasoningEffort =
+        normalizeScriptAiReasoningEffort(value);
+    notifyListeners();
+  }
+
   void setTranslationAiBaseUrl(String value) {
     payloadConfig.settings.translationAiBaseUrl = value.trim();
     notifyListeners();

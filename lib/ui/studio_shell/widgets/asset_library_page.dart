@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:image/image.dart' as img;
 import 'package:nai_casrand/data/studio/services/asset_tag_cache_prewarm_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
 import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
@@ -62,6 +64,93 @@ enum _OutfitPromptField {
   lowerClothing,
 }
 
+String _assetPromptTagKey(String tag) {
+  return PromptTagProcessor.normalizeMatchKey(tag);
+}
+
+String _assetPromptAnalysisValue(WorkshopTagAnalysis tag) {
+  final raw = tag.text.trim();
+  final weight = tag.weight;
+  if (weight == null ||
+      PromptTagProcessor.hasCompleteNonInlineWeightSyntax(raw)) {
+    return raw;
+  }
+  final display = tag.displayText.trim();
+  if (display.isEmpty) return raw;
+  return PromptTagProcessor.formatInlineWeightTag(display, weight);
+}
+
+String _assetPromptFromValue(
+  String value, {
+  Set<String>? seenKeys,
+  Set<String> omitKeys = const {},
+}) {
+  final seen = seenKeys ?? <String>{};
+  final result = <String>[];
+  for (final tag in PromptTagProcessor.analyzeWorkshopTags(value)) {
+    final display = tag.displayText.trim();
+    final key = _assetPromptTagKey(display);
+    if (key.isEmpty || omitKeys.contains(key) || seen.contains(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.add(_assetPromptAnalysisValue(tag));
+  }
+  return result.join(', ');
+}
+
+String _assetPromptFromTags(
+  Iterable<String> tags, {
+  Set<String>? seenKeys,
+  Set<String> omitKeys = const {},
+}) {
+  return _assetPromptFromValue(
+    tags.join(', '),
+    seenKeys: seenKeys,
+    omitKeys: omitKeys,
+  );
+}
+
+List<String> _assetPromptTagValuesFromValue(String value) {
+  return PromptTagProcessor.analyzeWorkshopTags(value)
+      .map(_assetPromptAnalysisValue)
+      .map((tag) => tag.trim())
+      .where((tag) => tag.isNotEmpty)
+      .toList(growable: false);
+}
+
+Set<String> _assetPromptKeysFromValue(String value) {
+  return {
+    for (final tag in PromptTagProcessor.analyzeWorkshopTags(value))
+      if (_assetPromptTagKey(tag.displayText).isNotEmpty)
+        _assetPromptTagKey(tag.displayText),
+  };
+}
+
+Set<String> _assetPromptKeysFromTags(Iterable<String> tags) {
+  return _assetPromptKeysFromValue(tags.join(', '));
+}
+
+Iterable<String> _assetOutfitPartTags(WorkspaceOutfitPartTags partTags) sync* {
+  yield* partTags.upperBodyTags;
+  yield* partTags.upperClothingTags;
+  yield* partTags.lowerBodyTags;
+  yield* partTags.lowerClothingTags;
+  yield* partTags.weaponTags;
+}
+
+double? _readPreviewAspectRatio(String path) {
+  try {
+    final image = img.decodeImage(File(path).readAsBytesSync());
+    if (image == null || image.height == 0) return null;
+    return image.width / image.height;
+  } catch (_) {
+    return null;
+  }
+}
+
+const double _assetDetailCloseButtonReserve = 52;
+
 class AssetLibraryPage extends StatefulWidget {
   final StudioAssetCatalogService catalogService;
   final StudioWorkbenchAssetService workbenchAssetService;
@@ -93,7 +182,9 @@ class AssetLibraryPage extends StatefulWidget {
 }
 
 class _AssetLibraryPageState extends State<AssetLibraryPage> {
-  static const int _legacyCodexPageSize = 160;
+  static const int _legacyCodexPageSize = 48;
+  static const Duration _catalogFreshnessCheckDelay =
+      Duration(milliseconds: 450);
 
   late Future<StudioAssetCatalogSnapshot> _snapshotFuture;
   String _query = '';
@@ -377,11 +468,22 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
               : (outfit) => _confirmDeleteAsset(
                     onConfirm: () => _deleteOutfit(catalog, character, outfit),
                   ),
+          onDeleteOutfitPreview: widget.saveCharacters == null
+              ? null
+              : (outfitIndex, outfit) => _deleteOutfitPreview(
+                    catalog,
+                    character,
+                    outfitIndex,
+                    outfit,
+                  ),
           onDelete: widget.saveCharacters == null
               ? null
               : () => _confirmDeleteAsset(
                     onConfirm: () => _deleteCharacter(catalog, character),
                   ),
+          onDeletePreview: widget.saveCharacters == null
+              ? null
+              : () => _deleteCharacterPreview(catalog, character),
           onPromptChanged: widget.saveCharacters == null
               ? null
               : (prompt) => _saveCharacterPrompt(
@@ -914,39 +1016,84 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     final service = widget.previewGenerationService;
     if (service == null) return;
     try {
-      switch (item.kind) {
-        case _AssetKind.character:
-          await service.generateCharacterPreview(item.assetId);
-        case _AssetKind.artistChain:
-          await service.generateArtistChainPreview(item.assetId);
-        case _AssetKind.outfit:
-        case _AssetKind.recipe:
-        case _AssetKind.tag:
-        case _AssetKind.inspiration:
-        case _AssetKind.lora:
-        case _AssetKind.workflow:
-        case _AssetKind.batchPlan:
-        case _AssetKind.assemblyPreset:
-          return;
+      final decision = await showDialog<_PreviewGenerationDecision>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => _PreviewGenerationDialog(
+          assetTitle: item.title,
+          generate: () => _generatePreviewPath(service, item),
+        ),
+      );
+      if (!mounted || decision == null) return;
+      if (!decision.keep) {
+        await _discardGeneratedPreview(service, item, decision.previewPath);
       }
-      final refreshed = await widget.catalogService.loadSnapshot();
-      if (!mounted) return;
-      setState(() {
-        _resolvedPreviewPathsCache.clear();
-        _clearDisplayItemsCache();
-        _localCatalog = refreshed;
-        _snapshotFuture = Future.value(refreshed);
-        _selectedAsset = _displayItemsFor(refreshed)
-            .where((candidate) => candidate.key == item.key)
-            .cast<_AssetDisplayItem?>()
-            .firstWhere((candidate) => candidate != null, orElse: () => null);
-      });
+      await _refreshPreviewAsset(item);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('预览图生成失败: $error')),
       );
     }
+  }
+
+  Future<String> _generatePreviewPath(
+    StudioAssetPreviewGenerationService service,
+    _AssetDisplayItem item,
+  ) {
+    return switch (item.kind) {
+      _AssetKind.character => service.generateCharacterPreview(item.assetId),
+      _AssetKind.artistChain =>
+        service.generateArtistChainPreview(item.assetId),
+      _AssetKind.outfit ||
+      _AssetKind.recipe ||
+      _AssetKind.tag ||
+      _AssetKind.inspiration ||
+      _AssetKind.lora ||
+      _AssetKind.workflow ||
+      _AssetKind.batchPlan ||
+      _AssetKind.assemblyPreset =>
+        Future<String>.error(
+          StateError('Unsupported asset preview kind: ${item.kind.name}'),
+        ),
+    };
+  }
+
+  Future<void> _discardGeneratedPreview(
+    StudioAssetPreviewGenerationService service,
+    _AssetDisplayItem item,
+    String previewPath,
+  ) {
+    return switch (item.kind) {
+      _AssetKind.character =>
+        service.discardCharacterPreview(item.assetId, previewPath),
+      _AssetKind.artistChain =>
+        service.discardArtistChainPreview(item.assetId, previewPath),
+      _AssetKind.outfit ||
+      _AssetKind.recipe ||
+      _AssetKind.tag ||
+      _AssetKind.inspiration ||
+      _AssetKind.lora ||
+      _AssetKind.workflow ||
+      _AssetKind.batchPlan ||
+      _AssetKind.assemblyPreset =>
+        Future<void>.value(),
+    };
+  }
+
+  Future<void> _refreshPreviewAsset(_AssetDisplayItem item) async {
+    final refreshed = await widget.catalogService.loadSnapshot();
+    if (!mounted) return;
+    setState(() {
+      _resolvedPreviewPathsCache.clear();
+      _clearDisplayItemsCache();
+      _localCatalog = refreshed;
+      _snapshotFuture = Future.value(refreshed);
+      _selectedAsset = _displayItemsFor(refreshed)
+          .where((candidate) => candidate.key == item.key)
+          .cast<_AssetDisplayItem?>()
+          .firstWhere((candidate) => candidate != null, orElse: () => null);
+    });
   }
 
   // ignore: unused_element
@@ -1097,6 +1244,11 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  CharacterEntry _manualizedCharacter(CharacterEntry character) {
+    if (character.source.type == 'manual') return character;
+    return character.copyWith(source: const SourceRef(type: 'manual'));
+  }
+
   _AssetDisplayItem? _displayItemByKey(
     StudioAssetCatalogSnapshot catalog,
     String key,
@@ -1150,7 +1302,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     );
     final characters = [
       for (final entry in catalog.characters)
-        if (entry.id == character.id) updatedCharacter else entry,
+        if (entry.id == character.id)
+          _manualizedCharacter(updatedCharacter)
+        else
+          entry,
     ];
     await _saveCharacters(
       catalog,
@@ -1207,7 +1362,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     );
     final characters = [
       for (final entry in catalog.characters)
-        if (entry.id == character.id) updatedCharacter else entry,
+        if (entry.id == character.id)
+          _manualizedCharacter(updatedCharacter)
+        else
+          entry,
     ];
     await _saveCharacters(
       catalog,
@@ -1245,7 +1403,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     );
     final updatedOutfits = [...character.outfits]..[outfitIndex] =
         updatedOutfit;
-    final updatedCharacter = character.copyWith(outfits: updatedOutfits);
+    final updatedCharacter =
+        _manualizedCharacter(character.copyWith(outfits: updatedOutfits));
     final characters = [
       for (final entry in catalog.characters)
         if (entry.id == character.id) updatedCharacter else entry,
@@ -1266,10 +1425,22 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   ) async {
     if (outfitIndex < 0 || outfitIndex >= character.outfits.length) return;
     final trimmed = prompt.trim();
-    final tags = _linesOrCommaList(trimmed);
+    final tags = _assetPromptTagValuesFromValue(trimmed);
     final outfit = character.outfits[outfitIndex];
     final currentTags = outfit.tags;
     final currentPartTags = outfit.partTags;
+    final fallbackUpperBodyTags = currentPartTags.isEmpty
+        ? const <String>[]
+        : currentPartTags.upperBodyTags;
+    final fallbackUpperClothingTags = currentPartTags.isEmpty
+        ? _assetPromptTagValuesFromValue(currentTags.frontFull)
+        : currentPartTags.upperClothingTags;
+    final fallbackLowerBodyTags = currentPartTags.isEmpty
+        ? const <String>[]
+        : currentPartTags.lowerBodyTags;
+    final fallbackLowerClothingTags = currentPartTags.isEmpty
+        ? const <String>[]
+        : currentPartTags.lowerClothingTags;
     final updatedViewTags = switch (field) {
       _OutfitPromptField.full => ViewVariantTexts(
           frontFull: trimmed,
@@ -1306,38 +1477,50 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     final updatedPartTags = switch (field) {
       _OutfitPromptField.upperBody => WorkspaceOutfitPartTags(
           upperBodyTags: tags,
-          upperClothingTags: currentPartTags.upperClothingTags,
-          lowerBodyTags: currentPartTags.lowerBodyTags,
-          lowerClothingTags: currentPartTags.lowerClothingTags,
-          weaponTags: currentPartTags.weaponTags,
+          upperClothingTags: fallbackUpperClothingTags,
+          lowerBodyTags: fallbackLowerBodyTags,
+          lowerClothingTags: fallbackLowerClothingTags,
         ),
       _OutfitPromptField.upperClothing => WorkspaceOutfitPartTags(
-          upperBodyTags: currentPartTags.upperBodyTags,
+          upperBodyTags: fallbackUpperBodyTags,
           upperClothingTags: tags,
-          lowerBodyTags: currentPartTags.lowerBodyTags,
-          lowerClothingTags: currentPartTags.lowerClothingTags,
-          weaponTags: currentPartTags.weaponTags,
+          lowerBodyTags: fallbackLowerBodyTags,
+          lowerClothingTags: fallbackLowerClothingTags,
         ),
       _OutfitPromptField.lowerBody => WorkspaceOutfitPartTags(
-          upperBodyTags: currentPartTags.upperBodyTags,
-          upperClothingTags: currentPartTags.upperClothingTags,
+          upperBodyTags: fallbackUpperBodyTags,
+          upperClothingTags: fallbackUpperClothingTags,
           lowerBodyTags: tags,
-          lowerClothingTags: currentPartTags.lowerClothingTags,
-          weaponTags: currentPartTags.weaponTags,
+          lowerClothingTags: fallbackLowerClothingTags,
         ),
       _OutfitPromptField.lowerClothing => WorkspaceOutfitPartTags(
-          upperBodyTags: currentPartTags.upperBodyTags,
-          upperClothingTags: currentPartTags.upperClothingTags,
-          lowerBodyTags: currentPartTags.lowerBodyTags,
+          upperBodyTags: fallbackUpperBodyTags,
+          upperClothingTags: fallbackUpperClothingTags,
+          lowerBodyTags: fallbackLowerBodyTags,
           lowerClothingTags: tags,
-          weaponTags: currentPartTags.weaponTags,
         ),
       _ => currentPartTags,
     };
+    final derivedFullPrompt =
+        _assetPromptFromTags(_assetOutfitPartTags(updatedPartTags));
+    final normalizedViewTags = field == _OutfitPromptField.full
+        ? updatedViewTags
+        : ViewVariantTexts(
+            frontFull: derivedFullPrompt.isEmpty
+                ? currentTags.frontFull
+                : derivedFullPrompt,
+            frontCowboy: updatedViewTags.frontCowboy,
+            frontUpper: updatedViewTags.frontUpper,
+            frontLower: updatedViewTags.frontLower,
+            backFull: updatedViewTags.backFull,
+            backCowboy: updatedViewTags.backCowboy,
+            backUpper: updatedViewTags.backUpper,
+            backLower: updatedViewTags.backLower,
+          );
     final updatedOutfit = WorkspaceOutfit(
       id: outfit.id,
       name: outfit.name,
-      tags: updatedViewTags,
+      tags: normalizedViewTags,
       partTags: updatedPartTags,
       imageRefs: outfit.imageRefs,
       negativePrompt: outfit.negativePrompt,
@@ -1345,7 +1528,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     );
     final updatedOutfits = [...character.outfits]..[outfitIndex] =
         updatedOutfit;
-    final updatedCharacter = character.copyWith(outfits: updatedOutfits);
+    final updatedCharacter =
+        _manualizedCharacter(character.copyWith(outfits: updatedOutfits));
     final characters = [
       for (final entry in catalog.characters)
         if (entry.id == character.id) updatedCharacter else entry,
@@ -1510,163 +1694,164 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     WorkspaceOutfit? existing,
   }) async {
     final nameController = TextEditingController(text: existing?.name ?? '');
-    final promptController =
-        TextEditingController(text: existing?.tags.frontFull ?? '');
-    final frontUpperController =
-        TextEditingController(text: existing?.tags.frontUpper ?? '');
-    final frontLowerController =
-        TextEditingController(text: existing?.tags.frontLower ?? '');
-    final upperBodyController = TextEditingController(
-      text: existing?.partTags.upperBodyTags.join(', ') ?? '',
-    );
-    final upperClothingController = TextEditingController(
-      text: existing?.partTags.upperClothingTags.join(', ') ?? '',
-    );
-    final lowerBodyController = TextEditingController(
-      text: existing?.partTags.lowerBodyTags.join(', ') ?? '',
-    );
-    final lowerClothingController = TextEditingController(
-      text: existing?.partTags.lowerClothingTags.join(', ') ?? '',
-    );
-    final weaponController = TextEditingController(
-      text: existing?.partTags.weaponTags.join(', ') ?? '',
-    );
-    final imageRefsController =
-        TextEditingController(text: existing?.imageRefs.join('\n') ?? '');
-    final negativeController =
-        TextEditingController(text: existing?.negativePrompt ?? '');
-    final noteController = TextEditingController(text: existing?.note ?? '');
+    final existingPartTags =
+        existing?.partTags ?? const WorkspaceOutfitPartTags();
+    var upperBodyPrompt = _assetPromptFromTags(existingPartTags.upperBodyTags);
+    var upperClothingPrompt =
+        _assetPromptFromTags(existingPartTags.upperClothingTags);
+    var lowerBodyPrompt = _assetPromptFromTags(existingPartTags.lowerBodyTags);
+    var lowerClothingPrompt =
+        _assetPromptFromTags(existingPartTags.lowerClothingTags);
+
+    if (upperClothingPrompt.trim().isEmpty) {
+      upperClothingPrompt = existing?.tags.frontUpper ?? '';
+    }
+    if (lowerClothingPrompt.trim().isEmpty) {
+      lowerClothingPrompt = existing?.tags.frontLower ?? '';
+    }
+    if (existing != null &&
+        existingPartTags.isEmpty &&
+        upperClothingPrompt.trim().isEmpty &&
+        lowerClothingPrompt.trim().isEmpty) {
+      upperClothingPrompt = existing.tags.frontFull;
+    }
 
     final saved = await showDialog<WorkspaceOutfit>(
       context: context,
-      builder: (context) => AlertDialog(
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-name-field'),
-                  controller: nameController,
-                  decoration: const InputDecoration(labelText: '服装名称'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Widget tagEditor({
+            required String key,
+            required String label,
+            required String value,
+            required ValueChanged<String> onChanged,
+          }) {
+            return KeyedSubtree(
+              key: ValueKey(key),
+              child: PromptTagEditor(
+                value: value,
+                label: label,
+                dense: true,
+                showControls: false,
+                inlineLabel: true,
+                inlineLabelWidth: 44,
+                initialGroupedLayout: false,
+                emptyText: '暂无标签',
+                onChanged: (nextValue) {
+                  setDialogState(() {
+                    onChanged(nextValue);
+                  });
+                },
+              ),
+            );
+          }
+
+          return AlertDialog(
+            title: Text(existing == null ? '新建服装' : '编辑服装'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      key: const ValueKey('asset-outfit-editor-name-field'),
+                      controller: nameController,
+                      decoration: const InputDecoration(labelText: '服装名称'),
+                    ),
+                    const SizedBox(height: 12),
+                    tagEditor(
+                      key: 'asset-outfit-editor-upper-body-tags-editor',
+                      label: '上身',
+                      value: upperBodyPrompt,
+                      onChanged: (value) => upperBodyPrompt = value,
+                    ),
+                    const SizedBox(height: 10),
+                    tagEditor(
+                      key: 'asset-outfit-editor-upper-clothing-tags-editor',
+                      label: '上装',
+                      value: upperClothingPrompt,
+                      onChanged: (value) => upperClothingPrompt = value,
+                    ),
+                    const SizedBox(height: 10),
+                    tagEditor(
+                      key: 'asset-outfit-editor-lower-body-tags-editor',
+                      label: '下身',
+                      value: lowerBodyPrompt,
+                      onChanged: (value) => lowerBodyPrompt = value,
+                    ),
+                    const SizedBox(height: 10),
+                    tagEditor(
+                      key: 'asset-outfit-editor-lower-clothing-tags-editor',
+                      label: '下装',
+                      value: lowerClothingPrompt,
+                      onChanged: (value) => lowerClothingPrompt = value,
+                    ),
+                  ],
                 ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-prompt-field'),
-                  controller: promptController,
-                  decoration: const InputDecoration(labelText: '完整 Prompt'),
-                  maxLines: 3,
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-front-upper-field'),
-                  controller: frontUpperController,
-                  decoration: const InputDecoration(labelText: '上半身'),
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-front-lower-field'),
-                  controller: frontLowerController,
-                  decoration: const InputDecoration(labelText: '下半身'),
-                ),
-                TextField(
-                  key: const ValueKey(
-                    'asset-outfit-editor-upper-body-tags-field',
-                  ),
-                  controller: upperBodyController,
-                  decoration: const InputDecoration(labelText: '上半身身体标签'),
-                ),
-                TextField(
-                  key: const ValueKey(
-                    'asset-outfit-editor-upper-clothing-tags-field',
-                  ),
-                  controller: upperClothingController,
-                  decoration: const InputDecoration(labelText: '上装标签'),
-                ),
-                TextField(
-                  key: const ValueKey(
-                    'asset-outfit-editor-lower-body-tags-field',
-                  ),
-                  controller: lowerBodyController,
-                  decoration: const InputDecoration(labelText: '下半身身体标签'),
-                ),
-                TextField(
-                  key: const ValueKey(
-                    'asset-outfit-editor-lower-clothing-tags-field',
-                  ),
-                  controller: lowerClothingController,
-                  decoration: const InputDecoration(labelText: '下装标签'),
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-weapon-tags-field'),
-                  controller: weaponController,
-                  decoration: const InputDecoration(labelText: '武器/道具标签'),
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-image-refs-field'),
-                  controller: imageRefsController,
-                  decoration: const InputDecoration(labelText: '参考图引用'),
-                  maxLines: 3,
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-negative-field'),
-                  controller: negativeController,
-                  decoration: const InputDecoration(labelText: '负面 Prompt'),
-                  maxLines: 2,
-                ),
-                TextField(
-                  key: const ValueKey('asset-outfit-editor-note-field'),
-                  controller: noteController,
-                  decoration: const InputDecoration(labelText: '备注'),
-                  maxLines: 2,
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-        actions: [
-          FilledButton(
-            key: const ValueKey('asset-outfit-editor-save'),
-            onPressed: () {
-              final name = nameController.text.trim();
-              final prompt = promptController.text.trim();
-              if (name.isEmpty || prompt.isEmpty) return;
-              Navigator.of(context).pop(
-                WorkspaceOutfit(
-                  id: existing?.id ??
-                      _manualId(
-                        'outfit',
-                        name,
-                        character.outfits.map((entry) => entry.id),
+            actions: [
+              FilledButton(
+                key: const ValueKey('asset-outfit-editor-save'),
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  final upperBodyTags =
+                      _assetPromptTagValuesFromValue(upperBodyPrompt);
+                  final upperClothingTags =
+                      _assetPromptTagValuesFromValue(upperClothingPrompt);
+                  final lowerBodyTags =
+                      _assetPromptTagValuesFromValue(lowerBodyPrompt);
+                  final lowerClothingTags =
+                      _assetPromptTagValuesFromValue(lowerClothingPrompt);
+                  final fullPrompt = _assetPromptFromTags([
+                    ...upperBodyTags,
+                    ...upperClothingTags,
+                    ...lowerBodyTags,
+                    ...lowerClothingTags,
+                  ]);
+                  if (name.isEmpty || fullPrompt.isEmpty) return;
+                  Navigator.of(context).pop(
+                    WorkspaceOutfit(
+                      id: existing?.id ??
+                          _manualId(
+                            'outfit',
+                            name,
+                            character.outfits.map((entry) => entry.id),
+                          ),
+                      name: name,
+                      tags: ViewVariantTexts(
+                        frontFull: fullPrompt,
+                        frontCowboy: existing?.tags.frontCowboy,
+                        frontUpper: _blankToNull(
+                          _assetPromptFromTags(upperClothingTags),
+                        ),
+                        frontLower: _blankToNull(
+                          _assetPromptFromTags(lowerClothingTags),
+                        ),
+                        backFull: existing?.tags.backFull,
+                        backCowboy: existing?.tags.backCowboy,
+                        backUpper: existing?.tags.backUpper,
+                        backLower: existing?.tags.backLower,
                       ),
-                  name: name,
-                  tags: ViewVariantTexts(
-                    frontFull: prompt,
-                    frontUpper: _blankToNull(frontUpperController.text),
-                    frontLower: _blankToNull(frontLowerController.text),
-                  ),
-                  partTags: WorkspaceOutfitPartTags(
-                    upperBodyTags: _linesOrCommaList(
-                      upperBodyController.text,
+                      partTags: WorkspaceOutfitPartTags(
+                        upperBodyTags: upperBodyTags,
+                        upperClothingTags: upperClothingTags,
+                        lowerBodyTags: lowerBodyTags,
+                        lowerClothingTags: lowerClothingTags,
+                      ),
+                      imageRefs: existing?.imageRefs ?? const [],
+                      negativePrompt: existing?.negativePrompt ?? '',
+                      note: existing?.note ?? '',
                     ),
-                    upperClothingTags: _linesOrCommaList(
-                      upperClothingController.text,
-                    ),
-                    lowerBodyTags: _linesOrCommaList(
-                      lowerBodyController.text,
-                    ),
-                    lowerClothingTags: _linesOrCommaList(
-                      lowerClothingController.text,
-                    ),
-                    weaponTags: _linesOrCommaList(weaponController.text),
-                  ),
-                  imageRefs: _linesOrCommaList(imageRefsController.text),
-                  negativePrompt: negativeController.text.trim(),
-                  note: noteController.text.trim(),
-                ),
-              );
-            },
-            child: const Text('保存'),
-          ),
-        ],
+                  );
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (saved == null) return;
@@ -1679,9 +1864,11 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     final outfits = [...parent.outfits];
     final outfitIndex = outfits.indexWhere((entry) => entry.id == saved.id);
     outfitIndex < 0 ? outfits.add(saved) : outfits[outfitIndex] = saved;
-    characters[parentIndex] = parent.copyWith(
-      outfits: outfits,
-      defaultOutfitId: parent.defaultOutfitId ?? saved.id,
+    characters[parentIndex] = _manualizedCharacter(
+      parent.copyWith(
+        outfits: outfits,
+        defaultOutfitId: parent.defaultOutfitId ?? saved.id,
+      ),
     );
     await _saveCharacters(
       catalog,
@@ -1694,13 +1881,14 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     WorkspaceOutfit outfit, {
     String? id,
     String? name,
+    List<String>? imageRefs,
   }) {
     return WorkspaceOutfit(
       id: id ?? outfit.id,
       name: name ?? outfit.name,
       tags: outfit.tags,
       partTags: outfit.partTags,
-      imageRefs: outfit.imageRefs,
+      imageRefs: imageRefs ?? outfit.imageRefs,
       negativePrompt: outfit.negativePrompt,
       note: outfit.note,
     );
@@ -1740,8 +1928,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       id: copyId,
       name: '${outfit.name} Copy',
     );
-    characters[parentIndex] = parent.copyWith(
-      outfits: [...parent.outfits, duplicate],
+    characters[parentIndex] = _manualizedCharacter(
+      parent.copyWith(
+        outfits: [...parent.outfits, duplicate],
+      ),
     );
     await _saveCharacters(
       catalog,
@@ -1768,15 +1958,50 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
             ? null
             : outfits.first.id
         : parent.defaultOutfitId;
-    characters[parentIndex] = parent.copyWith(
-      outfits: outfits,
-      defaultOutfitId: defaultOutfitId,
+    characters[parentIndex] = _manualizedCharacter(
+      parent.copyWith(
+        outfits: outfits,
+        defaultOutfitId: defaultOutfitId,
+      ),
     );
     await _saveCharacters(
       catalog,
       characters,
       selectedCharacterId: character.id,
     );
+  }
+
+  Future<void> _deleteOutfitPreview(
+    StudioAssetCatalogSnapshot catalog,
+    CharacterEntry character,
+    int outfitIndex,
+    WorkspaceOutfit outfit,
+  ) async {
+    final cacheKey = 'outfit-${character.id}-$outfitIndex-${outfit.id}';
+    final resolvedPath = _resolvePreviewPath(
+      _AssetKind.outfit,
+      cacheKey,
+      outfit.imageRefs,
+    );
+    final characters = [...catalog.characters];
+    final parentIndex =
+        characters.indexWhere((entry) => entry.id == character.id);
+    if (parentIndex < 0) return;
+    final parent = characters[parentIndex];
+    if (outfitIndex < 0 || outfitIndex >= parent.outfits.length) return;
+    final outfits = [...parent.outfits];
+    outfits[outfitIndex] = _copyOutfit(
+      outfits[outfitIndex],
+      imageRefs: const [],
+    );
+    characters[parentIndex] = parent.copyWith(outfits: outfits);
+    await _saveCharacters(
+      catalog,
+      characters,
+      selectedCharacterId: character.id,
+    );
+    _resolvedPreviewPathsCache.remove(cacheKey);
+    _deleteLocalPreviewFile(resolvedPath);
   }
 
   Future<void> _showArtistChainEditor(
@@ -1948,6 +2173,31 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     });
   }
 
+  Future<void> _deleteCharacterPreview(
+    StudioAssetCatalogSnapshot catalog,
+    CharacterEntry character,
+  ) async {
+    final resolvedPath = _resolvePreviewPath(
+      _AssetKind.character,
+      'character-${character.id}',
+      character.imageRefs,
+    );
+    final characters = [
+      for (final entry in catalog.characters)
+        if (entry.id == character.id)
+          entry.copyWith(imageRefs: const [])
+        else
+          entry,
+    ];
+    await _saveCharacters(
+      catalog,
+      characters,
+      selectedCharacterId: character.id,
+    );
+    _resolvedPreviewPathsCache.remove('character-${character.id}');
+    _deleteLocalPreviewFile(resolvedPath);
+  }
+
   Future<void> _deleteArtistChainPreview(
     StudioAssetCatalogSnapshot catalog,
     ArtistChain artistChain,
@@ -1957,14 +2207,6 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       'artist-${artistChain.id}',
       artistChain.imageRefs,
     );
-    if (resolvedPath != null) {
-      try {
-        final file = File(resolvedPath);
-        if (file.existsSync()) file.deleteSync();
-      } catch (_) {
-        // Best effort cleanup; catalog state still removes the stale ref.
-      }
-    }
     final updated = [
       for (final chain in catalog.artistChains)
         if (chain.id == artistChain.id)
@@ -1979,6 +2221,17 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       _localCatalog = _snapshotWith(catalog, artistChains: updated);
       _selectedAsset = null;
     });
+    _deleteLocalPreviewFile(resolvedPath);
+  }
+
+  void _deleteLocalPreviewFile(String? resolvedPath) {
+    if (resolvedPath == null) return;
+    try {
+      final file = File(resolvedPath);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {
+      // Best effort cleanup; catalog state still removes the stale ref.
+    }
   }
 
   Future<void> _saveArtistChain(
@@ -2162,6 +2415,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         legacyCodexLimit: _legacyCodexLimit,
         legacyCodexQuery: codexQuery,
         legacyCodexCategoryKey: codexCategoryKey,
+        sourceFingerprint: result.sourceFingerprint,
       );
     }
     return result.snapshot;
@@ -2188,6 +2442,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     required int legacyCodexLimit,
     required String legacyCodexQuery,
     required String legacyCodexCategoryKey,
+    required Map<String, String> sourceFingerprint,
   }) {
     if (_refreshingCatalogCache) return;
     _refreshingCatalogCache = true;
@@ -2202,6 +2457,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           legacyCodexLimit: legacyCodexLimit,
           legacyCodexQuery: legacyCodexQuery,
           legacyCodexCategoryKey: legacyCodexCategoryKey,
+          sourceFingerprint: sourceFingerprint,
         ),
       );
     });
@@ -2212,14 +2468,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     required int legacyCodexLimit,
     required String legacyCodexQuery,
     required String legacyCodexCategoryKey,
+    required Map<String, String> sourceFingerprint,
   }) async {
     try {
-      final cached = await widget.catalogService.loadSnapshotWithCache(
-        includeLegacyCodex: includeLegacyCodex,
-        legacyCodexLimit: legacyCodexLimit,
-        legacyCodexQuery: legacyCodexQuery,
-        legacyCodexCategoryKey: legacyCodexCategoryKey,
-      );
+      await Future<void>.delayed(_catalogFreshnessCheckDelay);
       if (!mounted ||
           !_isCatalogRequestCurrent(
             includeLegacyCodex: includeLegacyCodex,
@@ -2229,7 +2481,18 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           )) {
         return;
       }
-      if (!cached.isStale) return;
+      final isStale = await widget.catalogService
+          .isSourceFingerprintStale(sourceFingerprint);
+      if (!mounted ||
+          !_isCatalogRequestCurrent(
+            includeLegacyCodex: includeLegacyCodex,
+            legacyCodexLimit: legacyCodexLimit,
+            legacyCodexQuery: legacyCodexQuery,
+            legacyCodexCategoryKey: legacyCodexCategoryKey,
+          )) {
+        return;
+      }
+      if (!isStale) return;
       setState(() => _catalogRefreshStatus = '检测到外部改动，正在更新素材索引...');
       final refreshed = await widget.catalogService.refreshSnapshotCache(
         includeLegacyCodex: includeLegacyCodex,
@@ -3171,7 +3434,10 @@ class _AssetWaterfallBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
+      return const _EmptyRow(message: 'No matching assets');
+      /*
       return const _EmptyRow(message: '没有匹配的素材');
+      */
     }
 
     return LayoutBuilder(
@@ -3313,17 +3579,14 @@ class _AssetCardPreviewState extends State<_AssetCardPreview> {
     _aspectRatioLoadToken = token;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || token != _aspectRatioLoadToken) return;
-      _loadImageAspectRatio(path, token);
+      unawaited(_loadImageAspectRatio(path, token));
     });
   }
 
-  void _loadImageAspectRatio(String path, int token) {
+  Future<void> _loadImageAspectRatio(String path, int token) async {
     try {
-      final bytes = File(path).readAsBytesSync();
-      final image = img.decodeImage(bytes);
-      if (image == null) return;
-      if (image.height == 0) return;
-      final nextAspectRatio = image.width / image.height;
+      final nextAspectRatio = await compute(_readPreviewAspectRatio, path);
+      if (nextAspectRatio == null) return;
       if (!mounted ||
           token != _aspectRatioLoadToken ||
           (nextAspectRatio - _aspectRatio).abs() < 0.01) {
@@ -3338,6 +3601,7 @@ class _AssetCardPreviewState extends State<_AssetCardPreview> {
   @override
   Widget build(BuildContext context) {
     final previewPath = widget.item.previewPath;
+    final previewCount = widget.item.previewPaths.length;
     return AspectRatio(
       key: ValueKey('asset-card-preview-${widget.item.key}'),
       aspectRatio: previewPath == null ? 3 / 4 : _aspectRatio,
@@ -3347,28 +3611,101 @@ class _AssetCardPreviewState extends State<_AssetCardPreview> {
           borderRadius: StudioTokens.radiusSlot,
         ),
         clipBehavior: Clip.antiAlias,
-        child: previewPath == null
-            ? const Center(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (previewPath == null)
+              const Center(
                 child: Icon(
                   Icons.image_outlined,
                   color: StudioTokens.textMuted,
                 ),
               )
-            : Image.file(
-                File(previewPath),
-                key: ValueKey(
-                  'asset-card-preview-image-${widget.item.key}',
-                ),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: StudioTokens.textMuted,
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final devicePixelRatio = MediaQuery.devicePixelRatioOf(
+                    context,
+                  );
+                  final cacheWidth = constraints.hasBoundedWidth
+                      ? (constraints.maxWidth * devicePixelRatio)
+                          .ceil()
+                          .clamp(1, 1024)
+                          .toInt()
+                      : null;
+                  return Image.file(
+                    File(previewPath),
+                    key: ValueKey(
+                      'asset-card-preview-image-${widget.item.key}',
                     ),
+                    fit: BoxFit.cover,
+                    cacheWidth: cacheWidth,
+                    filterQuality: FilterQuality.low,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: StudioTokens.textMuted,
+                        ),
+                      );
+                    },
                   );
                 },
               ),
+            if (previewCount > 1)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: _PreviewCountBadge(
+                  key: ValueKey(
+                    'asset-card-preview-count-${widget.item.key}',
+                  ),
+                  count: previewCount,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PreviewCountBadge extends StatelessWidget {
+  final int count;
+
+  const _PreviewCountBadge({
+    super.key,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xCC000000),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x66FFFFFF)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.photo_library_outlined,
+              size: 13,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$count 张',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3396,6 +3733,14 @@ class _PromptPreviewTag extends StatelessWidget {
       ),
     );
   }
+}
+
+int _nextPreviewIndex(int currentIndex, int count, double scrollDeltaY) {
+  if (count <= 1 || scrollDeltaY == 0) return currentIndex;
+  final next = currentIndex + (scrollDeltaY > 0 ? 1 : -1);
+  if (next >= count) return 0;
+  if (next < 0) return count - 1;
+  return next;
 }
 
 class _PreviewCarouselDialog extends StatefulWidget {
@@ -3441,8 +3786,7 @@ class _PreviewCarouselDialogState extends State<_PreviewCarouselDialog> {
         onPointerSignal: (event) {
           if (event is PointerScrollEvent && count > 1) {
             setState(() {
-              _index = (_index + (event.scrollDelta.dy > 0 ? 1 : -1)) % count;
-              if (_index < 0) _index += count;
+              _index = _nextPreviewIndex(_index, count, event.scrollDelta.dy);
             });
           }
         },
@@ -3549,6 +3893,158 @@ class _PreviewCarouselDialogState extends State<_PreviewCarouselDialog> {
     if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+}
+
+class _PreviewGenerationDecision {
+  final bool keep;
+  final String previewPath;
+
+  const _PreviewGenerationDecision({
+    required this.keep,
+    required this.previewPath,
+  });
+}
+
+class _PreviewGenerationDialog extends StatefulWidget {
+  final String assetTitle;
+  final Future<String> Function() generate;
+
+  const _PreviewGenerationDialog({
+    required this.assetTitle,
+    required this.generate,
+  });
+
+  @override
+  State<_PreviewGenerationDialog> createState() =>
+      _PreviewGenerationDialogState();
+}
+
+class _PreviewGenerationDialogState extends State<_PreviewGenerationDialog> {
+  late final Future<String> _generationFuture =
+      Future<void>.delayed(Duration.zero).then((_) => widget.generate());
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _generationFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return AlertDialog(
+            key: const ValueKey('asset-preview-generation-dialog'),
+            title: const Text('预览图生成失败'),
+            content: Text('${snapshot.error}'),
+            actions: [
+              TextButton(
+                key: const ValueKey('asset-preview-generation-close'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        }
+        if (!snapshot.hasData) {
+          return AlertDialog(
+            key: const ValueKey('asset-preview-generation-dialog'),
+            title: const Text('正在生成预览'),
+            content: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.4),
+                ),
+                const SizedBox(width: 14),
+                Flexible(
+                  child: Text(
+                    widget.assetTitle,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final previewPath = snapshot.data!;
+        return AlertDialog(
+          key: const ValueKey('asset-preview-generation-dialog'),
+          title: const Text('预览生成完成'),
+          content: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('要保留为这个素材的预览吗？'),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: StudioTokens.surface1,
+                        border: StudioTokens.cardBorder,
+                      ),
+                      child: SizedBox(
+                        height: 320,
+                        child: Image.file(
+                          File(previewPath),
+                          key: const ValueKey(
+                            'asset-preview-generation-preview-image',
+                          ),
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: StudioTokens.textMuted,
+                                size: 42,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    widget.assetTitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: StudioTokens.textMuted,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('asset-preview-generation-discard'),
+              onPressed: () => Navigator.of(context).pop(
+                _PreviewGenerationDecision(
+                  keep: false,
+                  previewPath: previewPath,
+                ),
+              ),
+              child: const Text('不保留'),
+            ),
+            FilledButton(
+              key: const ValueKey('asset-preview-generation-keep'),
+              onPressed: () => Navigator.of(context).pop(
+                _PreviewGenerationDecision(
+                  keep: true,
+                  previewPath: previewPath,
+                ),
+              ),
+              child: const Text('保留为预览'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -3691,6 +4187,12 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
     return StudioPanel(
       key: const ValueKey('asset-library-detail-content'),
       color: StudioTokens.surface2,
+      padding: const EdgeInsets.fromLTRB(
+        StudioTokens.panelPadding,
+        StudioTokens.panelPadding,
+        StudioTokens.panelPadding + _assetDetailCloseButtonReserve,
+        StudioTokens.panelPadding,
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 960;
@@ -3753,10 +4255,9 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
       runSpacing: 8,
       alignment: WrapAlignment.end,
       children: [
-        StudioIconButton(
+        _DetailFavoriteButton(
           key: const ValueKey('asset-detail-favorite'),
           tooltip: widget.isFavorite() ? '取消收藏' : '收藏',
-          icon: widget.isFavorite() ? Icons.star : Icons.star_border,
           selected: widget.isFavorite(),
           onPressed: () => unawaited(widget.onToggleFavorite()),
         ),
@@ -3782,6 +4283,18 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
           onPressed: () => _copyPrompt(item),
           tone: StudioButtonTone.ghost,
         ),
+        if (item.character != null || item.artistChain != null)
+          StudioButton(
+            key: const ValueKey('asset-detail-translation-toggle'),
+            label: _showTranslatedTags ? '译文优先' : '原文优先',
+            icon: _showTranslatedTags
+                ? Icons.translate_outlined
+                : Icons.code_outlined,
+            onPressed: () => setState(() {
+              _showTranslatedTags = !_showTranslatedTags;
+            }),
+            tone: StudioButtonTone.ghost,
+          ),
         if (item.onEdit != null)
           StudioIconButton(
             key: const ValueKey('asset-detail-edit-asset'),
@@ -3837,6 +4350,7 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
         onEditOutfit: item.onEditOutfit,
         onDuplicateOutfit: item.onDuplicateOutfit,
         onDeleteOutfit: item.onDeleteOutfit,
+        onDeleteOutfitPreview: item.onDeleteOutfitPreview,
         onAssetChanged: widget.onAssetChanged,
       );
     }
@@ -3855,12 +4369,24 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
     final promptEditableSurface = item.kind == _AssetKind.character ||
         item.kind == _AssetKind.artistChain;
     final selectedOutfit = _selectedOutfitFor(item);
+    final selectedOutfitPreviewPaths = selectedOutfit == null
+        ? null
+        : _outfitPreviewPathsFor(
+            item.character!,
+            selectedOutfit.index,
+            selectedOutfit.outfit,
+            item.outfitPreviewPathsById,
+          );
     return KeyedSubtree(
       key: ValueKey('asset-detail-editor-pane-${item.key}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _AssetDetailInfoStrip(item: item),
+          _AssetDetailInfoStrip(
+            item: item,
+            previewCountOverride: selectedOutfitPreviewPaths?.length,
+            referenceCountOverride: selectedOutfit?.outfit.imageRefs.length,
+          ),
           if (item.character != null) ...[
             const SizedBox(height: 12),
             _buildCharacterActions(item),
@@ -3876,6 +4402,7 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
             if (promptEditableSurface)
               _AssetDetailPromptEditor(
                 item: item,
+                preferTranslatedLabels: _showTranslatedTags,
                 onChanged: (prompt) => unawaited(
                   _savePromptTags(item, prompt),
                 ),
@@ -3931,16 +4458,44 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
           keySuffix: keySuffix,
           labelOverride: label,
           valueOverride: value,
+          preferTranslatedLabels: _showTranslatedTags,
           initialGroupedLayout: false,
           onChanged: onChanged,
         ),
       );
     }
 
+    final selectedPartTags = selectedOutfit?.outfit.partTags;
+    final selectedHasStructuredPartTags =
+        selectedPartTags != null && !selectedPartTags.isEmpty;
+    final characterFieldKeys = <String>{
+      if (selectedHasStructuredPartTags)
+        ..._assetPromptKeysFromTags([
+          ...selectedPartTags.upperBodyTags,
+          ...selectedPartTags.lowerBodyTags,
+        ]),
+    };
+    final seenPromptKeys = <String>{};
+    final characterIdentityTags = [
+      ...character.anchorTags,
+      ...character.identityTags,
+    ];
+    final characterPrompt = characterIdentityTags.isNotEmpty
+        ? _assetPromptFromTags(
+            characterIdentityTags,
+            seenKeys: seenPromptKeys,
+            omitKeys: characterFieldKeys,
+          )
+        : _assetPromptFromValue(
+            character.traits.frontFull,
+            seenKeys: seenPromptKeys,
+            omitKeys: characterFieldKeys,
+          );
+
     addEditor(
       keySuffix: item.key,
-      label: '身份',
-      value: character.traits.frontFull,
+      label: '角色',
+      value: characterPrompt,
       showWhenEmpty: true,
       onChanged: (prompt) => unawaited(
         _saveCharacterFieldTags(
@@ -3950,52 +4505,18 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
         ),
       ),
     );
-    addEditor(
-      keySuffix: '${item.key}-upper-body',
-      label: '上身',
-      value: character.traits.frontUpper ?? '',
-      onChanged: (prompt) => unawaited(
-        _saveCharacterFieldTags(
-          item,
-          _CharacterPromptField.upperBody,
-          prompt,
-        ),
-      ),
-    );
-    addEditor(
-      keySuffix: '${item.key}-lower-body',
-      label: '下身',
-      value: character.traits.frontLower ?? '',
-      onChanged: (prompt) => unawaited(
-        _saveCharacterFieldTags(
-          item,
-          _CharacterPromptField.lowerBody,
-          prompt,
-        ),
-      ),
-    );
 
     if (selectedOutfit == null) return editors;
     final outfit = selectedOutfit.outfit;
     final partTags = outfit.partTags;
-    addEditor(
-      keySuffix: '${item.key}-outfit-${selectedOutfit.index}',
-      label: '身份',
-      value: outfit.tags.frontFull,
-      showWhenEmpty: true,
-      onChanged: (prompt) => unawaited(
-        _saveOutfitFieldTags(
-          item,
-          selectedOutfit.index,
-          _OutfitPromptField.full,
-          prompt,
-        ),
-      ),
+    final upperBodyPrompt = _assetPromptFromTags(
+      partTags.upperBodyTags,
+      seenKeys: seenPromptKeys,
     );
     addEditor(
       keySuffix: '${item.key}-outfit-${selectedOutfit.index}-upper-body',
       label: '上身',
-      value: _promptFromTags(partTags.upperBodyTags),
+      value: upperBodyPrompt,
       showWhenEmpty: true,
       onChanged: (prompt) => unawaited(
         _saveOutfitFieldTags(
@@ -4006,12 +4527,26 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
         ),
       ),
     );
+
+    var upperClothingPrompt = _assetPromptFromTags(
+      partTags.upperClothingTags,
+      seenKeys: seenPromptKeys,
+    );
+    if (upperClothingPrompt.trim().isEmpty) {
+      upperClothingPrompt = partTags.isEmpty
+          ? _assetPromptFromValue(
+              outfit.tags.frontFull,
+              seenKeys: seenPromptKeys,
+            )
+          : _assetPromptFromValue(
+              outfit.tags.frontUpper ?? '',
+              seenKeys: seenPromptKeys,
+            );
+    }
     addEditor(
       keySuffix: '${item.key}-outfit-${selectedOutfit.index}-upper-clothing',
       label: '上装',
-      value: partTags.upperClothingTags.isEmpty
-          ? outfit.tags.frontUpper ?? ''
-          : _promptFromTags(partTags.upperClothingTags),
+      value: upperClothingPrompt,
       showWhenEmpty: true,
       onChanged: (prompt) => unawaited(
         _saveOutfitFieldTags(
@@ -4022,10 +4557,15 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
         ),
       ),
     );
+
+    final lowerBodyPrompt = _assetPromptFromTags(
+      partTags.lowerBodyTags,
+      seenKeys: seenPromptKeys,
+    );
     addEditor(
       keySuffix: '${item.key}-outfit-${selectedOutfit.index}-lower-body',
       label: '下身',
-      value: _promptFromTags(partTags.lowerBodyTags),
+      value: lowerBodyPrompt,
       showWhenEmpty: true,
       onChanged: (prompt) => unawaited(
         _saveOutfitFieldTags(
@@ -4036,12 +4576,21 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
         ),
       ),
     );
+
+    var lowerClothingPrompt = _assetPromptFromTags(
+      partTags.lowerClothingTags,
+      seenKeys: seenPromptKeys,
+    );
+    if (lowerClothingPrompt.trim().isEmpty && !partTags.isEmpty) {
+      lowerClothingPrompt = _assetPromptFromValue(
+        outfit.tags.frontLower ?? '',
+        seenKeys: seenPromptKeys,
+      );
+    }
     addEditor(
       keySuffix: '${item.key}-outfit-${selectedOutfit.index}-lower-clothing',
       label: '下装',
-      value: partTags.lowerClothingTags.isEmpty
-          ? outfit.tags.frontLower ?? ''
-          : _promptFromTags(partTags.lowerClothingTags),
+      value: lowerClothingPrompt,
       showWhenEmpty: true,
       onChanged: (prompt) => unawaited(
         _saveOutfitFieldTags(
@@ -4053,13 +4602,6 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
       ),
     );
     return editors;
-  }
-
-  String _promptFromTags(List<String> tags) {
-    return tags
-        .map((tag) => tag.trim())
-        .where((tag) => tag.isNotEmpty)
-        .join(', ');
   }
 
   ({int index, WorkspaceOutfit outfit})? _selectedOutfitFor(
@@ -4301,7 +4843,66 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
   }
 }
 
-class _AssetPreviewStage extends StatelessWidget {
+class _DetailFavoriteButton extends StatelessWidget {
+  final String tooltip;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  const _DetailFavoriteButton({
+    super.key,
+    required this.tooltip,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = selected ? StudioTokens.primary : StudioTokens.surface3;
+    return SizedBox.square(
+      dimension: 36,
+      child: Tooltip(
+        message: tooltip,
+        child: IconButton(
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          padding: EdgeInsets.zero,
+          iconSize: 20,
+          style: ButtonStyle(
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return StudioTokens.textMuted;
+              }
+              return selected
+                  ? StudioTokens.onPrimary
+                  : StudioTokens.textSecondary;
+            }),
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return StudioTokens.surface2;
+              }
+              if (states.contains(WidgetState.pressed)) {
+                return Color.lerp(background, Colors.black, 0.08);
+              }
+              if (states.contains(WidgetState.hovered)) {
+                return selected
+                    ? StudioTokens.secondary
+                    : StudioTokens.surface2;
+              }
+              return background;
+            }),
+            shape: WidgetStateProperty.all(const CircleBorder()),
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: Icon(selected ? Icons.star : Icons.star_border),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssetPreviewStage extends StatefulWidget {
   final _AssetDisplayItem item;
   final VoidCallback? onGeneratePreview;
   final VoidCallback? onDeletePreview;
@@ -4313,34 +4914,101 @@ class _AssetPreviewStage extends StatelessWidget {
   });
 
   @override
+  State<_AssetPreviewStage> createState() => _AssetPreviewStageState();
+}
+
+class _AssetPreviewStageState extends State<_AssetPreviewStage> {
+  int _previewIndex = 0;
+  bool _previewHovered = false;
+
+  @override
+  void didUpdateWidget(covariant _AssetPreviewStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.key != widget.item.key) {
+      _previewIndex = 0;
+      _previewHovered = false;
+    }
+    _clampPreviewIndex(widget.item.previewPaths.length);
+  }
+
+  void _clampPreviewIndex(int count) {
+    if (count <= 0) {
+      _previewIndex = 0;
+    } else if (_previewIndex >= count) {
+      _previewIndex = count - 1;
+    }
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    final count = widget.item.previewPaths.length;
+    if (event is! PointerScrollEvent || count <= 1) return;
+    final currentIndex = _previewIndex.clamp(0, count - 1).toInt();
+    final nextIndex =
+        _nextPreviewIndex(currentIndex, count, event.scrollDelta.dy);
+    if (nextIndex == currentIndex) return;
+    setState(() {
+      _previewIndex = nextIndex;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final previewPath = item.previewPath;
+    final item = widget.item;
     final previewPaths = item.previewPaths;
+    final activeIndex = previewPaths.isEmpty
+        ? 0
+        : _previewIndex.clamp(0, previewPaths.length - 1).toInt();
+    final previewPath = previewPaths.isEmpty ? null : previewPaths[activeIndex];
     final hasPreview = previewPath != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (hasPreview)
-          GestureDetector(
-            key: ValueKey('asset-detail-preview-${item.key}'),
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (context) => _PreviewCarouselDialog(item: item),
-            ),
-            child: _AssetPreviewFrame(
-              child: Image.file(
-                File(previewPath),
-                key: ValueKey('asset-detail-preview-image-${item.key}'),
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: StudioTokens.textMuted,
-                      size: 42,
+          Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerSignal: _handlePointerSignal,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) => setState(() => _previewHovered = true),
+              onExit: (_) => setState(() => _previewHovered = false),
+              child: GestureDetector(
+                key: ValueKey('asset-detail-preview-${item.key}'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => _PreviewCarouselDialog(item: item),
+                ),
+                child: Stack(
+                  children: [
+                    _AssetPreviewFrame(
+                      hovered: _previewHovered,
+                      child: Image.file(
+                        File(previewPath),
+                        key: ValueKey('asset-detail-preview-image-${item.key}'),
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: StudioTokens.textMuted,
+                              size: 42,
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  );
-                },
+                    if (previewPaths.length > 1)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: _PreviewCountBadge(
+                          key: ValueKey(
+                              'asset-detail-preview-count-${item.key}'),
+                          count: previewPaths.length,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           )
@@ -4359,7 +5027,7 @@ class _AssetPreviewStage extends StatelessWidget {
         if (previewPaths.isNotEmpty)
           _PreviewDots(
             count: previewPaths.length,
-            activeIndex: 0,
+            activeIndex: activeIndex,
             keyBuilder: (index) => ValueKey(
               'asset-detail-preview-dot-${item.key}-$index',
             ),
@@ -4370,22 +5038,22 @@ class _AssetPreviewStage extends StatelessWidget {
           runSpacing: 8,
           alignment: WrapAlignment.end,
           children: [
-            if (onDeletePreview != null)
+            if (widget.onDeletePreview != null)
               StudioButton(
                 key: ValueKey('asset-detail-delete-preview-${item.key}'),
                 label: '删除预览',
                 icon: Icons.delete_outline,
-                onPressed: onDeletePreview,
+                onPressed: widget.onDeletePreview,
                 tone: StudioButtonTone.danger,
               ),
-            if (onGeneratePreview != null)
+            if (widget.onGeneratePreview != null)
               StudioButton(
                 key: ValueKey(
                   'asset-detail-generate-preview-${item.previewKind}-${item.assetId}',
                 ),
                 label: hasPreview ? '新增预览' : '立即生成',
                 icon: Icons.add_photo_alternate_outlined,
-                onPressed: onGeneratePreview,
+                onPressed: widget.onGeneratePreview,
                 tone: hasPreview
                     ? StudioButtonTone.ghost
                     : StudioButtonTone.primary,
@@ -4399,10 +5067,12 @@ class _AssetPreviewStage extends StatelessWidget {
 
 class _AssetPreviewFrame extends StatelessWidget {
   final Widget child;
+  final bool hovered;
 
   const _AssetPreviewFrame({
     super.key,
     required this.child,
+    this.hovered = false,
   });
 
   @override
@@ -4412,12 +5082,16 @@ class _AssetPreviewFrame extends StatelessWidget {
         final width =
             constraints.maxWidth.isFinite ? constraints.maxWidth : 520.0;
         final height = (width * 1.08).clamp(360.0, 560.0).toDouble();
-        return Container(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
           height: height,
           decoration: BoxDecoration(
-            color: StudioTokens.surface1,
+            color: hovered ? StudioTokens.surface2 : StudioTokens.surface1,
             borderRadius: StudioTokens.radiusSlot,
-            border: StudioTokens.cardBorder,
+            border: hovered
+                ? Border.all(color: StudioTokens.primary, width: 1.5)
+                : StudioTokens.cardBorder,
           ),
           clipBehavior: Clip.antiAlias,
           child: child,
@@ -4492,7 +5166,7 @@ class _AssetReadOnlyPromptBlock extends StatelessWidget {
               ),
               StudioButton(
                 key: const ValueKey('asset-detail-translation-toggle'),
-                label: translated ? '原文' : '翻译',
+                label: translated ? '译文优先' : '原文优先',
                 onPressed: onToggleTranslated,
                 tone: StudioButtonTone.ghost,
               ),
@@ -4511,24 +5185,29 @@ class _AssetReadOnlyPromptBlock extends StatelessWidget {
 
 class _AssetDetailInfoStrip extends StatelessWidget {
   final _AssetDisplayItem item;
+  final int? previewCountOverride;
+  final int? referenceCountOverride;
 
-  const _AssetDetailInfoStrip({required this.item});
+  const _AssetDetailInfoStrip({
+    required this.item,
+    this.previewCountOverride,
+    this.referenceCountOverride,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final previewCount = item.character == null
-        ? item.previewPaths.length
-        : item.outfitPreviewPathsById.values.fold<int>(
-            item.previewPaths.length,
-            (total, paths) => total + paths.length,
-          );
-    final referenceCount = item.referencePaths.length +
+    final previewCount = previewCountOverride ??
         (item.character == null
-            ? 0
-            : item.character!.outfits.fold<int>(
-                0,
-                (total, outfit) => total + outfit.imageRefs.length,
-              ));
+            ? item.previewPaths.length
+            : item.previewPaths.length);
+    final referenceCount = referenceCountOverride ??
+        (item.referencePaths.length +
+            (item.character == null
+                ? 0
+                : item.character!.outfits.fold<int>(
+                    0,
+                    (total, outfit) => total + outfit.imageRefs.length,
+                  )));
     final entries = <(String, String)>[
       ('ID', item.assetId),
       if (item.character != null) ('服装', '${item.character!.outfits.length} 套'),
@@ -4682,7 +5361,7 @@ class _DetailPromptTagPreview extends StatelessWidget {
   }
 }
 
-class _DetailActionChip extends StatelessWidget {
+class _DetailActionChip extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
 
@@ -4693,22 +5372,42 @@ class _DetailActionChip extends StatelessWidget {
   });
 
   @override
+  State<_DetailActionChip> createState() => _DetailActionChipState();
+}
+
+class _DetailActionChipState extends State<_DetailActionChip> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 88),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: StudioTokens.surface3,
-          borderRadius: BorderRadius.circular(8),
-          border: StudioTokens.cardBorder,
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelLarge,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minWidth: 88),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: _hovered ? StudioTokens.surface4 : StudioTokens.surface3,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hovered ? StudioTokens.primary : StudioTokens.cardOutline,
+            ),
+          ),
+          child: Text(
+            widget.label,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: _hovered
+                      ? StudioTokens.textPrimary
+                      : StudioTokens.textSecondary,
+                ),
+          ),
         ),
       ),
     );
@@ -4722,6 +5421,7 @@ class _AssetDetailPromptEditor extends StatelessWidget {
   final String? labelOverride;
   final String? valueOverride;
   final bool initialGroupedLayout;
+  final bool preferTranslatedLabels;
 
   const _AssetDetailPromptEditor({
     required this.item,
@@ -4730,6 +5430,7 @@ class _AssetDetailPromptEditor extends StatelessWidget {
     this.labelOverride,
     this.valueOverride,
     this.initialGroupedLayout = false,
+    this.preferTranslatedLabels = false,
   });
 
   @override
@@ -4745,6 +5446,7 @@ class _AssetDetailPromptEditor extends StatelessWidget {
         inlineLabel: true,
         inlineLabelWidth: 72,
         initialGroupedLayout: initialGroupedLayout,
+        preferTranslatedLabels: preferTranslatedLabels,
         emptyText: '暂无标签',
         onChanged: onChanged,
       ),
@@ -4752,7 +5454,7 @@ class _AssetDetailPromptEditor extends StatelessWidget {
   }
 }
 
-class _OutfitIconTile extends StatelessWidget {
+class _OutfitIconTile extends StatefulWidget {
   final WorkspaceOutfit outfit;
   final String? previewPath;
   final bool selected;
@@ -4764,38 +5466,56 @@ class _OutfitIconTile extends StatelessWidget {
   });
 
   @override
+  State<_OutfitIconTile> createState() => _OutfitIconTileState();
+}
+
+class _OutfitIconTileState extends State<_OutfitIconTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: outfit.name,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: StudioTokens.surface3,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
-            width: selected ? 2 : 1,
+      message: widget.outfit.name,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: _hovered ? StudioTokens.surface4 : StudioTokens.surface3,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _hovered || widget.selected
+                  ? StudioTokens.primary
+                  : StudioTokens.cardOutline,
+              width: _hovered || widget.selected ? 2 : 1,
+            ),
           ),
+          clipBehavior: Clip.antiAlias,
+          child: widget.previewPath == null
+              ? Icon(
+                  Icons.checkroom_outlined,
+                  color: _hovered || widget.selected
+                      ? StudioTokens.primary
+                      : StudioTokens.textMuted,
+                )
+              : Image.file(
+                  File(widget.previewPath!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Icon(
+                      Icons.checkroom_outlined,
+                      color: _hovered || widget.selected
+                          ? StudioTokens.primary
+                          : StudioTokens.textMuted,
+                    );
+                  },
+                ),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: previewPath == null
-            ? Icon(
-                Icons.checkroom_outlined,
-                color: selected ? StudioTokens.primary : StudioTokens.textMuted,
-              )
-            : Image.file(
-                File(previewPath!),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Icon(
-                    Icons.checkroom_outlined,
-                    color: selected
-                        ? StudioTokens.primary
-                        : StudioTokens.textMuted,
-                  );
-                },
-              ),
       ),
     );
   }
@@ -4826,6 +5546,17 @@ String _outfitSlotKey(String characterId, int index, WorkspaceOutfit outfit) {
   return '$characterId:$index:${outfit.id}';
 }
 
+List<String> _outfitPreviewPathsFor(
+  CharacterEntry character,
+  int index,
+  WorkspaceOutfit outfit,
+  Map<String, List<String>> outfitPreviewPathsById,
+) {
+  return outfitPreviewPathsById[_outfitSlotKey(character.id, index, outfit)] ??
+      outfitPreviewPathsById[outfit.id] ??
+      const [];
+}
+
 String _outfitWidgetKey(
   CharacterEntry character,
   int index,
@@ -4836,7 +5567,7 @@ String _outfitWidgetKey(
   return duplicateIdCount > 1 ? '${outfit.id}-$index' : outfit.id;
 }
 
-class _CharacterOutfitDetailSection extends StatelessWidget {
+class _CharacterOutfitDetailSection extends StatefulWidget {
   final CharacterEntry character;
   final Map<String, List<String>> outfitPreviewPathsById;
   final int? selectedOutfitIndex;
@@ -4845,6 +5576,7 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
   final Future<void> Function(WorkspaceOutfit)? onEditOutfit;
   final Future<void> Function(WorkspaceOutfit)? onDuplicateOutfit;
   final Future<void> Function(WorkspaceOutfit)? onDeleteOutfit;
+  final Future<void> Function(int, WorkspaceOutfit)? onDeleteOutfitPreview;
   final VoidCallback? onAssetChanged;
 
   const _CharacterOutfitDetailSection({
@@ -4856,29 +5588,111 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
     this.onEditOutfit,
     this.onDuplicateOutfit,
     this.onDeleteOutfit,
+    this.onDeleteOutfitPreview,
     this.onAssetChanged,
   });
 
+  @override
+  State<_CharacterOutfitDetailSection> createState() =>
+      _CharacterOutfitDetailSectionState();
+}
+
+class _CharacterOutfitDetailSectionState
+    extends State<_CharacterOutfitDetailSection> {
+  int _previewIndex = 0;
+  bool _outfitPreviewHovered = false;
+
+  @override
+  void didUpdateWidget(covariant _CharacterOutfitDetailSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_selectedOutfitSlotKey(oldWidget) != _selectedOutfitSlotKey(widget)) {
+      _previewIndex = 0;
+      _outfitPreviewHovered = false;
+    }
+    _clampPreviewIndex(_selectedPreviewPaths(widget).length);
+  }
+
+  String _selectedOutfitSlotKey(_CharacterOutfitDetailSection section) {
+    if (section.character.outfits.isEmpty) {
+      return '${section.character.id}:none';
+    }
+    final selectedRecord = _outfitAtSelection(
+      section.character,
+      section.selectedOutfitIndex,
+    );
+    return _outfitSlotKey(
+      section.character.id,
+      selectedRecord.index,
+      selectedRecord.outfit,
+    );
+  }
+
+  List<String> _selectedPreviewPaths(_CharacterOutfitDetailSection section) {
+    if (section.character.outfits.isEmpty) return const [];
+    final selectedRecord = _outfitAtSelection(
+      section.character,
+      section.selectedOutfitIndex,
+    );
+    return _outfitPreviewPathsFor(
+      section.character,
+      selectedRecord.index,
+      selectedRecord.outfit,
+      section.outfitPreviewPathsById,
+    );
+  }
+
+  void _clampPreviewIndex(int count) {
+    if (count <= 0) {
+      _previewIndex = 0;
+    } else if (_previewIndex >= count) {
+      _previewIndex = count - 1;
+    }
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    final count = _selectedPreviewPaths(widget).length;
+    if (event is! PointerScrollEvent || count <= 1) return;
+    final currentIndex = _previewIndex.clamp(0, count - 1).toInt();
+    final nextIndex =
+        _nextPreviewIndex(currentIndex, count, event.scrollDelta.dy);
+    if (nextIndex == currentIndex) return;
+    setState(() {
+      _previewIndex = nextIndex;
+    });
+  }
+
   Future<void> _runOutfitAction(Future<void> Function() action) async {
     await action();
-    onAssetChanged?.call();
+    widget.onAssetChanged?.call();
   }
 
   @override
   Widget build(BuildContext context) {
+    final character = widget.character;
+    final outfitPreviewPathsById = widget.outfitPreviewPathsById;
+    final selectedOutfitIndex = widget.selectedOutfitIndex;
+    final onSelectOutfit = widget.onSelectOutfit;
+    final onGeneratePreview = widget.onGeneratePreview;
+    final onEditOutfit = widget.onEditOutfit;
+    final onDuplicateOutfit = widget.onDuplicateOutfit;
+    final onDeleteOutfit = widget.onDeleteOutfit;
+    final onDeleteOutfitPreview = widget.onDeleteOutfitPreview;
     final selectedRecord = _outfitAtSelection(character, selectedOutfitIndex);
     final selectedIndex = selectedRecord.index;
     final selected = selectedRecord.outfit;
-    final previewPaths = outfitPreviewPathsById[
-            _outfitSlotKey(character.id, selectedIndex, selected)] ??
-        outfitPreviewPathsById[selected.id] ??
-        const [];
-    final previewPath = previewPaths.isEmpty ? null : previewPaths.first;
+    final previewPaths = _outfitPreviewPathsFor(
+      character,
+      selectedIndex,
+      selected,
+      outfitPreviewPathsById,
+    );
+    final activeIndex = previewPaths.isEmpty
+        ? 0
+        : _previewIndex.clamp(0, previewPaths.length - 1).toInt();
+    final previewPath = previewPaths.isEmpty ? null : previewPaths[activeIndex];
     String? firstOutfitPreviewPath(int index, WorkspaceOutfit outfit) {
-      final paths =
-          outfitPreviewPathsById[_outfitSlotKey(character.id, index, outfit)] ??
-              outfitPreviewPathsById[outfit.id] ??
-              const [];
+      final paths = _outfitPreviewPathsFor(
+          character, index, outfit, outfitPreviewPathsById);
       return paths.isEmpty ? null : paths.first;
     }
 
@@ -4926,7 +5740,7 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
                       tooltip: '编辑服装',
                       icon: Icons.edit_outlined,
                       onPressed: () => unawaited(
-                        _runOutfitAction(() => onEditOutfit!(selected)),
+                        _runOutfitAction(() => onEditOutfit(selected)),
                       ),
                     ),
                   if (onDuplicateOutfit != null)
@@ -4937,7 +5751,7 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
                       tooltip: '复制服装',
                       icon: Icons.copy_outlined,
                       onPressed: () => unawaited(
-                        _runOutfitAction(() => onDuplicateOutfit!(selected)),
+                        _runOutfitAction(() => onDuplicateOutfit(selected)),
                       ),
                     ),
                   if (onDeleteOutfit != null)
@@ -4948,7 +5762,7 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
                       tooltip: '删除服装',
                       icon: Icons.delete_outline,
                       onPressed: () => unawaited(
-                        _runOutfitAction(() => onDeleteOutfit!(selected)),
+                        _runOutfitAction(() => onDeleteOutfit(selected)),
                       ),
                     ),
                 ],
@@ -4964,33 +5778,43 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         if (previewPath != null)
-          GestureDetector(
-            key: ValueKey(
-              'asset-character-outfit-preview-${character.id}-${selected.id}',
-            ),
-            onTap: () => showDialog<void>(
-              context: context,
-              builder: (context) => _PreviewCarouselDialog.fromPaths(
-                title: '${character.name} / ${selected.name}',
-                keySuffix: 'outfit-${character.id}-${selected.id}',
-                previewPaths: previewPaths,
-              ),
-            ),
-            child: _AssetPreviewFrame(
-              child: Image.file(
-                File(previewPath),
+          Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerSignal: _handlePointerSignal,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) => setState(() => _outfitPreviewHovered = true),
+              onExit: (_) => setState(() => _outfitPreviewHovered = false),
+              child: GestureDetector(
                 key: ValueKey(
-                  'asset-character-outfit-preview-image-${character.id}-${selected.id}',
+                  'asset-character-outfit-preview-${character.id}-${selected.id}',
                 ),
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return const Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: StudioTokens.textMuted,
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => _PreviewCarouselDialog.fromPaths(
+                    title: '${character.name} / ${selected.name}',
+                    keySuffix: 'outfit-${character.id}-${selected.id}',
+                    previewPaths: previewPaths,
+                  ),
+                ),
+                child: _AssetPreviewFrame(
+                  hovered: _outfitPreviewHovered,
+                  child: Image.file(
+                    File(previewPath),
+                    key: ValueKey(
+                      'asset-character-outfit-preview-image-${character.id}-${selected.id}',
                     ),
-                  );
-                },
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: StudioTokens.textMuted,
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           )
@@ -5011,7 +5835,7 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
         if (previewPaths.isNotEmpty)
           _PreviewDots(
             count: previewPaths.length,
-            activeIndex: 0,
+            activeIndex: activeIndex,
             keyBuilder: (index) => ValueKey(
               'asset-character-preview-dot-${character.id}-$index',
             ),
@@ -5019,16 +5843,36 @@ class _CharacterOutfitDetailSection extends StatelessWidget {
         const SizedBox(height: 10),
         Align(
           alignment: Alignment.centerLeft,
-          child: StudioButton(
-            key: ValueKey(
-              'asset-detail-generate-preview-character-${character.id}',
-            ),
-            label: previewPaths.isEmpty ? '立即生成' : '新增预览',
-            icon: Icons.add_photo_alternate_outlined,
-            onPressed: onGeneratePreview,
-            tone: previewPaths.isEmpty
-                ? StudioButtonTone.primary
-                : StudioButtonTone.ghost,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (previewPaths.isNotEmpty && onDeleteOutfitPreview != null)
+                StudioButton(
+                  key: ValueKey(
+                    'asset-character-outfit-delete-preview-${character.id}-${selected.id}',
+                  ),
+                  label: '删除预览',
+                  icon: Icons.delete_outline,
+                  onPressed: () => unawaited(
+                    _runOutfitAction(
+                      () => onDeleteOutfitPreview(selectedIndex, selected),
+                    ),
+                  ),
+                  tone: StudioButtonTone.danger,
+                ),
+              StudioButton(
+                key: ValueKey(
+                  'asset-detail-generate-preview-character-${character.id}',
+                ),
+                label: previewPaths.isEmpty ? '立即生成' : '新增预览',
+                icon: Icons.add_photo_alternate_outlined,
+                onPressed: onGeneratePreview,
+                tone: previewPaths.isEmpty
+                    ? StudioButtonTone.primary
+                    : StudioButtonTone.ghost,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 10),
@@ -5080,6 +5924,7 @@ class _AssetDisplayItem {
   final Future<void> Function(WorkspaceOutfit)? onEditOutfit;
   final Future<void> Function(WorkspaceOutfit)? onDuplicateOutfit;
   final Future<void> Function(WorkspaceOutfit)? onDeleteOutfit;
+  final Future<void> Function(int, WorkspaceOutfit)? onDeleteOutfitPreview;
   final Future<void> Function()? onDeletePreview;
   final Future<List<WorkspaceVibeReference>> Function()? onLoadVibes;
   final Future<List<WorkspaceVibeReference>> Function()? onImportVibes;
@@ -5120,6 +5965,7 @@ class _AssetDisplayItem {
     this.onEditOutfit,
     this.onDuplicateOutfit,
     this.onDeleteOutfit,
+    this.onDeleteOutfitPreview,
     this.onDeletePreview,
     this.onLoadVibes,
     this.onImportVibes,

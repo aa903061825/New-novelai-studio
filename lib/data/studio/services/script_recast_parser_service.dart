@@ -56,7 +56,11 @@ class ScriptRecastParserService {
         .where((part) => part.trim().isNotEmpty)
         .toList(growable: false);
     final label = parts.isEmpty ? 'script' : parts.last;
-    return stableIdFromText(prefix: 'script', text: path, label: label);
+    return stableIdFromText(
+      prefix: 'script',
+      text: normalizedPath,
+      label: label,
+    );
   }
 
   Future<Script> parseDirectory(

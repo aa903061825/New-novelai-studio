@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -129,6 +130,157 @@ void main() {
       ).existsSync(),
       isTrue,
     );
+  });
+
+  test('load skips and quarantines invalid deterministic plan files', () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final plan = ProductionPlan(
+      id: 'plan-valid',
+      name: 'Valid Queue',
+      tasks: [
+        ProductionTask.manualSingleFrame(
+          id: 'task-1',
+          planId: 'plan-valid',
+          title: 'Manual',
+          payload: const {'input': 'manual'},
+          createdAt: DateTime.utc(2026, 5, 25),
+          updatedAt: DateTime.utc(2026, 5, 25),
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+
+    await service.savePlans([plan]);
+
+    final emptyFile = File(
+      _workspacePath(
+        tempDir,
+        '${WorkspacePaths.deterministicPlansDir}/script-recast-empty.json',
+      ),
+    );
+    final malformedFile = File(
+      _workspacePath(
+        tempDir,
+        '${WorkspacePaths.deterministicPlansDir}/script-recast-malformed.json',
+      ),
+    );
+    await emptyFile.writeAsString('');
+    await malformedFile.writeAsString('{');
+
+    final loaded = await service.loadPlans();
+
+    expect(loaded, hasLength(1));
+    expect(loaded.single.id, 'plan-valid');
+    expect(await emptyFile.exists(), isFalse);
+    expect(await malformedFile.exists(), isFalse);
+
+    final quarantined = await Directory(
+      _workspacePath(
+        tempDir,
+        '${WorkspacePaths.deterministicPlansDir}/_invalid',
+      ),
+    )
+        .list()
+        .where((entry) => entry is File && entry.path.endsWith('.json'))
+        .toList();
+
+    expect(quarantined, hasLength(2));
+    expect(
+      quarantined
+          .any((entry) => entry.path.endsWith('script-recast-empty.json')),
+      isTrue,
+    );
+    expect(
+      quarantined
+          .any((entry) => entry.path.endsWith('script-recast-malformed.json')),
+      isTrue,
+    );
+  });
+
+  test('load compacts legacy deterministic plans with repeated references',
+      () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final sharedVibe = 'encoded-shared-vibe-${List.filled(4096, 'x').join()}';
+    final task1 = ProductionTask.scriptRecastFrame(
+      id: 'task-1',
+      planId: 'plan-refs',
+      title: 'Frame 1',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 1,
+      sourceFileName: 'nai_1.json',
+      payload: {
+        'input': 'first prompt',
+        'parameters': {
+          'seed': 1,
+          'reference_image_multiple': [sharedVibe],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final task2 = ProductionTask.scriptRecastFrame(
+      id: 'task-2',
+      planId: 'plan-refs',
+      title: 'Frame 2',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 2,
+      sourceFileName: 'nai_2.json',
+      payload: {
+        'input': 'second prompt',
+        'parameters': {
+          'seed': 2,
+          'reference_image_multiple': [sharedVibe],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final legacyPlan = ProductionPlan(
+      id: 'plan-refs',
+      name: 'Reference Plan',
+      tasks: [task1, task2],
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final file = File(
+      _workspacePath(
+        tempDir,
+        WorkspacePaths.productionPlanFile('plan-refs'),
+      ),
+    );
+    await file.parent.create(recursive: true);
+    final legacyJson = jsonEncode(legacyPlan.toJson());
+    await file.writeAsString(legacyJson);
+
+    final loaded = await service.loadPlans();
+    final rewrittenJson = await file.readAsString();
+    final loadedPlan = loaded.single;
+    final requestParameters =
+        loadedPlan.requestPayloadForTask(loadedPlan.tasks.first)['parameters']
+            as Map<String, dynamic>;
+
+    expect(loadedPlan.sharedPayloadParameters['reference_image_multiple'], [
+      sharedVibe,
+    ]);
+    expect(requestParameters['reference_image_multiple'], [
+      sharedVibe,
+    ]);
+    expect(
+      RegExp(RegExp.escape(sharedVibe)).allMatches(legacyJson).length,
+      2,
+    );
+    expect(
+      RegExp(RegExp.escape(sharedVibe)).allMatches(rewrittenJson).length,
+      1,
+    );
+    expect(rewrittenJson.length, lessThan(legacyJson.length));
   });
 
   test('saves and loads last-used production execution settings', () async {

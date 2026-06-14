@@ -35,6 +35,14 @@ function existsRef(ref) {
   return fs.existsSync(target);
 }
 
+function mergeRefs(existingRefs, nextRefs) {
+  const merged = [];
+  for (const ref of [...(existingRefs || []), ...nextRefs]) {
+    if (!merged.includes(ref)) merged.push(ref);
+  }
+  return merged;
+}
+
 const characters = readJson(charactersPath);
 const artistChains = readJson(artistChainsPath);
 const plan = readJson(planPath);
@@ -61,12 +69,12 @@ const charRefById = new Map(plan.characterRefs.map((entry) => [entry.sourceId, e
 for (const character of characters) {
   const characterRef = charRefById.get(character.id);
   if (characterRef) {
-    character.imageRefs = [characterRef];
+    character.imageRefs = mergeRefs(character.imageRefs, [characterRef]);
   }
   for (const outfit of character.outfits || []) {
     const outfitRef = charRefById.get(outfit.id);
     if (outfitRef) {
-      outfit.imageRefs = [outfitRef];
+      outfit.imageRefs = mergeRefs(outfit.imageRefs, [outfitRef]);
     }
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:nai_casrand/data/studio/studio_data_service.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
 import 'package:nai_casrand/data/workspace/workspace_paths.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
@@ -624,22 +625,35 @@ class StudioAssetCatalogCacheLoadResult {
   final StudioAssetCatalogSnapshot snapshot;
   final bool fromCache;
   final bool isStale;
+  final Map<String, String> sourceFingerprint;
 
   const StudioAssetCatalogCacheLoadResult({
     required this.snapshot,
     required this.fromCache,
     required this.isStale,
+    this.sourceFingerprint = const {},
   });
 }
 
 class StudioAssetCatalogService {
-  static const _cacheSchemaVersion = 3;
+  static const _cacheSchemaVersion = 5;
   static const _singleEntryCacheSchemaVersion = 2;
+  static final _genericLegacyOutfitNamePattern = RegExp(
+    r'^(变体\s*\d+|服装|outfit|variant\s*\d+|imported outfit|preset\s*\d+)$',
+    caseSensitive: false,
+  );
+  static final _catalogClothingTagPattern = RegExp(
+    r'(^|_)(apron|armor|belt|bikini|blouse|bodystocking|bodysuit|boot|boots|cape|capelet|china_dress|chinese_clothes|clothes|clothing|coat|detached_sleeves|dress|glove|gloves|hood|hoodie|jacket|japanese_clothes|kimono|kneehighs|leggings|pants|pantyhose|pelvic_curtain|robe|sandal|sandals|shirt|shoe|shoes|shorts|skirt|sock|socks|stocking|stockings|sweater|swimsuit|thigh_boots|thighhighs|thigh_highs|uniform|vest)($|_)',
+  );
+  static final _catalogBodyTagPattern = RegExp(
+    r'(^|_)(ahoge|animal|animal_ear|animal_ears|bangs|bare_shoulders|bell|blonde_hair|blue_eyes|blue_hair|bow|braid|brown_eyes|brown_hair|cat_ears|cat_girl|cat_tail|cherry_blossoms|choker|collar|collarbone|dog_ears|dog_girl|ear|ears|eye|eyes|fang|fluffy_tail|fox_ears|girl|green_eyes|green_hair|hair|hair_between_eyes|hair_ornament|hair_ribbon|head|headpiece|horn|horns|infection_monitor|leg|legs|loli|long_hair|necklace|ornament|pink_eyes|pink_hair|pointy_ears|purple_eyes|red_eyes|red_hair|ribbon|sheep_ears|sheep_horns|short_hair|skin|solo|tail|thigh|thighs|very_long_hair|white_hair|yellow_eyes)($|_)',
+  );
 
   final WorkspaceService workspaceService;
   final Future<List<InspirationEntry>> Function()? legacyCodexLoader;
   List<InspirationEntry>? _legacyCodexCache;
   bool? _legacyCodexAvailabilityCache;
+  final Map<String, List<String>> _legacyCodexCategoryKeyCache = {};
 
   StudioAssetCatalogService({
     required this.workspaceService,
@@ -681,6 +695,7 @@ class StudioAssetCatalogService {
         snapshot: cached.snapshot,
         fromCache: true,
         isStale: isStale,
+        sourceFingerprint: cached.sourceFingerprint,
       );
     }
 
@@ -694,6 +709,12 @@ class StudioAssetCatalogService {
       fromCache: false,
       isStale: false,
     );
+  }
+
+  Future<bool> isSourceFingerprintStale(
+    Map<String, String> sourceFingerprint,
+  ) async {
+    return !_sameFingerprint(sourceFingerprint, await _sourceFingerprint());
   }
 
   Future<StudioAssetCatalogSnapshot> refreshSnapshotCache({
@@ -1270,18 +1291,33 @@ class StudioAssetCatalogService {
   }
 
   CharacterEntry _sanitizeCharacterForCatalog(CharacterEntry character) {
-    if (character.outfits.isEmpty) return character;
-
     final legacyArtistWorkbook =
         character.source.type == 'legacy_artist_workbook';
+    final normalizedCharacter = legacyArtistWorkbook
+        ? _normalizeLegacyCharacterIdentityFields(character)
+        : character;
+    var changed = !identical(normalizedCharacter, character);
+    if (normalizedCharacter.outfits.isEmpty) return normalizedCharacter;
+
+    final preparedOutfits = legacyArtistWorkbook
+        ? _mergeIdentityOnlyGenericLegacyOutfitsIntoDefault(normalizedCharacter)
+        : (outfits: normalizedCharacter.outfits, changed: false);
     final outfits = <WorkspaceOutfit>[];
     final byName = <String, int>{};
-    var changed = false;
+    final bySignature = <String, int>{};
+    changed = changed || preparedOutfits.changed;
 
-    for (final outfit in character.outfits) {
+    for (final rawOutfit in preparedOutfits.outfits) {
+      var outfit = rawOutfit;
       if (legacyArtistWorkbook && _isLowConfidenceLegacyOutfit(outfit)) {
         changed = true;
         continue;
+      }
+      if (legacyArtistWorkbook) {
+        final normalizedIdentityOutfit =
+            _normalizeLegacyOutfitIdentityFields(outfit);
+        if (!identical(normalizedIdentityOutfit, outfit)) changed = true;
+        outfit = normalizedIdentityOutfit;
       }
 
       final normalizedName = _normalizedOutfitName(outfit.name);
@@ -1296,39 +1332,369 @@ class StudioAssetCatalogService {
         continue;
       }
 
+      final normalizedSignature =
+          legacyArtistWorkbook ? _normalizedOutfitSignature(outfit) : '';
+      final existingSignatureIndex =
+          normalizedSignature.isEmpty ? null : bySignature[normalizedSignature];
+      if (existingSignatureIndex != null) {
+        final existing = outfits[existingSignatureIndex];
+        final preferred = _prefersLegacyOutfit(
+          outfit,
+          existing,
+          normalizedCharacter.defaultOutfitId,
+        )
+            ? _mergeOutfitImageRefs(outfit, existing.imageRefs)
+            : _mergeOutfitImageRefs(existing, outfit.imageRefs);
+        outfits[existingSignatureIndex] = preferred;
+        if (legacyArtistWorkbook) {
+          byName[_normalizedOutfitName(preferred.name)] =
+              existingSignatureIndex;
+          bySignature[normalizedSignature] = existingSignatureIndex;
+        }
+        changed = true;
+        continue;
+      }
+
       final normalizedOutfit = outfit.imageRefs.isEmpty &&
-              character.imageRefs.isNotEmpty &&
+              normalizedCharacter.imageRefs.isNotEmpty &&
               legacyArtistWorkbook
-          ? _mergeOutfitImageRefs(outfit, character.imageRefs)
+          ? _mergeOutfitImageRefs(outfit, normalizedCharacter.imageRefs)
           : outfit;
       if (!identical(normalizedOutfit, outfit)) changed = true;
       outfits.add(normalizedOutfit);
       if (legacyArtistWorkbook) {
-        byName[normalizedName] = outfits.length - 1;
+        final index = outfits.length - 1;
+        byName[normalizedName] = index;
+        if (normalizedSignature.isNotEmpty) {
+          bySignature[normalizedSignature] = index;
+        }
       }
     }
 
     final defaultOutfitId = _catalogDefaultOutfitId(
-      character.defaultOutfitId,
+      normalizedCharacter.defaultOutfitId,
       outfits,
     );
-    if (defaultOutfitId != character.defaultOutfitId) changed = true;
+    if (defaultOutfitId != normalizedCharacter.defaultOutfitId) changed = true;
 
-    if (!changed) return character;
-    return character.copyWith(
+    if (!changed) return normalizedCharacter;
+    return normalizedCharacter.copyWith(
       outfits: List.unmodifiable(outfits),
       defaultOutfitId: defaultOutfitId,
+    );
+  }
+
+  CharacterEntry _normalizeLegacyCharacterIdentityFields(
+    CharacterEntry character,
+  ) {
+    final traits = character.traits;
+    final normalizedTraits = ViewVariantTexts(
+      frontFull: _normalizeLegacyCharacterIdentityPrompt(traits.frontFull),
+      frontCowboy:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.frontCowboy),
+      frontUpper:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.frontUpper),
+      frontLower:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.frontLower),
+      backFull:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.backFull),
+      backCowboy:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.backCowboy),
+      backUpper:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.backUpper),
+      backLower:
+          _normalizeLegacyCharacterOptionalIdentityPrompt(traits.backLower),
+    );
+    final normalizedAnchorTags =
+        _normalizeLegacyCharacterIdentityTagList(character.anchorTags);
+    final normalizedIdentityTags =
+        _normalizeLegacyCharacterIdentityTagList(character.identityTags);
+
+    if (normalizedTraits.frontFull == traits.frontFull &&
+        normalizedTraits.frontCowboy == traits.frontCowboy &&
+        normalizedTraits.frontUpper == traits.frontUpper &&
+        normalizedTraits.frontLower == traits.frontLower &&
+        normalizedTraits.backFull == traits.backFull &&
+        normalizedTraits.backCowboy == traits.backCowboy &&
+        normalizedTraits.backUpper == traits.backUpper &&
+        normalizedTraits.backLower == traits.backLower &&
+        _sameStringList(normalizedAnchorTags, character.anchorTags) &&
+        _sameStringList(normalizedIdentityTags, character.identityTags)) {
+      return character;
+    }
+
+    return character.copyWith(
+      traits: normalizedTraits,
+      anchorTags: normalizedAnchorTags,
+      identityTags: normalizedIdentityTags,
+    );
+  }
+
+  WorkspaceOutfit _normalizeLegacyOutfitIdentityFields(
+    WorkspaceOutfit outfit,
+  ) {
+    final frontFull =
+        _normalizeLegacyOutfitIdentityPrompt(outfit.tags.frontFull);
+    if (frontFull == outfit.tags.frontFull) return outfit;
+    return WorkspaceOutfit(
+      id: outfit.id,
+      name: outfit.name,
+      tags: ViewVariantTexts(
+        frontFull: frontFull,
+        frontCowboy: outfit.tags.frontCowboy,
+        frontUpper: outfit.tags.frontUpper,
+        frontLower: outfit.tags.frontLower,
+        backFull: outfit.tags.backFull,
+        backCowboy: outfit.tags.backCowboy,
+        backUpper: outfit.tags.backUpper,
+        backLower: outfit.tags.backLower,
+      ),
+      partTags: outfit.partTags,
+      imageRefs: outfit.imageRefs,
+      negativePrompt: outfit.negativePrompt,
+      note: outfit.note,
+    );
+  }
+
+  String _normalizeLegacyOutfitIdentityPrompt(String prompt) {
+    final tags = PromptTagProcessor.splitWorkshopTags(prompt)
+        .map((tag) => PromptTagProcessor.cleanTagDisplay(
+              tag,
+              removeWeights: false,
+            ).trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList(growable: false);
+    if (tags.isEmpty) return prompt;
+
+    final originalByKey = <String, String>{};
+    for (final tag in tags) {
+      final key = _catalogPromptKey(tag);
+      if (key.isNotEmpty) {
+        originalByKey.putIfAbsent(key, () => tag);
+      }
+    }
+
+    final normalized = <String>[];
+    final written = <String>{};
+    for (final tag in tags) {
+      final baseTag = _legacySkinVariantBaseIdentityDisplay(tag);
+      if (baseTag != null) {
+        final baseKey = _catalogPromptKey(baseTag);
+        final baseDisplay = originalByKey[baseKey] ?? baseTag;
+        if (baseKey.isNotEmpty && written.add(baseKey)) {
+          normalized.add(baseDisplay);
+        }
+      }
+      final tagKey = _catalogPromptKey(tag);
+      if (tagKey.isNotEmpty && written.add(tagKey)) {
+        normalized.add(tag);
+      }
+    }
+
+    final normalizedPrompt = normalized.join(', ');
+    return normalizedPrompt == prompt ? prompt : normalizedPrompt;
+  }
+
+  String? _normalizeLegacyCharacterOptionalIdentityPrompt(String? prompt) {
+    if (prompt == null) return null;
+    return _normalizeLegacyCharacterIdentityPrompt(prompt);
+  }
+
+  String _normalizeLegacyCharacterIdentityPrompt(String prompt) {
+    final tags = PromptTagProcessor.splitWorkshopTags(prompt);
+    var changed = false;
+    final normalized = [
+      for (final tag in tags)
+        _normalizeLegacyCharacterIdentityTag(
+          tag,
+          onChanged: () => changed = true,
+        ),
+    ];
+    if (!changed) return prompt;
+    return _mergePromptTagLists(normalized).join(', ');
+  }
+
+  List<String> _normalizeLegacyCharacterIdentityTagList(List<String> tags) {
+    var changed = false;
+    final normalized = <String>[];
+    for (final tag in tags) {
+      for (final splitTag in PromptTagProcessor.splitWorkshopTags(tag)) {
+        normalized.add(
+          _normalizeLegacyCharacterIdentityTag(
+            splitTag,
+            onChanged: () => changed = true,
+          ),
+        );
+      }
+    }
+    if (!changed) return tags;
+    return _mergePromptTagLists(normalized);
+  }
+
+  String _normalizeLegacyCharacterIdentityTag(
+    String tag, {
+    required void Function() onChanged,
+  }) {
+    final descriptor = PromptTagProcessor.describeWorkshopTag(tag);
+    final baseTag =
+        _legacySkinVariantBaseIdentityTag(descriptor.displayText.trim());
+    if (baseTag == null) return tag;
+    onChanged();
+    final weight = descriptor.weight;
+    if (weight == null) return baseTag;
+    return PromptTagProcessor.formatInlineWeightTag(baseTag, weight);
+  }
+
+  String? _legacySkinVariantBaseIdentityDisplay(String tag) {
+    final descriptor = PromptTagProcessor.describeWorkshopTag(tag);
+    final baseTag =
+        _legacySkinVariantBaseIdentityTag(descriptor.displayText.trim());
+    if (baseTag == null) return null;
+    final weight = descriptor.weight;
+    if (weight == null) return baseTag;
+    return PromptTagProcessor.formatInlineWeightTag(baseTag, weight);
+  }
+
+  String? _legacySkinVariantBaseIdentityTag(String tag) {
+    final value = tag.trim();
+    if (value.isEmpty || value.contains(':')) return null;
+    final match = RegExp(r'^(.+?)([_\s])(?:\([^()]+\)[_\s])+\(([^()]+)\)$')
+        .firstMatch(value);
+    if (match == null) return null;
+    final baseName = match.group(1)?.trim();
+    final series = match.group(3)?.trim();
+    if (baseName == null ||
+        baseName.isEmpty ||
+        series == null ||
+        series.isEmpty) {
+      return null;
+    }
+    final separator = match.group(2) == '_' ? '_' : ' ';
+    return '$baseName$separator($series)';
+  }
+
+  bool _sameStringList(List<String> first, List<String> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index += 1) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
+  }
+
+  ({List<WorkspaceOutfit> outfits, bool changed})
+      _mergeIdentityOnlyGenericLegacyOutfitsIntoDefault(
+    CharacterEntry character,
+  ) {
+    final defaultIndex = _legacyDefaultOutfitIndex(character);
+    if (defaultIndex < 0) {
+      return (outfits: character.outfits, changed: false);
+    }
+
+    var defaultOutfit = character.outfits[defaultIndex];
+    final kept = <WorkspaceOutfit>[];
+    var changed = false;
+
+    for (var index = 0; index < character.outfits.length; index += 1) {
+      final outfit = character.outfits[index];
+      if (index != defaultIndex &&
+          _shouldMergeGenericLegacyOutfitIntoDefault(outfit)) {
+        defaultOutfit = _mergeLegacyOutfitIntoDefault(defaultOutfit, outfit);
+        changed = true;
+        continue;
+      }
+      kept.add(outfit);
+    }
+
+    if (!changed) return (outfits: character.outfits, changed: false);
+    final keptDefaultIndex =
+        kept.indexWhere((outfit) => outfit.id == defaultOutfit.id);
+    if (keptDefaultIndex >= 0) {
+      kept[keptDefaultIndex] = defaultOutfit;
+    }
+    return (outfits: List.unmodifiable(kept), changed: true);
+  }
+
+  int _legacyDefaultOutfitIndex(CharacterEntry character) {
+    if (character.defaultOutfitId != null) {
+      final explicitIndex = character.outfits.indexWhere(
+        (outfit) => outfit.id == character.defaultOutfitId,
+      );
+      if (explicitIndex >= 0) return explicitIndex;
+    }
+    return character.outfits.indexWhere(
+      (outfit) => outfit.id == 'default-outfit',
+    );
+  }
+
+  bool _shouldMergeGenericLegacyOutfitIntoDefault(WorkspaceOutfit outfit) {
+    return _isGenericLegacyOutfitName(outfit.name) &&
+        _hasStructuredClothingPrompt(outfit) &&
+        _hasIdentityOnlyFrontFullPrompt(outfit);
+  }
+
+  WorkspaceOutfit _mergeLegacyOutfitIntoDefault(
+    WorkspaceOutfit defaultOutfit,
+    WorkspaceOutfit supplement,
+  ) {
+    return WorkspaceOutfit(
+      id: defaultOutfit.id,
+      name: defaultOutfit.name,
+      tags: ViewVariantTexts(
+        frontFull: defaultOutfit.tags.frontFull,
+        frontCowboy: defaultOutfit.tags.frontCowboy,
+        frontUpper: _mergeOptionalPromptValues(
+          defaultOutfit.tags.frontUpper,
+          supplement.tags.frontUpper,
+        ),
+        frontLower: _mergeOptionalPromptValues(
+          defaultOutfit.tags.frontLower,
+          supplement.tags.frontLower,
+        ),
+        backFull: defaultOutfit.tags.backFull,
+        backCowboy: defaultOutfit.tags.backCowboy,
+        backUpper: defaultOutfit.tags.backUpper,
+        backLower: defaultOutfit.tags.backLower,
+      ),
+      partTags: WorkspaceOutfitPartTags(
+        upperBodyTags: _mergePromptTagLists([
+          ...defaultOutfit.partTags.upperBodyTags,
+          ...supplement.partTags.upperBodyTags,
+        ]),
+        upperClothingTags: _mergePromptTagLists([
+          ...defaultOutfit.partTags.upperClothingTags,
+          ...supplement.partTags.upperClothingTags,
+        ]),
+        lowerBodyTags: _mergePromptTagLists([
+          ...defaultOutfit.partTags.lowerBodyTags,
+          ...supplement.partTags.lowerBodyTags,
+        ]),
+        lowerClothingTags: _mergePromptTagLists([
+          ...defaultOutfit.partTags.lowerClothingTags,
+          ...supplement.partTags.lowerClothingTags,
+        ]),
+        weaponTags: _mergePromptTagLists([
+          ...defaultOutfit.partTags.weaponTags,
+          ...supplement.partTags.weaponTags,
+        ]),
+      ),
+      imageRefs: _mergeImageRefLists(
+        defaultOutfit.imageRefs,
+        supplement.imageRefs,
+      ),
+      negativePrompt: defaultOutfit.negativePrompt,
+      note: defaultOutfit.note,
     );
   }
 
   bool _isLowConfidenceLegacyOutfit(WorkspaceOutfit outfit) {
     final name = outfit.name.trim();
     if (name.isEmpty) return true;
-    final hasGenericLegacyName = RegExp(
-      r'^(变体\s*\d+|服装|outfit|variant\s*\d+|imported outfit|preset\s*\d+)$',
-      caseSensitive: false,
-    ).hasMatch(name);
+    final hasGenericLegacyName = _isGenericLegacyOutfitName(name);
     return hasGenericLegacyName && !_hasStructuredOutfitPrompt(outfit);
+  }
+
+  bool _isGenericLegacyOutfitName(String name) {
+    return _genericLegacyOutfitNamePattern.hasMatch(name.trim());
   }
 
   bool _hasStructuredOutfitPrompt(WorkspaceOutfit outfit) {
@@ -1338,6 +1704,85 @@ class StudioAssetCatalogService {
         outfit.partTags.upperClothingTags.isNotEmpty ||
         outfit.partTags.lowerBodyTags.isNotEmpty ||
         outfit.partTags.lowerClothingTags.isNotEmpty;
+  }
+
+  bool _hasStructuredClothingPrompt(WorkspaceOutfit outfit) {
+    return (outfit.tags.frontUpper?.trim().isNotEmpty ?? false) ||
+        (outfit.tags.frontLower?.trim().isNotEmpty ?? false) ||
+        outfit.partTags.upperClothingTags.isNotEmpty ||
+        outfit.partTags.lowerClothingTags.isNotEmpty ||
+        outfit.partTags.weaponTags.isNotEmpty;
+  }
+
+  bool _hasIdentityOnlyFrontFullPrompt(WorkspaceOutfit outfit) {
+    final tags = _promptTagsFromValue(outfit.tags.frontFull);
+    if (tags.isEmpty) return false;
+    final bodyKeys = {
+      ...outfit.partTags.upperBodyTags.map(_catalogPromptKey),
+      ...outfit.partTags.lowerBodyTags.map(_catalogPromptKey),
+    };
+    var identityCount = 0;
+    for (final tag in tags) {
+      final key = _catalogPromptKey(tag);
+      if (key.isEmpty) continue;
+      if (_isCatalogClothingKey(key)) return false;
+      if (bodyKeys.contains(key) || _isCatalogBodyKey(key)) {
+        identityCount += 1;
+      }
+    }
+    return identityCount == tags.length || identityCount / tags.length >= 0.75;
+  }
+
+  String _normalizedOutfitSignature(WorkspaceOutfit outfit) {
+    final tags = [
+      ...outfit.partTags.upperClothingTags,
+      ...outfit.partTags.lowerClothingTags,
+      ...outfit.partTags.weaponTags,
+    ];
+    if (tags.isEmpty) {
+      tags.addAll(_promptTagsFromValue(outfit.tags.frontUpper ?? ''));
+      tags.addAll(_promptTagsFromValue(outfit.tags.frontLower ?? ''));
+    }
+    if (tags.isEmpty) {
+      tags.addAll(
+        _promptTagsFromValue(outfit.tags.frontFull).where(
+          (tag) => _isCatalogClothingKey(_catalogPromptKey(tag)),
+        ),
+      );
+    }
+    final keys = {
+      for (final tag in tags)
+        if (_catalogPromptKey(tag).isNotEmpty) _catalogPromptKey(tag),
+    }.toList()
+      ..sort();
+    return keys.join('|');
+  }
+
+  bool _prefersLegacyOutfit(
+    WorkspaceOutfit candidate,
+    WorkspaceOutfit existing,
+    String? defaultOutfitId,
+  ) {
+    return _legacyOutfitQualityScore(candidate, defaultOutfitId) >
+        _legacyOutfitQualityScore(existing, defaultOutfitId);
+  }
+
+  double _legacyOutfitQualityScore(
+    WorkspaceOutfit outfit,
+    String? defaultOutfitId,
+  ) {
+    var score = 0.0;
+    if (!_isGenericLegacyOutfitName(outfit.name)) score += 10;
+    if (outfit.id == defaultOutfitId || outfit.id == 'default-outfit') {
+      score -= 2;
+    }
+    if (_promptTagsFromValue(outfit.tags.frontFull).any(
+      (tag) => _isCatalogClothingKey(_catalogPromptKey(tag)),
+    )) {
+      score += 1;
+    }
+    if (outfit.imageRefs.isNotEmpty) score += 0.1;
+    return score;
   }
 
   String _normalizedOutfitName(String name) {
@@ -1367,6 +1812,66 @@ class StudioAssetCatalogService {
     );
   }
 
+  List<String> _promptTagsFromValue(String value) {
+    return PromptTagProcessor.splitWorkshopTags(value)
+        .map(PromptTagProcessor.cleanTagDisplay)
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _catalogPromptKey(String tag) {
+    return PromptTagProcessor.normalizeMatchKey(tag)
+        .replaceAll(RegExp(r'\s+'), '_')
+        .trim();
+  }
+
+  bool _isCatalogClothingKey(String key) {
+    return _catalogClothingTagPattern.hasMatch(key);
+  }
+
+  bool _isCatalogBodyKey(String key) {
+    return _catalogBodyTagPattern.hasMatch(key) ||
+        key == '1girl' ||
+        key == 'girl' ||
+        key == 'solo';
+  }
+
+  String? _mergeOptionalPromptValues(String? first, String? second) {
+    final merged = _mergePromptTagLists([
+      ..._promptTagsFromValue(first ?? ''),
+      ..._promptTagsFromValue(second ?? ''),
+    ]);
+    if (merged.isEmpty) return null;
+    return merged.join(', ');
+  }
+
+  List<String> _mergePromptTagLists(Iterable<String> values) {
+    final seen = <String>{};
+    final merged = <String>[];
+    for (final raw in values) {
+      final tag = PromptTagProcessor.cleanTagDisplay(raw).trim();
+      final key = _catalogPromptKey(tag);
+      if (key.isEmpty || seen.contains(key)) continue;
+      seen.add(key);
+      merged.add(tag);
+    }
+    return List.unmodifiable(merged);
+  }
+
+  List<String> _mergeImageRefLists(
+    List<String> first,
+    List<String> second,
+  ) {
+    final refs = <String>[...first];
+    for (final ref in second) {
+      final trimmed = ref.trim();
+      if (trimmed.isEmpty || refs.contains(trimmed)) continue;
+      refs.add(trimmed);
+    }
+    return List.unmodifiable(refs);
+  }
+
   String? _catalogDefaultOutfitId(
     String? defaultOutfitId,
     List<WorkspaceOutfit> outfits,
@@ -1394,24 +1899,63 @@ class StudioAssetCatalogService {
         : allEntries
             .where((entry) => _matchesCodexQuery(entry, normalizedQuery))
             .toList(growable: false);
-    final categoryCounts =
-        StudioLegacyCodexCategories.countByCategory(queryFiltered);
     final normalizedCategory =
         StudioLegacyCodexCategories.normalizedKey(categoryKey);
-    final filtered = normalizedCategory == StudioLegacyCodexCategories.allKey
-        ? queryFiltered
-        : queryFiltered
-            .where(
-              (entry) => StudioLegacyCodexCategories.matches(
-                  entry, normalizedCategory),
-            )
-            .toList(growable: false);
+    final filtered = <InspirationEntry>[];
+    final categoryCounts = _emptyLegacyCodexCategoryCounts(
+      allCount: queryFiltered.length,
+    );
+    if (normalizedCategory == StudioLegacyCodexCategories.allKey) {
+      filtered.addAll(queryFiltered);
+    } else {
+      for (final entry in queryFiltered) {
+        final categoryKeys = _legacyCodexCategoryKeysFor(entry);
+        for (final key in categoryKeys) {
+          categoryCounts[key] = (categoryCounts[key] ?? 0) + 1;
+        }
+        if (categoryKeys.contains(normalizedCategory)) {
+          filtered.add(entry);
+        }
+      }
+    }
     final safeLimit = limit < 1 ? 1 : limit;
     return _LegacyCodexSlice(
       entries: filtered.take(safeLimit).toList(growable: false),
       totalCount: filtered.length,
-      categoryCounts: categoryCounts,
+      categoryCounts: Map.unmodifiable(categoryCounts),
     );
+  }
+
+  Map<String, int> _emptyLegacyCodexCategoryCounts({
+    required int allCount,
+  }) {
+    return {
+      StudioLegacyCodexCategories.allKey: allCount,
+      for (final category in StudioLegacyCodexCategories.filters.skip(1))
+        category.key: 0,
+    };
+  }
+
+  List<String> _legacyCodexCategoryKeysFor(InspirationEntry entry) {
+    final cacheKey = _legacyCodexCategoryCacheKey(entry);
+    return _legacyCodexCategoryKeyCache.putIfAbsent(
+      cacheKey,
+      () => StudioLegacyCodexCategories.keysFor(entry),
+    );
+  }
+
+  String _legacyCodexCategoryCacheKey(InspirationEntry entry) {
+    return [
+      entry.id,
+      entry.name,
+      entry.prompt,
+      entry.negativePrompt,
+      entry.tags.join('\u0001'),
+      entry.note,
+      entry.source.type,
+      entry.source.id ?? '',
+      entry.source.path ?? '',
+    ].join('\u0002');
   }
 
   List<InspirationEntry> _mergedCodexEntries(

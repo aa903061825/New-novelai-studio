@@ -458,6 +458,7 @@ class ProductionPlan {
   final String id;
   final String name;
   final List<ProductionTask> tasks;
+  final Map<String, dynamic> sharedPayloadParameters;
   final String planFingerprint;
   final ProductionPlanExecutionSettings? executionSettings;
   final DateTime createdAt;
@@ -467,11 +468,13 @@ class ProductionPlan {
     required this.id,
     required this.name,
     required List<ProductionTask> tasks,
+    Map<String, dynamic> sharedPayloadParameters = const {},
     String? planFingerprint,
     this.executionSettings,
     required this.createdAt,
     required this.updatedAt,
   })  : tasks = List.unmodifiable(tasks),
+        sharedPayloadParameters = _immutableMap(sharedPayloadParameters),
         planFingerprint = planFingerprint ?? _fingerprintTaskSequence(tasks);
 
   factory ProductionPlan.fromJson(dynamic json) {
@@ -483,6 +486,10 @@ class ProductionPlan {
       id: _string(map['id'], 'productionPlan.id'),
       name: _string(map['name'], 'productionPlan.name'),
       tasks: tasks,
+      sharedPayloadParameters: _optionalDynamicMap(
+        map['sharedPayloadParameters'],
+        'productionPlan.sharedPayloadParameters',
+      ),
       planFingerprint: _optionalString(
         map['planFingerprint'],
         'productionPlan.planFingerprint',
@@ -501,6 +508,7 @@ class ProductionPlan {
     String? id,
     String? name,
     List<ProductionTask>? tasks,
+    Map<String, dynamic>? sharedPayloadParameters,
     String? planFingerprint,
     ProductionPlanExecutionSettings? executionSettings,
     DateTime? createdAt,
@@ -510,6 +518,8 @@ class ProductionPlan {
       id: id ?? this.id,
       name: name ?? this.name,
       tasks: tasks ?? this.tasks,
+      sharedPayloadParameters:
+          sharedPayloadParameters ?? this.sharedPayloadParameters,
       planFingerprint: planFingerprint,
       executionSettings: executionSettings ?? this.executionSettings,
       createdAt: createdAt ?? this.createdAt,
@@ -517,10 +527,51 @@ class ProductionPlan {
     );
   }
 
+  ProductionPlan compactSharedPayloadParameters() {
+    final sharedCandidates = _sharedParametersAcrossTasks(tasks);
+    if (sharedCandidates.isEmpty) {
+      return this;
+    }
+    final compactedTasks = [
+      for (final task in tasks)
+        task.copyWith(
+          payload: _payloadWithoutSharedParameters(
+            task.payload,
+            sharedCandidates.keys.toSet(),
+          ),
+        ),
+    ];
+    return copyWith(
+      tasks: compactedTasks,
+      sharedPayloadParameters: {
+        ...sharedPayloadParameters,
+        ...sharedCandidates,
+      },
+      planFingerprint: planFingerprint,
+    );
+  }
+
+  Map<String, dynamic> requestPayloadForTask(ProductionTask task) {
+    if (sharedPayloadParameters.isEmpty) {
+      return task.payload;
+    }
+    final payload = _deepMutableMap(task.payload);
+    final parameters = _deepMutableMap(_mapValue(payload['parameters']));
+    for (final entry in sharedPayloadParameters.entries) {
+      if (!_isWorthSharing(parameters[entry.key])) {
+        parameters[entry.key] = _immutableValue(entry.value);
+      }
+    }
+    payload['parameters'] = _deepImmutableMap(parameters);
+    return _deepImmutableMap(payload);
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'tasks': tasks.map((task) => task.toJson()).toList(growable: false),
+        if (sharedPayloadParameters.isNotEmpty)
+          'sharedPayloadParameters': sharedPayloadParameters,
         'planFingerprint': planFingerprint,
         if (executionSettings != null)
           'executionSettings': executionSettings!.toJson(),
@@ -568,6 +619,169 @@ Object? _canonicalValue(Object? value) {
     return value.map(_canonicalValue).toList(growable: false);
   }
   return value;
+}
+
+const _shareablePayloadParameterGroups = [
+  {
+    'reference_image_multiple',
+    'reference_strength_multiple',
+    'reference_information_extracted_multiple',
+  },
+  {
+    'director_reference_images',
+    'director_reference_strength_values',
+    'director_reference_secondary_strength_values',
+    'director_reference_information_extracted',
+    'director_reference_descriptions',
+  },
+];
+
+Map<String, dynamic> _sharedParametersAcrossTasks(
+  List<ProductionTask> tasks,
+) {
+  if (tasks.length < 2) {
+    return const {};
+  }
+  final result = <String, dynamic>{};
+  for (final group in _shareablePayloadParameterGroups) {
+    final anchor = group.first;
+    final anchorCandidate = _sharedParameterCandidate(tasks, anchor);
+    if (anchorCandidate == null) {
+      continue;
+    }
+    result[anchor] = anchorCandidate;
+    for (final key in group.skip(1)) {
+      final candidate = _sharedParameterCandidate(tasks, key);
+      if (candidate != null) {
+        result[key] = candidate;
+      }
+    }
+  }
+  return result.isEmpty ? const {} : _immutableMap(result);
+}
+
+Object? _sharedParameterCandidate(
+  List<ProductionTask> tasks,
+  String key,
+) {
+  Object? candidate;
+  var hasCandidate = false;
+  for (final task in tasks) {
+    final parameters = _mapOrNull(task.payload['parameters']);
+    if (parameters == null || !parameters.containsKey(key)) {
+      return null;
+    }
+    final value = parameters[key];
+    if (!_isWorthSharing(value)) {
+      return null;
+    }
+    if (!hasCandidate) {
+      candidate = value;
+      hasCandidate = true;
+      continue;
+    }
+    if (!_deepEquals(candidate, value)) {
+      return null;
+    }
+  }
+  return hasCandidate ? _immutableValue(candidate) : null;
+}
+
+bool _isWorthSharing(Object? value) {
+  if (value is String) {
+    return value.trim().isNotEmpty;
+  }
+  if (value is List) {
+    return value.isNotEmpty;
+  }
+  if (value is Map) {
+    return value.isNotEmpty;
+  }
+  return value != null;
+}
+
+Map<String, dynamic> _payloadWithoutSharedParameters(
+  Map<String, dynamic> payload,
+  Set<String> sharedKeys,
+) {
+  final next = _deepMutableMap(payload);
+  _removeSharedParameters(next['parameters'], sharedKeys);
+  _removeSharedParameters(next['Comment'], sharedKeys);
+  return _immutableMap(next);
+}
+
+void _removeSharedParameters(Object? value, Set<String> sharedKeys) {
+  if (value is! Map) {
+    return;
+  }
+  for (final key in sharedKeys) {
+    value.remove(key);
+  }
+}
+
+bool _deepEquals(Object? left, Object? right) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left is Map && right is Map) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (final entry in left.entries) {
+      final key = entry.key;
+      if (!right.containsKey(key)) {
+        return false;
+      }
+      if (!_deepEquals(entry.value, right[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (left is List && right is List) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      if (!_deepEquals(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return left == right;
+}
+
+Map<String, dynamic>? _mapOrNull(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, child) => MapEntry(key.toString(), child));
+  }
+  return null;
+}
+
+Map<String, dynamic> _mapValue(Object? value) {
+  return _mapOrNull(value) ?? const {};
+}
+
+Map<String, dynamic> _deepMutableMap(Map<String, dynamic> value) {
+  return value.map((key, child) => MapEntry(key, _deepMutableValue(child)));
+}
+
+Object? _deepMutableValue(Object? value) {
+  if (value is Map) {
+    return _deepMutableMap(_mapValue(value));
+  }
+  if (value is Iterable) {
+    return value.map(_deepMutableValue).toList(growable: true);
+  }
+  return value;
+}
+
+Map<String, dynamic> _deepImmutableMap(Map<String, dynamic> value) {
+  return _immutableMap(value);
 }
 
 Map<String, dynamic> _immutableMap(Map<String, dynamic> value) {
@@ -618,6 +832,13 @@ Map<String, dynamic> _dynamicMap(dynamic value, String field) {
     throw FormatException('$field must be a JSON object.');
   }
   return _immutableMap(_asMap(value, field));
+}
+
+Map<String, dynamic> _optionalDynamicMap(dynamic value, String field) {
+  if (value == null) {
+    return const {};
+  }
+  return _dynamicMap(value, field);
 }
 
 String _string(dynamic value, String field) {

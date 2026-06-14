@@ -95,6 +95,32 @@ void main() {
     expect(payload.characterConfigList.first.positions.single.y, 3);
   });
 
+  test('preserves official prompt randomizer syntax on metadata import',
+      () async {
+    final payload = _payload();
+    final service = WorkbenchMetadataImportService();
+    const randomizedPrompt = '1girl, ||red hair|blue hair|green hair||, rain';
+    final bytes = Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'Software': 'NovelAI',
+          'Description': randomizedPrompt,
+          'Comment': {
+            'steps': 28,
+            'seed': 123,
+            'width': 832,
+            'height': 1216,
+          },
+        }),
+      ),
+    );
+
+    await service.importBytes(payload, 'randomizer.json', bytes);
+
+    expect(payload.overridePrompt, randomizedPrompt);
+    expect(payload.useOverridePrompt, isTrue);
+  });
+
   test('imports ComfyUI PNG text prompt graph into workbench prompt', () async {
     final payload = _payload();
     final service = WorkbenchMetadataImportService();

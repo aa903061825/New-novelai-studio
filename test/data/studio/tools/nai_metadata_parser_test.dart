@@ -38,6 +38,25 @@ void main() {
       expect(result.hasStructuredMetadata, isTrue);
     });
 
+    test('extracts Automatic1111 style parameters text prompt', () {
+      final result = NaiMetadataParser.parseMap({
+        'parameters': '1girl, blue dress, workshop overalls\n'
+            'Negative prompt: lowres, bad hands\n'
+            'Steps: 28, Sampler: Euler a, CFG scale: 7, Seed: 123456, Size: 832x1216',
+      });
+
+      expect(result.prompt, '1girl, blue dress, workshop overalls');
+      expect(result.negativePrompt, 'lowres, bad hands');
+      expect(result.parameters['steps'], 28);
+      expect(result.parameters['sampler'], 'Euler a');
+      expect(result.parameters['scale'], 7);
+      expect(result.parameters['seed'], 123456);
+      expect(result.width, 832);
+      expect(result.height, 1216);
+      expect(result.rawContent, contains('Negative prompt'));
+      expect(result.hasStructuredMetadata, isTrue);
+    });
+
     test('parses fullContent and Stealth_PNGInfo as alternate JSON payloads',
         () {
       final result = NaiMetadataParser.parseMap({

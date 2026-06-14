@@ -29,6 +29,13 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   bool get hasI2iImage => payloadConfig.i2iConfig.imageB64 != null;
 
+  void disableI2iInputs() {
+    payloadConfig.i2iConfig.clearImage();
+    payloadConfig.generationRuntimeState.vibeEnabled = false;
+    payloadConfig.usePreciseReference = false;
+    notifyListeners();
+  }
+
   int get characterCount => payloadConfig.characterConfigList.length;
 
   bool isCharacterPromptTagified(int index) =>

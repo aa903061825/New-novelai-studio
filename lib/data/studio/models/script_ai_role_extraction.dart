@@ -311,17 +311,28 @@ class ScriptAiExtractedRole {
 
     final collapsed = <ScriptAiExtractedStage>[];
     final indexesByKey = <String, int>{};
+    final replacementStateKeys = <String>[];
     for (final stage in stages) {
+      final replacementStateKey = _stageReplacementStateKey(stage);
       final stableStage = _stageWithTransientTermsDemoted(
         stage,
         onChanged: markChanged,
       );
-      final key = _stageRoleFieldKey(stableStage);
-      final existingIndex =
-          indexesByKey[key] ?? _compatibleStageIndex(collapsed, stableStage);
+      final key = _stageRoleFieldKey(
+        stableStage,
+        replacementStateKey: replacementStateKey,
+      );
+      final existingIndex = indexesByKey[key] ??
+          _compatibleStageIndex(
+            collapsed,
+            stableStage,
+            replacementStateKey: replacementStateKey,
+            replacementStateKeys: replacementStateKeys,
+          );
       if (existingIndex == null) {
         indexesByKey[key] = collapsed.length;
         collapsed.add(stableStage);
+        replacementStateKeys.add(replacementStateKey);
         continue;
       }
       markChanged();
@@ -877,11 +888,11 @@ ScriptAiExtractedStage _stageWithTransientTermsDemoted(
 }) {
   final stableFields = _normalizedStageStableFields(stage);
   final stableEvidenceTerms = _stableEvidenceTerms(stage.evidenceTerms);
-  final shouldClearNonRole =
+  final clearsNonRole =
       stage.nonRole.trim().isNotEmpty || stage.nonRoleMaterialized;
   if (!stableFields.changed &&
-      !shouldClearNonRole &&
-      _stringListsEqual(stableEvidenceTerms, stage.evidenceTerms)) {
+      _stringListsEqual(stableEvidenceTerms, stage.evidenceTerms) &&
+      !clearsNonRole) {
     return stage;
   }
   onChanged();
@@ -1000,14 +1011,96 @@ List<String> _stableEvidenceTerms(List<String> values) {
   );
 }
 
-String _stageRoleFieldKey(ScriptAiExtractedStage stage) {
+String _stageRoleFieldKey(
+  ScriptAiExtractedStage stage, {
+  String replacementStateKey = '',
+}) {
   return [
     _normalizedPromptFieldKey(stage.identity),
+    replacementStateKey,
     _normalizedStablePromptFieldKey(stage.upperBody),
     _normalizedStablePromptFieldKey(stage.lowerBody),
     _normalizedStablePromptFieldKey(stage.upperClothing),
     _normalizedStablePromptFieldKey(stage.lowerClothing),
   ].join('\u001f');
+}
+
+String _stageReplacementStateKey(ScriptAiExtractedStage stage) {
+  final text = _normalizedReplacementStateText(stage);
+  final upperClothingKey = _normalizedStablePromptFieldKey(stage.upperClothing);
+  final lowerClothingKey = _normalizedStablePromptFieldKey(stage.lowerClothing);
+  if (_hasTowelState(text)) {
+    return [
+      'towel',
+      if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+      if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+    ].join('|');
+  }
+  if (_hasToplessState(text)) {
+    return [
+      'topless',
+      if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+    ].join('|');
+  }
+  if (_hasBottomlessState(text)) {
+    return [
+      'bottomless',
+      if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+    ].join('|');
+  }
+  if (_hasNudeState(text)) {
+    return [
+      'nude',
+      if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+      if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+    ].join('|');
+  }
+  return '';
+}
+
+String _normalizedReplacementStateText(ScriptAiExtractedStage stage) {
+  return [
+    stage.label,
+    ...stage.evidenceTerms,
+    stage.upperBody,
+    stage.lowerBody,
+    stage.upperClothing,
+    stage.lowerClothing,
+  ]
+      .join(' ')
+      .toLowerCase()
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+bool _hasTowelState(String text) {
+  return RegExp(
+        r'(^|[^a-z0-9])(towel|bath towel|towel wrap|wrapped in towel)'
+        r'([^a-z0-9]|$)',
+      ).hasMatch(text) ||
+      text.contains('\u6d74\u5dfe');
+}
+
+bool _hasToplessState(String text) {
+  return RegExp(r'(^|[^a-z0-9])topless([^a-z0-9]|$)').hasMatch(text) ||
+      text.contains('\u4e0a\u8eab\u88f8\u4f53');
+}
+
+bool _hasBottomlessState(String text) {
+  return RegExp(r'(^|[^a-z0-9])bottomless([^a-z0-9]|$)').hasMatch(text) ||
+      text.contains('\u4e0b\u8eab\u88f8\u4f53');
+}
+
+bool _hasNudeState(String text) {
+  return RegExp(
+        r'(^|[^a-z0-9])('
+        r'nude|naked|fully nude|completely nude|completly nude|no clothes|'
+        r'without clothes|unclothed'
+        r')([^a-z0-9]|$)',
+      ).hasMatch(text) ||
+      text.contains('\u5168\u88f8') ||
+      text.contains('\u88f8\u4f53');
 }
 
 String _normalizedPromptFieldText(String value) {
@@ -1016,10 +1109,17 @@ String _normalizedPromptFieldText(String value) {
 
 int? _compatibleStageIndex(
   List<ScriptAiExtractedStage> stages,
-  ScriptAiExtractedStage stage,
-) {
+  ScriptAiExtractedStage stage, {
+  required String replacementStateKey,
+  required List<String> replacementStateKeys,
+}) {
   for (final (index, candidate) in stages.indexed) {
-    if (_roleStagesCompatible(candidate, stage)) {
+    if (_roleStagesCompatible(
+      candidate,
+      stage,
+      leftReplacementStateKey: replacementStateKeys[index],
+      rightReplacementStateKey: replacementStateKey,
+    )) {
       return index;
     }
   }
@@ -1028,13 +1128,32 @@ int? _compatibleStageIndex(
 
 bool _roleStagesCompatible(
   ScriptAiExtractedStage left,
-  ScriptAiExtractedStage right,
-) {
-  return _promptFieldsCompatible(left.identity, right.identity) &&
+  ScriptAiExtractedStage right, {
+  String leftReplacementStateKey = '',
+  String rightReplacementStateKey = '',
+}) {
+  return _replacementStatesCompatible(
+        leftReplacementStateKey,
+        rightReplacementStateKey,
+      ) &&
+      _promptFieldsCompatible(left.identity, right.identity) &&
       _stablePromptFieldsCompatible(left.upperBody, right.upperBody) &&
       _stablePromptFieldsCompatible(left.lowerBody, right.lowerBody) &&
-      _stablePromptFieldsCompatible(left.upperClothing, right.upperClothing) &&
-      _stablePromptFieldsCompatible(left.lowerClothing, right.lowerClothing);
+      _stableClothingFieldsCompatible(
+        left.upperClothing,
+        right.upperClothing,
+      ) &&
+      _stableClothingFieldsCompatible(
+        left.lowerClothing,
+        right.lowerClothing,
+      );
+}
+
+bool _replacementStatesCompatible(String left, String right) {
+  if (left.isEmpty && right.isEmpty) {
+    return true;
+  }
+  return left == right;
 }
 
 bool _promptFieldsCompatible(String left, String right) {
@@ -1062,6 +1181,44 @@ bool _stablePromptFieldsCompatible(String left, String right) {
         .map(_normalizedRoleTerm)
         .toList(),
   );
+}
+
+bool _stableClothingFieldsCompatible(String left, String right) {
+  final leftTerms = _commaTerms(left)
+      .where((term) => !_isTransientRoleFieldTerm(term))
+      .map(_normalizedRoleTerm)
+      .toList();
+  final rightTerms = _commaTerms(right)
+      .where((term) => !_isTransientRoleFieldTerm(term))
+      .map(_normalizedRoleTerm)
+      .toList();
+  if (!_promptTermSetsCompatible(leftTerms, rightTerms)) {
+    return false;
+  }
+  if (leftTerms.isEmpty || rightTerms.isEmpty) {
+    return true;
+  }
+  final leftCore = leftTerms.where(_isCoreClothingReplacementTerm).toSet();
+  final rightCore = rightTerms.where(_isCoreClothingReplacementTerm).toSet();
+  if (leftCore.isEmpty || rightCore.isEmpty) {
+    return true;
+  }
+  return leftCore.length == rightCore.length && leftCore.containsAll(rightCore);
+}
+
+bool _isCoreClothingReplacementTerm(String term) {
+  final normalized = term
+      .toLowerCase()
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ');
+  return RegExp(
+    r'(^|[^a-z0-9])('
+    r'shirt|tank top|camisole|blouse|bra|bikini|swimsuit|leotard|'
+    r'uniform|dress|jacket|coat|hoodie|robe|towel|overalls?|coveralls?|'
+    r'apron|skirt|pants|shorts|trousers|panties|underwear|briefs|'
+    r'stockings?|socks?|shoes?|boots?|sandals?|heels?|loafers?'
+    r')([^a-z0-9]|$)',
+  ).hasMatch(normalized);
 }
 
 bool _promptTermSetsCompatible(List<String> left, List<String> right) {
@@ -1251,8 +1408,11 @@ ScriptAiExtractedStage _mergeEquivalentStages(
         _preferredStablePromptText(left.upperClothing, right.upperClothing),
     lowerClothing:
         _preferredStablePromptText(left.lowerClothing, right.lowerClothing),
-    nonRole: '',
-    nonRoleMaterialized: false,
+    nonRole: _mergedStrings(
+      _commaTerms(left.nonRole),
+      _commaTerms(right.nonRole),
+    ).join(', '),
+    nonRoleMaterialized: left.nonRoleMaterialized || right.nonRoleMaterialized,
     evidenceTerms: _stableEvidenceTerms(
       _mergedStrings(left.evidenceTerms, right.evidenceTerms),
     ),

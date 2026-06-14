@@ -107,6 +107,40 @@ void main() {
     expect(result.tasks.single.outputImagePath, 'C:/out/plan-1/nai_1.png');
   });
 
+  test('runPlan expands shared reference parameters before requesting image',
+      () async {
+    Map<String, dynamic>? requestedPayload;
+    final executor = ProductionExecutorService(
+      requestImage: (payload) async {
+        requestedPayload = payload;
+        return _fakePngBytes;
+      },
+      saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      now: () => DateTime.utc(2026, 5, 25, 12),
+    );
+    final plan = _plan([
+      _scriptTask(id: 'task-1', frameIndex: 1, input: 'frame one'),
+    ]).copyWith(
+      sharedPayloadParameters: const {
+        'reference_image_multiple': ['encoded-shared-vibe'],
+        'reference_strength_multiple': [0.45],
+        'reference_information_extracted_multiple': [1.0],
+      },
+    );
+
+    await executor.runPlan(plan, maxRetries: 1);
+
+    final parameters = requestedPayload?['parameters'] as Map?;
+    expect(parameters?['seed'], 1);
+    expect(parameters?['reference_image_multiple'], ['encoded-shared-vibe']);
+    expect(parameters?['reference_strength_multiple'], [0.45]);
+    expect(parameters?['reference_information_extracted_multiple'], [1.0]);
+    expect(
+      plan.tasks.single.payload['parameters'],
+      isNot(contains('reference_image_multiple')),
+    );
+  });
+
   test('runPlan passes explicit plan output directory to scoped save',
       () async {
     final scopedSaves = <String>[];

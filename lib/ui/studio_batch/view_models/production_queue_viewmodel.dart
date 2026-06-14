@@ -220,7 +220,6 @@ class ProductionQueueViewModel extends ChangeNotifier {
   }
 
   void setUseOriginalGenerationSettings(bool value) {
-    if (_isExecuting) return;
     if (_useOriginalModel == value &&
         _useOriginalSize == value &&
         _useOriginalSampler == value &&
@@ -239,126 +238,125 @@ class ProductionQueueViewModel extends ChangeNotifier {
   }
 
   void setUseOriginalModel(bool value) {
-    if (_useOriginalModel == value || _isExecuting) return;
+    if (_useOriginalModel == value) return;
     _useOriginalModel = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setUseOriginalSize(bool value) {
-    if (_useOriginalSize == value || _isExecuting) return;
+    if (_useOriginalSize == value) return;
     _useOriginalSize = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setUseOriginalSampler(bool value) {
-    if (_useOriginalSampler == value || _isExecuting) return;
+    if (_useOriginalSampler == value) return;
     _useOriginalSampler = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setUseOriginalSteps(bool value) {
-    if (_useOriginalSteps == value || _isExecuting) return;
+    if (_useOriginalSteps == value) return;
     _useOriginalSteps = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setUseOriginalScale(bool value) {
-    if (_useOriginalScale == value || _isExecuting) return;
+    if (_useOriginalScale == value) return;
     _useOriginalScale = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setUseOriginalSeed(bool value) {
-    if (_useOriginalSeed == value || _isExecuting) return;
+    if (_useOriginalSeed == value) return;
     _useOriginalSeed = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchModel(String value) {
     final next = value.trim();
-    if (_model == next || _isExecuting) return;
+    if (_model == next) return;
     _model = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchSampler(String value) {
     final next = value.trim();
-    if (_sampler == next || _isExecuting) return;
+    if (_sampler == next) return;
     _sampler = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchWidthText(String value) {
     final next = _parsePositiveInt(value);
-    if (_width == next || _isExecuting) return;
+    if (_width == next) return;
     _width = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchHeightText(String value) {
     final next = _parsePositiveInt(value);
-    if (_height == next || _isExecuting) return;
+    if (_height == next) return;
     _height = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchStepsText(String value) {
     final next = _parsePositiveInt(value);
-    if (_steps == next || _isExecuting) return;
+    if (_steps == next) return;
     _steps = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchScaleText(String value) {
     final next = _parsePositiveDouble(value);
-    if (_scale == next || _isExecuting) return;
+    if (_scale == next) return;
     _scale = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setBatchSeedText(String value) {
     final next = _parseSeed(value);
-    if (_seed == next || _isExecuting) return;
+    if (_seed == next) return;
     _seed = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setRequestIntervalSecondsText(String value) {
     final next = _parseNonNegativeInt(value);
-    if (_requestIntervalSeconds == next || _isExecuting) return;
+    if (_requestIntervalSeconds == next) return;
     _requestIntervalSeconds = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setRequestIntervalRandomRangeText(String value) {
     final next = _parseNonNegativeInt(value);
-    if (_requestIntervalRandomRangeSeconds == next || _isExecuting) return;
+    if (_requestIntervalRandomRangeSeconds == next) return;
     _requestIntervalRandomRangeSeconds = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setRetryCountText(String value) {
     final next = _parsePositiveInt(value) ?? 1;
-    if (_retryCount == next || _isExecuting) return;
+    if (_retryCount == next) return;
     _retryCount = next;
     _notifyAndPersistExecutionSettings();
   }
 
   void setRetryIndefinitely(bool value) {
-    if (_retryIndefinitely == value || _isExecuting) return;
+    if (_retryIndefinitely == value) return;
     _retryIndefinitely = value;
     _notifyAndPersistExecutionSettings();
   }
 
   void setOutputDirectory(String value) {
     final next = value.trim();
-    if (_outputDirectory == next || _isExecuting) return;
+    if (_outputDirectory == next) return;
     _outputDirectory = next;
     _notifyAndPersistExecutionSettings();
   }
 
   Future<void> pickOutputDirectory() async {
-    if (_isExecuting) return;
     final picker = pickOutputDirectoryPath;
     if (picker == null) return;
     final picked = await picker();
@@ -412,28 +410,47 @@ class ProductionQueueViewModel extends ChangeNotifier {
     _pauseRequested = false;
     _isPaused = false;
     notifyListeners();
+    var hasRunPreviousTask = false;
     try {
-      final executionPlan = _executionPlan(plan);
-      final updatedPlan = await executor.runPlan(
-        executionPlan,
-        maxRetries: _maxRetries,
-        retryIndefinitely: _retryIndefinitely,
-        requestInterval: Duration(seconds: _requestIntervalSeconds),
-        requestIntervalRandomRange: Duration(
-          seconds: _requestIntervalRandomRangeSeconds,
-        ),
-        onTaskUpdate: (task) {
-          if (_executionEpoch != runEpoch) return Future<void>.value();
-          return _replaceTaskInPlan(executionPlan.id, task);
-        },
-        shouldContinue: () => _executionEpoch == runEpoch && !_pauseRequested,
-      );
-      if (_executionEpoch != runEpoch) return;
-      await _saveUpdatedPlan(updatedPlan);
-      _isPaused = _pauseRequested &&
-          updatedPlan.tasks.any(
-            (task) => task.status == ProductionTaskStatus.queued,
+      while (_executionEpoch == runEpoch && !_pauseRequested) {
+        final currentPlan = selectedPlan;
+        if (currentPlan == null) break;
+        final nextTask = _nextQueuedTask(currentPlan);
+        if (nextTask == null) break;
+        if (hasRunPreviousTask) {
+          await _waitForNextRequestInterval(executor);
+        }
+        if (_executionEpoch != runEpoch || _pauseRequested) break;
+        final executionPlan = _executionPlanForTask(currentPlan, nextTask);
+        try {
+          await executor.rerunTaskInPlan(
+            executionPlan,
+            taskId: nextTask.id,
+            maxRetries: _maxRetries,
+            retryIndefinitely: _retryIndefinitely,
+            onTaskUpdate: (task) {
+              if (_executionEpoch != runEpoch) return Future<void>.value();
+              return _replaceTaskInPlan(executionPlan.id, task);
+            },
+            shouldContinue: () =>
+                _executionEpoch == runEpoch && !_pauseRequested,
           );
+        } catch (error) {
+          if (_executionEpoch != runEpoch) return;
+          await _replaceTaskInPlan(
+            currentPlan.id,
+            _unexpectedFailureTask(nextTask, error),
+          );
+        }
+        hasRunPreviousTask = true;
+      }
+      if (_executionEpoch != runEpoch) return;
+      final updatedPlan = selectedPlan;
+      _isPaused = _pauseRequested &&
+          (updatedPlan?.tasks.any(
+                (task) => task.status == ProductionTaskStatus.queued,
+              ) ??
+              false);
     } finally {
       if (_executionEpoch == runEpoch) {
         _isExecuting = false;
@@ -539,6 +556,41 @@ class ProductionQueueViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<ProductionTask?> queueRerunTask(ProductionTask task) async {
+    final plan = selectedPlan;
+    if (plan == null || plan.tasks.isEmpty) return null;
+    final sourceTask = plan.tasks.firstWhere(
+      (candidate) => candidate.id == task.id,
+      orElse: () => task,
+    );
+    final queuedAt = now().toUtc();
+    final taskIds = plan.tasks.map((task) => task.id).toSet();
+    final rerunTaskId = _uniqueRerunTaskId(sourceTask.id, taskIds);
+    final rerunTask = sourceTask.copyWith(
+      id: rerunTaskId,
+      planId: plan.id,
+      suggestedFileName: '$rerunTaskId.png',
+      status: ProductionTaskStatus.queued,
+      attempts: 0,
+      createdAt: queuedAt,
+      updatedAt: queuedAt,
+      clearOutputImagePath: true,
+      clearError: true,
+      clearStartedAt: true,
+      clearCompletedAt: true,
+      clearRating: true,
+      clearRatedAt: true,
+    );
+    final insertionIndex = _quickRerunInsertionIndex(plan, sourceTask.id);
+    final tasks = [...plan.tasks]..insert(insertionIndex, rerunTask);
+    await _saveUpdatedPlan(
+      plan.copyWith(tasks: tasks, updatedAt: queuedAt),
+      selectedTaskId: rerunTask.id,
+    );
+    notifyListeners();
+    return rerunTask;
+  }
+
   Future<void> rerunTask(ProductionTask task) async {
     final plan = selectedPlan;
     final executor = executorService;
@@ -624,6 +676,45 @@ class ProductionQueueViewModel extends ChangeNotifier {
         (task.error?.trim().isNotEmpty ?? false);
   }
 
+  ProductionTask? _nextQueuedTask(ProductionPlan plan) {
+    for (final task in plan.tasks) {
+      if (task.status == ProductionTaskStatus.queued) {
+        return task;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _waitForNextRequestInterval(
+    ProductionExecutorService executor,
+  ) async {
+    final baseInterval = Duration(seconds: _requestIntervalSeconds);
+    final randomRangeSeconds = _requestIntervalRandomRangeSeconds;
+    final jitterSeconds = randomRangeSeconds <= 0
+        ? 0
+        : executor.randomInt(randomRangeSeconds + 1).clamp(
+              0,
+              randomRangeSeconds,
+            );
+    final delay = baseInterval + Duration(seconds: jitterSeconds.toInt());
+    if (delay.inMicroseconds <= 0) return;
+    await executor.delay(delay);
+  }
+
+  int _quickRerunInsertionIndex(ProductionPlan plan, String sourceTaskId) {
+    final runningIndex = plan.tasks.indexWhere(
+      (task) => task.status == ProductionTaskStatus.running,
+    );
+    if (runningIndex >= 0) return runningIndex + 1;
+    final queuedIndex = plan.tasks.indexWhere(
+      (task) => task.status == ProductionTaskStatus.queued,
+    );
+    if (queuedIndex >= 0) return queuedIndex;
+    final sourceIndex =
+        plan.tasks.indexWhere((task) => task.id == sourceTaskId);
+    return sourceIndex < 0 ? plan.tasks.length : sourceIndex + 1;
+  }
+
   ProductionTask _resetTaskForRestart(ProductionTask task, DateTime resetAt) {
     return task.copyWith(
       status: ProductionTaskStatus.queued,
@@ -635,6 +726,28 @@ class ProductionQueueViewModel extends ChangeNotifier {
       clearCompletedAt: true,
       clearRating: true,
       clearRatedAt: true,
+    );
+  }
+
+  ProductionPlan _executionPlanForTask(
+    ProductionPlan plan,
+    ProductionTask task,
+  ) {
+    final executionTask = _executionTask(task);
+    return plan.copyWith(
+      executionSettings: _currentExecutionSettings(),
+      tasks: [
+        for (final existingTask in plan.tasks)
+          existingTask.id == task.id ? executionTask : existingTask,
+      ],
+    );
+  }
+
+  ProductionTask _executionTask(ProductionTask task) {
+    final normalizedTask = _normalizeTaskPayload(task);
+    if (useOriginalGenerationSettings) return normalizedTask;
+    return normalizedTask.copyWith(
+      payload: _configuredPayload(_normalizedPayload(task)),
     );
   }
 
@@ -704,11 +817,13 @@ class ProductionQueueViewModel extends ChangeNotifier {
   Future<void> _saveUpdatedPlan(
     ProductionPlan updatedPlan, {
     String? selectedTaskId,
+    bool preserveCurrentExecutionSettings = false,
   }) async {
     return _replacePlan(
       previousPlanId: updatedPlan.id,
       updatedPlan: updatedPlan,
       selectedTaskId: selectedTaskId,
+      preserveCurrentExecutionSettings: preserveCurrentExecutionSettings,
     );
   }
 
@@ -716,6 +831,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
     required String previousPlanId,
     required ProductionPlan updatedPlan,
     String? selectedTaskId,
+    bool preserveCurrentExecutionSettings = false,
   }) async {
     final nextPlans = plans
         .map((plan) => plan.id == previousPlanId ? updatedPlan : plan)
@@ -724,7 +840,11 @@ class ProductionQueueViewModel extends ChangeNotifier {
     if (service != null) {
       await service.savePlans(nextPlans);
     }
-    _setPlans(nextPlans, selectedTaskId: selectedTaskId);
+    _setPlans(
+      nextPlans,
+      selectedTaskId: selectedTaskId,
+      preserveCurrentExecutionSettings: preserveCurrentExecutionSettings,
+    );
   }
 
   Future<void> _replaceTaskInPlan(String planId, ProductionTask task) async {
@@ -753,6 +873,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
     List<ProductionPlan> nextPlans, {
     String? selectedTaskId,
     ProductionPlanExecutionSettings? fallbackExecutionSettings,
+    bool preserveCurrentExecutionSettings = false,
   }) {
     final previousSelectedTaskId = selectedTaskId ?? _selectedTask?.id;
     final normalizedPlans =
@@ -762,12 +883,14 @@ class ProductionQueueViewModel extends ChangeNotifier {
         (plans.isEmpty || plans.first.tasks.isEmpty
             ? null
             : plans.first.tasks.first);
-    final planSettings = _initialPlanExecutionSettings(
-      plans,
-      fallbackExecutionSettings: fallbackExecutionSettings,
-    );
-    if (planSettings != null) {
-      _applyPlanExecutionSettings(planSettings);
+    if (!_isExecuting && !preserveCurrentExecutionSettings) {
+      final planSettings = _initialPlanExecutionSettings(
+        plans,
+        fallbackExecutionSettings: fallbackExecutionSettings,
+      );
+      if (planSettings != null) {
+        _applyPlanExecutionSettings(planSettings);
+      }
     }
     if (!_isExecuting && !_pauseRequested) {
       final plan = selectedPlan;
@@ -947,19 +1070,34 @@ class ProductionQueueViewModel extends ChangeNotifier {
   }
 
   Future<void> _persistExecutionSettings() async {
-    final plan = selectedPlan;
     final service = queueService;
     final currentSettings = _currentExecutionSettings();
     if (service != null) {
       await service.saveLastExecutionSettings(currentSettings);
     }
+    final plan = selectedPlan;
     if (plan == null) return;
+    if (_isExecuting) {
+      final updatedAt = now().toUtc();
+      final nextPlans = [
+        for (final existingPlan in plans)
+          existingPlan.id == plan.id
+              ? existingPlan.copyWith(
+                  executionSettings: currentSettings,
+                  updatedAt: updatedAt,
+                )
+              : existingPlan,
+      ];
+      _setPlans(nextPlans, selectedTaskId: _selectedTask?.id);
+      return;
+    }
     await _saveUpdatedPlan(
       plan.copyWith(
         executionSettings: currentSettings,
         updatedAt: now().toUtc(),
       ),
       selectedTaskId: _selectedTask?.id,
+      preserveCurrentExecutionSettings: true,
     );
   }
 
@@ -967,6 +1105,16 @@ class ProductionQueueViewModel extends ChangeNotifier {
   Future<void> flushPendingExecutionSettingsSaves() {
     return _executionSettingsSaveQueue;
   }
+}
+
+String _uniqueRerunTaskId(String sourceTaskId, Set<String> existingIds) {
+  final baseId = '$sourceTaskId-rerun';
+  if (!existingIds.contains(baseId)) return baseId;
+  var suffix = 2;
+  while (existingIds.contains('$baseId-$suffix')) {
+    suffix += 1;
+  }
+  return '$baseId-$suffix';
 }
 
 Map<String, dynamic> _mapValue(Object? value) {

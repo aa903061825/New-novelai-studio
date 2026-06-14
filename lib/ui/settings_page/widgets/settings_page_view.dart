@@ -255,12 +255,18 @@ class SettingsPageView extends StatelessWidget {
                   baseUrlKey: const ValueKey('settings-script-ai-base-url'),
                   tokenKey: const ValueKey('settings-script-ai-token'),
                   modelKey: const ValueKey('settings-script-ai-model'),
+                  reasoningEffortKey:
+                      const ValueKey('settings-script-ai-reasoning-effort'),
                   baseUrlValue: viewmodel.settings.scriptAiBaseUrl,
                   tokenValue: viewmodel.settings.scriptAiToken,
                   modelValue: viewmodel.settings.scriptAiModel,
+                  reasoningEffortValue:
+                      viewmodel.settings.scriptAiReasoningEffort,
                   onBaseUrlChanged: viewmodel.setScriptAiBaseUrl,
                   onTokenChanged: viewmodel.setScriptAiToken,
                   onModelChanged: viewmodel.setScriptAiModel,
+                  onReasoningEffortChanged:
+                      viewmodel.setScriptAiReasoningEffort,
                   testConnectionKey:
                       const ValueKey('settings-script-ai-test-connection'),
                   testStatusKey:
@@ -453,12 +459,15 @@ class SettingsPageView extends StatelessWidget {
     List<Widget> headerExtras = const [],
     bool showCredentialFields = true,
     Key? modelKey,
+    Key? reasoningEffortKey,
     required String baseUrlValue,
     required String tokenValue,
     String? modelValue,
+    String? reasoningEffortValue,
     required ValueChanged<String> onBaseUrlChanged,
     required ValueChanged<String> onTokenChanged,
     ValueChanged<String>? onModelChanged,
+    ValueChanged<String>? onReasoningEffortChanged,
     Key? testConnectionKey,
     Key? testStatusKey,
     String? testStatus,
@@ -515,6 +524,33 @@ class SettingsPageView extends StatelessWidget {
                   isDense: true,
                 ),
                 onChanged: onModelChanged,
+              ),
+            ],
+            if (reasoningEffortKey != null &&
+                reasoningEffortValue != null &&
+                onReasoningEffortChanged != null) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                key: reasoningEffortKey,
+                initialValue:
+                    normalizeScriptAiReasoningEffort(reasoningEffortValue),
+                decoration: const InputDecoration(
+                  labelText: '思考程度',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: [
+                  for (final effort in scriptAiReasoningEffortOptions)
+                    DropdownMenuItem(
+                      value: effort,
+                      child: Text(_scriptAiReasoningEffortLabel(effort)),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    onReasoningEffortChanged(value);
+                  }
+                },
               ),
             ],
             const SizedBox(height: 10),
@@ -725,6 +761,19 @@ class SettingsPageView extends StatelessWidget {
       },
     );
   }
+}
+
+String _scriptAiReasoningEffortLabel(String value) {
+  return switch (value) {
+    '' => '默认',
+    'none' => 'none',
+    'minimal' => 'minimal',
+    'low' => 'low',
+    'medium' => 'medium',
+    'high' => 'high',
+    'xhigh' => 'xhigh',
+    _ => '默认',
+  };
 }
 
 String _themeModeLabel(String value) {

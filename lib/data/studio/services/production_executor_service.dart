@@ -328,7 +328,8 @@ class ProductionExecutorService {
       await onTaskUpdate?.call(runningTask);
 
       try {
-        final bytes = await requestImage(runningTask.payload);
+        final bytes =
+            await requestImage(plan.requestPayloadForTask(runningTask));
         final fileName = _outputFileName(runningTask);
         final outputPath = savePlanImage == null
             ? await saveImage(bytes, fileName)

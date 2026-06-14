@@ -308,6 +308,220 @@ void main() {
     expect(snapshot.outfits.single.outfit.name, '服装');
   });
 
+  test('loadSnapshot keeps skin identities on outfits, not legacy characters',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r13',
+        name: 'Suzuran',
+        traits: ViewVariantTexts(
+          frontFull:
+              'suzuran (spring praise) (arknights), fox girl, fox ears, fox tail',
+        ),
+        anchorTags: [
+          'suzuran_(spring_praise)_(arknights)',
+          'fox_ears',
+        ],
+        identityTags: [
+          'suzuran (spring praise) (arknights)',
+          'girl',
+        ],
+        source: SourceRef(type: 'legacy_artist_workbook'),
+        defaultOutfitId: 'legacy-character-sheet-r13-outfit-3',
+        outfits: [
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r13-outfit-3',
+            name: 'Yukibare',
+            tags: ViewVariantTexts(
+              frontFull: 'suzuran (yukibare) (arknights)',
+              frontUpper: 'japanese_clothes, kimono',
+              frontLower: 'hakama_skirt, sandals',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['japanese_clothes', 'kimono'],
+              lowerClothingTags: ['hakama_skirt', 'sandals'],
+            ),
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r13-outfit-4',
+            name: 'Spring Praise',
+            tags: ViewVariantTexts(
+              frontFull:
+                  'suzuran (spring praise) (arknights), long_sleeves, blue_skirt',
+              frontUpper: 'long_sleeves',
+              frontLower: 'blue_skirt',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['long_sleeves'],
+              lowerClothingTags: ['blue_skirt'],
+            ),
+          ),
+        ],
+      ),
+    ]);
+
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    final character = snapshot.characters.single;
+    expect(
+      character.traits.frontFull,
+      'suzuran (arknights), fox girl, fox ears, fox tail',
+    );
+    expect(character.anchorTags, ['suzuran_(arknights)', 'fox_ears']);
+    expect(character.identityTags, ['suzuran (arknights)', 'girl']);
+    expect(character.defaultOutfitId, 'legacy-character-sheet-r13-outfit-3');
+    expect(
+      character.outfits[0].tags.frontFull,
+      'suzuran (arknights), suzuran (yukibare) (arknights)',
+    );
+    expect(
+      character.outfits[1].tags.frontFull,
+      'suzuran (arknights), suzuran (spring praise) (arknights), '
+      'long_sleeves, blue_skirt',
+    );
+    expect(snapshot.outfits, hasLength(2));
+  });
+
+  test(
+      'loadSnapshot folds identity-only legacy generic outfits into the default outfit',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r5',
+        name: 'Ceobe',
+        traits: ViewVariantTexts(frontFull: 'ceobe_(arknights)'),
+        source: SourceRef(type: 'legacy_artist_workbook'),
+        defaultOutfitId: 'default-outfit',
+        outfits: [
+          WorkspaceOutfit(
+            id: 'default-outfit',
+            name: '默认服装',
+            tags: ViewVariantTexts(
+              frontFull: 'dress, long_sleeves',
+              frontUpper: 'dress, long_sleeves',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['dress', 'long_sleeves'],
+            ),
+            imageRefs: ['assets/references/ceobe-default.png'],
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r5-outfit-3',
+            name: '变体 1',
+            tags: ViewVariantTexts(
+              frontFull:
+                  'dog_girl, animal_ears, brown_hair, dog_ears, long_hair',
+              frontUpper: 'jacket, black_jacket, gloves, dress, long_sleeves',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperBodyTags: [
+                'animal_ears',
+                'brown_hair',
+                'dog_ears',
+                'long_hair',
+              ],
+              upperClothingTags: [
+                'jacket',
+                'black_jacket',
+                'gloves',
+                'dress',
+                'long_sleeves',
+              ],
+            ),
+            imageRefs: ['assets/references/ceobe-variant.png'],
+          ),
+        ],
+      ),
+    ]);
+
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    final character = snapshot.characters.single;
+    expect(snapshot.summary.outfitCount, 1);
+    expect(character.outfits, hasLength(1));
+    expect(character.defaultOutfitId, 'default-outfit');
+    final outfit = character.outfits.single;
+    expect(outfit.id, 'default-outfit');
+    expect(outfit.tags.frontFull, 'dress, long_sleeves');
+    expect(outfit.tags.frontUpper,
+        'dress, long_sleeves, jacket, black_jacket, gloves');
+    expect(outfit.partTags.upperBodyTags, [
+      'animal_ears',
+      'brown_hair',
+      'dog_ears',
+      'long_hair',
+    ]);
+    expect(outfit.partTags.upperClothingTags, [
+      'dress',
+      'long_sleeves',
+      'jacket',
+      'black_jacket',
+      'gloves',
+    ]);
+    expect(outfit.imageRefs, [
+      'assets/references/ceobe-default.png',
+      'assets/references/ceobe-variant.png',
+    ]);
+  });
+
+  test('loadSnapshot dedupes legacy outfits by structured clothing signature',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r21',
+        name: 'Yuel',
+        traits: ViewVariantTexts(frontFull: 'yuel_(granblue_fantasy)'),
+        source: SourceRef(type: 'legacy_artist_workbook'),
+        defaultOutfitId: 'default-outfit',
+        outfits: [
+          WorkspaceOutfit(
+            id: 'default-outfit',
+            name: '默认服装',
+            tags: ViewVariantTexts(
+              frontFull: 'bikini, swimsuit, white_robe',
+              frontUpper: 'bikini, swimsuit, white_robe',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['bikini', 'swimsuit', 'white_robe'],
+            ),
+            imageRefs: ['assets/references/yuel-default.png'],
+          ),
+          WorkspaceOutfit(
+            id: 'legacy-character-sheet-r21-outfit-3',
+            name: '夏日装',
+            tags: ViewVariantTexts(
+              frontFull: 'yuel (summer) (granblue fantasy), bikini, swimsuit',
+              frontUpper: 'bikini, swimsuit, white_robe',
+            ),
+            partTags: WorkspaceOutfitPartTags(
+              upperClothingTags: ['bikini', 'swimsuit', 'white_robe'],
+            ),
+            imageRefs: ['assets/references/yuel-summer.png'],
+          ),
+        ],
+      ),
+    ]);
+
+    final snapshot = await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot();
+
+    final character = snapshot.characters.single;
+    expect(snapshot.summary.outfitCount, 1);
+    expect(character.outfits, hasLength(1));
+    expect(character.defaultOutfitId, 'legacy-character-sheet-r21-outfit-3');
+    expect(character.outfits.single.id, 'legacy-character-sheet-r21-outfit-3');
+    expect(character.outfits.single.name, '夏日装');
+    expect(character.outfits.single.imageRefs, [
+      'assets/references/yuel-summer.png',
+      'assets/references/yuel-default.png',
+    ]);
+  });
+
   test('loadSnapshot excludes legacy codex unless explicitly requested',
       () async {
     await workspaceService.saveInspirations([
@@ -399,6 +613,47 @@ void main() {
     expect(searched.legacyCodexLoadedCount, 1);
     expect(searched.legacyCodexTotalCount, 1);
     expect(searched.inspirations.single.id, 'legacy-codex-5');
+  });
+
+  test('loadSnapshot avoids legacy codex subcategory counts for all view',
+      () async {
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [
+        InspirationEntry(
+          id: 'legacy-codex-style',
+          name: 'Painter Style',
+          prompt: 'artist:wlop, painterly, official art',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+        InspirationEntry(
+          id: 'legacy-codex-dress',
+          name: 'Dress Notes',
+          prompt: 'red dress, white gloves, leather boots',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+    );
+
+    final snapshot = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 2,
+    );
+
+    expect(
+      snapshot.legacyCodexCategoryCounts[StudioLegacyCodexCategories.allKey],
+      2,
+    );
+    expect(
+      snapshot.legacyCodexCategoryCounts[
+          StudioLegacyCodexCategories.artistStyle.key],
+      0,
+    );
+    expect(
+      snapshot
+          .legacyCodexCategoryCounts[StudioLegacyCodexCategories.clothing.key],
+      0,
+    );
   });
 
   test('loadSnapshot filters legacy codex category before paging', () async {
@@ -556,7 +811,7 @@ void main() {
     );
     expect(await cacheFile.exists(), isTrue);
     final cacheJson = jsonDecode(await cacheFile.readAsString());
-    expect(cacheJson['schemaVersion'], 3);
+    expect(cacheJson['schemaVersion'], 5);
     final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
     expect(entries, hasLength(1));
     final cacheEntry = Map<String, dynamic>.from(entries.values.single as Map);

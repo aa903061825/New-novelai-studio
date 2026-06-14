@@ -144,6 +144,40 @@ void main() {
     expect(viewModel.requestIntervalRandomRangeSeconds, 0);
   });
 
+  test('pending execution settings save does not overwrite newer numeric edits',
+      () async {
+    final blockingQueueService = _BlockingExecutionSettingsQueueService(
+      workspaceService: workspaceService,
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([_scriptTask(id: 'task-1')])
+      ],
+      queueService: blockingQueueService,
+    );
+
+    viewModel.setRequestIntervalSecondsText('3');
+    await blockingQueueService.firstSaveStarted.future;
+
+    viewModel.setRequestIntervalSecondsText('30');
+    viewModel.setRequestIntervalRandomRangeText('45');
+
+    blockingQueueService.releaseFirstSave();
+    await viewModel.flushPendingExecutionSettingsSaves();
+
+    expect(viewModel.requestIntervalSeconds, 30);
+    expect(viewModel.requestIntervalRandomRangeSeconds, 45);
+    expect(
+      viewModel.selectedPlan?.executionSettings?.requestIntervalSeconds,
+      30,
+    );
+    expect(
+      viewModel
+          .selectedPlan?.executionSettings?.requestIntervalRandomRangeSeconds,
+      45,
+    );
+  });
+
   test('pickOutputDirectory updates the editable output path', () async {
     final viewModel = ProductionQueueViewModel(
       plans: [
@@ -856,6 +890,113 @@ void main() {
     );
   });
 
+  test('running queue applies execution setting edits to subsequent tasks',
+      () async {
+    await queueService.savePlans([
+      _plan([
+        _scriptTask(id: 'task-1'),
+        _scriptTask(id: 'task-2', frameIndex: 2),
+      ])
+    ]);
+    final requestedWidths = <int?>[];
+    final requestedHeights = <int?>[];
+    final firstRequestStarted = Completer<void>();
+    final firstRequestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      settings: const ProductionQueueExecutionSettings(
+        width: 832,
+        height: 1216,
+      ),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (payload) {
+          final parameters = payload['parameters'] as Map;
+          requestedWidths.add(parameters['width'] as int?);
+          requestedHeights.add(parameters['height'] as int?);
+          if (!firstRequestStarted.isCompleted) {
+            firstRequestStarted.complete();
+            return firstRequestCompleter.future;
+          }
+          return Future.value(_fakePngBytes);
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await firstRequestStarted.future;
+
+    viewModel.setBatchWidthText('960');
+    viewModel.setBatchHeightText('1280');
+    firstRequestCompleter.complete(_fakePngBytes);
+    await startFuture;
+
+    expect(requestedWidths, [832, 960]);
+    expect(requestedHeights, [1216, 1280]);
+    expect(viewModel.selectedPlan?.tasks[1].payload['parameters'],
+        containsPair('width', 960));
+  });
+
+  test('quick rerun inserts a queued clone after the running task', () async {
+    final completed = _scriptTask(
+      id: 'task-done',
+      frameIndex: 9,
+      status: ProductionTaskStatus.completed,
+      attempts: 1,
+      outputImagePath: 'C:/old/task-done.png',
+      suggestedFileName: 'old-task-done.png',
+    );
+    await queueService.savePlans([
+      _plan([
+        completed,
+        _scriptTask(id: 'task-1'),
+        _scriptTask(id: 'task-2', frameIndex: 2),
+      ])
+    ]);
+    final requestedInputs = <String>[];
+    final firstRequestStarted = Completer<void>();
+    final firstRequestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (payload) {
+          final input = payload['input'] as String;
+          requestedInputs.add(input);
+          if (!firstRequestStarted.isCompleted) {
+            firstRequestStarted.complete();
+            return firstRequestCompleter.future;
+          }
+          return Future.value(_fakePngBytes);
+        },
+        saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await firstRequestStarted.future;
+
+    final clone = await viewModel.queueRerunTask(completed);
+    firstRequestCompleter.complete(_fakePngBytes);
+    await startFuture;
+
+    expect(clone?.id, 'task-done-rerun');
+    expect(requestedInputs, ['frame 1', 'frame 9', 'frame 2']);
+    expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
+      'task-done',
+      'task-1',
+      'task-done-rerun',
+      'task-2',
+    ]);
+    final rerun = viewModel.selectedPlan?.tasks[2];
+    expect(rerun?.status, ProductionTaskStatus.completed);
+    expect(rerun?.attempts, 1);
+    expect(rerun?.outputImagePath, 'C:/out/task-done-rerun.png');
+    expect(rerun?.suggestedFileName, 'task-done-rerun.png');
+  });
+
   test('restored partial queues expose resume before an in-memory pause',
       () async {
     await queueService.savePlans([
@@ -1258,6 +1399,35 @@ void main() {
 
 final _fakePngBytes = Uint8List.fromList([137, 80, 78, 71]);
 final _createdAt = DateTime.utc(2026, 5, 25);
+
+class _BlockingExecutionSettingsQueueService extends ProductionQueueService {
+  final Completer<ProductionPlanExecutionSettings> firstSaveStarted =
+      Completer<ProductionPlanExecutionSettings>();
+  final Completer<void> _firstSaveRelease = Completer<void>();
+  var _saveLastExecutionSettingsCalls = 0;
+
+  _BlockingExecutionSettingsQueueService({
+    required super.workspaceService,
+  });
+
+  @override
+  Future<void> saveLastExecutionSettings(
+    ProductionPlanExecutionSettings settings,
+  ) async {
+    _saveLastExecutionSettingsCalls += 1;
+    if (_saveLastExecutionSettingsCalls == 1) {
+      firstSaveStarted.complete(settings);
+      await _firstSaveRelease.future;
+    }
+    await super.saveLastExecutionSettings(settings);
+  }
+
+  void releaseFirstSave() {
+    if (!_firstSaveRelease.isCompleted) {
+      _firstSaveRelease.complete();
+    }
+  }
+}
 
 ProductionExecutorService _executor({
   ProductionQueueService? queueService,

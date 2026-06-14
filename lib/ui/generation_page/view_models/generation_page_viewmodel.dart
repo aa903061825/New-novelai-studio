@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -9,9 +10,14 @@ import 'package:get_it/get_it.dart';
 import 'package:nai_casrand/data/models/api_request.dart';
 import 'package:nai_casrand/data/models/command_status.dart';
 import 'package:nai_casrand/data/models/generation_size.dart';
+import 'package:nai_casrand/data/models/i2i_config.dart';
 import 'package:nai_casrand/data/models/info_card_content.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/services/config_service.dart';
+import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
+import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
+import 'package:nai_casrand/data/studio/services/studio_director_tool_service.dart';
+import 'package:nai_casrand/data/studio/services/studio_image_operation_service.dart';
 import 'package:nai_casrand/ui/generation_page/models/generation_payload_cache.dart';
 import 'package:nai_casrand/data/services/api_service.dart';
 import 'package:nai_casrand/data/services/file_service.dart';
@@ -32,6 +38,20 @@ class ApiStatusException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class _GallerySourceImage {
+  final String path;
+  final String imageB64;
+  final int width;
+  final int height;
+
+  const _GallerySourceImage({
+    required this.path,
+    required this.imageB64,
+    required this.width,
+    required this.height,
+  });
 }
 
 class GenerationPageViewmodel extends ChangeNotifier {
@@ -177,6 +197,322 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
   void notifyConfigChanged() {
     notifyListeners();
+  }
+
+  Future<void> enhanceGalleryRecord(StudioGalleryRecord record) async {
+    final source = await _readGallerySourceImage(record);
+    final strength = payloadConfig.i2iConfig.strength.clamp(0.0, 1.0);
+    final noise = payloadConfig.i2iConfig.noise.clamp(0.0, 1.0);
+    final payloadResult =
+        const StudioImageOperationService().buildEnhancePayload(
+      payloadConfig: payloadConfig,
+      sourceImageB64: source.imageB64,
+      strength: strength,
+      noise: noise,
+    );
+    final request = ApiRequest(
+      endpoint: payloadConfig.settings.imageGenerationEndpoint,
+      proxy: payloadConfig.settings.proxy,
+      headers: payloadConfig.getHeaders(),
+      payload: payloadResult.payload,
+    );
+    final response = await fetchData(request);
+    final statusCode = int.tryParse(response.status) ?? 0;
+    if (statusCode < 200 || statusCode >= 300) {
+      throw ApiStatusException(
+        statusCode: statusCode,
+        message: _buildApiErrorMessage(statusCode, response.data),
+      );
+    }
+    var imageBytes = processResponse(response.data);
+    if (payloadConfig.settings.metadataEraseEnabled) {
+      final metadataString = payloadConfig.settings.customMetadataEnabled
+          ? payloadConfig.settings.customMetadataContent
+          : '';
+      imageBytes = await embedMetadata(imageBytes, metadataString);
+    }
+
+    final sourceTitle = record.title.trim().isEmpty ? record.id : record.title;
+    final filePrefix = _getSafeFileName('enhance-$sourceTitle');
+    final fileName = [
+      generateTimestampString(DateTime.now()),
+      filePrefix,
+      '${generateRandomString()}.png',
+    ].where((part) => part.trim().isNotEmpty).join('-');
+    await savePictureToFile(
+      imageBytes,
+      fileName,
+      payloadConfig.settings.outputFolderPath,
+    );
+    final imagePath = await resolvePictureSavePath(
+      fileName,
+      payloadConfig.settings.outputFolderPath,
+    );
+    final additionalInfo = digestPayloadResult(payloadResult);
+    await galleryService?.saveOperationSnapshot(
+      config: payloadConfig,
+      operation: StudioGalleryOperation.enhance,
+      sourceRecordId: record.id,
+      sourceImagePath: source.path,
+      title: fileName,
+      imagePath: imagePath,
+      info: payloadResult.comment,
+      additionalInfo: additionalInfo,
+      parameters: {
+        'strength': strength,
+        'noise': noise,
+        'source_width': source.width,
+        'source_height': source.height,
+      },
+    );
+    final content = InfoCardContent(
+      title: fileName,
+      info: payloadResult.comment,
+      additionalInfo: additionalInfo,
+      contentOrderText: payloadResult.contentOrderText,
+      imageBytes: imageBytes,
+    );
+    commandList.add(
+      Command.createSyncNoParam<InfoCardContent>(
+        () => content,
+        initialValue: content,
+      ),
+    );
+    notifyListeners();
+  }
+
+  Future<void> upscaleGalleryRecord(StudioGalleryRecord record) async {
+    final source = await _readGallerySourceImage(record);
+    final validation = const StudioImageOperationService()
+        .validateUpscaleSource(width: source.width, height: source.height);
+    if (!validation.isValid) {
+      throw StateError(validation.message ?? 'Upscale source is invalid.');
+    }
+    throw UnsupportedError(
+      'Upscale execution is pending official API contract confirmation.',
+    );
+  }
+
+  Future<void> runDirectorToolGalleryRecord(
+    StudioGalleryRecord record,
+    StudioDirectorToolOptions options,
+  ) async {
+    final source = await _readGallerySourceImage(record);
+    final request = const StudioDirectorToolService().buildRequest(
+      config: payloadConfig,
+      sourceImageB64: source.imageB64,
+      sourceWidth: source.width,
+      sourceHeight: source.height,
+      options: options,
+    );
+    final response = await fetchData(request);
+    final statusCode = int.tryParse(response.status) ?? 0;
+    if (statusCode < 200 || statusCode >= 300) {
+      throw ApiStatusException(
+        statusCode: statusCode,
+        message: _buildApiErrorMessage(statusCode, response.data),
+      );
+    }
+
+    final resultImages =
+        const StudioDirectorToolService().decodeResultImages(response.data);
+    final sourceTitle = record.title.trim().isEmpty ? record.id : record.title;
+    final baseAdditionalInfo = Map<String, dynamic>.from(request.payload)
+      ..remove('image');
+    final info = _directorToolInfo(options);
+    for (final resultImage in resultImages) {
+      var imageBytes = resultImage.bytes;
+      if (payloadConfig.settings.metadataEraseEnabled) {
+        final metadataString = payloadConfig.settings.customMetadataEnabled
+            ? payloadConfig.settings.customMetadataContent
+            : '';
+        imageBytes = await embedMetadata(imageBytes, metadataString);
+      }
+
+      final filePrefix = _getSafeFileName(
+        'director-${options.tool.requestType}-${resultImage.variantName}-$sourceTitle',
+      );
+      final fileName = [
+        generateTimestampString(DateTime.now()),
+        filePrefix,
+        '${generateRandomString()}.png',
+      ].where((part) => part.trim().isNotEmpty).join('-');
+      await savePictureToFile(
+        imageBytes,
+        fileName,
+        payloadConfig.settings.outputFolderPath,
+      );
+      final imagePath = await resolvePictureSavePath(
+        fileName,
+        payloadConfig.settings.outputFolderPath,
+      );
+      final additionalInfo = Map<String, dynamic>.from(baseAdditionalInfo)
+        ..['variant_index'] = resultImage.variantIndex
+        ..['variant_name'] = resultImage.variantName;
+      final parameters = options.toLineageParameters(
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      )
+        ..['variant_index'] = resultImage.variantIndex
+        ..['variant_name'] = resultImage.variantName;
+      await galleryService?.saveOperationSnapshot(
+        config: payloadConfig,
+        operation: StudioGalleryOperation.directorTool,
+        sourceRecordId: record.id,
+        sourceImagePath: source.path,
+        title: fileName,
+        imagePath: imagePath,
+        info: info,
+        additionalInfo: additionalInfo,
+        parameters: parameters,
+      );
+      final content = InfoCardContent(
+        title: fileName,
+        info: info,
+        additionalInfo: additionalInfo,
+        imageBytes: imageBytes,
+      );
+      commandList.add(
+        Command.createSyncNoParam<InfoCardContent>(
+          () => content,
+          initialValue: content,
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<void> runInpaintGalleryRecord(
+    StudioGalleryRecord record, {
+    required String maskImagePath,
+    double strength = 1.0,
+  }) async {
+    final source = await _readGallerySourceImage(record);
+    final mask = await _readImageFile(maskImagePath, 'Inpaint mask image');
+    final payloadResult =
+        const StudioImageOperationService().buildInpaintPayload(
+      payloadConfig: payloadConfig,
+      sourceImageB64: source.imageB64,
+      sourceWidth: source.width,
+      sourceHeight: source.height,
+      maskImageB64: mask.imageB64,
+      maskWidth: mask.width,
+      maskHeight: mask.height,
+      strength: strength,
+    );
+    final request = ApiRequest(
+      endpoint: payloadConfig.settings.imageGenerationEndpoint,
+      proxy: payloadConfig.settings.proxy,
+      headers: payloadConfig.getHeaders(),
+      payload: payloadResult.payload,
+    );
+    final response = await fetchData(request);
+    final statusCode = int.tryParse(response.status) ?? 0;
+    if (statusCode < 200 || statusCode >= 300) {
+      throw ApiStatusException(
+        statusCode: statusCode,
+        message: _buildApiErrorMessage(statusCode, response.data),
+      );
+    }
+
+    var imageBytes = processResponse(response.data);
+    if (payloadConfig.settings.metadataEraseEnabled) {
+      final metadataString = payloadConfig.settings.customMetadataEnabled
+          ? payloadConfig.settings.customMetadataContent
+          : '';
+      imageBytes = await embedMetadata(imageBytes, metadataString);
+    }
+
+    final sourceTitle = record.title.trim().isEmpty ? record.id : record.title;
+    final filePrefix = _getSafeFileName('inpaint-$sourceTitle');
+    final fileName = [
+      generateTimestampString(DateTime.now()),
+      filePrefix,
+      '${generateRandomString()}.png',
+    ].where((part) => part.trim().isNotEmpty).join('-');
+    await savePictureToFile(
+      imageBytes,
+      fileName,
+      payloadConfig.settings.outputFolderPath,
+    );
+    final imagePath = await resolvePictureSavePath(
+      fileName,
+      payloadConfig.settings.outputFolderPath,
+    );
+    final additionalInfo = digestPayloadResult(payloadResult);
+    final clampedStrength = strength.clamp(0.0, 1.0);
+    await galleryService?.saveOperationSnapshot(
+      config: payloadConfig,
+      operation: StudioGalleryOperation.inpaint,
+      sourceRecordId: record.id,
+      sourceImagePath: source.path,
+      title: fileName,
+      imagePath: imagePath,
+      info: payloadResult.comment,
+      additionalInfo: additionalInfo,
+      parameters: {
+        'strength': clampedStrength,
+        'source_width': source.width,
+        'source_height': source.height,
+        'mask_width': mask.width,
+        'mask_height': mask.height,
+        'mask_image_path': mask.path,
+      },
+    );
+    final content = InfoCardContent(
+      title: fileName,
+      info: payloadResult.comment,
+      additionalInfo: additionalInfo,
+      contentOrderText: payloadResult.contentOrderText,
+      imageBytes: imageBytes,
+    );
+    commandList.add(
+      Command.createSyncNoParam<InfoCardContent>(
+        () => content,
+        initialValue: content,
+      ),
+    );
+    notifyListeners();
+  }
+
+  String _directorToolInfo(StudioDirectorToolOptions options) {
+    final prompt = options.prompt.trim();
+    if (prompt.isEmpty) {
+      return 'Director Tool: ${options.tool.requestType}';
+    }
+    return 'Director Tool: ${options.tool.requestType}\n$prompt';
+  }
+
+  Future<_GallerySourceImage> _readGallerySourceImage(
+    StudioGalleryRecord record,
+  ) async {
+    final path = record.imagePath?.trim();
+    if (path == null || path.isEmpty) {
+      throw StateError('Gallery record does not have an image path.');
+    }
+    return _readImageFile(path, 'Gallery record image');
+  }
+
+  Future<_GallerySourceImage> _readImageFile(
+    String path,
+    String label,
+  ) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw StateError('$label does not exist: $path');
+    }
+    final bytes = await file.readAsBytes();
+    final i2iConfig = I2IConfig()..setImage(bytes);
+    final imageB64 = i2iConfig.imageB64;
+    if (imageB64 == null || imageB64.isEmpty) {
+      throw StateError('$label could not be read: $path');
+    }
+    return _GallerySourceImage(
+      path: file.path,
+      imageB64: imageB64,
+      width: i2iConfig.width,
+      height: i2iConfig.height,
+    );
   }
 
   bool get hasCurrentConfigPreviewSourceImages =>
@@ -650,6 +986,8 @@ class GenerationPageViewmodel extends ChangeNotifier {
       'director_reference_secondary_strength_values',
       'director_reference_information_extracted',
       'director_reference_descriptions',
+      'image',
+      'mask',
     ]) {
       additionalInfoParam.remove(key);
     }

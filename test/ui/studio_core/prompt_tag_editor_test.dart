@@ -13,6 +13,7 @@ import 'package:nai_casrand/data/models/settings.dart';
 import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
 import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:nai_casrand/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
 import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
@@ -94,6 +95,7 @@ Future<void> _dragSelectionAround(
 
 void main() {
   tearDown(() async {
+    PromptTagAutoTranslationQueue.instance.resetForTesting();
     await GetIt.I.reset();
   });
 
@@ -133,6 +135,35 @@ void main() {
     expect(find.text('长发'), findsOneWidget);
     expect(find.text('blue eyes'), findsNothing);
     expect(find.text('蓝眼睛'), findsNothing);
+  });
+
+  testWidgets('preferTranslatedLabels promotes cached translation to primary',
+      (tester) async {
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000)
+        ..setManual('animal_ears', 'cached animal ears'),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: 'animal_ears',
+          onChanged: (_) {},
+          showControls: false,
+          preferTranslatedLabels: true,
+        ),
+      ),
+    );
+
+    final chip = find.byKey(const ValueKey('prompt-tag-editor-chip-0'));
+    final labels = tester
+        .widgetList<Text>(
+            find.descendant(of: chip, matching: find.byType(Text)))
+        .map((widget) => widget.data)
+        .whereType<String>()
+        .toList(growable: false);
+
+    expect(labels.take(2), ['cached animal ears', 'animal_ears']);
   });
 
   testWidgets('single chip delete clears shared selection state',
@@ -1364,6 +1395,79 @@ void main() {
     );
   });
 
+  testWidgets('cross-editor drop changes can be wrapped in one batch',
+      (tester) async {
+    var upper = 'blue eyes, long hair';
+    var lower = 'white shirt';
+    var batchActive = false;
+    var batchCalls = 0;
+    final changes = <String>[];
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              children: [
+                PromptTagEditor(
+                  key: const ValueKey('batch-upper-editor'),
+                  value: upper,
+                  selectionFieldId: 'batch-upper',
+                  onChanged: (next) {
+                    changes.add('upper:${batchActive ? 'batched' : 'plain'}');
+                    setState(() => upper = next);
+                  },
+                ),
+                const SizedBox(height: 24),
+                PromptTagEditor(
+                  key: const ValueKey('batch-lower-editor'),
+                  value: lower,
+                  selectionFieldId: 'batch-lower',
+                  onDroppedTagsBatch: (applyDrop) {
+                    batchCalls += 1;
+                    batchActive = true;
+                    applyDrop();
+                    batchActive = false;
+                  },
+                  onChanged: (next) {
+                    changes.add('lower:${batchActive ? 'batched' : 'plain'}');
+                    setState(() => lower = next);
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+
+    final upperChip = find.descendant(
+      of: find.byKey(const ValueKey('batch-upper-editor')),
+      matching: _editorChip(0),
+    );
+    final lowerDropArea = find.descendant(
+      of: find.byKey(const ValueKey('batch-lower-editor')),
+      matching: find.byKey(const ValueKey('prompt-tag-editor-selection-area')),
+    );
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    final start = tester.getCenter(upperChip);
+    final end = tester.getCenter(lowerDropArea);
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+
+    expect(batchCalls, 1);
+    expect(changes, ['lower:batched', 'upper:batched']);
+    expect(lower, 'white shirt, blue eyes');
+    expect(upper, 'long hair');
+  });
+
   testWidgets('right click menu can copy and delete editor tags',
       (tester) async {
     String value = 'blue eyes, long hair, white shirt';
@@ -1716,6 +1820,51 @@ void main() {
     expect(value, '0.8:: blue eyes ::, long hair');
     expect(find.text('x0.80'), findsOneWidget);
     expect(find.text('x1.20'), findsNothing);
+  });
+
+  testWidgets('double click weight edit applies to selected editor chips',
+      (tester) async {
+    String value = 'blue eyes, long hair, white shirt';
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await _dragSelectionAround(
+      tester,
+      _editorChip(0),
+      _editorChip(1),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_editorChip(1));
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(_editorChip(1));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-weight-field')),
+      '0.75',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-tag-save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      value,
+      '0.75:: blue eyes ::, 0.75:: long hair ::, white shirt',
+    );
+    expect(find.text('x0.75'), findsNWidgets(2));
+    expect(find.text('white shirt'), findsOneWidget);
   });
 
   testWidgets('clearing weight in tag edit dialog removes the weight',

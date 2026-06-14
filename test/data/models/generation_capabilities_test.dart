@@ -69,6 +69,43 @@ void main() {
       expect(capabilities.supportsPromptMixing, isFalse);
       expect(capabilities.supportsSmeaControls, isFalse);
     });
+
+    test('hides prompt mixing validation for V4 models', () {
+      final capabilities = GenerationModelCapabilities.fromModel(
+        'nai-diffusion-4-5-full',
+      );
+
+      final validation = capabilities.validatePromptMixingSyntax('cat|frog');
+
+      expect(capabilities.supportsPromptMixing, isFalse);
+      expect(validation.hasMixing, isTrue);
+      expect(validation.isValid, isFalse);
+      expect(
+        validation.message,
+        'Prompt Mixing is only available on V3 or lower models.',
+      );
+    });
+
+    test('validates V3 prompt mixing while ignoring randomizer bars', () {
+      final capabilities = GenerationModelCapabilities.fromModel(
+        'nai-diffusion-3',
+      );
+
+      expect(
+        capabilities.validatePromptMixingSyntax('cat|frog:0.5').isValid,
+        isTrue,
+      );
+      expect(
+        capabilities
+            .validatePromptMixingSyntax('1girl, ||red|blue|| hair')
+            .hasMixing,
+        isFalse,
+      );
+      expect(
+        capabilities.validatePromptMixingSyntax('cat|').isValid,
+        isFalse,
+      );
+    });
   });
 
   test('GenerationMode exposes supported generation modes', () {

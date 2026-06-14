@@ -431,6 +431,142 @@ void main() {
       expect(stage.lowerClothing, 'black shoes');
     });
 
+    test('keeps clothing and nude replacement states as separate stages', () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-aoi',
+            displayName: 'aoi (mechanic) (princess connect!)',
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'tank-skirt',
+                label: 'black tank top / back strap skirt',
+                confidence: 0.72,
+                frameIndexes: [
+                  1,
+                  4,
+                  5,
+                  6,
+                  7,
+                  8,
+                  9,
+                  10,
+                  11,
+                  12,
+                  13,
+                  14,
+                  52,
+                  53,
+                  54,
+                  55,
+                  56,
+                  57,
+                  58,
+                  59,
+                  60,
+                  61,
+                  62,
+                  63,
+                  64,
+                  65,
+                  66,
+                ],
+                identity: 'aoi (mechanic) (princess connect!), girl',
+                upperBody: 'green hair',
+                upperClothing: 'black tank top',
+                lowerClothing: 'overall skirt, white panties',
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'workwear',
+                label: 'workshop overalls',
+                confidence: 0.7,
+                frameIndexes: [2, 3],
+                identity: 'aoi (mechanic) (princess connect!), girl',
+                upperBody: 'green hair',
+                upperClothing: 'black tank top, blue overalls',
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'topless-panties',
+                label: 'bedroom topless / white panties',
+                confidence: 0.7,
+                frameIndexes: [15],
+                identity: 'aoi (mechanic) (princess connect!), girl',
+                upperBody: 'green hair',
+                lowerClothing: 'white panties',
+                evidenceTerms: ['topless'],
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'nude',
+                label: 'nude',
+                confidence: 0.7,
+                frameIndexes: [
+                  16,
+                  17,
+                  18,
+                  19,
+                  20,
+                  21,
+                  22,
+                  23,
+                  24,
+                  25,
+                  26,
+                  27,
+                  28,
+                  39,
+                  40,
+                  41,
+                  42,
+                  43,
+                  44,
+                  45,
+                  46,
+                  47,
+                  48,
+                  49,
+                  50,
+                  51,
+                ],
+                identity: 'aoi (mechanic) (princess connect!), girl',
+                upperBody: 'green hair',
+                evidenceTerms: ['completely nude'],
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'towel',
+                label: 'bedroom bath towel',
+                confidence: 0.7,
+                frameIndexes: [29, 30, 31, 32, 33, 34, 35, 36, 37, 38],
+                identity: 'aoi (mechanic) (princess connect!), girl',
+                upperBody: 'green hair',
+                upperClothing: 'white towel',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final stages = extraction.collapseEquivalentStages().roles.single.stages;
+
+      expect(stages.map((stage) => stage.stageId), [
+        'tank-skirt',
+        'workwear',
+        'topless-panties',
+        'nude',
+        'towel',
+      ]);
+      expect(
+        stages.singleWhere((stage) => stage.stageId == 'nude').frameIndexes,
+        contains(48),
+      );
+      expect(
+        stages
+            .singleWhere((stage) => stage.stageId == 'tank-skirt')
+            .frameIndexes,
+        isNot(contains(48)),
+      );
+    });
+
     test('makes duplicate stage ids unique before mapping materialization', () {
       const extraction = ScriptAiRoleExtraction(
         status: ScriptAiRoleExtractionStatus.ready,

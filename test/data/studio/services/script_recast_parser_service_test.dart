@@ -34,6 +34,17 @@ void main() {
       expect(script.id, isNot(contains(RegExp(r'[\\/:]'))));
     });
 
+    test('uses the same script id for slash variants of the same path', () {
+      final directory = Directory('test/fixtures/script_recast/v4_slotted');
+      final nativePath = directory.absolute.path;
+      final slashPath = nativePath.replaceAll('\\', '/');
+
+      expect(
+        ScriptRecastParserService.scriptIdForDirectory(Directory(slashPath)),
+        ScriptRecastParserService.scriptIdForDirectory(Directory(nativePath)),
+      );
+    });
+
     test('scans p-numbered json frames in natural order', () async {
       final service = ScriptRecastParserService();
       final directory = await Directory.systemTemp.createTemp(

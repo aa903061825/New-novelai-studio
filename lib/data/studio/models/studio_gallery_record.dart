@@ -2,6 +2,53 @@ import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/studio/models/production_task.dart';
 import 'package:nai_casrand/data/studio/models/workbench_document.dart';
 
+enum StudioGalleryOperation {
+  generate,
+  imageToImage,
+  enhance,
+  upscale,
+  inpaint,
+  directorTool,
+}
+
+class StudioGalleryLineage {
+  final StudioGalleryOperation operation;
+  final String? sourceRecordId;
+  final String? sourceImagePath;
+  final Map<String, dynamic> parameters;
+
+  const StudioGalleryLineage({
+    required this.operation,
+    this.sourceRecordId,
+    this.sourceImagePath,
+    this.parameters = const {},
+  });
+
+  factory StudioGalleryLineage.fromJson(Map<String, dynamic> json) {
+    return StudioGalleryLineage(
+      operation: _galleryOperationFromJson(json['operation']),
+      sourceRecordId: json['sourceRecordId'] as String?,
+      sourceImagePath: json['sourceImagePath'] as String?,
+      parameters: _dynamicMap(json['parameters']),
+    );
+  }
+
+  static StudioGalleryLineage? fromJsonOrNull(dynamic json) {
+    if (json == null) return null;
+    if (json is! Map) {
+      throw const FormatException('Gallery lineage must be an object.');
+    }
+    return StudioGalleryLineage.fromJson(json.cast<String, dynamic>());
+  }
+
+  Map<String, dynamic> toJson() => {
+        'operation': operation.name,
+        if (sourceRecordId != null) 'sourceRecordId': sourceRecordId,
+        if (sourceImagePath != null) 'sourceImagePath': sourceImagePath,
+        if (parameters.isNotEmpty) 'parameters': parameters,
+      };
+}
+
 class StudioGalleryRecord {
   static const currentVersion = 1;
 
@@ -12,6 +59,7 @@ class StudioGalleryRecord {
   final String info;
   final Map<String, dynamic> additionalInfo;
   final StudioRecastProvenance? provenance;
+  final StudioGalleryLineage? lineage;
   final WorkbenchDocument document;
 
   const StudioGalleryRecord({
@@ -22,6 +70,7 @@ class StudioGalleryRecord {
     required this.info,
     required this.additionalInfo,
     this.provenance,
+    this.lineage,
     required this.document,
   });
 
@@ -42,6 +91,9 @@ class StudioGalleryRecord {
       provenance: StudioRecastProvenance.fromJsonOrNull(
         json['provenance'] ?? additionalInfo['provenance'],
       ),
+      lineage: StudioGalleryLineage.fromJsonOrNull(
+        json['lineage'] ?? additionalInfo['lineage'],
+      ),
       document: WorkbenchDocument.fromJson(
         documentJson.cast<String, dynamic>(),
       ),
@@ -57,6 +109,7 @@ class StudioGalleryRecord {
     String? info,
     Map<String, dynamic> additionalInfo = const {},
     StudioRecastProvenance? provenance,
+    StudioGalleryLineage? lineage,
   }) {
     final document = WorkbenchDocument.fromPayloadConfig(config);
     return StudioGalleryRecord(
@@ -67,6 +120,7 @@ class StudioGalleryRecord {
       info: info ?? config.overridePrompt,
       additionalInfo: _withProvenance(additionalInfo, provenance),
       provenance: provenance,
+      lineage: lineage,
       document: document,
     );
   }
@@ -80,6 +134,7 @@ class StudioGalleryRecord {
     required String info,
     required StudioRecastProvenance provenance,
     Map<String, dynamic> additionalInfo = const {},
+    StudioGalleryLineage? lineage,
   }) {
     return StudioGalleryRecord(
       id: id,
@@ -89,6 +144,7 @@ class StudioGalleryRecord {
       info: info,
       additionalInfo: _withProvenance(additionalInfo, provenance),
       provenance: provenance,
+      lineage: lineage,
       document: documentFromNaiPayload(payload),
     );
   }
@@ -111,6 +167,7 @@ class StudioGalleryRecord {
       'info': info,
       'additionalInfo': additionalInfo,
       if (provenance != null) 'provenance': provenance!.toJson(),
+      if (lineage != null) 'lineage': lineage!.toJson(),
       'document': document.toJson(),
     };
   }
@@ -260,6 +317,17 @@ Map<String, dynamic> _withProvenance(
     ...additionalInfo,
     if (provenance != null) 'provenance': provenance.toJson(),
   });
+}
+
+StudioGalleryOperation _galleryOperationFromJson(dynamic value) {
+  if (value is String) {
+    for (final operation in StudioGalleryOperation.values) {
+      if (operation.name == value) {
+        return operation;
+      }
+    }
+  }
+  return StudioGalleryOperation.generate;
 }
 
 Map<String, dynamic> _workbenchPayloadFromNaiPayload(

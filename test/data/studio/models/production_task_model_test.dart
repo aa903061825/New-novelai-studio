@@ -199,4 +199,97 @@ void main() {
     expect(restored.executionSettings?.retryIndefinitely, isTrue);
     expect(restored.executionSettings?.outputDirectory, r'C:\outputs');
   });
+
+  test('ProductionPlan compacts repeated shared reference payload parameters',
+      () {
+    final task1 = ProductionTask.scriptRecastFrame(
+      id: 'task-1',
+      planId: 'plan-1',
+      title: 'Frame 1',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 1,
+      sourceFileName: 'nai_1.json',
+      payload: const {
+        'input': 'first prompt',
+        'parameters': {
+          'seed': 1,
+          'reference_image_multiple': ['encoded-shared-vibe'],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final task2 = ProductionTask.scriptRecastFrame(
+      id: 'task-2',
+      planId: 'plan-1',
+      title: 'Frame 2',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 2,
+      sourceFileName: 'nai_2.json',
+      payload: const {
+        'input': 'second prompt',
+        'parameters': {
+          'seed': 2,
+          'reference_image_multiple': ['encoded-shared-vibe'],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final plan = ProductionPlan(
+      id: 'plan-1',
+      name: 'Script Recast',
+      tasks: [task1, task2],
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+
+    final compacted = plan.compactSharedPayloadParameters();
+    final firstParameters =
+        compacted.tasks.first.payload['parameters'] as Map<String, dynamic>;
+    final requestParameters =
+        compacted.requestPayloadForTask(compacted.tasks.first)['parameters']
+            as Map<String, dynamic>;
+    final normalizedTask = compacted.tasks.first.copyWith(
+      payload: {
+        ...compacted.tasks.first.payload,
+        'parameters': const {
+          'seed': 1,
+          'reference_image_multiple': [],
+          'reference_strength_multiple': [],
+          'reference_information_extracted_multiple': [],
+        },
+      },
+    );
+    final normalizedRequestParameters =
+        compacted.requestPayloadForTask(normalizedTask)['parameters']
+            as Map<String, dynamic>;
+
+    expect(compacted.planFingerprint, plan.planFingerprint);
+    expect(compacted.tasks.first.payloadFingerprint, task1.payloadFingerprint);
+    expect(compacted.sharedPayloadParameters, {
+      'reference_image_multiple': ['encoded-shared-vibe'],
+      'reference_strength_multiple': [0.45],
+      'reference_information_extracted_multiple': [1.0],
+    });
+    expect(firstParameters, isNot(contains('reference_image_multiple')));
+    expect(firstParameters['seed'], 1);
+    expect(requestParameters['reference_image_multiple'], [
+      'encoded-shared-vibe',
+    ]);
+    expect(requestParameters['seed'], 1);
+    expect(normalizedRequestParameters['reference_image_multiple'], [
+      'encoded-shared-vibe',
+    ]);
+    expect(
+      ProductionPlan.fromJson(compacted.toJson()).toJson(),
+      compacted.toJson(),
+    );
+  });
 }

@@ -13,6 +13,8 @@ import 'package:nai_casrand/data/models/prompt_config.dart';
 import 'package:nai_casrand/data/models/settings.dart';
 import 'package:nai_casrand/data/services/config_service.dart';
 import 'package:nai_casrand/data/studio/models/production_task.dart';
+import 'package:nai_casrand/data/studio/models/script_recast.dart';
+import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
 import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
 import 'package:nai_casrand/data/studio/services/production_executor_service.dart';
@@ -141,11 +143,27 @@ class _AssetNavigationCatalogService extends StudioAssetCatalogService {
 }
 
 class _FakeGalleryService extends StudioGalleryService {
-  _FakeGalleryService() : super(workspaceService: WorkspaceService());
+  _FakeGalleryService([List<StudioGalleryRecord> records = const []])
+      : records = List.unmodifiable(records),
+        super(workspaceService: WorkspaceService());
+
+  List<StudioGalleryRecord> records;
 
   @override
   Future<List<StudioGalleryRecord>> loadRecords() async {
-    return const [];
+    return records;
+  }
+
+  @override
+  Future<void> saveRecords(List<StudioGalleryRecord> records) async {
+    this.records = List.unmodifiable(records);
+  }
+
+  @override
+  Future<void> removeRecord(String id) async {
+    records = List.unmodifiable(
+      records.where((record) => record.id != id),
+    );
   }
 }
 
@@ -157,6 +175,30 @@ class _FakeTokenizerScriptService extends TokenizerScriptService {
 
   @override
   Future<List<TokenizerScript>> loadScripts() async => scripts;
+}
+
+class _FakeWorkspaceService extends WorkspaceService {
+  _FakeWorkspaceService({List<RecastScriptCache> caches = const []})
+      : caches = List.unmodifiable(caches);
+
+  List<RecastScriptCache> caches;
+
+  @override
+  Future<List<RecastScriptCache>> loadRecastScriptCaches() async => caches;
+
+  @override
+  Future<void> saveRecastScriptCache(RecastScriptCache cache) async {
+    caches = List.unmodifiable([
+      for (final existing in caches)
+        if (existing.scriptId != cache.scriptId) existing,
+      cache,
+    ]);
+  }
+
+  @override
+  Future<void> saveRecastScriptCaches(List<RecastScriptCache> caches) async {
+    this.caches = List.unmodifiable(caches);
+  }
 }
 
 class _FakeProductionQueueService extends ProductionQueueService {
@@ -292,6 +334,7 @@ void main() {
     GetIt.I.registerSingleton<ConfigService>(configService);
     GetIt.I.registerSingleton<PayloadConfig>(payload);
     GetIt.I.registerSingleton<CommandStatus>(CommandStatus());
+    GetIt.I.registerSingleton<WorkspaceService>(_FakeWorkspaceService());
     GetIt.I.registerSingleton<StudioAssetCatalogService>(_FakeCatalogService());
     GetIt.I.registerSingleton<StudioWorkbenchAssetService>(
       StudioWorkbenchAssetService(payloadConfig: payload),
@@ -541,9 +584,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final scriptViewModel = _RecordingScriptViewModel();
-    await GetIt.I.unregister<TokenizerScriptService>();
-    GetIt.I.registerSingleton<TokenizerScriptService>(
-      _FakeTokenizerScriptService([_exhibitionScript()]),
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
     );
     await GetIt.I.unregister<ProductionQueueService>();
     GetIt.I.registerSingleton<ProductionQueueService>(
@@ -572,6 +615,71 @@ void main() {
 
     expect(scriptViewModel.importedPaths, [r'C:\stories\rain']);
     expect(scriptViewModel.selectedFrame, isNull);
+  });
+
+  testWidgets(
+      'script exhibition delete removes normalized-path production leftovers',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceService = _FakeWorkspaceService(
+      caches: [
+        _exhibitionRecastCache(rootPath: r'C:\Stories\Rain\'),
+      ],
+    );
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(
+        scriptId: 'script-regenerated',
+        scriptName: 'Generated Rain',
+        scriptPath: 'c:/stories/rain',
+      ),
+    ]);
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(workspaceService);
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-delete-script-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-confirm-delete-script')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(workspaceService.caches, isEmpty);
+    expect(productionService.plans, isEmpty);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-script-card-script-regenerated'),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('script exhibition image sends to single-image workbench',
@@ -603,9 +711,9 @@ void main() {
     final workbenchViewModel = _RecordingWorkbenchTransferViewModel(
       payloadConfig: GetIt.I<PayloadConfig>(),
     );
-    await GetIt.I.unregister<TokenizerScriptService>();
-    GetIt.I.registerSingleton<TokenizerScriptService>(
-      _FakeTokenizerScriptService([_exhibitionScript()]),
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
     );
     await GetIt.I.unregister<ProductionQueueService>();
     GetIt.I.registerSingleton<ProductionQueueService>(
@@ -690,13 +798,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
     await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(
-          const ValueKey('asset-card-send-script-character-library-char')),
+      find.byKey(const ValueKey('asset-card-character-library-char')),
     );
     await tester.pumpAndSettle();
 
+    expect(
+        find.byKey(const ValueKey('asset-detail-add-outfit')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('asset-detail-send-script')));
+    await tester.pumpAndSettle();
+
     expect(loadCount, 1);
-    expect(find.text('角色'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('script-asset-character-library-char')),
       findsOneWidget,
@@ -704,48 +816,53 @@ void main() {
   });
 }
 
-TokenizerScript _exhibitionScript() {
+RecastScriptCache _exhibitionRecastCache({
+  String scriptId = 'script-1',
+  String scriptName = '雨夜档案',
+  String rootPath = r'C:\stories\rain',
+}) {
   final now = DateTime.utc(2026, 6, 1, 9);
-  const source = TokenizerSourceFile(
-    fileId: 'source-1',
-    fileName: '001.json',
-    path: r'C:\stories\rain\001.json',
-    kind: TokenizerScriptSourceKind.json,
-  );
-  return TokenizerScript(
-    scriptId: 'script-1',
-    name: '雨夜档案',
-    sourceFolder: r'C:\stories\rain',
-    sourceMode: TokenizerScriptSourceMode.auto,
-    createdAt: now,
-    updatedAt: now,
-    status: TokenizerScriptStatus.ready,
-    sourceFiles: const [source],
-    sampleFileIds: const ['source-1'],
-    characterIdentities: const [],
-    styleStages: const [],
-    knowledgeCandidates: const [],
-    imageTasks: const [
-      TokenizerImageTask(
-        taskId: 'source-task-1',
-        sourceFile: source,
-        parseStatus: 'parsed',
-        originalPrompt: 'library entrance, rainy night',
-        promptMode: TokenizerScriptPromptMode.tag,
-        parsedPrompt: 'library entrance, rainy night',
-        finalPrompt: 'library entrance, rainy night',
-        artistEvidence: [],
-        characterSlotMatches: [],
-        confidence: 0.9,
-        reviewStatus: TokenizerTaskReviewStatus.confirmed,
-        details: TokenizerParseDetails(),
+  final sourceRoot = rootPath.replaceAll('/', r'\').replaceFirst(
+        RegExp(r'\\+$'),
+        '',
+      );
+  final script = Script(
+    id: scriptId,
+    name: scriptName,
+    rootPath: rootPath,
+    frames: [
+      ScriptFrame(
+        index: 1,
+        fileName: '001.json',
+        sourcePath: '$sourceRoot\\001.json',
+        sourceImagePath: '$sourceRoot\\001.png',
+        rawJson: '{"input":"library entrance, rainy night"}',
+        parsed: const ParsedFrame(
+          baseCaption: 'library entrance, rainy night',
+        ),
+        detectedSchema: ScriptSchema.baseInline,
+        parseStatus: ScriptFrameParseStatus.parsed,
       ),
     ],
+    detectedSchema: ScriptSchema.baseInline,
+  );
+  return RecastScriptCache(
+    scriptId: script.id,
+    scriptName: script.name,
+    sourceRootPath: script.rootPath,
+    sourceFingerprint: 'script-1-source',
+    sourceContentFingerprint: 'script-1-content',
+    updatedAt: now,
+    mapping: RecastMapping.defaults(script.id),
+    scriptSnapshot: script.toJson(),
   );
 }
 
 ProductionPlan _exhibitionProductionPlan({
   String outputImagePath = r'C:\out\frame-01.png',
+  String scriptId = 'script-1',
+  String scriptName = '雨夜档案',
+  String scriptPath = r'C:\stories\rain',
 }) {
   final now = DateTime.utc(2026, 6, 2, 8);
   return ProductionPlan(
@@ -758,9 +875,9 @@ ProductionPlan _exhibitionProductionPlan({
         id: 'task-1',
         planId: 'plan-1',
         title: '入口雨幕',
-        scriptId: 'script-1',
-        scriptName: '雨夜档案',
-        scriptPath: r'C:\stories\rain',
+        scriptId: scriptId,
+        scriptName: scriptName,
+        scriptPath: scriptPath,
         recastRunId: 'run-1',
         frameIndex: 1,
         sourceFileName: '001.json',

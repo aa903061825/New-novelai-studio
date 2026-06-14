@@ -1,16 +1,20 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:image/image.dart' as img;
 import 'package:nai_casrand/data/models/api_request.dart';
 import 'package:nai_casrand/data/models/command_status.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/prompt_config.dart';
 import 'package:nai_casrand/data/models/settings.dart';
+import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
 import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
 import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
 import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
@@ -185,7 +189,12 @@ class _FakeGalleryService extends StudioGalleryService {
   String? lastImagePath;
   String? lastInfo;
   Map<String, dynamic>? lastAdditionalInfo;
+  StudioGalleryOperation? lastOperation;
+  String? lastSourceRecordId;
+  String? lastSourceImagePath;
+  Map<String, dynamic>? lastOperationParameters;
   int saveSnapshotCallCount = 0;
+  int saveOperationSnapshotCallCount = 0;
 
   @override
   Future<StudioGalleryRecord> saveSnapshot({
@@ -196,6 +205,7 @@ class _FakeGalleryService extends StudioGalleryService {
     Map<String, dynamic> additionalInfo = const {},
     DateTime? createdAt,
     String? id,
+    StudioGalleryLineage? lineage,
   }) async {
     saveSnapshotCallCount++;
     lastTitle = title;
@@ -210,8 +220,85 @@ class _FakeGalleryService extends StudioGalleryService {
       imagePath: imagePath,
       info: info,
       additionalInfo: additionalInfo,
+      lineage: lineage,
     );
   }
+
+  @override
+  Future<StudioGalleryRecord> saveOperationSnapshot({
+    required PayloadConfig config,
+    required StudioGalleryOperation operation,
+    required String sourceRecordId,
+    String? sourceImagePath,
+    String? title,
+    String? imagePath,
+    String? info,
+    Map<String, dynamic> parameters = const {},
+    Map<String, dynamic> additionalInfo = const {},
+    DateTime? createdAt,
+    String? id,
+  }) async {
+    saveOperationSnapshotCallCount++;
+    lastTitle = title;
+    lastImagePath = imagePath;
+    lastInfo = info;
+    lastAdditionalInfo = Map<String, dynamic>.from(additionalInfo);
+    lastOperation = operation;
+    lastSourceRecordId = sourceRecordId;
+    lastSourceImagePath = sourceImagePath;
+    lastOperationParameters = Map<String, dynamic>.from(parameters);
+    return StudioGalleryRecord.fromPayloadConfig(
+      config: config,
+      id: id ?? 'operation-record-$saveOperationSnapshotCallCount',
+      createdAt: createdAt ?? DateTime.parse('2026-05-22T00:00:00Z'),
+      title: title,
+      imagePath: imagePath,
+      info: info,
+      additionalInfo: additionalInfo,
+      lineage: StudioGalleryLineage(
+        operation: operation,
+        sourceRecordId: sourceRecordId,
+        sourceImagePath: sourceImagePath,
+        parameters: parameters,
+      ),
+    );
+  }
+}
+
+StudioGalleryRecord _galleryRecord({
+  required String id,
+  required String imagePath,
+  String title = 'source.png',
+}) {
+  return StudioGalleryRecord.fromPayloadConfig(
+    config: _buildPayloadConfig(),
+    id: id,
+    createdAt: DateTime.parse('2026-05-22T00:00:00Z'),
+    title: title,
+    imagePath: imagePath,
+    info: 'source prompt',
+  );
+}
+
+String _writePngFixture(String name, {int width = 1, int height = 1}) {
+  final directory = Directory(
+    '${Directory.current.path}${Platform.pathSeparator}'
+    'build${Platform.pathSeparator}generation_viewmodel_operation_test',
+  );
+  directory.createSync(recursive: true);
+  final file = File('${directory.path}${Platform.pathSeparator}$name');
+  final image = img.Image(width: width, height: height);
+  file.writeAsBytesSync(img.encodePng(image));
+  return file.path;
+}
+
+Uint8List _zipBytes(Map<String, List<int>> files) {
+  final archive = Archive();
+  for (final entry in files.entries) {
+    final bytes = Uint8List.fromList(entry.value);
+    archive.addFile(ArchiveFile(entry.key, bytes.length, bytes));
+  }
+  return Uint8List.fromList(ZipEncoder().encode(archive)!);
 }
 
 Future<void> _runSingleCommand(GenerationPageViewmodel viewmodel) async {
@@ -269,6 +356,13 @@ void main() {
   });
 
   tearDown(() async {
+    final fixtureDirectory = Directory(
+      '${Directory.current.path}${Platform.pathSeparator}'
+      'build${Platform.pathSeparator}generation_viewmodel_operation_test',
+    );
+    if (fixtureDirectory.existsSync()) {
+      fixtureDirectory.deleteSync(recursive: true);
+    }
     await GetIt.I.reset();
   });
 
@@ -394,6 +488,255 @@ void main() {
         expectedFileName,
       ].join(Platform.pathSeparator),
     );
+  });
+
+  test('enhanceGalleryRecord sends img2img and saves lineage', () async {
+    final payloadConfig = GetIt.I<PayloadConfig>();
+    payloadConfig.overridePrompt = 'enhance prompt';
+    payloadConfig.useOverridePrompt = true;
+    payloadConfig.i2iConfig.updateStrengthAndNoise(0.42, 0.12);
+    payloadConfig.settings.outputFolderPath = r'C:\outputs';
+    final sourcePath = _writePngFixture('source.png');
+    final sourceBytes = File(sourcePath).readAsBytesSync();
+    final galleryService = _FakeGalleryService();
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List.fromList([9, 8, 7])),
+      ],
+    );
+
+    await viewmodel.enhanceGalleryRecord(
+      _galleryRecord(
+        id: 'source-record',
+        imagePath: sourcePath,
+        title: 'source.png',
+      ),
+    );
+
+    final request = viewmodel.requestPayloads.single;
+    final params = request['parameters'] as Map<String, dynamic>;
+    expect(request['action'], 'img2img');
+    expect(request['input'], contains('enhance prompt'));
+    expect(params['image'], base64Encode(sourceBytes));
+    expect(params['strength'], 0.42);
+    expect(params['noise'], 0.12);
+    expect(viewmodel.savedFileNames.single, contains('enhance-source.png'));
+    expect(galleryService.saveOperationSnapshotCallCount, 1);
+    expect(galleryService.lastOperation, StudioGalleryOperation.enhance);
+    expect(galleryService.lastSourceRecordId, 'source-record');
+    expect(galleryService.lastSourceImagePath, sourcePath);
+    expect(galleryService.lastInfo, contains('enhance prompt'));
+    expect(galleryService.lastAdditionalInfo?['action'], 'img2img');
+    expect(galleryService.lastOperationParameters?['strength'], 0.42);
+    expect(galleryService.lastOperationParameters?['noise'], 0.12);
+    expect(galleryService.lastOperationParameters?['source_width'], 1);
+    expect(galleryService.lastOperationParameters?['source_height'], 1);
+  });
+
+  test('upscaleGalleryRecord rejects oversized sources before fetchData',
+      () async {
+    final sourcePath = _writePngFixture(
+      'oversized.png',
+      width: 1025,
+      height: 768,
+    );
+    final viewmodel = _TestGenerationPageViewmodel();
+
+    await expectLater(
+      viewmodel.upscaleGalleryRecord(
+        _galleryRecord(id: 'oversized-source', imagePath: sourcePath),
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('1024x1024'),
+        ),
+      ),
+    );
+
+    expect(viewmodel.requestPayloads, isEmpty);
+    expect(viewmodel.savedFileNames, isEmpty);
+  });
+
+  test('runDirectorToolGalleryRecord sends augment request and saves lineage',
+      () async {
+    final payloadConfig = GetIt.I<PayloadConfig>();
+    payloadConfig.settings.outputFolderPath = r'C:\outputs';
+    final sourcePath = _writePngFixture(
+      'director-source.png',
+      width: 2,
+      height: 3,
+    );
+    final galleryService = _FakeGalleryService();
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(
+          status: '200',
+          data: _zipBytes({
+            'image_0.png': [1, 2, 3],
+          }),
+        ),
+      ],
+    );
+
+    await viewmodel.runDirectorToolGalleryRecord(
+      _galleryRecord(id: 'source-record', imagePath: sourcePath),
+      const StudioDirectorToolOptions(
+        tool: StudioDirectorTool.colorize,
+        prompt: 'red hair',
+        defry: 3,
+      ),
+    );
+
+    expect(
+      viewmodel.requestEndpoints.single,
+      'https://image.novelai.net/ai/augment-image',
+    );
+    expect(viewmodel.requestPayloads.single['req_type'], 'colorize');
+    expect(viewmodel.requestPayloads.single['prompt'], 'red hair');
+    expect(viewmodel.requestPayloads.single['defry'], 3);
+    expect(viewmodel.savedFileNames.single, contains('director-colorize'));
+    expect(galleryService.saveOperationSnapshotCallCount, 1);
+    expect(galleryService.lastOperation, StudioGalleryOperation.directorTool);
+    expect(galleryService.lastSourceRecordId, 'source-record');
+    expect(galleryService.lastSourceImagePath, sourcePath);
+    expect(galleryService.lastAdditionalInfo?['req_type'], 'colorize');
+    expect(galleryService.lastOperationParameters?['tool'], 'colorize');
+    expect(galleryService.lastOperationParameters?['req_type'], 'colorize');
+    expect(galleryService.lastOperationParameters?['prompt'], 'red hair');
+    expect(galleryService.lastOperationParameters?['defry'], 3);
+    expect(galleryService.lastOperationParameters?['source_width'], 2);
+    expect(galleryService.lastOperationParameters?['source_height'], 3);
+  });
+
+  test('runDirectorToolGalleryRecord saves every director result variant',
+      () async {
+    final payloadConfig = GetIt.I<PayloadConfig>();
+    payloadConfig.settings.outputFolderPath = r'C:\outputs';
+    final sourcePath = _writePngFixture(
+      'director-source.png',
+      width: 2,
+      height: 3,
+    );
+    final galleryService = _FakeGalleryService();
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(
+          status: '200',
+          data: _zipBytes({
+            'image_0.png': [10],
+            'image_1.png': [20],
+          }),
+        ),
+      ],
+    );
+
+    await viewmodel.runDirectorToolGalleryRecord(
+      _galleryRecord(id: 'source-record', imagePath: sourcePath),
+      const StudioDirectorToolOptions(
+        tool: StudioDirectorTool.removeBackground,
+      ),
+    );
+
+    expect(galleryService.saveOperationSnapshotCallCount, 2);
+    expect(viewmodel.savedFileNames, hasLength(2));
+    expect(viewmodel.savedFileNames.first, contains('image_0'));
+    expect(viewmodel.savedFileNames.last, contains('image_1'));
+    expect(galleryService.lastOperation, StudioGalleryOperation.directorTool);
+    expect(galleryService.lastOperationParameters?['tool'], 'removeBackground');
+    expect(galleryService.lastOperationParameters?['req_type'], 'bg-removal');
+    expect(galleryService.lastOperationParameters?['variant_index'], 1);
+    expect(galleryService.lastOperationParameters?['variant_name'], 'image_1');
+    expect(galleryService.lastAdditionalInfo?['variant_index'], 1);
+    expect(galleryService.lastAdditionalInfo?['variant_name'], 'image_1');
+  });
+
+  test('runInpaintGalleryRecord sends infill and saves lineage', () async {
+    final payloadConfig = GetIt.I<PayloadConfig>();
+    payloadConfig.overridePrompt = 'inpaint prompt';
+    payloadConfig.useOverridePrompt = true;
+    payloadConfig.settings.outputFolderPath = r'C:\outputs';
+    final sourcePath = _writePngFixture(
+      'inpaint-source.png',
+      width: 2,
+      height: 3,
+    );
+    final maskPath = _writePngFixture(
+      'inpaint-mask.png',
+      width: 2,
+      height: 3,
+    );
+    final sourceBytes = File(sourcePath).readAsBytesSync();
+    final maskBytes = File(maskPath).readAsBytesSync();
+    final galleryService = _FakeGalleryService();
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List.fromList([4, 5, 6])),
+      ],
+    );
+
+    await viewmodel.runInpaintGalleryRecord(
+      _galleryRecord(id: 'source-record', imagePath: sourcePath),
+      maskImagePath: maskPath,
+      strength: 0.72,
+    );
+
+    final request = viewmodel.requestPayloads.single;
+    final params = request['parameters'] as Map<String, dynamic>;
+    expect(request['action'], 'infill');
+    expect(request['model'], endsWith('-inpainting'));
+    expect(request['input'], contains('inpaint prompt'));
+    expect(params['image'], base64Encode(sourceBytes));
+    expect(params['mask'], base64Encode(maskBytes));
+    expect(params['inpaintImg2ImgStrength'], 0.72);
+    expect(viewmodel.savedFileNames.single, contains('inpaint-source.png'));
+    expect(galleryService.saveOperationSnapshotCallCount, 1);
+    expect(galleryService.lastOperation, StudioGalleryOperation.inpaint);
+    expect(galleryService.lastSourceRecordId, 'source-record');
+    expect(galleryService.lastSourceImagePath, sourcePath);
+    expect(
+        galleryService.lastOperationParameters?['mask_image_path'], maskPath);
+    expect(galleryService.lastOperationParameters?['source_width'], 2);
+    expect(galleryService.lastOperationParameters?['source_height'], 3);
+    expect(galleryService.lastOperationParameters?['mask_width'], 2);
+    expect(galleryService.lastOperationParameters?['mask_height'], 3);
+  });
+
+  test('runInpaintGalleryRecord rejects invalid masks before fetchData',
+      () async {
+    final sourcePath = _writePngFixture(
+      'inpaint-source.png',
+      width: 2,
+      height: 3,
+    );
+    final maskPath = _writePngFixture(
+      'inpaint-mask.png',
+      width: 1,
+      height: 1,
+    );
+    final viewmodel = _TestGenerationPageViewmodel();
+
+    await expectLater(
+      viewmodel.runInpaintGalleryRecord(
+        _galleryRecord(id: 'source-record', imagePath: sourcePath),
+        maskImagePath: maskPath,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('dimensions'),
+        ),
+      ),
+    );
+
+    expect(viewmodel.requestPayloads, isEmpty);
+    expect(viewmodel.savedFileNames, isEmpty);
   });
 
   test('stores content order text on generated homepage cards', () async {

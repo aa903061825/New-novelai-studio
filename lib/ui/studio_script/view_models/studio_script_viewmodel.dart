@@ -8,6 +8,7 @@ import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/studio/services/script_ai_role_assembly_application.dart';
 import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_asset_context_service.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_cache_path_rebinder.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_production_service.dart';
@@ -25,28 +26,28 @@ import 'package:nai_casrand/ui/studio_script/models/studio_script_recast_plan.da
 typedef StudioScriptDirectoryPicker = Future<String?> Function();
 typedef StudioScriptCharactersLoader = Future<List<CharacterEntry>> Function();
 typedef StudioScriptArtistChainsLoader = Future<List<ArtistChain>> Function();
-typedef StudioScriptVibesLoader =
-    Future<List<WorkspaceVibeReference>> Function();
-typedef StudioScriptVibesImporter =
-    Future<List<WorkspaceVibeReference>> Function();
+typedef StudioScriptVibesLoader = Future<List<WorkspaceVibeReference>>
+    Function();
+typedef StudioScriptVibesImporter = Future<List<WorkspaceVibeReference>>
+    Function();
 typedef StudioScriptFilterRulesLoader = Future<Map<String, dynamic>> Function();
-typedef StudioScriptFilterRulesSaver =
-    Future<void> Function(Map<String, dynamic> filterRules);
-typedef StudioScriptAssetContextLoader =
-    Future<ScriptRecastAssetContext> Function();
+typedef StudioScriptFilterRulesSaver = Future<void> Function(
+    Map<String, dynamic> filterRules);
+typedef StudioScriptAssetContextLoader = Future<ScriptRecastAssetContext>
+    Function();
 typedef StudioScriptCachesLoader = Future<List<RecastScriptCache>> Function();
-typedef StudioScriptCachesSaver =
-    Future<void> Function(List<RecastScriptCache> caches);
-typedef StudioScriptCacheByScriptIdLoader =
-    Future<RecastScriptCache?> Function(String scriptId);
+typedef StudioScriptCachesSaver = Future<void> Function(
+    List<RecastScriptCache> caches);
+typedef StudioScriptCacheByScriptIdLoader = Future<RecastScriptCache?> Function(
+    String scriptId);
 typedef StudioScriptCacheSaver = Future<void> Function(RecastScriptCache cache);
-typedef StudioScriptKnowledgeBaseLoader =
-    Future<Map<String, dynamic>> Function();
-typedef StudioScriptKnowledgeBaseSaver =
-    Future<void> Function(Map<String, dynamic> knowledgeBase);
+typedef StudioScriptKnowledgeBaseLoader = Future<Map<String, dynamic>>
+    Function();
+typedef StudioScriptKnowledgeBaseSaver = Future<void> Function(
+    Map<String, dynamic> knowledgeBase);
 typedef StudioScriptAiSettingProvider = String Function();
-typedef StudioScriptTagClassificationCacheSaver =
-    Future<void> Function(PromptTagClassificationCache cache);
+typedef StudioScriptTagClassificationCacheSaver = Future<void> Function(
+    PromptTagClassificationCache cache);
 
 enum StudioScriptTimelineStatus { warning, error, sent, failed }
 
@@ -222,13 +223,13 @@ class _AiRoleDraftParts {
 
   @override
   int get hashCode => Object.hash(
-    identity,
-    upperBody,
-    lowerBody,
-    upperClothing,
-    lowerClothing,
-    nonRole,
-  );
+        identity,
+        upperBody,
+        lowerBody,
+        upperClothing,
+        lowerClothing,
+        nonRole,
+      );
 }
 
 class StudioScriptRoleStageItem {
@@ -258,10 +259,9 @@ class StudioScriptRoleStageItem {
     this.omittedParts = const {},
   });
 
-  RecastPromptParts get visibleSourceParts =>
-      currentFrameSourceParts ?? sourceParts;
+  RecastPromptParts get visibleSourceParts => sourceParts;
 
-  bool get isCurrentFrameSourceScoped => currentFrameSourceParts != null;
+  bool get isCurrentFrameSourceScoped => false;
 }
 
 class StudioScriptRoleMappingItem {
@@ -378,6 +378,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   final StudioScriptAiSettingProvider? scriptAiBaseUrlProvider;
   final StudioScriptAiSettingProvider? scriptAiTokenProvider;
   final StudioScriptAiSettingProvider? scriptAiModelProvider;
+  final StudioScriptAiSettingProvider? scriptAiReasoningEffortProvider;
   final StudioScriptAiSettingProvider? scriptAiProxyProvider;
   final TranslationCache translationCache;
   final PromptTagClassificationCache classificationCache;
@@ -397,6 +398,10 @@ class StudioScriptViewModel extends ChangeNotifier {
   FilterRuleConfig _filterRuleConfig = const FilterRuleConfig();
   bool _assetsLoaded = false;
   int? _selectedFrameIndex;
+  final Map<String, String> _manualSelectedStageIdsByRole = <String, String>{};
+  int _roleStageEditBatchDepth = 0;
+  final Set<String> _batchedRoleEditSourceRoleIds = <String>{};
+  bool _batchedRoleEditNeedsCacheSave = false;
   int _aiProgressIndex = -1;
   int _aiOperationGeneration = 0;
   bool _aiRoleExtractionDraftDismissed = false;
@@ -477,13 +482,14 @@ class StudioScriptViewModel extends ChangeNotifier {
   List<String> outfitPreviewPaths(
     CharacterEntry character,
     WorkspaceOutfit outfit,
-  ) => _previewPathsForAsset(
-    _outfitPreviewPaths[ScriptRecastAssetContext.outfitKey(
-      character.id,
-      outfit.id,
-    )],
-    outfit.imageRefs,
-  );
+  ) =>
+      _previewPathsForAsset(
+        _outfitPreviewPaths[ScriptRecastAssetContext.outfitKey(
+          character.id,
+          outfit.id,
+        )],
+        outfit.imageRefs,
+      );
 
   String? artistChainPreviewPath(ArtistChain chain) =>
       _firstPreviewPath(artistChainPreviewPaths(chain));
@@ -526,13 +532,14 @@ class StudioScriptViewModel extends ChangeNotifier {
     this.scriptAiBaseUrlProvider,
     this.scriptAiTokenProvider,
     this.scriptAiModelProvider,
+    this.scriptAiReasoningEffortProvider,
     this.scriptAiProxyProvider,
     TranslationCache? translationCache,
     PromptTagClassificationCache? classificationCache,
     this.saveClassificationCache,
-  }) : translationCache = translationCache ?? TranslationCache(),
-       classificationCache =
-           classificationCache ?? PromptTagClassificationCache();
+  })  : translationCache = translationCache ?? TranslationCache(),
+        classificationCache =
+            classificationCache ?? PromptTagClassificationCache();
 
   @override
   void dispose() {
@@ -615,9 +622,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (!aiRoleExtraction.isReady || aiRoleExtraction.artistChains.isEmpty) {
       return const {};
     }
-    final category = negative
-        ? PromptTagCategory.negativeArtist
-        : PromptTagCategory.artist;
+    final category =
+        negative ? PromptTagCategory.negativeArtist : PromptTagCategory.artist;
     final result = <String, PromptTagCategory>{};
     for (final term in _aiArtistEvidenceTerms()) {
       final clean = PromptTagProcessor.cleanTagDisplay(term).trim();
@@ -633,9 +639,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       _setImportProgress('正在检查剧本缓存...');
       final hasCacheLoader =
           loadRecastCacheByScriptId != null || loadRecastCaches != null;
-      final directoryContainsPng = !hasCacheLoader
-          ? false
-          : await _scriptDirectoryContainsPng(path);
+      final directoryContainsPng =
+          !hasCacheLoader ? false : await _scriptDirectoryContainsPng(path);
       if (await _restoreCachedScriptSnapshotForPath(
         path,
         directoryContainsPng: directoryContainsPng,
@@ -697,30 +702,62 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (!(directoryContainsPng ?? await _scriptDirectoryContainsPng(path))) {
       return false;
     }
+    var allowBulkFallback = targetedLoader == null;
+    var allowNameFallback = false;
     if (targetedLoader != null) {
       final scriptId = ScriptRecastParserService.scriptIdForDirectory(
         Directory(path),
       );
       final cache = await targetedLoader(scriptId);
-      if (cache == null ||
-          !_cacheMatchesImportPath(cache, path) ||
-          cache.scriptSnapshot.isEmpty) {
+      if (cache != null && _cacheMatchesImportPath(cache, path)) {
+        if (_cacheSnapshotHasFrames(cache.scriptSnapshot) &&
+            await _restoreCachedScriptSnapshot(cache, importPath: path)) {
+          return true;
+        }
+        allowBulkFallback = true;
+        allowNameFallback = true;
+      } else if (cache == null && _pathMayNeedAliasCacheFallback(path)) {
+        allowBulkFallback = true;
+        allowNameFallback = true;
+      } else {
+        allowBulkFallback = false;
+      }
+      if (bulkLoader == null) {
         return false;
       }
-      return _restoreCachedScriptSnapshot(cache);
     }
 
-    final caches = [
-      for (final cache in await bulkLoader!())
-        if (cache.scriptSnapshot.isNotEmpty &&
+    if (!allowBulkFallback) {
+      return false;
+    }
+    final allCaches = await bulkLoader!();
+    final pathCaches = [
+      for (final cache in allCaches)
+        if (_cacheSnapshotHasFrames(cache.scriptSnapshot) &&
             _cacheMatchesImportPath(cache, path))
           cache,
-    ]..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
-    if (caches.isEmpty) {
+    ];
+    final bestPathCache = _bestExactCache(pathCaches);
+    if (bestPathCache != null &&
+        await _restoreCachedScriptSnapshot(bestPathCache, importPath: path)) {
+      return true;
+    }
+
+    if (!allowNameFallback) {
+      return false;
+    }
+    final namedCaches = [
+      for (final cache in allCaches)
+        if (_cacheSnapshotHasFrames(cache.scriptSnapshot) &&
+            _cacheNameMatchesImportPath(cache, path))
+          cache,
+    ];
+    final bestCache = _bestExactCache(namedCaches);
+    if (bestCache == null) {
       return false;
     }
 
-    return _restoreCachedScriptSnapshot(caches.first);
+    return _restoreCachedScriptSnapshot(bestCache, importPath: path);
   }
 
   bool _cacheMatchesImportPath(RecastScriptCache cache, String path) {
@@ -729,8 +766,40 @@ class StudioScriptViewModel extends ChangeNotifier {
         _sameScriptPath(cache.sourceRootPath, Directory(path).absolute.path);
   }
 
-  Future<bool> _restoreCachedScriptSnapshot(RecastScriptCache cache) async {
-    final script = Script.fromJson(cache.scriptSnapshot);
+  bool _cacheNameMatchesImportPath(RecastScriptCache cache, String path) {
+    final importName = _normalizeScriptName(_scriptPathLeaf(path));
+    if (importName.isEmpty) {
+      return false;
+    }
+    if (_normalizeScriptName(_scriptPathLeaf(cache.sourceRootPath)) !=
+        importName) {
+      return false;
+    }
+    return _normalizeScriptName(cache.scriptName) == importName ||
+        _normalizeScriptName(cache.scriptSnapshot['name']?.toString() ?? '') ==
+            importName;
+  }
+
+  bool _cacheSnapshotHasFrames(Map<String, dynamic> scriptSnapshot) {
+    final frames = scriptSnapshot['frames'];
+    return frames is List && frames.isNotEmpty;
+  }
+
+  bool _pathMayNeedAliasCacheFallback(String path) {
+    return _scriptPathLeaf(path).trim().isNotEmpty;
+  }
+
+  Future<bool> _restoreCachedScriptSnapshot(
+    RecastScriptCache cache, {
+    String? importPath,
+  }) async {
+    final cachedScript = Script.fromJson(cache.scriptSnapshot);
+    final script = importPath == null || importPath.trim().isEmpty
+        ? cachedScript
+        : rebindCachedScriptToImportDirectory(
+            cachedScript,
+            Directory(importPath),
+          );
     if (script.frames.isEmpty) {
       return false;
     }
@@ -883,21 +952,18 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   String _importProgressLabel(ScriptRecastParseProgress progress) {
     final total = progress.totalSources;
-    final fileSuffix = progress.fileName == null
-        ? ''
-        : ' · ${progress.fileName}';
+    final fileSuffix =
+        progress.fileName == null ? '' : ' · ${progress.fileName}';
     return switch (progress.phase) {
       ScriptRecastParseProgressPhase.scanning => '正在扫描剧本目录...',
       ScriptRecastParseProgressPhase.sourcesDiscovered =>
         total > 0 ? '发现 $total 个候选帧，开始解析...' : '没有发现可解析帧',
-      ScriptRecastParseProgressPhase.sourceParsing =>
-        total > 0
-            ? '正在解析剧本帧 ${progress.visitedSources + 1}/$total$fileSuffix'
-            : '正在解析剧本帧$fileSuffix',
-      ScriptRecastParseProgressPhase.sourceParsed =>
-        total > 0
-            ? '正在解析剧本帧 ${progress.visitedSources}/$total$fileSuffix'
-            : '正在解析剧本帧$fileSuffix',
+      ScriptRecastParseProgressPhase.sourceParsing => total > 0
+          ? '正在解析剧本帧 ${progress.visitedSources + 1}/$total$fileSuffix'
+          : '正在解析剧本帧$fileSuffix',
+      ScriptRecastParseProgressPhase.sourceParsed => total > 0
+          ? '正在解析剧本帧 ${progress.visitedSources}/$total$fileSuffix'
+          : '正在解析剧本帧$fileSuffix',
       ScriptRecastParseProgressPhase.complete =>
         total > 0 ? '解析完成：${progress.parsedFrames}/$total 帧' : '解析完成：0 帧',
     };
@@ -958,8 +1024,8 @@ class StudioScriptViewModel extends ChangeNotifier {
           state: stepIndex < clamped
               ? StudioScriptAiProgressStepState.done
               : stepIndex == clamped
-              ? StudioScriptAiProgressStepState.active
-              : StudioScriptAiProgressStepState.waiting,
+                  ? StudioScriptAiProgressStepState.active
+                  : StudioScriptAiProgressStepState.waiting,
         ),
     ]);
     aiStatus = status;
@@ -985,8 +1051,8 @@ class StudioScriptViewModel extends ChangeNotifier {
             state: stepIndex < failedIndex
                 ? StudioScriptAiProgressStepState.done
                 : stepIndex == failedIndex
-                ? StudioScriptAiProgressStepState.failed
-                : StudioScriptAiProgressStepState.waiting,
+                    ? StudioScriptAiProgressStepState.failed
+                    : StudioScriptAiProgressStepState.waiting,
           ),
       ]);
     }
@@ -1049,8 +1115,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     _pendingAiRoleExtractionStreamChars += charCount;
     final now = DateTime.now();
     final previous = _lastAiRoleExtractionStreamNotifyAt;
-    final shouldNotify =
-        previous == null ||
+    final shouldNotify = previous == null ||
         now.difference(previous) >= const Duration(milliseconds: 120) ||
         _pendingAiRoleExtractionStreamChars >= 240;
     if (!shouldNotify) {
@@ -1131,6 +1196,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     final baseUrl = scriptAiBaseUrlProvider?.call().trim() ?? '';
     final token = scriptAiTokenProvider?.call().trim() ?? '';
     final model = scriptAiModelProvider?.call().trim() ?? '';
+    final reasoningEffort =
+        scriptAiReasoningEffortProvider?.call().trim() ?? '';
     if (baseUrl.isEmpty || token.isEmpty || model.isEmpty) {
       aiStatus = '请先配置 Script AI 地址、Token 和模型';
       notifyListeners();
@@ -1166,6 +1233,7 @@ class StudioScriptViewModel extends ChangeNotifier {
           baseUrl: baseUrl,
           token: token,
           model: model,
+          reasoningEffort: reasoningEffort,
           proxy: scriptAiProxyProvider?.call().trim() ?? '',
           script: script,
           completedChunkExtractions: aiRoleExtractionChunks,
@@ -1472,12 +1540,10 @@ class StudioScriptViewModel extends ChangeNotifier {
       confidence: stage.confidence,
       frameIndexes: stage.frameIndexes,
       identity: part == StudioScriptRolePart.identity ? value : stage.identity,
-      upperBody: part == StudioScriptRolePart.upperBody
-          ? value
-          : stage.upperBody,
-      lowerBody: part == StudioScriptRolePart.lowerBody
-          ? value
-          : stage.lowerBody,
+      upperBody:
+          part == StudioScriptRolePart.upperBody ? value : stage.upperBody,
+      lowerBody:
+          part == StudioScriptRolePart.lowerBody ? value : stage.lowerBody,
       upperClothing: part == StudioScriptRolePart.upperClothing
           ? value
           : stage.upperClothing,
@@ -1541,9 +1607,8 @@ class StudioScriptViewModel extends ChangeNotifier {
         _clearAiProgress();
         aiStatus = '已应用 AI 源角色字段';
       } else {
-        aiStatus = strongFilterTerms.isEmpty
-            ? '没有可应用的 AI 源角色字段'
-            : '已应用 AI 强过滤关键词';
+        aiStatus =
+            strongFilterTerms.isEmpty ? '没有可应用的 AI 源角色字段' : '已应用 AI 强过滤关键词';
         _aiRoleExtractionDraftDismissed = true;
         _clearAiProgress();
         _refreshRecastPlan();
@@ -1626,6 +1691,20 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   // ignore: unused_element
   String? _selectedStageIdForRole(String sourceRoleId, RoleAssembly assembly) {
+    final manualStageId = _manualSelectedStageIdsByRole[sourceRoleId];
+    if (manualStageId != null &&
+        assembly.stages.any((stage) => stage.id == manualStageId)) {
+      return manualStageId;
+    }
+    final selectedFrameIndex = _selectedFrameIndex;
+    if (selectedFrameIndex != null) {
+      final frameStage = assembly.stages
+          .where((stage) => stage.frameIndexes.contains(selectedFrameIndex))
+          .firstOrNull;
+      if (frameStage != null) {
+        return frameStage.id;
+      }
+    }
     final previous = roleMappings
         .where((item) => item.sourceRoleId == sourceRoleId)
         .firstOrNull;
@@ -1723,6 +1802,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       return;
     }
     _selectedFrameIndex = frameIndex;
+    _manualSelectedStageIdsByRole.clear();
     _refreshSelectedFramePreview();
     notifyListeners();
   }
@@ -1860,14 +1940,13 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   void setRoleCharacter(String sourceRoleId, String? characterId) {
-    final mapping = _mapping;
+    final mapping = _editableRoleAssemblyMapping(_mapping);
     if (mapping == null) {
       return;
     }
     final character = characterId == null ? null : _characterById(characterId);
-    final defaultOutfitId = characterId == null
-        ? null
-        : character?.defaultOutfitId;
+    final defaultOutfitId =
+        characterId == null ? null : character?.defaultOutfitId;
     _mapping = _mappingWithVisibleSourceIdentityParts(
       mapping.copyWith(
         roleSwaps: _roleSwapsAfterTargetCharacterEdit(
@@ -1891,7 +1970,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   void setRoleOutfit(String sourceRoleId, String? outfitId) {
-    final mapping = _mapping;
+    final mapping = _editableRoleAssemblyMapping(_mapping);
     if (mapping == null) {
       return;
     }
@@ -1921,7 +2000,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     required String characterId,
     required String outfitId,
   }) {
-    final mapping = _mapping;
+    final mapping = _editableRoleAssemblyMapping(_mapping);
     if (mapping == null) {
       return;
     }
@@ -2007,6 +2086,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   void selectRoleStage(String sourceRoleId, String stageId) {
+    _manualSelectedStageIdsByRole[sourceRoleId] = stageId;
     roleMappings = [
       for (final item in roleMappings)
         if (item.sourceRoleId == sourceRoleId)
@@ -2094,6 +2174,36 @@ class StudioScriptViewModel extends ChangeNotifier {
     _scheduleCurrentCacheSave();
   }
 
+  void renameRoleStage({
+    required String sourceRoleId,
+    required String stageId,
+    required String label,
+  }) {
+    final normalized = label.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+    _updateRoleStage(
+      sourceRoleId: sourceRoleId,
+      stageId: stageId,
+      update: (stage, _) => stage.copyWith(label: normalized),
+    );
+  }
+
+  void setRoleStageFrameIndexes({
+    required String sourceRoleId,
+    required String stageId,
+    required List<int> frameIndexes,
+  }) {
+    _updateRoleStage(
+      sourceRoleId: sourceRoleId,
+      stageId: stageId,
+      update: (stage, _) => stage.copyWith(
+        frameIndexes: _normalizedRoleStageFrameIndexes(frameIndexes),
+      ),
+    );
+  }
+
   void setRoleUpperOutfit(
     String sourceRoleId,
     String stageId,
@@ -2179,20 +2289,20 @@ class StudioScriptViewModel extends ChangeNotifier {
         final recastPart = _recastPromptPartFor(part);
         final nextManualParts = switch (part) {
           StudioScriptRolePart.identity => stage.manualParts.copyWith(
-            identity: value,
-          ),
+              identity: value,
+            ),
           StudioScriptRolePart.upperBody => stage.manualParts.copyWith(
-            upperBody: value,
-          ),
+              upperBody: value,
+            ),
           StudioScriptRolePart.lowerBody => stage.manualParts.copyWith(
-            lowerBody: value,
-          ),
+              lowerBody: value,
+            ),
           StudioScriptRolePart.upperClothing => stage.manualParts.copyWith(
-            upperClothing: value,
-          ),
+              upperClothing: value,
+            ),
           StudioScriptRolePart.lowerClothing => stage.manualParts.copyWith(
-            lowerClothing: value,
-          ),
+              lowerClothing: value,
+            ),
           StudioScriptRolePart.nonRole => stage.manualParts,
         };
         final nextStage = stage.copyWith(
@@ -2216,6 +2326,18 @@ class StudioScriptViewModel extends ChangeNotifier {
         return nextStage;
       },
     );
+  }
+
+  void batchRoleStageEdits(VoidCallback edit) {
+    _roleStageEditBatchDepth += 1;
+    try {
+      edit();
+    } finally {
+      _roleStageEditBatchDepth -= 1;
+      if (_roleStageEditBatchDepth == 0) {
+        _flushBatchedRoleStageEdits();
+      }
+    }
   }
 
   void setRoleStagePartDeleted({
@@ -2303,9 +2425,7 @@ class StudioScriptViewModel extends ChangeNotifier {
               assembly,
         ],
       );
-      _refreshRoleEditPreview(sourceRoleId);
-      notifyListeners();
-      _scheduleCurrentCacheSave();
+      _commitRoleStageEdit(sourceRoleId);
       return;
     }
     _updateRoleStage(
@@ -2314,20 +2434,20 @@ class StudioScriptViewModel extends ChangeNotifier {
       update: (stage, _) {
         final sourceParts = switch (part) {
           StudioScriptRolePart.identity => stage.sourceParts.copyWith(
-            identity: value,
-          ),
+              identity: value,
+            ),
           StudioScriptRolePart.upperBody => stage.sourceParts.copyWith(
-            upperBody: value,
-          ),
+              upperBody: value,
+            ),
           StudioScriptRolePart.lowerBody => stage.sourceParts.copyWith(
-            lowerBody: value,
-          ),
+              lowerBody: value,
+            ),
           StudioScriptRolePart.upperClothing => stage.sourceParts.copyWith(
-            upperClothing: value,
-          ),
+              upperClothing: value,
+            ),
           StudioScriptRolePart.lowerClothing => stage.sourceParts.copyWith(
-            lowerClothing: value,
-          ),
+              lowerClothing: value,
+            ),
           StudioScriptRolePart.nonRole => stage.sourceParts,
         };
         final nextStage = stage.copyWith(
@@ -2359,9 +2479,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     final assembly = mapping.roleAssemblies
         .where((entry) => entry.sourceRoleId == sourceRoleId)
         .firstOrNull;
-    final template = assembly?.stages
-        .where((stage) => stage.id == stageId)
-        .firstOrNull;
+    final template =
+        assembly?.stages.where((stage) => stage.id == stageId).firstOrNull;
     if (assembly == null || template == null) {
       return;
     }
@@ -2373,14 +2492,7 @@ class StudioScriptViewModel extends ChangeNotifier {
               candidate.copyWith(
                 stages: [
                   for (final stage in candidate.stages)
-                    stage.copyWith(
-                      targetCharacterId: template.targetCharacterId,
-                      targetUpperOutfitId: template.targetUpperOutfitId,
-                      targetLowerOutfitId: template.targetLowerOutfitId,
-                      omittedParts: Set.unmodifiable(template.omittedParts),
-                      preservedParts: Set.unmodifiable(template.preservedParts),
-                      manualParts: template.manualParts,
-                    ),
+                    _stageWithCopiedTarget(template: template, target: stage),
                 ],
               )
             else
@@ -2388,9 +2500,97 @@ class StudioScriptViewModel extends ChangeNotifier {
         ],
       ),
     );
+    _commitRoleStageEdit(sourceRoleId);
+  }
+
+  void copyRoleStageTargetToStage({
+    required String sourceRoleId,
+    required String templateStageId,
+    required String targetStageId,
+  }) {
+    if (templateStageId == targetStageId) {
+      return;
+    }
+    final mapping = _mapping;
+    if (mapping == null) {
+      return;
+    }
+    final assembly = mapping.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final template = assembly?.stages
+        .where((stage) => stage.id == templateStageId)
+        .firstOrNull;
+    final target = assembly?.stages
+        .where((stage) => stage.id == targetStageId)
+        .firstOrNull;
+    if (assembly == null || template == null || target == null) {
+      return;
+    }
+    _mapping = _mappingWithVisibleSourceIdentityParts(
+      mapping.copyWith(
+        roleAssemblies: [
+          for (final candidate in mapping.roleAssemblies)
+            if (candidate.sourceRoleId == sourceRoleId)
+              candidate.copyWith(
+                stages: [
+                  for (final stage in candidate.stages)
+                    if (stage.id == targetStageId)
+                      _stageWithCopiedTarget(template: template, target: stage)
+                    else
+                      stage,
+                ],
+              )
+            else
+              candidate,
+        ],
+      ),
+    );
+    _commitRoleStageEdit(sourceRoleId);
+  }
+
+  RoleAssemblyStage _stageWithCopiedTarget({
+    required RoleAssemblyStage template,
+    required RoleAssemblyStage target,
+  }) {
+    return target.copyWith(
+      targetCharacterId: template.targetCharacterId,
+      targetUpperOutfitId: template.targetUpperOutfitId,
+      targetLowerOutfitId: template.targetLowerOutfitId,
+      omittedParts: Set.unmodifiable(template.omittedParts),
+      preservedParts: Set.unmodifiable(template.preservedParts),
+      manualParts: template.manualParts,
+    );
+  }
+
+  void _commitRoleStageEdit(String sourceRoleId) {
+    if (_roleStageEditBatchDepth > 0) {
+      _batchedRoleEditSourceRoleIds.add(sourceRoleId);
+      _batchedRoleEditNeedsCacheSave = true;
+      return;
+    }
     _refreshRoleEditPreview(sourceRoleId);
     notifyListeners();
     _scheduleCurrentCacheSave();
+  }
+
+  void _flushBatchedRoleStageEdits() {
+    if (_batchedRoleEditSourceRoleIds.isEmpty) {
+      return;
+    }
+    final sourceRoleIds = _batchedRoleEditSourceRoleIds.toList(
+      growable: false,
+    );
+    final needsCacheSave = _batchedRoleEditNeedsCacheSave;
+    _batchedRoleEditSourceRoleIds.clear();
+    _batchedRoleEditNeedsCacheSave = false;
+    for (final sourceRoleId in sourceRoleIds) {
+      _refreshRoleEditPreview(sourceRoleId);
+    }
+    notifyListeners();
+    if (needsCacheSave) {
+      _scheduleCurrentCacheSave();
+    }
   }
 
   void _updateRoleStage({
@@ -2399,8 +2599,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     required RoleAssemblyStage Function(
       RoleAssemblyStage stage,
       CharacterEntry? character,
-    )
-    update,
+    ) update,
     bool materializeSourceIdentity = false,
   }) {
     final mapping = _mapping;
@@ -2432,9 +2631,13 @@ class StudioScriptViewModel extends ChangeNotifier {
     _mapping = materializeSourceIdentity
         ? _mappingWithVisibleSourceIdentityParts(nextMapping)
         : nextMapping;
-    _refreshRoleEditPreview(sourceRoleId);
-    notifyListeners();
-    _scheduleCurrentCacheSave();
+    _commitRoleStageEdit(sourceRoleId);
+  }
+
+  List<int> _normalizedRoleStageFrameIndexes(Iterable<int> frameIndexes) {
+    final result = frameIndexes.where((index) => index >= 0).toSet().toList()
+      ..sort();
+    return List.unmodifiable(result);
   }
 
   void setArtistChain(String? artistChainId) {
@@ -2445,8 +2648,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     final hasArtistChain = artistChainId != null && artistChainId.isNotEmpty;
     final artistChain = hasArtistChain
         ? _availableArtistChains
-              .where((candidate) => candidate.id == artistChainId)
-              .firstOrNull
+            .where((candidate) => candidate.id == artistChainId)
+            .firstOrNull
         : null;
     final sourceArtistPrompt = _currentArtistSourceLabel();
     _mapping = mapping.copyWith(
@@ -2553,13 +2756,13 @@ class StudioScriptViewModel extends ChangeNotifier {
     final manualPrompt = current?.manualPrompt.trim() ?? '';
     final nextSwap =
         !deleted && targetArtistChainId.isEmpty && manualPrompt.isEmpty
-        ? null
-        : ArtistSwap(
-            targetArtistChainId: targetArtistChainId,
-            manualPrompt: manualPrompt,
-            sourceArtistPrompt: sourceArtistPrompt,
-            deleteSource: deleted,
-          );
+            ? null
+            : ArtistSwap(
+                targetArtistChainId: targetArtistChainId,
+                manualPrompt: manualPrompt,
+                sourceArtistPrompt: sourceArtistPrompt,
+                deleteSource: deleted,
+              );
     _mapping = mapping.copyWith(
       artistSwap: nextSwap,
       clearArtistSwap: nextSwap == null,
@@ -2568,9 +2771,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       for (final item in artistMappings)
         StudioScriptArtistMappingItem(
           sourceLabel: item.sourceLabel,
-          selectedArtistChainId: targetArtistChainId.isEmpty
-              ? null
-              : targetArtistChainId,
+          selectedArtistChainId:
+              targetArtistChainId.isEmpty ? null : targetArtistChainId,
           manualPrompt: manualPrompt,
           deleteSource: deleted,
         ),
@@ -2616,8 +2818,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       manualPrompt: manualPrompt ?? current?.manualPrompt ?? '',
       deleteSource: deleteSource ?? current?.deleteSource ?? false,
     );
-    final keepSwap =
-        next.sourcePrompt.trim().isNotEmpty ||
+    final keepSwap = next.sourcePrompt.trim().isNotEmpty ||
         next.manualPrompt.trim().isNotEmpty ||
         next.deleteSource;
     _mapping = mapping.copyWith(
@@ -2890,9 +3091,8 @@ class StudioScriptViewModel extends ChangeNotifier {
         .toList(growable: false);
     if (_availableArtistChains.isEmpty) {
       final temporaryChain = _temporaryArtistChain(script, parsedFrames);
-      _availableArtistChains = temporaryChain == null
-          ? const []
-          : [temporaryChain];
+      _availableArtistChains =
+          temporaryChain == null ? const [] : [temporaryChain];
     }
   }
 
@@ -3262,12 +3462,10 @@ class StudioScriptViewModel extends ChangeNotifier {
       identity: _fillIfEmpty(current.identity, replacement.identity),
       upperBody: includeUpper ? replacement.upperBody : current.upperBody,
       lowerBody: includeLower ? replacement.lowerBody : current.lowerBody,
-      upperClothing: includeUpper
-          ? replacement.upperClothing
-          : current.upperClothing,
-      lowerClothing: includeLower
-          ? replacement.lowerClothing
-          : current.lowerClothing,
+      upperClothing:
+          includeUpper ? replacement.upperClothing : current.upperClothing,
+      lowerClothing:
+          includeLower ? replacement.lowerClothing : current.lowerClothing,
     );
   }
 
@@ -3293,8 +3491,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       StudioScriptRolePart.upperClothing => RecastPromptPart.upperClothing,
       StudioScriptRolePart.lowerClothing => RecastPromptPart.lowerClothing,
       StudioScriptRolePart.nonRole => throw StateError(
-        'Non-role prompt tags do not map to recast output parts.',
-      ),
+          'Non-role prompt tags do not map to recast output parts.',
+        ),
     };
   }
 
@@ -3333,11 +3531,11 @@ class StudioScriptViewModel extends ChangeNotifier {
       StudioScriptRolePart.upperBody => parts.copyWith(upperBody: value),
       StudioScriptRolePart.lowerBody => parts.copyWith(lowerBody: value),
       StudioScriptRolePart.upperClothing => parts.copyWith(
-        upperClothing: value,
-      ),
+          upperClothing: value,
+        ),
       StudioScriptRolePart.lowerClothing => parts.copyWith(
-        lowerClothing: value,
-      ),
+          lowerClothing: value,
+        ),
       StudioScriptRolePart.nonRole => parts,
     };
   }
@@ -3626,10 +3824,13 @@ class StudioScriptViewModel extends ChangeNotifier {
   Future<void> _saveParsedSnapshotAfterImportIfUseful(
     bool directoryContainsPng,
   ) async {
-    final canSaveCache =
-        saveRecastCache != null ||
+    final canSaveCache = saveRecastCache != null ||
         (loadRecastCaches != null && saveRecastCaches != null);
-    if (!directoryContainsPng || !canSaveCache || _script == null) {
+    final script = _script;
+    if (!directoryContainsPng ||
+        !canSaveCache ||
+        script == null ||
+        script.frames.isEmpty) {
       return;
     }
     _setImportProgress('正在保存解析快照...');
@@ -3641,8 +3842,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   void _scheduleCurrentCacheSave() {
-    final canSaveCache =
-        saveRecastCache != null ||
+    final canSaveCache = saveRecastCache != null ||
         (loadRecastCaches != null && saveRecastCaches != null);
     if (_script == null || !canSaveCache) {
       return;
@@ -3711,8 +3911,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       if (before.containsKey(entry.key)) {
         continue;
       }
-      changed =
-          _setManualRoleClassification(
+      changed = _setManualRoleClassification(
             entry.value,
             _promptCategoryForRolePart(editedPart),
             source: editedPart == StudioScriptRolePart.nonRole
@@ -3726,8 +3925,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       if (after.containsKey(entry.key) || afterParts.containsTag(entry.value)) {
         continue;
       }
-      changed =
-          _setManualRoleClassification(
+      changed = _setManualRoleClassification(
             entry.value,
             PromptTagCategory.other,
             source: 'manual-role-omit',
@@ -3956,6 +4154,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     var lowerBody = _sanitizeAutoMaterializedRoleField(stage.lowerBody);
     var upperClothing = _sanitizeAutoMaterializedRoleField(stage.upperClothing);
     var lowerClothing = _sanitizeAutoMaterializedRoleField(stage.lowerClothing);
+    final aiProvidedParts = RecastPromptParts(
+      upperBody: upperBody,
+      lowerBody: lowerBody,
+      upperClothing: upperClothing,
+      lowerClothing: lowerClothing,
+    );
     final evidenceTerms = [
       for (final term in stage.evidenceTerms)
         if (!_isSuppressedAutoPendingRoleTag(term)) term,
@@ -4011,6 +4215,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         upperClothing: upperClothing,
         lowerClothing: lowerClothing,
       ),
+      protectedParts: aiProvidedParts,
     );
     upperBody = supported.parts.upperBody;
     lowerBody = supported.parts.lowerBody;
@@ -4018,8 +4223,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     lowerClothing = supported.parts.lowerClothing;
     nonRoleTerms.addAll(supported.demotedTerms);
     final nonRole = _joinPromptTags(nonRoleTerms);
-    final changed =
-        upperBody != stage.upperBody ||
+    final changed = upperBody != stage.upperBody ||
         lowerBody != stage.lowerBody ||
         upperClothing != stage.upperClothing ||
         lowerClothing != stage.lowerClothing ||
@@ -4115,11 +4319,12 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   ({RecastPromptParts parts, List<String> demotedTerms})
-  _stageStablePartsSupportedByFrameEvidence({
+      _stageStablePartsSupportedByFrameEvidence({
     required Script script,
     required ScriptAiExtractedRole role,
     required ScriptAiExtractedStage stage,
     required RecastPromptParts parts,
+    required RecastPromptParts protectedParts,
   }) {
     final frameIndexes = stage.frameIndexes.toSet();
     if (frameIndexes.isEmpty) {
@@ -4146,11 +4351,24 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
 
     final demotedTerms = <String>[];
-    String stableField(String value) {
+    String stableField(String value, String protectedValue) {
+      final protectedKeys = {
+        for (final rawTerm in PromptTagProcessor.splitWorkshopTags(
+          protectedValue,
+        ))
+          PromptTagProcessor.normalizeMatchKey(
+            PromptTagProcessor.cleanTagDisplay(rawTerm),
+          ),
+      }..remove('');
       final kept = <String>[];
       for (final rawTerm in PromptTagProcessor.splitWorkshopTags(value)) {
         final clean = PromptTagProcessor.cleanTagDisplay(rawTerm).trim();
         if (clean.isEmpty) {
+          continue;
+        }
+        final key = PromptTagProcessor.normalizeMatchKey(clean);
+        if (protectedKeys.contains(key)) {
+          kept.add(clean);
           continue;
         }
         final supported = evidenceByFrame.every(
@@ -4166,10 +4384,16 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
 
     final nextParts = parts.copyWith(
-      upperBody: stableField(parts.upperBody),
-      lowerBody: stableField(parts.lowerBody),
-      upperClothing: stableField(parts.upperClothing),
-      lowerClothing: stableField(parts.lowerClothing),
+      upperBody: stableField(parts.upperBody, protectedParts.upperBody),
+      lowerBody: stableField(parts.lowerBody, protectedParts.lowerBody),
+      upperClothing: stableField(
+        parts.upperClothing,
+        protectedParts.upperClothing,
+      ),
+      lowerClothing: stableField(
+        parts.lowerClothing,
+        protectedParts.lowerClothing,
+      ),
     );
     return (parts: nextParts, demotedTerms: List.unmodifiable(demotedTerms));
   }
@@ -4181,7 +4405,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     ).category;
     return switch (category) {
       PromptTagCategory.upperClothing ||
-      PromptTagCategory.clothing => StudioScriptRolePart.upperClothing,
+      PromptTagCategory.clothing =>
+        StudioScriptRolePart.upperClothing,
       PromptTagCategory.lowerClothing => StudioScriptRolePart.lowerClothing,
       _ => null,
     };
@@ -4201,7 +4426,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     return switch (category) {
       PromptTagCategory.action ||
       PromptTagCategory.scene ||
-      PromptTagCategory.camera => true,
+      PromptTagCategory.camera =>
+        true,
       _ => false,
     };
   }
@@ -4740,14 +4966,25 @@ class StudioScriptViewModel extends ChangeNotifier {
     Script script,
     RecastMapping mapping,
   ) {
-    final visibleMapping = _mappingWithDerivedGenericStageLabels(
-      _mappingWithoutStaleLocalDefaultStages(mapping),
+    final visibleMapping = _mappingWithFallbackRoleStages(
+      script,
+      _mappingWithDerivedGenericStageLabels(
+        _mappingWithoutStaleLocalDefaultStages(mapping),
+      ),
     );
     if (visibleMapping.roleAssemblies.isNotEmpty &&
         !_hasOnlyAutomaticRoleAssemblies(visibleMapping.roleAssemblies)) {
       return _mappingWithVisibleSourceIdentityParts(visibleMapping);
     }
-    var assemblies = const <RoleAssembly>[];
+    var assemblies = visibleMapping.roleAssemblies;
+    if (assemblies.isEmpty || assemblies.every(_isEmptyAutomaticSlotAssembly)) {
+      assemblies = _localDefaultRoleAssembliesForScript(
+        script,
+        sourceRoleIds: {
+          for (final swap in visibleMapping.roleSwaps) swap.sourceRoleId,
+        },
+      );
+    }
     for (final swap in visibleMapping.roleSwaps) {
       final character = _characterById(swap.targetCharacterId);
       assemblies = [
@@ -4775,6 +5012,163 @@ class StudioScriptViewModel extends ChangeNotifier {
         ),
       ),
     );
+  }
+
+  RecastMapping? _editableRoleAssemblyMapping(RecastMapping? mapping) {
+    final script = _script;
+    if (mapping == null ||
+        script == null ||
+        mapping.roleAssemblies.isNotEmpty) {
+      return mapping;
+    }
+    final sourceRoleIds = _localDefaultSourceRoleIdsForScript(script);
+    if (sourceRoleIds.isEmpty) {
+      return mapping;
+    }
+    return mapping.copyWith(
+      roleAssemblies: _localDefaultRoleAssembliesForScript(
+        script,
+        sourceRoleIds: sourceRoleIds,
+      ),
+    );
+  }
+
+  Set<String> _localDefaultSourceRoleIdsForScript(Script script) {
+    final parsedFrames = script.frames
+        .where((frame) => frame.parseStatus == ScriptFrameParseStatus.parsed)
+        .toList(growable: false);
+    final maxSlots = parsedFrames.fold<int>(
+      0,
+      (count, frame) => frame.parsed.charCaptions.length > count
+          ? frame.parsed.charCaptions.length
+          : count,
+    );
+    return Set.unmodifiable([
+      for (var index = 0; index < maxSlots; index += 1) 'slot-$index',
+    ]);
+  }
+
+  List<RoleAssembly> _localDefaultRoleAssembliesForScript(
+    Script script, {
+    Set<String> sourceRoleIds = const {},
+  }) {
+    if (sourceRoleIds.isEmpty) {
+      return const [];
+    }
+    final parsedFrames = script.frames
+        .where((frame) => frame.parseStatus == ScriptFrameParseStatus.parsed)
+        .toList(growable: false);
+    final maxSlots = parsedFrames.fold<int>(
+      0,
+      (count, frame) => frame.parsed.charCaptions.length > count
+          ? frame.parsed.charCaptions.length
+          : count,
+    );
+    return List.unmodifiable([
+      for (var index = 0; index < maxSlots; index += 1)
+        if (sourceRoleIds.contains('slot-$index'))
+          _localDefaultRoleAssemblyForSlot(parsedFrames, index),
+    ]);
+  }
+
+  RoleAssembly _localDefaultRoleAssemblyForSlot(
+    List<ScriptFrame> frames,
+    int slotIndex,
+  ) {
+    final sourceRoleId = 'slot-$slotIndex';
+    final frameIndexes = [
+      for (final frame in frames)
+        if (slotIndex < frame.parsed.charCaptions.length) frame.index,
+    ];
+    final label = '角色 ${slotIndex + 1}';
+    return RoleAssembly(
+      sourceRoleId: sourceRoleId,
+      displayLabel: label,
+      stages: [
+        RoleAssemblyStage(
+          id: '$sourceRoleId-stage-1',
+          label: label,
+          frameIndexes: List.unmodifiable(frameIndexes),
+        ),
+      ],
+    );
+  }
+
+  RecastMapping _mappingWithFallbackRoleStages(
+    Script script,
+    RecastMapping mapping,
+  ) {
+    var changed = false;
+    final nextAssemblies = [
+      for (final assembly in mapping.roleAssemblies)
+        () {
+          if (assembly.stages.isNotEmpty) {
+            return assembly;
+          }
+          final sourceIdentity = assembly.sourceName.trim();
+          if (sourceIdentity.isEmpty && assembly.sourceAppearances.isEmpty) {
+            return assembly;
+          }
+          changed = true;
+          final label = sourceIdentity.isNotEmpty
+              ? sourceIdentity
+              : assembly.displayLabel.trim().isNotEmpty
+                  ? assembly.displayLabel.trim()
+                  : '源角色';
+          return assembly.copyWith(
+            stages: [
+              RoleAssemblyStage(
+                id: '${assembly.sourceRoleId}-source-stage',
+                label: label,
+                frameIndexes: _fallbackFrameIndexesForAssembly(
+                  script,
+                  assembly,
+                ),
+                sourceSummary: label,
+                sourceParts: RecastPromptParts(identity: label),
+              ),
+            ],
+          );
+        }(),
+    ];
+    if (!changed) {
+      return mapping;
+    }
+    return mapping.copyWith(roleAssemblies: List.unmodifiable(nextAssemblies));
+  }
+
+  List<int> _fallbackFrameIndexesForAssembly(
+    Script script,
+    RoleAssembly assembly,
+  ) {
+    final indexes = <int>{};
+    for (final appearance in assembly.sourceAppearances) {
+      indexes.addAll(appearance.frameIndexes);
+    }
+    if (indexes.isNotEmpty) {
+      return List.unmodifiable(indexes.toList()..sort());
+    }
+
+    final slotMatch = RegExp(r'^slot-(\d+)$').firstMatch(
+      assembly.sourceRoleId.trim(),
+    );
+    final parsedFrames = script.frames
+        .where((frame) => frame.parseStatus == ScriptFrameParseStatus.parsed)
+        .toList(growable: false);
+    if (slotMatch != null) {
+      final slotIndex = int.tryParse(slotMatch.group(1) ?? '');
+      if (slotIndex != null) {
+        for (final frame in parsedFrames) {
+          if (slotIndex < frame.parsed.charCaptions.length) {
+            indexes.add(frame.index);
+          }
+        }
+      }
+    }
+    if (indexes.isEmpty) {
+      indexes.addAll(parsedFrames.map((frame) => frame.index));
+    }
+    return List.unmodifiable(indexes.toList()..sort());
   }
 
   RecastMapping _mappingWithDerivedGenericStageLabels(RecastMapping mapping) {
@@ -4848,6 +5242,7 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   bool _isEmptyAutomaticSlotAssembly(RoleAssembly assembly) {
     return RegExp(r'^slot-\d+$').hasMatch(assembly.sourceRoleId.trim()) &&
+        assembly.sourceName.trim().isEmpty &&
         assembly.sourceAppearances.isEmpty &&
         assembly.stages.isEmpty;
   }
@@ -4859,13 +5254,47 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (_isUserAuthoredStage(stage)) {
       return false;
     }
+    if (!_isAutomaticStage(stage)) {
+      return false;
+    }
     return RegExp(
       '^${RegExp.escape(assembly.sourceRoleId)}-stage-\\d+\$',
     ).hasMatch(stage.id.trim());
   }
 
   RecastMapping _mappingWithVisibleSourceIdentityParts(RecastMapping mapping) {
-    return mapping;
+    var changed = false;
+    final nextAssemblies = [
+      for (final assembly in mapping.roleAssemblies)
+        () {
+          final sourceIdentity = assembly.sourceName.trim();
+          if (sourceIdentity.isEmpty) {
+            return assembly;
+          }
+          final nextStages = [
+            for (final stage in assembly.stages)
+              if (stage.sourceParts.identity.trim().isEmpty)
+                () {
+                  changed = true;
+                  return stage.copyWith(
+                    sourceParts: stage.sourceParts.copyWith(
+                      identity: sourceIdentity,
+                    ),
+                    sourceSummary: stage.sourceSummary.trim().isEmpty
+                        ? sourceIdentity
+                        : stage.sourceSummary,
+                  );
+                }()
+              else
+                stage,
+          ];
+          return assembly.copyWith(stages: List.unmodifiable(nextStages));
+        }(),
+    ];
+    if (!changed) {
+      return mapping;
+    }
+    return mapping.copyWith(roleAssemblies: List.unmodifiable(nextAssemblies));
   }
 
   bool _hasOnlyAutomaticRoleAssemblies(List<RoleAssembly> assemblies) {
@@ -4884,11 +5313,14 @@ class StudioScriptViewModel extends ChangeNotifier {
         stage.targetUpperOutfitId == null &&
         stage.targetLowerOutfitId == null &&
         stage.omittedParts.isEmpty &&
+        stage.preservedParts.isEmpty &&
+        stage.sourceSummary.trim().isEmpty &&
         stage.sourceParts.isEmpty &&
         stage.manualParts.isEmpty;
   }
 
   void _applyScript(Script script) {
+    _manualSelectedStageIdsByRole.clear();
     final parsedFrames = script.frames
         .where((frame) => frame.parseStatus == ScriptFrameParseStatus.parsed)
         .toList(growable: false);
@@ -4900,8 +5332,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     _selectedFrameIndex = parsedFrames.isNotEmpty
         ? parsedFrames.first.index
         : script.frames.isNotEmpty
-        ? script.frames.first.index
-        : null;
+            ? script.frames.first.index
+            : null;
     _previewResult = _resolveSelectedFramePreview(script, mapping);
 
     folderStatus = '已导入 ${script.name}';
@@ -4937,9 +5369,8 @@ class StudioScriptViewModel extends ChangeNotifier {
           cache.sourceFingerprint == currentFingerprint) {
         _applyCache(cache);
         cacheStatus = '已恢复本剧本缓存';
+        return;
       }
-      // The targeted loader is the fast authoritative path. Falling back to the
-      // bulk loader here turns a single-script import into a full cache scan.
       return;
     }
 
@@ -5012,6 +5443,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   void _applyCache(RecastScriptCache cache) {
+    _manualSelectedStageIdsByRole.clear();
     final script = _script;
     final restoredMapping = script == null
         ? cache.mapping
@@ -5022,13 +5454,14 @@ class StudioScriptViewModel extends ChangeNotifier {
             extraction: cache.aiRoleExtraction,
             script: script,
           );
-    _mapping = script == null
-        ? restoredMapping
+    final appliedExtractionMapping = script == null
+        ? null
         : _mappingWithAppliedAiRoleExtraction(
             script: script,
             mapping: restoredMapping,
             extraction: restoredExtraction,
-          ).mapping;
+          );
+    _mapping = appliedExtractionMapping?.mapping ?? restoredMapping;
     aiRoleExtraction = restoredExtraction;
     aiRoleExtractionChunks = cache.aiRoleExtractionChunks;
     _aiRoleExtractionDraftDismissed = cache.aiRoleExtractionDraftCollapsed;
@@ -5040,6 +5473,9 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     analysisStatus = '???????';
     _refreshPreview();
+    if (appliedExtractionMapping?.changed ?? false) {
+      _scheduleCurrentCacheSave();
+    }
   }
 
   void _refreshPreview() {
@@ -5261,8 +5697,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (parsedFrames.isEmpty) {
       return const [];
     }
-    final frame =
-        parsedFrames
+    final frame = parsedFrames
             .where((candidate) => candidate.index == _selectedFrameIndex)
             .firstOrNull ??
         parsedFrames.first;
@@ -5612,8 +6047,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     final firstStage = assembly.stages.firstOrNull;
     final firstOutfit =
         firstStage?.targetUpperOutfitId == firstStage?.targetLowerOutfitId
-        ? firstStage?.targetUpperOutfitId
-        : firstStage?.targetUpperOutfitId;
+            ? firstStage?.targetUpperOutfitId
+            : firstStage?.targetUpperOutfitId;
     return StudioScriptRoleMappingItem(
       sourceRoleId: assembly.sourceRoleId,
       sourceLabel: assembly.displayLabel,
@@ -5787,20 +6222,18 @@ class StudioScriptViewModel extends ChangeNotifier {
     ]);
     final artistSwap = mapping.artistSwap;
     final storedSourceLabel = artistSwap?.sourceArtistPrompt.trim() ?? '';
-    final sourceLabel =
-        _artistSourceLabelOverride ??
+    final sourceLabel = _artistSourceLabelOverride ??
         (storedSourceLabel.isNotEmpty
             ? storedSourceLabel
             : sources.isEmpty
-            ? 'source unchanged'
-            : sources.join(', '));
+                ? 'source unchanged'
+                : sources.join(', '));
     final selectedArtistChainId = artistSwap?.targetArtistChainId.trim() ?? '';
     return [
       StudioScriptArtistMappingItem(
         sourceLabel: sourceLabel,
-        selectedArtistChainId: selectedArtistChainId.isEmpty
-            ? null
-            : selectedArtistChainId,
+        selectedArtistChainId:
+            selectedArtistChainId.isEmpty ? null : selectedArtistChainId,
         manualPrompt: artistSwap?.manualPrompt.trim() ?? '',
         deleteSource: artistSwap?.deleteSource ?? false,
       ),
@@ -5869,9 +6302,8 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   String _currentArtistSourceLabel() {
-    final current = artistMappings.isEmpty
-        ? ''
-        : artistMappings.first.sourceLabel.trim();
+    final current =
+        artistMappings.isEmpty ? '' : artistMappings.first.sourceLabel.trim();
     if (current.isNotEmpty && current != 'source unchanged') {
       return current;
     }
@@ -5919,8 +6351,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       selectedFramePreviews = const [];
       return;
     }
-    final frame =
-        script.frames
+    final frame = script.frames
             .where((candidate) => candidate.index == _selectedFrameIndex)
             .firstOrNull ??
         script.frames.first;
@@ -6049,8 +6480,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       frameIndex: frame.index,
       label: '${frame.index}帧',
       selected: frame.index == _selectedFrameIndex,
-      warning:
-          statuses.contains(StudioScriptTimelineStatus.warning) ||
+      warning: statuses.contains(StudioScriptTimelineStatus.warning) ||
           statuses.contains(StudioScriptTimelineStatus.error),
       statuses: List.unmodifiable(statuses),
     );
@@ -6095,8 +6525,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (frames.isEmpty) {
       return const StudioScriptDiff(original: '', recast: '');
     }
-    final frame =
-        frames
+    final frame = frames
             .where((candidate) => candidate.index == _selectedFrameIndex)
             .firstOrNull ??
         frames.first;
@@ -6268,9 +6697,10 @@ class StudioScriptViewModel extends ChangeNotifier {
   String _sourceFingerprint(Script script) {
     final parts = [
       script.id,
-      script.rootPath,
+      _normalizeScriptPath(script.rootPath),
       for (final frame in script.frames)
-        '${frame.index}:${frame.fileName}:${frame.sourcePath}:'
+        '${frame.index}:${frame.fileName}:'
+            '${_normalizeScriptPath(frame.sourcePath)}:'
             '${_stableContentHash(frame.rawJson)}',
     ];
     return parts.join('|');
@@ -6293,12 +6723,55 @@ class StudioScriptViewModel extends ChangeNotifier {
   bool _sameScriptPath(String left, String right) {
     final normalizedLeft = _normalizeScriptPath(left);
     final normalizedRight = _normalizeScriptPath(right);
-    return normalizedLeft.isNotEmpty && normalizedLeft == normalizedRight;
+    if (normalizedLeft.isEmpty || normalizedRight.isEmpty) {
+      return false;
+    }
+    if (normalizedLeft == normalizedRight) {
+      return true;
+    }
+    final resolvedLeft = _resolveScriptPath(left);
+    final resolvedRight = _resolveScriptPath(right);
+    return resolvedLeft.isNotEmpty &&
+        resolvedRight.isNotEmpty &&
+        resolvedLeft == resolvedRight;
+  }
+
+  String _resolveScriptPath(String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    try {
+      return _normalizeScriptPath(
+          Directory(trimmed).resolveSymbolicLinksSync());
+    } catch (_) {
+      try {
+        return _normalizeScriptPath(
+          Directory(trimmed).absolute.resolveSymbolicLinksSync(),
+        );
+      } catch (_) {
+        return '';
+      }
+    }
   }
 
   String _normalizeScriptPath(String path) {
     final normalized = path.trim().replaceAll('\\', '/');
     return Platform.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
+  String _scriptPathLeaf(String path) {
+    final segments = path
+        .trim()
+        .replaceAll('\\', '/')
+        .split('/')
+        .where((segment) => segment.isNotEmpty && segment != '.')
+        .toList(growable: false);
+    return segments.isEmpty ? '' : segments.last;
+  }
+
+  String _normalizeScriptName(String name) {
+    return name.trim().toLowerCase();
   }
 
   String _slug(String value) {
@@ -6407,10 +6880,9 @@ StudioScriptTokenCategory _reviewCategoryForPromptCategory(
     PromptTagCategory.action => StudioScriptTokenCategory.action,
     PromptTagCategory.scene => StudioScriptTokenCategory.scene,
     PromptTagCategory.camera => StudioScriptTokenCategory.camera,
-    PromptTagCategory.artist =>
-      negative
-          ? StudioScriptTokenCategory.negativeArtist
-          : StudioScriptTokenCategory.artistChain,
+    PromptTagCategory.artist => negative
+        ? StudioScriptTokenCategory.negativeArtist
+        : StudioScriptTokenCategory.artistChain,
     PromptTagCategory.style => StudioScriptTokenCategory.style,
     PromptTagCategory.quality => StudioScriptTokenCategory.quality,
     PromptTagCategory.negativeQuality =>
@@ -6732,8 +7204,7 @@ String? _localizedSlashSeparatedAiOutfitLabel(
     for (final part in parts)
       () {
         final local = _localizedAiOutfitLabel(part);
-        final cached =
-            local ??
+        final cached = local ??
             _cachedAiOutfitTranslation(
               part,
               translationCache: translationCache,
@@ -6883,8 +7354,7 @@ List<WorkspaceVibeReference> _sourceVibesFromScript(
       final matched = availableByEncoding[encoding];
       result.add(
         WorkspaceVibeReference(
-          id:
-              matched?.id ??
+          id: matched?.id ??
               stableIdFromText(
                 prefix: 'script-source-vibe',
                 text: encoding,

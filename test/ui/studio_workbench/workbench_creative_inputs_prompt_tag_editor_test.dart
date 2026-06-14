@@ -8,6 +8,8 @@ import 'package:nai_casrand/data/models/param_config.dart';
 import 'package:nai_casrand/data/models/payload_config.dart';
 import 'package:nai_casrand/data/models/prompt_config.dart';
 import 'package:nai_casrand/data/models/settings.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:nai_casrand/ui/studio_core/theme/prompt_tag_category_style.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
@@ -26,9 +28,13 @@ class _WorkbenchAssetLoader extends AssetLoader {
       'drag_and_drop_image_notice': 'Drag and drop image',
       'enable_precise_reference': 'Enable precise reference',
       'enable_precise_reference_hint': 'Enable precise reference hint',
-      'enable_vibe_transfer': 'Enable vibe transfer',
-      'enable_vibe_transfer_hint': 'Enable vibe transfer hint',
+      'enable_vibe_transfer': 'Enable style reference',
+      'enable_vibe_transfer_hint': 'Enable style reference hint',
       'vibe_v4_page_tip': 'Vibe tip',
+      'enhance_presets': 'Redraw presets',
+      'image_size': 'Image size',
+      'override_random_prompts': 'Override random prompts',
+      'colon': ': ',
     };
   }
 }
@@ -150,7 +156,12 @@ void main() {
     expect(
         payload.paramConfig.negativePrompt, 'bad hands, low quality, blurry');
 
-    await tester.tap(find.byKey(const ValueKey('workbench-character-card-0')));
+    final characterCard = find.byKey(
+      const ValueKey('workbench-character-card-0'),
+    );
+    await tester.ensureVisible(characterCard);
+    await tester.pumpAndSettle();
+    await tester.tap(characterCard);
     await tester.pumpAndSettle();
 
     final characterEditor =
@@ -172,13 +183,14 @@ void main() {
     );
   });
 
-  testWidgets('negative prompt editor uses negative tag category colors',
+  testWidgets('negative prompt editor uses negative quality category colors',
       (tester) async {
     tester.view.physicalSize = const Size(1000, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final payload = _payload();
+    payload.paramConfig = ParamConfig(model: 'nai-diffusion-4-5-full');
     GetIt.I.registerSingleton<PayloadConfig>(payload);
 
     await tester.pumpWidget(_host(payload));
@@ -196,6 +208,56 @@ void main() {
     );
     final decoration = marker.decoration as BoxDecoration;
 
-    expect(decoration.color, const Color(0xFFDB2777));
+    expect(
+      decoration.color,
+      promptTagCategoryColor(PromptTagCategory.negativeQuality),
+    );
+  });
+
+  testWidgets('image-to-image switch reveals only approved controls',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final payload = _payload();
+    GetIt.I.registerSingleton<PayloadConfig>(payload);
+
+    await tester.pumpWidget(_host(payload));
+    await tester.pumpAndSettle();
+
+    expect(find.text('图生图（可选）'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('workbench-reference-editor')), findsNothing);
+    expect(find.text('选择底图'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-i2i-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workbench-reference-editor')),
+        findsOneWidget);
+    expect(find.text('选择底图'), findsOneWidget);
+    expect(find.textContaining('重绘强度'), findsOneWidget);
+    expect(find.textContaining('噪声强度'), findsOneWidget);
+    expect(find.textContaining('重绘预设'), findsNothing);
+    expect(find.text('参考图（可选）'), findsOneWidget);
+    expect(find.text('Override random prompts'), findsNothing);
+    expect(find.text('vibe'), findsNothing);
+
+    final referenceExpansion =
+        find.byKey(const ValueKey('workbench-reference-options-expansion'));
+    await tester.ensureVisible(referenceExpansion);
+    await tester.tap(referenceExpansion);
+    await tester.pumpAndSettle();
+
+    expect(find.text('风格参考'), findsOneWidget);
+    expect(find.text('精确参考'), findsOneWidget);
+    expect(find.text('Enable style reference'), findsNothing);
+    expect(find.text('Enable precise reference'), findsNothing);
+    expect(find.descendant(
+      of: find.byKey(const ValueKey('workbench-reference-editor')),
+      matching: find.text('关闭'),
+    ), findsNothing);
   });
 }

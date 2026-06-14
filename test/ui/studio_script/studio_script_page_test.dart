@@ -327,6 +327,93 @@ void main() {
       );
     });
 
+    test('role outfit stage labels and frame indexes can be edited and saved',
+        () async {
+      final script = _scriptWithFrames(
+        [
+          (
+            index: 1,
+            base: 'artist:test, bedroom',
+            chars: ['ai hero, blue jacket'],
+          ),
+          (
+            index: 2,
+            base: 'artist:test, hallway',
+            chars: ['ai hero, blue jacket'],
+          ),
+          (
+            index: 3,
+            base: 'artist:test, beach',
+            chars: ['ai hero, white bikini'],
+          ),
+        ],
+        id: 'editable-stage-script',
+        name: 'Editable Stage Script',
+        rootPath: 'editable-stage-script',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+        updatedAt: DateTime.utc(2026, 6, 13),
+        mapping: RecastMapping.defaults(script.id).copyWith(
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'AI Hero',
+              sourceName: 'AI Hero',
+              stages: [
+                RoleAssemblyStage(
+                  id: 'main-outfit',
+                  label: 'main outfit',
+                  frameIndexes: [1, 2],
+                  sourceParts: RecastPromptParts(
+                    upperClothing: 'blue jacket',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        scriptSnapshot: script.toJson(),
+      );
+      final savedCaches = <RecastScriptCache>[];
+      final viewModel = StudioScriptViewModel(
+        parserService: _FakeParserService([script]),
+        loadRecastCacheByScriptId: (_) async => cache,
+        saveRecastCache: (cache) async => savedCaches.add(cache),
+      );
+
+      await viewModel.importScriptPath(script.rootPath);
+
+      final role = viewModel.roleMappings.single;
+      final stageId = role.selectedStage!.id;
+      viewModel.renameRoleStage(
+        sourceRoleId: role.sourceRoleId,
+        stageId: stageId,
+        label: 'black raincoat',
+      );
+      viewModel.setRoleStageFrameIndexes(
+        sourceRoleId: role.sourceRoleId,
+        stageId: stageId,
+        frameIndexes: [3, 1, 3, 2],
+      );
+
+      final updatedStage = viewModel.roleMappings.single.selectedStage!;
+      expect(updatedStage.label, 'black raincoat');
+      expect(updatedStage.frameIndexes, [1, 2, 3]);
+
+      await Future<void>.delayed(const Duration(milliseconds: 550));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(savedCaches, isNotEmpty);
+      final savedStage =
+          savedCaches.last.mapping.roleAssemblies.single.stages.single;
+      expect(savedStage.label, 'black raincoat');
+      expect(savedStage.frameIndexes, [1, 2, 3]);
+    });
+
     test('restores PNG cache snapshot through single-cache loader', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'studio-script-single-cache-loader-',
@@ -371,6 +458,266 @@ void main() {
       expect(targetedLoadCount, 1);
       expect(viewModel.frameCount, 1);
       expect(viewModel.folderStatus, contains('single cache script'));
+    });
+
+    test(
+      'restores named cache when current PNG path only has an empty stub',
+      () async {
+        final tempRoot = await Directory.systemTemp.createTemp(
+          'studio-script-empty-stub-cache-',
+        );
+        addTearDown(() async {
+          if (await tempRoot.exists()) {
+            await tempRoot.delete(recursive: true);
+          }
+        });
+        final importDir = Directory(
+          '${tempRoot.path}${Platform.pathSeparator}Moved Script',
+        );
+        await importDir.create(recursive: true);
+        await File(
+          '${importDir.path}${Platform.pathSeparator}p000.png',
+        ).writeAsBytes(const [137, 80, 78, 71]);
+        final importScriptId =
+            ScriptRecastParserService.scriptIdForDirectory(importDir);
+        final emptyScript = Script(
+          id: importScriptId,
+          name: 'Moved Script',
+          rootPath: importDir.path,
+          frames: const [],
+          detectedSchema: ScriptSchema.unknown,
+          parseWarnings: const [
+            'No prompt-bearing JSON or PNG script frames found in this directory.',
+          ],
+        );
+        final emptyStub = RecastScriptCache(
+          scriptId: importScriptId,
+          scriptName: emptyScript.name,
+          sourceRootPath: emptyScript.rootPath,
+          sourceFingerprint: 'empty-stub',
+          sourceContentFingerprint: 'schema:unknown|frames:0',
+          updatedAt: DateTime.utc(2026, 6, 10, 9),
+          mapping: RecastMapping.defaults(importScriptId),
+          scriptSnapshot: emptyScript.toJson(),
+        );
+        final readyScript = _singleFrameScript(
+          id: 'script-old-path',
+          name: 'Moved Script',
+          rootPath: r'E:\codeximage\ntr-story-cache-source\Moved Script',
+          baseCaption: 'artist:moved-cache, city lights',
+        );
+        final readyCache = RecastScriptCache(
+          scriptId: readyScript.id,
+          scriptName: readyScript.name,
+          sourceRootPath: readyScript.rootPath,
+          sourceFingerprint: _testSourceFingerprint(readyScript),
+          updatedAt: DateTime.utc(2026, 6, 10, 8),
+          mapping: RecastMapping.defaults(readyScript.id),
+          aiRoleExtraction: const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            roles: [
+              ScriptAiExtractedRole(
+                sourceRoleId: 'slot-0',
+                displayName: 'Recovered AI Hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: readyScript.toJson(),
+        );
+        var bulkLoadCount = 0;
+        final viewModel = StudioScriptViewModel(
+          parserService: _ThrowingParserService(),
+          loadRecastCacheByScriptId: (scriptId) async {
+            expect(scriptId, importScriptId);
+            return emptyStub;
+          },
+          loadRecastCaches: () async {
+            bulkLoadCount += 1;
+            return [emptyStub, readyCache];
+          },
+        );
+
+        await viewModel.importScriptPath(importDir.path);
+
+        expect(bulkLoadCount, 1);
+        expect(viewModel.frameCount, 1);
+        expect(
+          viewModel.aiRoleExtraction.status,
+          ScriptAiRoleExtractionStatus.ready,
+        );
+        expect(
+          viewModel.aiRoleExtraction.roles.single.displayName,
+          'Recovered AI Hero',
+        );
+      },
+    );
+
+    test(
+      'restores named cache for non-ASCII PNG path when single-cache misses',
+      () async {
+        final tempRoot = await Directory.systemTemp.createTemp(
+          'studio-script-nonascii-cache-miss-',
+        );
+        addTearDown(() async {
+          if (await tempRoot.exists()) {
+            await tempRoot.delete(recursive: true);
+          }
+        });
+        final importDir = Directory(
+          '${tempRoot.path}${Platform.pathSeparator}モナ 合并',
+        );
+        await importDir.create(recursive: true);
+        await File(
+          '${importDir.path}${Platform.pathSeparator}p000.png',
+        ).writeAsBytes(const [137, 80, 78, 71]);
+        final readyScript = _singleFrameScript(
+          id: 'script-alias-path',
+          name: 'モナ 合并',
+          rootPath: r'E:\codeximage\ntr-story-cache-source\モナ 合并',
+          baseCaption: 'artist:nonascii-cache, city lights',
+        );
+        final readyCache = RecastScriptCache(
+          scriptId: readyScript.id,
+          scriptName: readyScript.name,
+          sourceRootPath: readyScript.rootPath,
+          sourceFingerprint: _testSourceFingerprint(readyScript),
+          updatedAt: DateTime.utc(2026, 6, 10, 8),
+          mapping: RecastMapping.defaults(readyScript.id),
+          scriptSnapshot: readyScript.toJson(),
+        );
+        var bulkLoadCount = 0;
+        final viewModel = StudioScriptViewModel(
+          parserService: _ThrowingParserService(),
+          loadRecastCacheByScriptId: (_) async => null,
+          loadRecastCaches: () async {
+            bulkLoadCount += 1;
+            return [readyCache];
+          },
+        );
+
+        await viewModel.importScriptPath(importDir.path);
+
+        expect(bulkLoadCount, 1);
+        expect(viewModel.frameCount, 1);
+        expect(viewModel.folderStatus, contains('モナ 合并'));
+      },
+    );
+
+    test('rebases restored named cache image paths to current import directory',
+        () async {
+      final tempRoot = await Directory.systemTemp.createTemp(
+        'studio-script-rebased-cache-paths-',
+      );
+      addTearDown(() async {
+        if (await tempRoot.exists()) {
+          await tempRoot.delete(recursive: true);
+        }
+      });
+      final importDir = Directory(
+        '${tempRoot.path}${Platform.pathSeparator}Moved Story',
+      );
+      await importDir.create(recursive: true);
+      final jsonFile = File(
+        '${importDir.path}${Platform.pathSeparator}nai_1.json',
+      );
+      final imageFile = File(
+        '${importDir.path}${Platform.pathSeparator}nai_1.png',
+      );
+      await jsonFile.writeAsString('{"Description":"blue eyes"}');
+      await imageFile.writeAsBytes(const [137, 80, 78, 71]);
+
+      const oldRoot = r'E:\old-cache-root\Moved Story';
+      final oldScript = Script(
+        id: 'script-old-cache-root',
+        name: 'Moved Story',
+        rootPath: oldRoot,
+        frames: const [
+          ScriptFrame(
+            index: 1,
+            fileName: 'nai_1.json',
+            sourcePath: r'E:\old-cache-root\Moved Story\nai_1.json',
+            sourceImagePath: r'E:\old-cache-root\Moved Story\nai_1.png',
+            rawJson: '{"Description":"blue eyes"}',
+            parsed: ParsedFrame(baseCaption: 'blue eyes'),
+            detectedSchema: ScriptSchema.baseInline,
+            parseStatus: ScriptFrameParseStatus.parsed,
+          ),
+        ],
+        detectedSchema: ScriptSchema.baseInline,
+      );
+      final readyCache = RecastScriptCache(
+        scriptId: oldScript.id,
+        scriptName: oldScript.name,
+        sourceRootPath: oldScript.rootPath,
+        sourceFingerprint: _testSourceFingerprint(oldScript),
+        updatedAt: DateTime.utc(2026, 6, 10, 8),
+        mapping: RecastMapping.defaults(oldScript.id),
+        scriptSnapshot: oldScript.toJson(),
+      );
+      RecastScriptCache? savedCache;
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (_) async => null,
+        loadRecastCaches: () async => [readyCache],
+        saveRecastCache: (cache) async {
+          savedCache = cache;
+        },
+      );
+
+      await viewModel.importScriptPath(importDir.path);
+      await viewModel.collapseAiRoleExtractionDraft();
+
+      final saved = savedCache;
+      expect(saved, isNotNull);
+      expect(
+        saved!.scriptId,
+        ScriptRecastParserService.scriptIdForDirectory(importDir),
+      );
+      expect(saved.sourceRootPath, importDir.path);
+      final snapshot = Script.fromJson(saved.scriptSnapshot);
+      expect(snapshot.rootPath, importDir.path);
+      expect(snapshot.frames.single.sourcePath, jsonFile.path);
+      expect(snapshot.frames.single.sourceImagePath, imageFile.path);
+    });
+
+    test('does not save empty PNG script snapshots as recast cache', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'studio-script-empty-png-snapshot-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      await File(
+        '${tempDir.path}${Platform.pathSeparator}p000.png',
+      ).writeAsBytes(const [137, 80, 78, 71]);
+      final script = Script(
+        id: ScriptRecastParserService.scriptIdForDirectory(tempDir),
+        name: 'empty png snapshot',
+        rootPath: tempDir.path,
+        frames: const [],
+        detectedSchema: ScriptSchema.unknown,
+        parseWarnings: const [
+          'No prompt-bearing JSON or PNG script frames found in this directory.',
+        ],
+      );
+      RecastScriptCache? savedCache;
+      final viewModel = StudioScriptViewModel(
+        parserService: _FakeParserService([script]),
+        loadCharacters: () async => const [],
+        loadArtistChains: () async => const [],
+        loadVibes: () async => const [],
+        loadRecastCacheByScriptId: (_) async => null,
+        saveRecastCache: (cache) async {
+          savedCache = cache;
+        },
+      );
+
+      await viewModel.importScriptPath(tempDir.path);
+
+      expect(viewModel.frameCount, 0);
+      expect(savedCache, isNull);
     });
 
     test(
@@ -490,7 +837,7 @@ void main() {
                   sourceName: 'official style',
                   stages: [
                     RoleAssemblyStage(
-                      id: 'slot-0-stage-1',
+                      id: 'main-outfit',
                       label: '鏈嶈 1',
                       frameIndexes: [1],
                       sourceSummary: 'pov hands',
@@ -547,7 +894,7 @@ void main() {
                   sourceName: 'Ako (Dress) Blue Archive',
                   stages: [
                     RoleAssemblyStage(
-                      id: 'slot-0-stage-1',
+                      id: 'main-outfit',
                       label: '服装 1',
                       frameIndexes: [1, 2, 3],
                       sourceParts: RecastPromptParts(upperBody: 'top-down'),
@@ -644,9 +991,8 @@ void main() {
 
         await viewModel.importScriptPath(_fixturePath);
 
-        final roleIds = viewModel.roleMappings
-            .map((role) => role.sourceRoleId)
-            .toList();
+        final roleIds =
+            viewModel.roleMappings.map((role) => role.sourceRoleId).toList();
         expect(roleIds, isNot(contains('slot-0')));
         expect(roleIds, isNot(contains('slot-1')));
         expect(roleIds, contains('role-1'));
@@ -714,9 +1060,8 @@ void main() {
 
         await viewModel.importScriptPath(_fixturePath);
 
-        final roleIds = viewModel.roleMappings
-            .map((role) => role.sourceRoleId)
-            .toList();
+        final roleIds =
+            viewModel.roleMappings.map((role) => role.sourceRoleId).toList();
         expect(roleIds, contains('role-cached-hero'));
         expect(roleIds, isNot(contains('slot-0')));
         final stage = viewModel.roleMappings
@@ -997,6 +1342,221 @@ void main() {
       },
     );
 
+    test(
+      'restored role source name is visible as source identity part',
+      () async {
+        final script = _singleFrameScript(
+          id: 'hoshino-script',
+          name: 'Hoshino Script',
+          rootPath: r'C:\scripts\hoshino',
+          baseCaption: 'classroom',
+          charCaptions: const [
+            'hoshino (blue archive), blue hair, school uniform',
+          ],
+        );
+        var caches = [
+          RecastScriptCache(
+            scriptId: script.id,
+            scriptName: script.name,
+            sourceRootPath: script.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+            updatedAt: DateTime.utc(2026, 6, 11),
+            mapping: RecastMapping.defaults(script.id).copyWith(
+              roleAssemblies: const [
+                RoleAssembly(
+                  sourceRoleId: 'role-hoshino',
+                  displayLabel: 'hoshino (blue archive)',
+                  sourceName: 'hoshino (blue archive)',
+                  sourceAppearances: [
+                    RoleAssemblySourceAppearance(
+                      sourceId: 'slot-0',
+                      sourceKind: 'slot',
+                      frameIndexes: [1],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            scriptSnapshot: script.toJson(),
+          ),
+        ];
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+          loadCharacters: () async => const [
+            CharacterEntry(
+              id: 'replacement',
+              name: 'Replacement',
+              traits: ViewVariantTexts(frontFull: 'replacement_hero, red eyes'),
+              anchorTags: ['replacement_hero'],
+              identityTags: ['red eyes'],
+            ),
+          ],
+          loadArtistChains: () async => const [],
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final role = viewModel.roleMappings.single;
+        final stage = role.stageItems.single;
+        expect(role.sourcePreview, 'hoshino (blue archive)');
+        expect(stage.id, 'role-hoshino-source-stage');
+        expect(stage.frameIndexes, [1]);
+        expect(stage.sourceParts.identity, 'hoshino (blue archive)');
+
+        viewModel.setRoleCharacter(role.sourceRoleId, 'replacement');
+
+        expect(viewModel.diff.recast, contains('replacement_hero'));
+        expect(viewModel.diff.recast, isNot(contains('hoshino')));
+        expect(viewModel.diff.recast, isNot(contains('blue archive')));
+      },
+    );
+
+    test(
+      'restored AI extraction stages are materialized when cache mapping has appearances only',
+      () async {
+        final script = _singleFrameScript(
+          id: 'hoshino-ai-stage-script',
+          name: 'Hoshino AI Stage Script',
+          rootPath: r'C:\scripts\hoshino-ai-stage',
+          baseCaption: 'classroom',
+          charCaptions: const [
+            'hoshino (blue archive), white shirt, black skirt',
+          ],
+        );
+        var caches = [
+          RecastScriptCache(
+            scriptId: script.id,
+            scriptName: script.name,
+            sourceRootPath: script.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+            updatedAt: DateTime.utc(2026, 6, 11),
+            mapping: RecastMapping.defaults(script.id).copyWith(
+              roleAssemblies: const [
+                RoleAssembly(
+                  sourceRoleId: 'role-hoshino-blue-archive',
+                  displayLabel: 'hoshino (blue archive)',
+                  sourceName: 'hoshino (blue archive)',
+                  sourceAppearances: [
+                    RoleAssemblySourceAppearance(
+                      sourceId: 'slot-0',
+                      sourceKind: 'slot',
+                      frameIndexes: [1],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            aiRoleExtraction: const ScriptAiRoleExtraction(
+              status: ScriptAiRoleExtractionStatus.ready,
+              confidence: 0.9,
+              roles: [
+                ScriptAiExtractedRole(
+                  sourceRoleId: 'role-hoshino-blue-archive',
+                  displayName: 'hoshino (blue archive)',
+                  appearances: [
+                    ScriptAiRoleAppearance(
+                      sourceId: 'slot-0',
+                      sourceKind: 'slot',
+                      frameIndexes: [1],
+                    ),
+                  ],
+                  stages: [
+                    ScriptAiExtractedStage(
+                      stageId: 'role-hoshino-blue-archive-stage-1',
+                      label: '校服',
+                      frameIndexes: [1],
+                      identity: 'hoshino (blue archive)',
+                      upperClothing: 'white shirt',
+                      lowerClothing: 'black skirt',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            aiRoleExtractionDraftCollapsed: true,
+            scriptSnapshot: script.toJson(),
+          ),
+        ];
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+          loadCharacters: () async => const [],
+          loadArtistChains: () async => const [],
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final role = viewModel.roleMappings.single;
+        final stage = role.stageItems.single;
+        expect(role.sourceLabel, 'hoshino (blue archive)');
+        expect(stage.id, 'role-hoshino-blue-archive-stage-1');
+        expect(stage.sourceParts.identity, 'hoshino (blue archive)');
+        expect(stage.sourceParts.upperClothing, 'white shirt');
+        expect(stage.sourceParts.lowerClothing, 'black skirt');
+      },
+    );
+
+    test(
+      'restored source stage with local default id is not pruned when it has source fields',
+      () async {
+        final script = _singleFrameScript(
+          id: 'hoshino-default-stage-script',
+          name: 'Hoshino Default Stage Script',
+          rootPath: r'C:\scripts\hoshino-default-stage',
+          baseCaption: 'classroom',
+          charCaptions: const [
+            'hoshino (blue archive), blue hair, school uniform',
+          ],
+        );
+        var caches = [
+          RecastScriptCache(
+            scriptId: script.id,
+            scriptName: script.name,
+            sourceRootPath: script.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+            updatedAt: DateTime.utc(2026, 6, 11),
+            mapping: RecastMapping.defaults(script.id).copyWith(
+              roleAssemblies: const [
+                RoleAssembly(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'hoshino (blue archive)',
+                  sourceName: 'hoshino (blue archive)',
+                  stages: [
+                    RoleAssemblyStage(
+                      id: 'slot-0-stage-1',
+                      label: 'main outfit',
+                      frameIndexes: [1],
+                      sourceSummary: 'hoshino (blue archive)',
+                      sourceParts: RecastPromptParts(
+                        identity: 'hoshino (blue archive)',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            scriptSnapshot: script.toJson(),
+          ),
+        ];
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+          loadCharacters: () async => const [],
+          loadArtistChains: () async => const [],
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final stage = viewModel.roleMappings.single.stageItems.single;
+        expect(stage.id, 'slot-0-stage-1');
+        expect(stage.sourceParts.identity, 'hoshino (blue archive)');
+      },
+    );
+
     test('manual role part edits update preview payload', () async {
       final viewModel = StudioScriptViewModel(
         loadCharacters: () async => const [
@@ -1023,6 +1583,80 @@ void main() {
         viewModel.roleMappings.first.stageItems.first.parts.upperClothing,
         'custom cape',
       );
+    });
+
+    test('batched manual role part edits notify once', () async {
+      var caches = <RecastScriptCache>[];
+      final seedViewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => caches,
+        saveRecastCaches: (next) async => caches = next,
+      );
+      await seedViewModel.importScriptPath(_fixturePath);
+      await seedViewModel.useFreshParseForChangedSource();
+      final cache = caches.single;
+      caches = [
+        RecastScriptCache(
+          scriptId: cache.scriptId,
+          scriptName: cache.scriptName,
+          sourceRootPath: cache.sourceRootPath,
+          sourceFingerprint: cache.sourceFingerprint,
+          updatedAt: cache.updatedAt,
+          mapping: cache.mapping.copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Wakamo',
+                sourceName: 'Wakamo',
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'main-outfit',
+                    label: 'Main outfit',
+                    frameIndexes: [1, 2],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: cache.scriptSnapshot,
+        ),
+      ];
+      final viewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => caches,
+        saveRecastCaches: (next) async => caches = next,
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+      final role = viewModel.roleMappings.single;
+      final stageId = role.stageItems.first.id;
+      var notifications = 0;
+      viewModel.addListener(() {
+        notifications += 1;
+      });
+
+      viewModel.batchRoleStageEdits(() {
+        viewModel.setRoleStagePart(
+          sourceRoleId: role.sourceRoleId,
+          stageId: stageId,
+          part: StudioScriptRolePart.upperClothing,
+          value: 'cat ears',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: role.sourceRoleId,
+          stageId: stageId,
+          part: StudioScriptRolePart.lowerClothing,
+          value: 'cat tail',
+        );
+      });
+
+      expect(notifications, 1);
+      final stage = viewModel.roleMappings
+          .where((candidate) => candidate.sourceRoleId == role.sourceRoleId)
+          .single
+          .stageItems
+          .where((candidate) => candidate.id == stageId)
+          .single;
+      expect(stage.parts.upperClothing, 'cat ears');
+      expect(stage.parts.lowerClothing, 'cat tail');
     });
 
     test('manual role output edits persist to cache after debounce', () async {
@@ -1284,8 +1918,7 @@ void main() {
               id: 'char-hero',
               name: 'library character',
               traits: ViewVariantTexts(
-                frontFull:
-                    'library_hero, shirt-shaped birthmark, '
+                frontFull: 'library_hero, shirt-shaped birthmark, '
                     'white shirt, skirt-shaped tail ornament, black skirt',
                 frontUpper: 'shirt-shaped birthmark, white shirt',
                 frontLower: 'skirt-shaped tail ornament, black skirt',
@@ -1466,8 +2099,7 @@ void main() {
               id: 'pepe',
               name: 'Pepe',
               traits: ViewVariantTexts(
-                frontFull:
-                    'girl, 2::loli::, pepe_(arknights), cat ears, '
+                frontFull: 'girl, 2::loli::, pepe_(arknights), cat ears, '
                     'long hair, cat tail, animal ear hood, black jacket, '
                     'black shorts',
                 frontUpper: 'cat ears, long hair',
@@ -1578,8 +2210,7 @@ void main() {
               id: 'papyrus',
               name: '鑾庤崏',
               traits: ViewVariantTexts(
-                frontFull:
-                    'girl, papyrus_(arknights), animal ears, cat ears, '
+                frontFull: 'girl, papyrus_(arknights), animal ears, cat ears, '
                     'green eyes, orange hair, long hair, tail ornament',
                 frontUpper:
                     'animal ears, cat ears, green eyes, orange hair, long hair',
@@ -1591,8 +2222,7 @@ void main() {
                   id: 'pink',
                   name: '绮夎壊鐫¤。',
                   tags: ViewVariantTexts(
-                    frontFull:
-                        'girl, papyrus_(arknights), pink pajamas, '
+                    frontFull: 'girl, papyrus_(arknights), pink pajamas, '
                         'dress, hood, brown gloves',
                   ),
                   partTags: WorkspaceOutfitPartTags(
@@ -1726,8 +2356,7 @@ void main() {
               id: 'papyrus',
               name: 'Papyrus',
               traits: ViewVariantTexts(
-                frontFull:
-                    'girl, papyrus_(arknights), animal ears, cat ears, '
+                frontFull: 'girl, papyrus_(arknights), animal ears, cat ears, '
                     'green eyes, orange hair, tail ornament',
                 frontUpper: 'animal ears, cat ears, green eyes, orange hair',
                 frontLower: 'tail ornament',
@@ -1955,6 +2584,114 @@ void main() {
           expect(stage.parts.upperClothing, isEmpty);
           expect(stage.parts.lowerClothing, 'shared skirt');
         }
+      },
+    );
+
+    test(
+      'can copy the selected replacement target to one outfit stage only',
+      () async {
+        final viewModel = StudioScriptViewModel(
+          scriptAiRoleExtractionService: const _FakeRoleExtractionService(
+            ScriptAiRoleExtraction(
+              status: ScriptAiRoleExtractionStatus.ready,
+              confidence: 0.9,
+              roles: [
+                ScriptAiExtractedRole(
+                  sourceRoleId: 'slot-0',
+                  displayName: 'hero',
+                  confidence: 0.9,
+                  stages: [
+                    ScriptAiExtractedStage(
+                      stageId: 'stage-school',
+                      label: 'school',
+                      frameIndexes: [1],
+                      identity: 'hero',
+                      upperClothing: 'school jacket',
+                      lowerClothing: 'school skirt',
+                      confidence: 0.9,
+                    ),
+                    ScriptAiExtractedStage(
+                      stageId: 'stage-swim',
+                      label: 'swim',
+                      frameIndexes: [2],
+                      identity: 'hero',
+                      upperClothing: 'swim top',
+                      lowerClothing: 'swim shorts',
+                      confidence: 0.9,
+                    ),
+                    ScriptAiExtractedStage(
+                      stageId: 'stage-hood',
+                      label: 'hood',
+                      frameIndexes: [3],
+                      identity: 'hero',
+                      upperClothing: 'hoodie',
+                      lowerClothing: 'cargo shorts',
+                      confidence: 0.9,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          scriptAiBaseUrlProvider: () => 'https://script.example/v1',
+          scriptAiTokenProvider: () => 'token',
+          scriptAiModelProvider: () => 'gpt-4.1-mini',
+        );
+        await viewModel.importScriptPath(_fixturePath);
+        await viewModel.generateAiRoleExtraction();
+        await viewModel.applyAiRoleExtraction();
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-school',
+          part: StudioScriptRolePart.upperClothing,
+          value: 'school jacket',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-school',
+          part: StudioScriptRolePart.lowerClothing,
+          value: 'school skirt',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-swim',
+          part: StudioScriptRolePart.upperClothing,
+          value: 'swim top',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-swim',
+          part: StudioScriptRolePart.lowerClothing,
+          value: 'swim shorts',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-hood',
+          part: StudioScriptRolePart.upperClothing,
+          value: 'hoodie',
+        );
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'slot-0',
+          stageId: 'stage-hood',
+          part: StudioScriptRolePart.lowerClothing,
+          value: 'cargo shorts',
+        );
+
+        viewModel.copyRoleStageTargetToStage(
+          sourceRoleId: 'slot-0',
+          templateStageId: 'stage-school',
+          targetStageId: 'stage-hood',
+        );
+
+        final stages = viewModel.roleMappings.single.stageItems;
+        final swim = stages.singleWhere((stage) => stage.id == 'stage-swim');
+        final hood = stages.singleWhere((stage) => stage.id == 'stage-hood');
+
+        expect(swim.parts.upperClothing, 'swim top');
+        expect(swim.parts.lowerClothing, 'swim shorts');
+
+        expect(hood.parts.upperClothing, 'school jacket');
+        expect(hood.parts.lowerClothing, 'school skirt');
       },
     );
 
@@ -2386,12 +3123,12 @@ void main() {
         final viewModel = StudioScriptViewModel(
           scriptAiRoleExtractionService:
               const _StartedThrowingRoleExtractionService(
-                startedPreview: {
-                  'schema_version': 1,
-                  'request_kind': 'chunk_extract',
-                  'chunk_id': 'chunk-1',
-                },
-              ),
+            startedPreview: {
+              'schema_version': 1,
+              'request_kind': 'chunk_extract',
+              'chunk_id': 'chunk-1',
+            },
+          ),
           scriptAiBaseUrlProvider: () => 'https://script.example/v1',
           scriptAiTokenProvider: () => 'token',
           scriptAiModelProvider: () => 'gpt-4.1-mini',
@@ -2976,8 +3713,7 @@ void main() {
                   upperBody: 'black bow, medium breasts, wet hair',
                   upperClothing:
                       'collared shirt, naked shirt, open shirt, oversized shirt',
-                  nonRole:
-                      'blush, embarrassed, arms, legs, breasts, tail, '
+                  nonRole: 'blush, embarrassed, arms, legs, breasts, tail, '
                       'long sleeves, pussy, standing, wet, white shirt',
                   nonRoleMaterialized: true,
                   evidenceTerms: [
@@ -3912,8 +4648,8 @@ void main() {
         await File(
           '${tempDir.path}${Platform.pathSeparator}nai_2.png',
         ).writeAsBytes(const [137, 80, 78, 71]);
-        final parsedScript = await const ScriptRecastParserService()
-            .parseDirectory(tempDir);
+        final parsedScript =
+            await const ScriptRecastParserService().parseDirectory(tempDir);
         final caches = [
           RecastScriptCache(
             scriptId: parsedScript.id,
@@ -4326,9 +5062,8 @@ void main() {
       await viewModel.sendToProduction();
 
       final plans = await workspaceService.loadProductionPlans();
-      final parameters =
-          plans.single.tasks.first.payload['parameters']
-              as Map<String, dynamic>;
+      final parameters = plans.single.tasks.first.payload['parameters']
+          as Map<String, dynamic>;
       expect(parameters['reference_image_multiple'], ['encoded-manual-vibe']);
       expect(parameters['reference_strength_multiple'], [0.72]);
       expect(viewModel.selectedManualVibes.single.name, 'Manual Vibe');
@@ -4643,7 +5378,7 @@ void main() {
       expect(viewModel.selectedFrameTagGroups[0].tags, contains('fox_tail'));
       expect(
         viewModel.selectedFrameTagGroups[2].tags,
-        contains('artist:terasu_mc'),
+        contains('0.8:: artist:terasu_mc ::'),
       );
       expect(viewModel.selectedFrameTagGroups[4].tags, contains('city lights'));
 
@@ -4656,7 +5391,7 @@ void main() {
     });
 
     test(
-      'role source cards only show source tags supported by selected frame',
+      'role source cards show stage source fields after frame selection changes',
       () async {
         final script = _scriptWithFrames(
           [
@@ -4732,18 +5467,126 @@ void main() {
           frameOneStage.visibleSourceParts.identity,
           'sparkle (honkai: star rail)',
         );
-        expect(frameOneStage.visibleSourceParts.upperBody, isEmpty);
-        expect(frameOneStage.visibleSourceParts.upperClothing, isEmpty);
-        expect(frameOneStage.isCurrentFrameSourceScoped, isTrue);
+        expect(
+          frameOneStage.visibleSourceParts.upperBody,
+          'fox mask often present, flower tattoo',
+        );
+        expect(
+          frameOneStage.visibleSourceParts.upperClothing,
+          'black gloves in some early frames',
+        );
+        expect(frameOneStage.currentFrameSourceParts?.upperBody, isEmpty);
+        expect(frameOneStage.currentFrameSourceParts?.upperClothing, isEmpty);
+        expect(frameOneStage.isCurrentFrameSourceScoped, isFalse);
 
         viewModel.selectFrame(2);
 
         final frameTwoStage = viewModel.roleMappings.single.stageItems.single;
         expect(
           frameTwoStage.visibleSourceParts.upperBody,
+          'fox mask often present, flower tattoo',
+        );
+        expect(
+          frameTwoStage.visibleSourceParts.upperClothing,
+          'black gloves in some early frames',
+        );
+        expect(
+          frameTwoStage.currentFrameSourceParts?.upperBody,
           'fox mask, flower tattoo',
         );
-        expect(frameTwoStage.visibleSourceParts.upperClothing, 'black gloves');
+        expect(
+          frameTwoStage.currentFrameSourceParts?.upperClothing,
+          'black gloves',
+        );
+      },
+    );
+
+    test(
+      'role mapping selects the outfit stage that contains the current frame',
+      () async {
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'artist:test, workshop',
+              chars: [
+                'girl, aoi (princess connect!), black tank top, overall skirt',
+              ],
+            ),
+            (
+              index: 2,
+              base: 'artist:test, bedroom',
+              chars: [
+                'girl, aoi (princess connect!), completely nude',
+              ],
+            ),
+          ],
+          id: 'frame-stage-selection-script',
+          name: 'Frame Stage Selection Script',
+          rootPath: r'C:\scripts\frame-stage-selection-script',
+        );
+        final caches = [
+          RecastScriptCache(
+            scriptId: script.id,
+            scriptName: script.name,
+            sourceRootPath: script.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+            updatedAt: DateTime.utc(2026, 6, 12),
+            mapping: RecastMapping.defaults(script.id).copyWith(
+              roleAssemblies: const [
+                RoleAssembly(
+                  sourceRoleId: 'role-aoi',
+                  displayLabel: 'aoi (princess connect!) / Aoi',
+                  sourceName: 'aoi (princess connect!)',
+                  stages: [
+                    RoleAssemblyStage(
+                      id: 'tank-top',
+                      label: '黑色背心 / 背带裙',
+                      frameIndexes: [1],
+                      sourceParts: RecastPromptParts(
+                        identity: 'aoi (princess connect!), girl',
+                        upperClothing: 'black tank top',
+                        lowerClothing: 'overall skirt',
+                      ),
+                    ),
+                    RoleAssemblyStage(
+                      id: 'nude',
+                      label: '裸体',
+                      frameIndexes: [2],
+                      sourceParts: RecastPromptParts(
+                        identity: 'aoi (princess connect!), girl',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            scriptSnapshot: script.toJson(),
+          ),
+        ];
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => caches.single,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        expect(viewModel.roleMappings.single.selectedStage!.id, 'tank-top');
+
+        viewModel.selectFrame(2);
+
+        expect(viewModel.roleMappings.single.selectedStage!.id, 'nude');
+        expect(viewModel.roleMappings.single.selectedStage!.label, '裸体');
+
+        viewModel.selectRoleStage('role-aoi', 'tank-top');
+        viewModel.setRoleStagePart(
+          sourceRoleId: 'role-aoi',
+          stageId: 'tank-top',
+          part: StudioScriptRolePart.upperClothing,
+          value: 'manual replacement tank top',
+        );
+
+        expect(viewModel.roleMappings.single.selectedStage!.id, 'tank-top');
       },
     );
 
@@ -4773,10 +5616,7 @@ void main() {
             .where((token) => token.source == '1.1:: city lights ::')
             .single;
         final tokenSources = viewModel
-            .recastPlan
-            .frameReviews
-            .single
-            .positiveTokens
+            .recastPlan.frameReviews.single.positiveTokens
             .map((token) => token.source)
             .toList(growable: false);
         expect(tokenSources, contains('1.1:: city lights ::'));
@@ -5601,7 +6441,10 @@ void main() {
       );
       expect(panel, findsOneWidget);
       expect(
-        find.descendant(of: panel, matching: find.text('鏇挎崲鍚庣殑鎻愮ず璇?')),
+        find.descendant(
+          of: panel,
+          matching: find.text('\u66ff\u6362\u540e\u7684\u63d0\u793a\u8bcd'),
+        ),
         findsOneWidget,
       );
       expect(
@@ -5618,6 +6461,89 @@ void main() {
               .dy,
         ),
       );
+    });
+
+    testWidgets('replaced prompt diff highlights added and removed tags', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1900, 1050);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final viewModel = StudioScriptViewModel(
+        loadArtistChains: () async => const [
+          ArtistChain(
+            id: 'artist-chain-1',
+            name: 'combined chain',
+            prompt: 'artist:replacement',
+          ),
+        ],
+      );
+
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(_fixturePath);
+      });
+      viewModel.setArtistChain('artist-chain-1');
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pump();
+
+      final panel = find.byKey(
+        const ValueKey('script-layout-bottom-replaced-prompt'),
+      );
+      final diffToggle = find.descendant(
+        of: panel,
+        matching: find.byKey(
+          const ValueKey('script-replaced-prompt-diff-toggle'),
+        ),
+      );
+      final removedArtistChip = find.descendant(
+        of: panel,
+        matching: find.byWidgetPredicate((widget) {
+          final key = widget.key;
+          return key is ValueKey<String> &&
+              key.value.startsWith('prompt-tag-chip-diff-removed-') &&
+              key.value.contains('terasu_mc');
+        }),
+      );
+      final addedArtistSystemMarker = find.descendant(
+        of: panel,
+        matching: find.byKey(
+          const ValueKey('prompt-tag-chip-marker-artist:replacement-0'),
+        ),
+      );
+      final addedArtistDiffPrefix = find.descendant(
+        of: panel,
+        matching: find.byKey(
+          const ValueKey('prompt-tag-chip-diff-added-artist:replacement-0'),
+        ),
+      );
+      final unchangedCitySystemMarker = find.descendant(
+        of: panel,
+        matching: find.byKey(
+          const ValueKey('prompt-tag-chip-marker-city lights-1'),
+        ),
+      );
+
+      expect(diffToggle, findsOneWidget);
+      expect(addedArtistDiffPrefix, findsNothing);
+      expect(
+        removedArtistChip,
+        findsNothing,
+      );
+
+      await tester.ensureVisible(diffToggle);
+      await tester.pumpAndSettle();
+      await tester.tap(diffToggle);
+      await tester.pumpAndSettle();
+
+      expect(addedArtistSystemMarker, findsOneWidget);
+      expect(addedArtistDiffPrefix, findsOneWidget);
+      expect(
+        removedArtistChip,
+        findsOneWidget,
+      );
+      expect(unchangedCitySystemMarker, findsOneWidget);
     });
 
     testWidgets('replaced prompt keeps role groups before grouping tags', (
@@ -5861,7 +6787,84 @@ void main() {
       expect(renderedRoleCards, 10);
     });
 
-    testWidgets('large role stage list only builds visible stage chips', (
+    testWidgets(
+      'virtualized role mapping viewport reserves a full-role viewing height',
+      (tester) async {
+        tester.view.physicalSize = const Size(1300, 720);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _largeScript(frameCount: 4, roleSlots: 11);
+        const longSource = 'tag01, tag02, tag03, tag04, tag05, tag06, tag07';
+        const longTarget =
+            'swap01, swap02, swap03, swap04, swap05, swap06, swap07, swap08, swap09';
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 12),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: [
+              for (var slot = 0; slot < 11; slot += 1)
+                RoleAssembly(
+                  sourceRoleId: 'slot-$slot',
+                  displayLabel: 'source_role_$slot',
+                  sourceName: 'source_role_$slot',
+                  stages: const [
+                    RoleAssemblyStage(
+                      id: 'main-outfit',
+                      label: 'Main outfit',
+                      frameIndexes: [1, 2, 3, 4],
+                      sourceSummary: longSource,
+                      sourceParts: RecastPromptParts(
+                        identity: longSource,
+                        upperBody: longSource,
+                        lowerBody: longSource,
+                        upperClothing: longSource,
+                        lowerClothing: longSource,
+                      ),
+                      manualParts: RecastPromptParts(
+                        identity: longTarget,
+                        upperBody: longTarget,
+                        lowerBody: longTarget,
+                        upperClothing: longTarget,
+                        lowerClothing: longTarget,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => [cache],
+        );
+
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath('virtualized-role-height-script');
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final virtualList = find.byKey(
+          const ValueKey('script-role-mapping-virtual-list'),
+        );
+        final firstRoleCard = find.byKey(const ValueKey('role-card-slot-0'));
+        expect(virtualList, findsOneWidget);
+        expect(firstRoleCard, findsOneWidget);
+        expect(tester.getSize(firstRoleCard).height, greaterThan(880));
+        expect(
+          tester.getSize(virtualList).height,
+          greaterThanOrEqualTo(880),
+        );
+      },
+    );
+
+    testWidgets('large role stage list renders every chip in wrapping rows', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1600, 1200);
@@ -5901,7 +6904,7 @@ void main() {
 
       expect(
         find.byKey(const ValueKey('role-stage-virtual-list-role-heavy')),
-        findsOneWidget,
+        findsNothing,
       );
       final renderedStageChips = find
           .byWidgetPredicate((widget) {
@@ -5911,16 +6914,77 @@ void main() {
           })
           .evaluate()
           .length;
-      expect(renderedStageChips, lessThan(80));
+      expect(renderedStageChips, 80);
       expect(
         find.byKey(const ValueKey('role-stage-role-heavy-stage-0')),
         findsOneWidget,
       );
       expect(
         find.byKey(const ValueKey('role-stage-role-heavy-stage-79')),
-        findsNothing,
+        findsOneWidget,
       );
     });
+
+    testWidgets(
+      'role outfit stage chips stay inside the role card when labels overflow',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final viewModel = StudioScriptViewModel()
+          ..recastPlan = const StudioScriptRecastPlan(
+            roles: [
+              StudioScriptPlanRole(
+                sourceRoleId: 'slot-0',
+                label: 'Bremerton',
+                sourceName: 'source role',
+              ),
+            ],
+            hasAiBackedPlan: true,
+          )
+          ..roleMappings = [
+            StudioScriptRoleMappingItem(
+              sourceRoleId: 'slot-0',
+              sourceLabel: 'Bremerton',
+              sourcePreview: 'source role',
+              selectedStageId: 'stage-0',
+              stageItems: [
+                for (var index = 0; index < 12; index += 1)
+                  StudioScriptRoleStageItem(
+                    id: 'stage-$index',
+                    label: index == 11
+                        ? 'short top / tennis uniform / black panties / blue jacket / long alternate outfit'
+                        : 'outfit $index / source clothing',
+                    frameIndexes: [index + 1],
+                  ),
+              ],
+            ),
+          ];
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(const ValueKey('role-stage-virtual-list-slot-0')),
+          findsNothing,
+        );
+        final card = find.byKey(const ValueKey('role-card-slot-0'));
+        final overflowingChip = find.byKey(
+          const ValueKey('role-stage-slot-0-stage-11'),
+        );
+        expect(card, findsOneWidget);
+        expect(overflowingChip, findsOneWidget);
+
+        final cardRect = tester.getRect(card);
+        final chipRect = tester.getRect(overflowingChip);
+        expect(chipRect.left, greaterThanOrEqualTo(cardRect.left - 0.1));
+        expect(chipRect.right, lessThanOrEqualTo(cardRect.right + 0.1));
+        expect(chipRect.top, greaterThanOrEqualTo(cardRect.top - 0.1));
+        expect(chipRect.bottom, lessThanOrEqualTo(cardRect.bottom + 0.1));
+      },
+    );
 
     testWidgets('large script timeline uses vertical scrolling only', (
       tester,
@@ -6007,9 +7071,8 @@ void main() {
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
       await tester.pump();
 
-      final positiveColumn = find
-          .byKey(const ValueKey('script-keyframe-positive-column'))
-          .first;
+      final positiveColumn =
+          find.byKey(const ValueKey('script-keyframe-positive-column')).first;
       final roleOneGroup = find.descendant(
         of: positiveColumn,
         matching: find.byKey(
@@ -6105,9 +7168,8 @@ void main() {
           find.byKey(const ValueKey('script-keyframe-positive-layout-toggle')),
           findsWidgets,
         );
-        final positiveColumn = find
-            .byKey(const ValueKey('script-keyframe-positive-column'))
-            .first;
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
         final roleOneGroup = find.descendant(
           of: positiveColumn,
           matching: find.byKey(
@@ -6427,9 +7489,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      final positiveColumn = find
-          .byKey(const ValueKey('script-keyframe-positive-column'))
-          .first;
+      final positiveColumn =
+          find.byKey(const ValueKey('script-keyframe-positive-column')).first;
       final cityLights = find
           .descendant(of: positiveColumn, matching: find.text('city lights'))
           .first;
@@ -6478,9 +7539,8 @@ void main() {
         await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
         await tester.pumpAndSettle();
 
-        final positiveColumn = find
-            .byKey(const ValueKey('script-keyframe-positive-column'))
-            .first;
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
         final cityLights = find
             .descendant(of: positiveColumn, matching: find.text('city lights'))
             .first;
@@ -6687,7 +7747,8 @@ void main() {
       final stageId = role.selectedStage!.id;
 
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       final fieldKey = ValueKey(
         'role-output-part-${role.sourceRoleId}-$stageId-upperClothing',
@@ -6703,11 +7764,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final before = viewModel
-          .roleMappings
-          .first
-          .selectedStage!
-          .parts
-          .upperClothing
+          .roleMappings.first.selectedStage!.parts.upperClothing
           .trim();
       await tester.tap(
         find.descendant(
@@ -6734,6 +7791,113 @@ void main() {
       );
       expect(find.text('manual silver jacket'), findsWidgets);
       expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    });
+
+    testWidgets('role outfit stages can be renamed and assigned frames', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(2200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final script = _scriptWithFrames(
+        [
+          (
+            index: 1,
+            base: 'artist:test, bedroom',
+            chars: ['ai hero, blue jacket'],
+          ),
+          (
+            index: 2,
+            base: 'artist:test, hallway',
+            chars: ['ai hero, blue jacket'],
+          ),
+          (
+            index: 3,
+            base: 'artist:test, beach',
+            chars: ['ai hero, white bikini'],
+          ),
+        ],
+        id: 'editable-stage-widget-script',
+        name: 'Editable Stage Widget Script',
+        rootPath: 'editable-stage-widget-script',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+        updatedAt: DateTime.utc(2026, 6, 13),
+        mapping: RecastMapping.defaults(script.id).copyWith(
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'AI Hero',
+              sourceName: 'AI Hero',
+              stages: [
+                RoleAssemblyStage(
+                  id: 'main-outfit',
+                  label: 'main outfit',
+                  frameIndexes: [1, 2],
+                  sourceParts: RecastPromptParts(
+                    upperClothing: 'blue jacket',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        scriptSnapshot: script.toJson(),
+      );
+      final viewModel = StudioScriptViewModel(
+        parserService: _FakeParserService([script]),
+        loadRecastCacheByScriptId: (_) async => cache,
+      );
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(script.rootPath);
+      });
+      final role = viewModel.roleMappings.single;
+      final stageId = role.selectedStage!.id;
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final renameButton = find.byKey(
+        ValueKey('role-rename-stage-${role.sourceRoleId}-$stageId'),
+      );
+      await tester.tap(renameButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.enterText(
+        find.byKey(const ValueKey('role-stage-rename-input')),
+        'black raincoat',
+      );
+      await tester.tap(find.byKey(const ValueKey('role-stage-rename-save')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+          viewModel.roleMappings.single.selectedStage!.label, 'black raincoat');
+      expect(find.text('black raincoat'), findsWidgets);
+
+      final framesButton = find.byKey(
+        ValueKey('role-edit-stage-frames-${role.sourceRoleId}-$stageId'),
+      );
+      await tester.tap(framesButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.enterText(
+        find.byKey(const ValueKey('role-stage-frames-input')),
+        '3, 5-6, 5',
+      );
+      await tester.tap(find.byKey(const ValueKey('role-stage-frames-save')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+          viewModel.roleMappings.single.selectedStage!.frameIndexes, [3, 5, 6]);
+      expect(find.text('帧 3, 5, 6'), findsOneWidget);
     });
 
     testWidgets(
@@ -8608,9 +9772,8 @@ void main() {
           find.ancestor(
             of: field,
             matching: find.byWidgetPredicate((widget) {
-              final decoration = widget is AnimatedContainer
-                  ? widget.decoration
-                  : null;
+              final decoration =
+                  widget is AnimatedContainer ? widget.decoration : null;
               return decoration is BoxDecoration &&
                   decoration.color == StudioTokens.surface1;
             }),
@@ -9153,7 +10316,7 @@ void main() {
         );
         await tester.timedDragFrom(
           outfitDragStart,
-          outfitDropRect.topLeft + const Offset(80, 500) - outfitDragStart,
+          outfitDropRect.center - outfitDragStart,
           const Duration(milliseconds: 400),
         );
         await tester.pumpAndSettle();
@@ -9257,6 +10420,203 @@ void main() {
       },
     );
 
+    testWidgets(
+      'role copy target outfit chip defines hover styling before dragging',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'artist:test',
+              chars: ['hero, school jacket, shared skirt'],
+            ),
+            (
+              index: 2,
+              base: 'artist:test',
+              chars: ['hero, swim top, swim shorts'],
+            ),
+          ],
+          id: 'role-copy-hover-script',
+          name: 'Role Copy Hover Script',
+          rootPath: 'role-copy-hover-script',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 12),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'hero',
+                sourceName: 'hero',
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'stage-school',
+                    label: 'school',
+                    frameIndexes: [1],
+                    manualParts: RecastPromptParts(
+                      upperClothing: '',
+                      lowerClothing: 'shared skirt',
+                    ),
+                  ),
+                  RoleAssemblyStage(
+                    id: 'stage-swim',
+                    label: 'swim',
+                    frameIndexes: [2],
+                    manualParts: RecastPromptParts(
+                      upperClothing: 'swim top',
+                      lowerClothing: 'swim shorts',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final stageChip = tester.widget<ChoiceChip>(
+          find.byKey(const ValueKey('role-stage-slot-0-stage-swim')),
+        );
+        expect(
+          stageChip.color?.resolve(const {WidgetState.hovered}),
+          StudioTokens.primary.withAlpha(18),
+        );
+        expect(stageChip.color?.resolve(const {}), isNull);
+      },
+    );
+
+    testWidgets(
+      'role replacement target drag handle can copy output to another outfit chip',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'artist:test',
+              chars: ['hero, school jacket, shared skirt'],
+            ),
+            (
+              index: 2,
+              base: 'artist:test',
+              chars: ['hero, swim top, swim shorts'],
+            ),
+          ],
+          id: 'role-copy-drag-script',
+          name: 'Role Copy Drag Script',
+          rootPath: 'role-copy-drag-script',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 12),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'hero',
+                sourceName: 'hero',
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'stage-school',
+                    label: 'school',
+                    frameIndexes: [1],
+                    manualParts: RecastPromptParts(
+                      upperClothing: '',
+                      lowerClothing: 'shared skirt',
+                    ),
+                  ),
+                  RoleAssemblyStage(
+                    id: 'stage-swim',
+                    label: 'swim',
+                    frameIndexes: [2],
+                    manualParts: RecastPromptParts(
+                      upperClothing: 'swim top',
+                      lowerClothing: 'swim shorts',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        final role = viewModel.roleMappings.first;
+        final sourceStageId = role.stageItems.first.id;
+        final targetStageId = role.stageItems.last.id;
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final dragHandle = find.byKey(
+          ValueKey(
+            'role-copy-target-drag-${role.sourceRoleId}-$sourceStageId',
+          ),
+        );
+        final targetChip = find.byKey(
+          ValueKey('role-stage-${role.sourceRoleId}-$targetStageId'),
+        );
+
+        expect(dragHandle, findsOneWidget);
+        expect(targetChip, findsOneWidget);
+
+        await tester.ensureVisible(dragHandle);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final dragStart = tester.getCenter(dragHandle);
+        final dragTarget = tester.getCenter(targetChip);
+        await tester.timedDragFrom(
+          dragStart,
+          dragTarget - dragStart,
+          const Duration(milliseconds: 400),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        final targetStage = viewModel.roleMappings.first.stageItems.last;
+        expect(targetStage.parts.upperClothing, isEmpty);
+        expect(targetStage.parts.lowerClothing, 'shared skirt');
+      },
+    );
+
     testWidgets('script drawer outfit parts require explicit partTags', (
       tester,
     ) async {
@@ -9336,8 +10696,7 @@ void main() {
               id: 'pepe',
               name: 'Pepe',
               traits: const ViewVariantTexts(
-                frontFull:
-                    'girl, 2::loli::, pepe_(arknights), cat ears, '
+                frontFull: 'girl, 2::loli::, pepe_(arknights), cat ears, '
                     'long hair, cat tail, animal ear hood, black jacket',
                 frontUpper: 'cat ears, long hair',
                 frontLower: 'cat tail',
@@ -9361,8 +10720,7 @@ void main() {
                   id: 'variant-1',
                   name: 'Nuit of the Nightsky',
                   tags: const ViewVariantTexts(
-                    frontFull:
-                        'pepe_(arknights), '
+                    frontFull: 'pepe_(arknights), '
                         'pepe_(nuit_of_the_nightsky)_(arknights), '
                         'ancient egyptian clothes, sleeveless dress',
                   ),
@@ -9863,6 +11221,20 @@ void main() {
                 confidence: 0.9,
               ),
             ],
+            unassignedTerms: [
+              ScriptAiUnassignedTerm(
+                term: 'mystery accessory',
+                frameIndexes: [2],
+                reason: 'role-local evidence needs review',
+              ),
+            ],
+          ),
+        ],
+        unassignedTerms: [
+          ScriptAiUnassignedTerm(
+            term: 'floating scarf',
+            frameIndexes: [1],
+            reason: 'cannot safely assign to a role',
           ),
         ],
         artistChains: [
@@ -9907,22 +11279,18 @@ void main() {
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
       await tester.pumpAndSettle();
 
-      expect(find.text('AI 鏁寸悊瑙掕壊瀛楁'), findsOneWidget);
       final draftPanel = find.byKey(
         const ValueKey('script-ai-role-extraction-draft-panel'),
       );
       expect(draftPanel, findsOneWidget);
-      expect(find.text('AI 瑙掕壊瀛楁鑽夌'), findsOneWidget);
-      expect(find.textContaining('瑙掕壊 1'), findsWidgets);
+      expect(
+        find.descendant(
+          of: draftPanel,
+          matching: find.text('AI 角色字段草稿'),
+        ),
+        findsOneWidget,
+      );
       expect(find.textContaining('vulpisfoglia_(arknights)'), findsWidgets);
-      expect(find.text('1 濂楁湇瑁?'), findsOneWidget);
-      expect(find.textContaining('鏈嶈 1 路 main outfit'), findsOneWidget);
-      expect(find.text('韬唤'), findsWidgets);
-      expect(find.text('涓婅韩'), findsWidgets);
-      expect(find.text('涓嬭韩'), findsWidgets);
-      expect(find.text('涓婅'), findsWidgets);
-      expect(find.text('涓嬭'), findsWidgets);
-      expect(find.text('寰呯‘璁?'), findsWidgets);
       expect(
         find.byKey(
           const ValueKey(
@@ -9936,6 +11304,24 @@ void main() {
           const ValueKey('script-ai-role-field-slot-0-main-outfit-nonRole'),
         ),
         findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('script-ai-role-pending-evidence')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: draftPanel,
+          matching: find.text('floating scarf'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: draftPanel,
+          matching: find.text('mystery accessory'),
+        ),
+        findsNothing,
       );
       final nonRoleField = find.byKey(
         const ValueKey('script-ai-role-field-slot-0-main-outfit-nonRole'),
@@ -9968,15 +11354,10 @@ void main() {
         find.descendant(of: draftPanel, matching: find.text('bad hands')),
         findsNothing,
       );
-      expect(find.textContaining('鐢婚/鐢诲笀璇佹嵁 1 缁?'), findsOneWidget);
-      expect(find.textContaining('寮鸿繃婊よ瘝 1 涓?'), findsOneWidget);
-      expect(find.text('涓嬭韩瀛楁闇€瑕佺‘璁?'), findsOneWidget);
-      expect(find.text('涓嬭韩瀛楁涓虹┖'), findsOneWidget);
-      expect(find.text('搴旂敤瀛楁'), findsWidgets);
       final roleSave = find.byKey(const ValueKey('script-ai-role-save-slot-0'));
       expect(roleSave, findsOneWidget);
       expect(
-        find.descendant(of: roleSave, matching: find.text('淇濆瓨绱犳潗')),
+        find.descendant(of: roleSave, matching: find.text('保存素材')),
         findsOneWidget,
       );
 
@@ -10009,24 +11390,24 @@ void main() {
       );
       expect(find.text('gold trim'), findsOneWidget);
 
-      final detailsButton = find.byTooltip('鏌ョ湅 AI 澶勭悊璇︽儏');
+      final detailsButton = find.byTooltip('查看 AI 处理详情');
       await tester.ensureVisible(detailsButton);
       await tester.pump();
       await tester.tap(detailsButton);
       await tester.pumpAndSettle();
 
-      final fullLogs = find.text('瀹屾暣鏃ュ織涓庤瘉鎹?');
+      final fullLogs = find.text('完整日志与证据');
       await tester.ensureVisible(fullLogs);
       await tester.pump();
       await tester.tap(fullLogs);
       await tester.pumpAndSettle();
-      final hiddenEvidence = find.text('闅愯棌璇佹嵁');
+      final hiddenEvidence = find.text('隐藏证据');
       await tester.ensureVisible(hiddenEvidence);
       await tester.pump();
       await tester.tap(hiddenEvidence);
       await tester.pumpAndSettle();
 
-      expect(find.text('闅愯棌璇佹嵁'), findsOneWidget);
+      expect(find.text('隐藏证据'), findsOneWidget);
       expect(find.text('artist:terasu_mc'), findsWidgets);
       expect(find.text('bad hands'), findsWidgets);
       final artistEvidenceSave = find.byKey(
@@ -10034,7 +11415,7 @@ void main() {
       );
       expect(artistEvidenceSave, findsOneWidget);
       expect(
-        find.descendant(of: artistEvidenceSave, matching: find.text('淇濆瓨绱犳潗')),
+        find.descendant(of: artistEvidenceSave, matching: find.text('保存素材')),
         findsOneWidget,
       );
     });
@@ -10568,7 +11949,7 @@ void main() {
       );
       expect(
         find.descendant(of: panel, matching: find.text('已完成')),
-        findsNWidgets(8),
+        findsNWidgets(7),
       );
 
       await tester.tap(
@@ -11160,10 +12541,10 @@ class _FakeRoleExtractionService implements ScriptAiRoleExtractionService {
   final int aiRequestCount;
 
   const _FakeRoleExtractionService(this.extraction)
-    : requestPreviews = const [
-        {'schema_version': 1, 'request_kind': 'test'},
-      ],
-      aiRequestCount = 1;
+      : requestPreviews = const [
+          {'schema_version': 1, 'request_kind': 'test'},
+        ],
+        aiRequestCount = 1;
 
   const _FakeRoleExtractionService.withRequestTrace({
     required this.extraction,
@@ -11496,7 +12877,7 @@ class _PendingProductionService extends ScriptRecastProductionService {
   int enqueueCount = 0;
 
   _PendingProductionService({required super.queueService})
-    : super(now: DateTime.now);
+      : super(now: DateTime.now);
 
   void complete() {
     if (!_completer.isCompleted) {
@@ -11742,6 +13123,20 @@ String _testSourceFingerprint(Script script) {
     script.rootPath,
     for (final frame in script.frames)
       '${frame.index}:${frame.fileName}:${frame.sourcePath}:'
+          '${_testStableContentHash(frame.rawJson)}',
+  ];
+  return parts.join('|');
+}
+
+String _normalizedSourceFingerprintForTest(Script script) {
+  String normalize(String value) =>
+      value.trim().replaceAll('\\', '/').toLowerCase();
+
+  final parts = [
+    script.id,
+    normalize(script.rootPath),
+    for (final frame in script.frames)
+      '${frame.index}:${frame.fileName}:${normalize(frame.sourcePath)}:'
           '${_testStableContentHash(frame.rawJson)}',
   ];
   return parts.join('|');

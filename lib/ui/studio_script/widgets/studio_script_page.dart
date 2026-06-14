@@ -22,6 +22,7 @@ import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/filter_rules_library_dialog.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_chip.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
@@ -240,7 +241,10 @@ class _StudioScriptPageState extends State<StudioScriptPage> {
             const SizedBox(height: 16),
             _ViewModelSelector(
               viewModel: viewModel,
-              select: (viewModel) => viewModel.selectedFrameTagGroups,
+              select: (viewModel) => (
+                viewModel.selectedFrameTagGroups,
+                viewModel.selectedFramePreviews,
+              ),
               builder: (context, _) => KeyedSubtree(
                 key: const ValueKey('script-layout-bottom-replaced-prompt'),
                 child: _SelectedFrameReplacedPrompt(
@@ -876,6 +880,18 @@ class _ScriptAssetDragData {
         outfitId = null,
         rolePart = null,
         partValue = null;
+}
+
+class _RoleStageCopyDragData {
+  final String sourceRoleId;
+  final String stageId;
+  final String label;
+
+  const _RoleStageCopyDragData({
+    required this.sourceRoleId,
+    required this.stageId,
+    required this.label,
+  });
 }
 
 enum _ScriptAssetDrawerCategory {
@@ -2185,11 +2201,15 @@ class _SelectedFrameReplacedPrompt extends StatefulWidget {
 class _SelectedFrameReplacedPromptState
     extends State<_SelectedFrameReplacedPrompt> {
   bool _grouped = false;
+  bool _showDiff = false;
 
   @override
   Widget build(BuildContext context) {
     final groups =
         _replacedPromptGroups(widget.viewModel.selectedFrameTagGroups);
+    final diffGroups =
+        _promptDiffGroups(widget.viewModel.selectedFramePreviews);
+    final canShowDiff = diffGroups.isNotEmpty;
     return _SectionPanel(
       title: '替换后的提示词',
       icon: Icons.swap_horiz_outlined,
@@ -2199,57 +2219,232 @@ class _SelectedFrameReplacedPromptState
         else ...[
           Align(
             alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              key: const ValueKey('script-replaced-prompt-layout-toggle'),
-              style: ButtonStyle(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                textStyle: WidgetStatePropertyAll(
-                  Theme.of(context).textTheme.labelSmall,
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                _PromptDiffToggle(
+                  value: _showDiff && canShowDiff,
+                  enabled: canShowDiff,
+                  onChanged: (value) {
+                    setState(() {
+                      _showDiff = value;
+                    });
+                  },
                 ),
-              ),
-              onPressed: () {
-                setState(() {
-                  _grouped = !_grouped;
-                });
-              },
-              icon: Icon(
-                _grouped
-                    ? Icons.view_agenda_outlined
-                    : Icons.dashboard_outlined,
-                size: 16,
-              ),
-              label: Text(_grouped ? '原序' : '分块'),
+                if (!_showDiff)
+                  OutlinedButton.icon(
+                    key: const ValueKey('script-replaced-prompt-layout-toggle'),
+                    style: ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: WidgetStatePropertyAll(
+                        Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _grouped = !_grouped;
+                      });
+                    },
+                    icon: Icon(
+                      _grouped
+                          ? Icons.view_agenda_outlined
+                          : Icons.dashboard_outlined,
+                      size: 16,
+                    ),
+                    label: Text(_grouped ? '原序' : '分块'),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
-          PromptTagGroupDisplay(
-            key: const ValueKey('script-replaced-prompt-tags'),
-            groups: [
-              for (final group in groups)
-                PromptTagDisplayGroup.fromTags(
-                  id: group.id,
-                  label: group.label,
-                  tags: group.tags,
-                ),
-            ],
-            groupKeyPrefix: 'script-replaced-prompt-group',
-            tagKeyPrefix: 'script-replaced-prompt-tags',
-            defaultTranslated: true,
-            enableTagActions: true,
-            onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
-            filterRuleTargets: _scriptPromptFilterRuleTargets,
-            showLayoutControls: false,
-            initialLayoutMode: _grouped
-                ? PromptTagLayoutMode.grouped
-                : PromptTagLayoutMode.sourceOrder,
-            respectInitialLayoutMode: true,
-            dense: true,
-            emptyText: '未检测到源词',
-          ),
+          if (_showDiff && canShowDiff)
+            PromptTagGroupDisplay(
+              key: const ValueKey('script-replaced-prompt-tags'),
+              groups: [
+                for (final group in diffGroups)
+                  PromptTagDisplayGroup.fromTags(
+                    id: group.id,
+                    label: group.label,
+                    tags: [for (final tag in group.tags) tag.text],
+                  ),
+              ],
+              groupKeyPrefix: 'script-replaced-prompt-group',
+              tagKeyPrefix: 'script-replaced-prompt-tags',
+              defaultTranslated: true,
+              enableTagActions: true,
+              onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
+              filterRuleTargets: _scriptPromptFilterRuleTargets,
+              showLayoutControls: false,
+              initialLayoutMode: _grouped
+                  ? PromptTagLayoutMode.grouped
+                  : PromptTagLayoutMode.sourceOrder,
+              respectInitialLayoutMode: true,
+              dense: true,
+              emptyText: '未检测到源词',
+              diffStateForTag: (groupId, tag) =>
+                  _promptDiffStateForTag(diffGroups, groupId, tag),
+            )
+          else
+            PromptTagGroupDisplay(
+              key: const ValueKey('script-replaced-prompt-tags'),
+              groups: [
+                for (final group in groups)
+                  PromptTagDisplayGroup.fromTags(
+                    id: group.id,
+                    label: group.label,
+                    tags: group.tags,
+                  ),
+              ],
+              groupKeyPrefix: 'script-replaced-prompt-group',
+              tagKeyPrefix: 'script-replaced-prompt-tags',
+              defaultTranslated: true,
+              enableTagActions: true,
+              onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
+              filterRuleTargets: _scriptPromptFilterRuleTargets,
+              showLayoutControls: false,
+              initialLayoutMode: _grouped
+                  ? PromptTagLayoutMode.grouped
+                  : PromptTagLayoutMode.sourceOrder,
+              respectInitialLayoutMode: true,
+              dense: true,
+              emptyText: '未检测到源词',
+            ),
         ],
       ],
     );
+  }
+
+  List<_PromptDiffGroup> _promptDiffGroups(
+    List<StudioScriptFrameSplitPreview> previews,
+  ) {
+    final before =
+        previews.where((preview) => preview.id == 'before').firstOrNull;
+    final after =
+        previews.where((preview) => preview.id == 'after').firstOrNull;
+    if (before == null || after == null) {
+      return const [];
+    }
+    final beforeGroups = _groupsByDiffId(before.groups);
+    final afterGroups = _groupsByDiffId(after.groups);
+    final groupIds = <String>[];
+    void addGroupIds(Iterable<String> ids) {
+      for (final id in ids) {
+        if (!groupIds.contains(id)) {
+          groupIds.add(id);
+        }
+      }
+    }
+
+    addGroupIds(afterGroups.keys);
+    addGroupIds(beforeGroups.keys);
+    return [
+      for (final id in groupIds)
+        if (_promptDiffTags(
+          beforeGroups[id]?.tags ?? const [],
+          afterGroups[id]?.tags ?? const [],
+        ).isNotEmpty)
+          _PromptDiffGroup(
+            id: id,
+            label: afterGroups[id]?.label ?? beforeGroups[id]?.label ?? id,
+            tags: _promptDiffTags(
+              beforeGroups[id]?.tags ?? const [],
+              afterGroups[id]?.tags ?? const [],
+            ),
+          ),
+    ];
+  }
+
+  Map<String, StudioScriptFrameTagGroup> _groupsByDiffId(
+    List<StudioScriptFrameTagGroup> groups,
+  ) {
+    return {
+      for (final group in groups) _diffGroupId(group.id): group,
+    };
+  }
+
+  String _diffGroupId(String id) {
+    if (id.startsWith('before-')) {
+      return id.substring('before-'.length);
+    }
+    if (id.startsWith('after-')) {
+      return id.substring('after-'.length);
+    }
+    return id;
+  }
+
+  List<_PromptDiffTag> _promptDiffTags(
+    List<String> beforeTags,
+    List<String> afterTags,
+  ) {
+    final beforeByKey = <String, String>{};
+    for (final tag in _visiblePromptTags(beforeTags)) {
+      final key = _promptDiffKey(tag);
+      if (key.isNotEmpty) {
+        beforeByKey.putIfAbsent(key, () => tag);
+      }
+    }
+    final afterKeys = <String>{};
+    final result = <_PromptDiffTag>[];
+    for (final tag in _visiblePromptTags(afterTags)) {
+      final key = _promptDiffKey(tag);
+      if (key.isEmpty) {
+        continue;
+      }
+      afterKeys.add(key);
+      result.add(
+        _PromptDiffTag(
+          text: tag,
+          kind: beforeByKey.containsKey(key)
+              ? _PromptDiffKind.unchanged
+              : _PromptDiffKind.added,
+        ),
+      );
+    }
+    for (final tag in _visiblePromptTags(beforeTags)) {
+      final key = _promptDiffKey(tag);
+      if (key.isNotEmpty && !afterKeys.contains(key)) {
+        result.add(_PromptDiffTag(text: tag, kind: _PromptDiffKind.removed));
+      }
+    }
+    return List.unmodifiable(result);
+  }
+
+  String _promptDiffKey(String tag) {
+    final cleaned = PromptTagProcessor.cleanTagDisplay(tag).trim();
+    final normalized = PromptTagProcessor.normalizeMatchKey(cleaned);
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+    return cleaned.toLowerCase();
+  }
+
+  PromptTagChipDiffState _promptDiffStateForTag(
+    List<_PromptDiffGroup> groups,
+    String groupId,
+    String tag,
+  ) {
+    final key = _promptDiffKey(tag);
+    if (key.isEmpty) {
+      return PromptTagChipDiffState.unchanged;
+    }
+    for (final group in groups) {
+      if (group.id != groupId) {
+        continue;
+      }
+      for (final entry in group.tags) {
+        if (_promptDiffKey(entry.text) == key) {
+          return switch (entry.kind) {
+            _PromptDiffKind.added => PromptTagChipDiffState.added,
+            _PromptDiffKind.removed => PromptTagChipDiffState.removed,
+            _PromptDiffKind.unchanged => PromptTagChipDiffState.unchanged,
+          };
+        }
+      }
+    }
+    return PromptTagChipDiffState.unchanged;
   }
 
   List<StudioScriptFrameTagGroup> _replacedPromptGroups(
@@ -2271,6 +2466,70 @@ class _SelectedFrameReplacedPromptState
       for (final tag in tags)
         if (tag.trim().isNotEmpty && tag != '未检测') tag,
     ];
+  }
+}
+
+enum _PromptDiffKind { unchanged, added, removed }
+
+class _PromptDiffTag {
+  final String text;
+  final _PromptDiffKind kind;
+
+  const _PromptDiffTag({
+    required this.text,
+    required this.kind,
+  });
+}
+
+class _PromptDiffGroup {
+  final String id;
+  final String label;
+  final List<_PromptDiffTag> tags;
+
+  const _PromptDiffGroup({
+    required this.id,
+    required this.label,
+    required this.tags,
+  });
+}
+
+class _PromptDiffToggle extends StatelessWidget {
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _PromptDiffToggle({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '\u53ea\u6709\u5f00\u542f\u65f6\u624d\u5bf9\u6bd4',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '\u5bf9\u6bd4\u9ad8\u4eae',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: enabled
+                      ? StudioTokens.textSecondary
+                      : StudioTokens.textMuted,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(width: 6),
+          Switch(
+            key: const ValueKey('script-replaced-prompt-diff-toggle'),
+            value: value,
+            onChanged: enabled ? onChanged : null,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -2775,6 +3034,7 @@ class _ReviewTokenCollectionState extends State<_ReviewTokenCollection> {
       return DefaultPromptTranslationService(
         translationCache: _translationCache(),
         settingsProvider: () => GetIt.I<PayloadConfig>().settings,
+        translationCacheReloader: PromptWorkshopBridge.loadTranslationCache,
       );
     }
     return null;
@@ -2962,10 +3222,10 @@ class _ReviewTokenCollectionState extends State<_ReviewTokenCollection> {
   ) async {
     final service = _promptTranslationService();
     final result = service == null
-        ? OnlineTranslationResult(
-            text: _translationCache().translate(token.source).text,
-            source: OnlineAiResultSource.localFallback,
-            providerName: 'translation-cache',
+        ? const OnlineTranslationResult(
+            text: '',
+            source: OnlineAiResultSource.emptyFallback,
+            error: '未配置翻译服务',
           )
         : await service.translate(
             OnlineTranslationRequest(
@@ -5082,7 +5342,8 @@ class _RoleMapping extends StatelessWidget {
 
 class _RoleMappingList extends StatelessWidget {
   static const int _virtualizeThreshold = 10;
-  static const double _virtualizedHeight = 680;
+  static const double _virtualizedMinHeight = 880;
+  static const double _virtualizedMaxHeight = 1280;
   static const double _estimatedCardExtent = 420;
 
   final StudioScriptViewModel viewModel;
@@ -5103,9 +5364,12 @@ class _RoleMappingList extends StatelessWidget {
         ],
       );
     }
+    final viewportHeight = (MediaQuery.sizeOf(context).height - 120)
+        .clamp(_virtualizedMinHeight, _virtualizedMaxHeight)
+        .toDouble();
     return SizedBox(
       key: const ValueKey('script-role-mapping-virtual-list'),
-      height: _virtualizedHeight,
+      height: viewportHeight,
       child: ListView.builder(
         primary: false,
         cacheExtent: _estimatedCardExtent * 2,
@@ -5123,6 +5387,17 @@ class _RoleMappingList extends StatelessWidget {
         translationCache: viewModel.translationCache,
         onStageSelected: (stageId) =>
             viewModel.selectRoleStage(role.sourceRoleId, stageId),
+        onStageLabelChanged: (stageId, label) => viewModel.renameRoleStage(
+          sourceRoleId: role.sourceRoleId,
+          stageId: stageId,
+          label: label,
+        ),
+        onStageFrameIndexesChanged: (stageId, frameIndexes) =>
+            viewModel.setRoleStageFrameIndexes(
+          sourceRoleId: role.sourceRoleId,
+          stageId: stageId,
+          frameIndexes: frameIndexes,
+        ),
         onSourcePartChanged: (stageId, part, value) =>
             viewModel.setRoleStageSourcePart(
           sourceRoleId: role.sourceRoleId,
@@ -5136,6 +5411,7 @@ class _RoleMappingList extends StatelessWidget {
           part: part,
           value: value,
         ),
+        onTargetDropBatch: viewModel.batchRoleStageEdits,
         onPartDeleted: (stageId, part, deleted) =>
             viewModel.setRoleStagePartDeleted(
           sourceRoleId: role.sourceRoleId,
@@ -5143,6 +5419,22 @@ class _RoleMappingList extends StatelessWidget {
           part: part,
           deleted: deleted,
         ),
+        onCopyTargetToStage: (sourceStageId, targetStageId) {
+          viewModel.copyRoleStageTargetToStage(
+            sourceRoleId: role.sourceRoleId,
+            templateStageId: sourceStageId,
+            targetStageId: targetStageId,
+          );
+          final targetStage = role.stageItems
+              .where((stage) => stage.id == targetStageId)
+              .firstOrNull;
+          if (context.findAncestorWidgetOfExactType<Scaffold>() != null &&
+              targetStage != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('已复制到「${targetStage.label}」')),
+            );
+          }
+        },
         onCopyTargetToAllOutfits: (stageId) {
           viewModel.copyRoleStageTargetToAllOutfits(
             sourceRoleId: role.sourceRoleId,
@@ -6527,6 +6819,7 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pendingTerms = _aiRoleExtractionPendingTerms(extraction);
     final groups = <Widget>[
       if (extraction.artistChains.isNotEmpty)
         _AiRoleExtractionTermGroup(
@@ -6548,7 +6841,7 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
             for (final keyword in extraction.strongFilterKeywords) keyword.term,
           ],
         ),
-      if (extraction.unassignedTerms.isNotEmpty)
+      if (pendingTerms.isNotEmpty)
         _AiRoleExtractionTermGroup(
           title: '未使用证据：AI 没有写入五字段，仅供排查',
           icon: Icons.label_off_outlined,
@@ -6616,6 +6909,104 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
       ],
     );
   }
+}
+
+class _AiRoleExtractionPendingTerm {
+  final String term;
+  final String source;
+  final String reason;
+  final List<int> frameIndexes;
+
+  const _AiRoleExtractionPendingTerm({
+    required this.term,
+    required this.source,
+    required this.reason,
+    required this.frameIndexes,
+  });
+
+  String get detailLabel {
+    final details = [
+      if (source.trim().isNotEmpty) source.trim(),
+      if (reason.trim().isNotEmpty) reason.trim(),
+      if (frameIndexes.isNotEmpty)
+        'frames ${_aiRoleExtractionFrameLabel(frameIndexes)}',
+    ];
+    if (details.isEmpty) return term;
+    return '$term - ${details.join(' / ')}';
+  }
+
+  String get tooltip => detailLabel;
+}
+
+List<_AiRoleExtractionPendingTerm> _aiRoleExtractionPendingTerms(
+  ScriptAiRoleExtraction extraction,
+) {
+  final terms = <_AiRoleExtractionPendingTerm>[];
+  final seen = <String>{};
+
+  void addTerm({
+    required String rawTerm,
+    required String source,
+    required String reason,
+    required List<int> frameIndexes,
+  }) {
+    final clean = PromptTagProcessor.cleanTagDisplay(rawTerm).trim();
+    final normalizedFrames = _normalizedFrameIndexes(frameIndexes);
+    final key = [
+      PromptTagProcessor.normalizeMatchKey(clean),
+      source.trim(),
+      reason.trim(),
+      ...normalizedFrames.map((index) => index.toString()),
+    ].join('|');
+    if (clean.isEmpty || !seen.add(key)) {
+      return;
+    }
+    terms.add(
+      _AiRoleExtractionPendingTerm(
+        term: clean,
+        source: source,
+        reason: reason,
+        frameIndexes: normalizedFrames,
+      ),
+    );
+  }
+
+  for (final term in extraction.unassignedTerms) {
+    addTerm(
+      rawTerm: term.term,
+      source: 'global',
+      reason: term.reason,
+      frameIndexes: term.frameIndexes,
+    );
+  }
+  for (final role in extraction.roles) {
+    final roleSource = role.sourceRoleId.trim().isEmpty
+        ? role.displayName.trim()
+        : role.sourceRoleId.trim();
+    for (final term in role.unassignedTerms) {
+      addTerm(
+        rawTerm: term.term,
+        source: roleSource,
+        reason: term.reason,
+        frameIndexes: term.frameIndexes,
+      );
+    }
+    for (final stage in role.stages) {
+      final stageSource = [
+        if (roleSource.isNotEmpty) roleSource,
+        if (stage.stageId.trim().isNotEmpty) stage.stageId.trim(),
+      ].join(' / ');
+      for (final term in PromptTagProcessor.splitWorkshopTags(stage.nonRole)) {
+        addTerm(
+          rawTerm: term,
+          source: stageSource,
+          reason: 'stage pending field',
+          frameIndexes: stage.frameIndexes,
+        );
+      }
+    }
+  }
+  return List.unmodifiable(terms);
 }
 
 List<String> _aiRoleExtractionRequestSummary(StudioScriptViewModel viewModel) {
@@ -6943,6 +7334,9 @@ class _RoleMappingCard extends StatelessWidget {
   final List<CharacterEntry> characters;
   final TranslationCache translationCache;
   final ValueChanged<String> onStageSelected;
+  final void Function(String stageId, String label) onStageLabelChanged;
+  final void Function(String stageId, List<int> frameIndexes)
+      onStageFrameIndexesChanged;
   final void Function(
     String stageId,
     StudioScriptRolePart part,
@@ -6953,11 +7347,14 @@ class _RoleMappingCard extends StatelessWidget {
     StudioScriptRolePart part,
     String value,
   ) onPartChanged;
+  final PromptTagDropBatch onTargetDropBatch;
   final void Function(
     String stageId,
     StudioScriptRolePart part,
     bool deleted,
   ) onPartDeleted;
+  final void Function(String sourceStageId, String targetStageId)
+      onCopyTargetToStage;
   final ValueChanged<String> onCopyTargetToAllOutfits;
   final ValueChanged<String> onDeleteStage;
   final ValueChanged<String> onClearTarget;
@@ -6968,9 +7365,13 @@ class _RoleMappingCard extends StatelessWidget {
     required this.characters,
     required this.translationCache,
     required this.onStageSelected,
+    required this.onStageLabelChanged,
+    required this.onStageFrameIndexesChanged,
     required this.onSourcePartChanged,
     required this.onPartChanged,
+    required this.onTargetDropBatch,
     required this.onPartDeleted,
+    required this.onCopyTargetToStage,
     required this.onCopyTargetToAllOutfits,
     required this.onDeleteStage,
     required this.onClearTarget,
@@ -7002,6 +7403,44 @@ class _RoleMappingCard extends StatelessWidget {
             runSpacing: 8,
             alignment: WrapAlignment.end,
             children: [
+              OutlinedButton.icon(
+                key: ValueKey(
+                  'role-rename-stage-${item.sourceRoleId}-${stage.id}',
+                ),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('重命名服装'),
+                onPressed: () async {
+                  final label = await _showRoleStageRenameDialog(
+                    context,
+                    stage,
+                  );
+                  if (label != null) {
+                    onStageLabelChanged(stage.id, label);
+                  }
+                },
+              ),
+              OutlinedButton.icon(
+                key: ValueKey(
+                  'role-edit-stage-frames-${item.sourceRoleId}-${stage.id}',
+                ),
+                icon: const Icon(Icons.event_note_outlined, size: 16),
+                label: const Text('编辑帧'),
+                onPressed: () async {
+                  final frameIndexes = await _showRoleStageFramesDialog(
+                    context,
+                    stage,
+                  );
+                  if (frameIndexes != null) {
+                    onStageFrameIndexesChanged(stage.id, frameIndexes);
+                  }
+                },
+              ),
+              if (item.stageItems.length > 1)
+                _RoleStageCopyDraggable(
+                  sourceRoleId: item.sourceRoleId,
+                  stageId: stage.id,
+                  label: stage.label,
+                ),
               if (item.stageItems.length > 1)
                 OutlinedButton.icon(
                   key: ValueKey(
@@ -7103,6 +7542,7 @@ class _RoleMappingCard extends StatelessWidget {
                   stages: item.stageItems,
                   selectedStageId: stage?.id,
                   onSelected: onStageSelected,
+                  onCopyTargetToStage: onCopyTargetToStage,
                 ),
               const SizedBox(height: 12),
               _RolePromptComparePanel(
@@ -7111,7 +7551,7 @@ class _RoleMappingCard extends StatelessWidget {
                 translationCache: translationCache,
                 sourceSubtitle: stage == null
                     ? '尚未识别服装阶段'
-                    : '帧 ${stage.frameIndexes.join(', ')}',
+                    : _roleStageFrameSubtitle(stage.frameIndexes),
                 targetSubtitle: selectedCharacter == null
                     ? '未选择素材库角色'
                     : selectedCharacter.name,
@@ -7122,6 +7562,7 @@ class _RoleMappingCard extends StatelessWidget {
                     ? null
                     : onSourcePartChanged,
                 onTargetPartChanged: onPartChanged,
+                onTargetDropBatch: onTargetDropBatch,
                 onTargetPartDeleted: onPartDeleted,
                 onClearTarget:
                     stage == null ? null : () => onClearTarget(stage.id),
@@ -7144,56 +7585,531 @@ class _RoleMappingCard extends StatelessWidget {
   }
 }
 
+Future<String?> _showRoleStageRenameDialog(
+  BuildContext context,
+  StudioScriptRoleStageItem stage,
+) async {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _RoleStageRenameDialog(initialLabel: stage.label),
+  );
+}
+
+Future<List<int>?> _showRoleStageFramesDialog(
+  BuildContext context,
+  StudioScriptRoleStageItem stage,
+) async {
+  return showDialog<List<int>>(
+    context: context,
+    builder: (context) => _RoleStageFramesDialog(
+      initialFrameIndexes: stage.frameIndexes,
+    ),
+  );
+}
+
+class _RoleStageRenameDialog extends StatefulWidget {
+  final String initialLabel;
+
+  const _RoleStageRenameDialog({required this.initialLabel});
+
+  @override
+  State<_RoleStageRenameDialog> createState() => _RoleStageRenameDialogState();
+}
+
+class _RoleStageRenameDialogState extends State<_RoleStageRenameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialLabel);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('role-stage-rename-dialog'),
+      backgroundColor: StudioTokens.surface2,
+      title: const Text('重命名服装'),
+      content: SizedBox(
+        width: 420,
+        child: TextField(
+          key: const ValueKey('role-stage-rename-input'),
+          controller: _controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '服装名称',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => _save(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('role-stage-rename-save'),
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final value = _controller.text.trim();
+    if (value.isNotEmpty) {
+      Navigator.of(context).pop(value);
+    }
+  }
+}
+
+class _RoleStageFramesDialog extends StatefulWidget {
+  final List<int> initialFrameIndexes;
+
+  const _RoleStageFramesDialog({required this.initialFrameIndexes});
+
+  @override
+  State<_RoleStageFramesDialog> createState() => _RoleStageFramesDialogState();
+}
+
+class _RoleStageFramesDialogState extends State<_RoleStageFramesDialog> {
+  late final TextEditingController _controller;
+  String? errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.initialFrameIndexes.join(', '),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('role-stage-frames-dialog'),
+      backgroundColor: StudioTokens.surface2,
+      title: const Text('编辑服装对应帧'),
+      content: SizedBox(
+        width: 480,
+        child: TextField(
+          key: const ValueKey('role-stage-frames-input'),
+          controller: _controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 4,
+          decoration: InputDecoration(
+            labelText: '帧',
+            hintText: '93, 94, 100-105',
+            errorText: errorText,
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (_) {
+            if (errorText != null) {
+              setState(() => errorText = null);
+            }
+          },
+          onSubmitted: (_) => _save(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('role-stage-frames-save'),
+          onPressed: _save,
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final parsed = _parseRoleStageFrameIndexes(_controller.text);
+    if (parsed == null || parsed.isEmpty) {
+      setState(() {
+        errorText = '请输入至少一个帧号';
+      });
+      return;
+    }
+    Navigator.of(context).pop(parsed);
+  }
+}
+
+String _roleStageFrameSubtitle(List<int> frameIndexes) {
+  if (frameIndexes.isEmpty) {
+    return '未设置帧';
+  }
+  return '帧 ${frameIndexes.join(', ')}';
+}
+
+List<int>? _parseRoleStageFrameIndexes(String value) {
+  final normalized = value.trim();
+  if (normalized.isEmpty) {
+    return const [];
+  }
+  final tokenPattern = RegExp(r'(\d+)\s*(?:[-~～]\s*(\d+))?');
+  final residue = normalized
+      .replaceAll(tokenPattern, '')
+      .replaceAll(RegExp(r'[,，;；\s]+'), '')
+      .trim();
+  if (residue.isNotEmpty) {
+    return null;
+  }
+  final indexes = <int>{};
+  for (final match in tokenPattern.allMatches(normalized)) {
+    final start = int.tryParse(match.group(1) ?? '');
+    final endText = match.group(2);
+    final end = endText == null ? null : int.tryParse(endText);
+    if (start == null || start < 0 || (end != null && end < start)) {
+      return null;
+    }
+    if (end == null) {
+      indexes.add(start);
+      continue;
+    }
+    for (var index = start; index <= end; index += 1) {
+      indexes.add(index);
+    }
+  }
+  return List.unmodifiable(indexes.toList()..sort());
+}
+
 class _RoleStageSelector extends StatelessWidget {
-  static const int _virtualizeThreshold = 10;
-  static const double _height = 42;
-  static const double _estimatedChipExtent = 128;
+  static const double _maxChipWidth = 320;
 
   final String sourceRoleId;
   final List<StudioScriptRoleStageItem> stages;
   final String? selectedStageId;
   final ValueChanged<String> onSelected;
+  final void Function(String sourceStageId, String targetStageId)?
+      onCopyTargetToStage;
 
   const _RoleStageSelector({
     required this.sourceRoleId,
     required this.stages,
     required this.selectedStageId,
     required this.onSelected,
+    this.onCopyTargetToStage,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (stages.length <= _virtualizeThreshold) {
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final stage in stages) _stageChip(stage),
-        ],
-      );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final chipMaxWidth = _chipMaxWidthFor(constraints);
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final stage in stages)
+              _stageChip(stage, maxWidth: chipMaxWidth),
+          ],
+        );
+      },
+    );
+  }
+
+  double _chipMaxWidthFor(BoxConstraints constraints) {
+    final available =
+        constraints.hasBoundedWidth ? constraints.maxWidth : _maxChipWidth;
+    if (!available.isFinite || available <= 0) {
+      return _maxChipWidth;
     }
-    return SizedBox(
-      key: ValueKey('role-stage-virtual-list-$sourceRoleId'),
-      height: _height,
-      child: ListView.separated(
-        primary: false,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: _estimatedChipExtent * 4,
-        itemCount: stages.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) => Center(
-          child: _stageChip(stages[index]),
+    return available < _maxChipWidth ? available : _maxChipWidth;
+  }
+
+  Widget _stageChip(
+    StudioScriptRoleStageItem stage, {
+    required double maxWidth,
+  }) {
+    return _RoleStageChip(
+      sourceRoleId: sourceRoleId,
+      stage: stage,
+      selected: stage.id == selectedStageId,
+      maxWidth: maxWidth,
+      onSelected: () => onSelected(stage.id),
+      onCopyTargetToStage: onCopyTargetToStage,
+    );
+  }
+}
+
+class _RoleStageChip extends StatefulWidget {
+  final String sourceRoleId;
+  final StudioScriptRoleStageItem stage;
+  final bool selected;
+  final double maxWidth;
+  final VoidCallback onSelected;
+  final void Function(String sourceStageId, String targetStageId)?
+      onCopyTargetToStage;
+
+  const _RoleStageChip({
+    required this.sourceRoleId,
+    required this.stage,
+    required this.selected,
+    required this.maxWidth,
+    required this.onSelected,
+    required this.onCopyTargetToStage,
+  });
+
+  @override
+  State<_RoleStageChip> createState() => _RoleStageChipState();
+}
+
+class _RoleStageChipState extends State<_RoleStageChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final stage = widget.stage;
+    return DragTarget<_RoleStageCopyDragData>(
+      onWillAcceptWithDetails: widget.onCopyTargetToStage == null
+          ? null
+          : (details) =>
+              details.data.sourceRoleId == widget.sourceRoleId &&
+              details.data.stageId != stage.id,
+      onAcceptWithDetails: widget.onCopyTargetToStage == null
+          ? null
+          : (details) =>
+              widget.onCopyTargetToStage!(details.data.stageId, stage.id),
+      builder: (context, candidates, rejected) {
+        final accepting = candidates.any(
+          (candidate) =>
+              candidate?.sourceRoleId == widget.sourceRoleId &&
+              candidate?.stageId != stage.id,
+        );
+        final highlighted = accepting || _hovered;
+        return Tooltip(
+          message: stage.label,
+          waitDuration: const Duration(milliseconds: 400),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) {
+              if (!_hovered) {
+                setState(() => _hovered = true);
+              }
+            },
+            onExit: (_) {
+              if (_hovered) {
+                setState(() => _hovered = false);
+              }
+            },
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerHover: (_) {
+                if (!_hovered) {
+                  setState(() => _hovered = true);
+                }
+              },
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: widget.maxWidth),
+                child: AnimatedScale(
+                  duration: const Duration(milliseconds: 140),
+                  scale: accepting
+                      ? 1.03
+                      : highlighted
+                          ? 1.01
+                          : 1,
+                  child: AnimatedContainer(
+                    key: ValueKey(
+                      'role-stage-surface-${widget.sourceRoleId}-${stage.id}',
+                    ),
+                    duration: const Duration(milliseconds: 140),
+                    padding: const EdgeInsets.all(1),
+                    decoration: BoxDecoration(
+                      color: accepting
+                          ? StudioTokens.primary.withAlpha(24)
+                          : _hovered
+                              ? StudioTokens.primary.withAlpha(18)
+                              : Colors.transparent,
+                      borderRadius: StudioTokens.radiusPill,
+                    ),
+                    child: ChoiceChip(
+                      key: ValueKey(
+                        'role-stage-${widget.sourceRoleId}-${stage.id}',
+                      ),
+                      color: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.hovered) &&
+                            !states.contains(WidgetState.selected)) {
+                          return StudioTokens.primary.withAlpha(18);
+                        }
+                        return null;
+                      }),
+                      avatar: accepting
+                          ? const Icon(
+                              Icons.download_done_outlined,
+                              size: 16,
+                              color: StudioTokens.primary,
+                            )
+                          : null,
+                      label: Text(
+                        stage.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                      ),
+                      selected: widget.selected,
+                      onSelected: (_) => widget.onSelected(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RoleStageCopyDraggable extends StatefulWidget {
+  final String sourceRoleId;
+  final String stageId;
+  final String? label;
+
+  const _RoleStageCopyDraggable({
+    required this.sourceRoleId,
+    required this.stageId,
+    this.label,
+  });
+
+  @override
+  State<_RoleStageCopyDraggable> createState() =>
+      _RoleStageCopyDraggableState();
+}
+
+class _RoleStageCopyDraggableState extends State<_RoleStageCopyDraggable> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.grab,
+      onEnter: (_) {
+        if (!_hovered) {
+          setState(() => _hovered = true);
+        }
+      },
+      onExit: (_) {
+        if (_hovered) {
+          setState(() => _hovered = false);
+        }
+      },
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerHover: (_) {
+          if (!_hovered) {
+            setState(() => _hovered = true);
+          }
+        },
+        child: Draggable<_RoleStageCopyDragData>(
+          key: ValueKey(
+            'role-copy-target-drag-${widget.sourceRoleId}-${widget.stageId}',
+          ),
+          data: _RoleStageCopyDragData(
+            sourceRoleId: widget.sourceRoleId,
+            stageId: widget.stageId,
+            label: widget.label ?? '',
+          ),
+          feedback: Material(
+            color: Colors.transparent,
+            child: _RoleStageCopyHandle(label: widget.label),
+          ),
+          childWhenDragging: Opacity(
+            opacity: 0.48,
+            child: _RoleStageCopyHandle(label: widget.label),
+          ),
+          child: Tooltip(
+            message: '拖拽到其他服装标签以复制当前替换结果',
+            child: _RoleStageCopyHandle(
+              label: widget.label,
+              hovered: _hovered,
+              surfaceKey: ValueKey(
+                'role-copy-target-drag-surface-${widget.sourceRoleId}-${widget.stageId}',
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _stageChip(StudioScriptRoleStageItem stage) {
-    return ChoiceChip(
-      key: ValueKey('role-stage-$sourceRoleId-${stage.id}'),
-      label: Text(stage.label),
-      selected: stage.id == selectedStageId,
-      onSelected: (_) => onSelected(stage.id),
+class _RoleStageCopyHandle extends StatelessWidget {
+  final String? label;
+  final bool hovered;
+  final Key? surfaceKey;
+
+  const _RoleStageCopyHandle({
+    this.label,
+    this.hovered = false,
+    this.surfaceKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedLabel = label?.trim();
+    return AnimatedContainer(
+      key: surfaceKey,
+      duration: const Duration(milliseconds: 140),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: hovered
+            ? StudioTokens.primary.withAlpha(22)
+            : StudioTokens.surface3,
+        borderRadius: StudioTokens.radiusPill,
+        border: Border.all(
+          color: hovered
+              ? StudioTokens.primary.withAlpha(230)
+              : StudioTokens.primary.withAlpha(170),
+        ),
+        boxShadow: hovered
+            ? const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 14,
+                  offset: Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.drag_indicator,
+            size: 16,
+            color: StudioTokens.primary,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            resolvedLabel == null || resolvedLabel.isEmpty
+                ? '拖拽复制'
+                : '复制 $resolvedLabel',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: StudioTokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -7240,6 +8156,7 @@ class _RolePromptComparePanel extends StatefulWidget {
     StudioScriptRolePart part,
     String value,
   )? onTargetPartChanged;
+  final PromptTagDropBatch? onTargetDropBatch;
   final void Function(
     String stageId,
     StudioScriptRolePart part,
@@ -7258,6 +8175,7 @@ class _RolePromptComparePanel extends StatefulWidget {
     required this.omittedParts,
     required this.onSourcePartChanged,
     required this.onTargetPartChanged,
+    required this.onTargetDropBatch,
     required this.onTargetPartDeleted,
     required this.onClearTarget,
   });
@@ -7389,6 +8307,7 @@ class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
                   omitted: omittedParts.contains(RecastPromptPart.identity),
                   onSourceChanged: onSourcePartChanged,
                   onTargetChanged: onTargetPartChanged,
+                  onTargetDropBatch: widget.onTargetDropBatch,
                   onTargetDeleted: onTargetPartDeleted,
                   selectionController: _selectionController,
                 ),
@@ -7403,6 +8322,7 @@ class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
                   omitted: omittedParts.contains(RecastPromptPart.upperBody),
                   onSourceChanged: onSourcePartChanged,
                   onTargetChanged: onTargetPartChanged,
+                  onTargetDropBatch: widget.onTargetDropBatch,
                   onTargetDeleted: onTargetPartDeleted,
                   selectionController: _selectionController,
                 ),
@@ -7417,6 +8337,7 @@ class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
                   omitted: omittedParts.contains(RecastPromptPart.lowerBody),
                   onSourceChanged: onSourcePartChanged,
                   onTargetChanged: onTargetPartChanged,
+                  onTargetDropBatch: widget.onTargetDropBatch,
                   onTargetDeleted: onTargetPartDeleted,
                   selectionController: _selectionController,
                 ),
@@ -7432,6 +8353,7 @@ class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
                       omittedParts.contains(RecastPromptPart.upperClothing),
                   onSourceChanged: onSourcePartChanged,
                   onTargetChanged: onTargetPartChanged,
+                  onTargetDropBatch: widget.onTargetDropBatch,
                   onTargetDeleted: onTargetPartDeleted,
                   selectionController: _selectionController,
                 ),
@@ -7447,6 +8369,7 @@ class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
                       omittedParts.contains(RecastPromptPart.lowerClothing),
                   onSourceChanged: onSourcePartChanged,
                   onTargetChanged: onTargetPartChanged,
+                  onTargetDropBatch: widget.onTargetDropBatch,
                   onTargetDeleted: onTargetPartDeleted,
                   selectionController: _selectionController,
                   bottom: true,
@@ -7655,6 +8578,7 @@ class _RolePromptCompareRow extends StatelessWidget {
     StudioScriptRolePart part,
     String value,
   )? onTargetChanged;
+  final PromptTagDropBatch? onTargetDropBatch;
   final void Function(
     String stageId,
     StudioScriptRolePart part,
@@ -7674,6 +8598,7 @@ class _RolePromptCompareRow extends StatelessWidget {
     required this.selectionController,
     required this.onSourceChanged,
     required this.onTargetChanged,
+    required this.onTargetDropBatch,
     required this.onTargetDeleted,
     this.bottom = false,
   });
@@ -7729,6 +8654,7 @@ class _RolePromptCompareRow extends StatelessWidget {
                       value: target,
                       omitted: omitted,
                       onChanged: onTargetChanged,
+                      onDroppedTagsBatch: onTargetDropBatch,
                       onDeleted: onTargetDeleted,
                       selectionController: selectionController,
                     ),
@@ -7766,6 +8692,7 @@ class _RolePromptCompareRow extends StatelessWidget {
                           value: target,
                           omitted: omitted,
                           onChanged: onTargetChanged,
+                          onDroppedTagsBatch: onTargetDropBatch,
                           onDeleted: onTargetDeleted,
                           selectionController: selectionController,
                         ),
@@ -7915,6 +8842,7 @@ class _ReplacementCompareCell extends StatefulWidget {
     StudioScriptRolePart part,
     String value,
   )? onChanged;
+  final PromptTagDropBatch? onDroppedTagsBatch;
   final void Function(
     String stageId,
     StudioScriptRolePart part,
@@ -7930,6 +8858,7 @@ class _ReplacementCompareCell extends StatefulWidget {
     this.omitted = false,
     required this.selectionController,
     required this.onChanged,
+    required this.onDroppedTagsBatch,
     required this.onDeleted,
   });
 
@@ -8094,6 +9023,7 @@ class _ReplacementCompareCellState extends State<_ReplacementCompareCell> {
                   showSelectionToolbar: false,
                   removeDroppedTagsFromSource:
                       _shouldRemoveDroppedTagsFromSource,
+                  onDroppedTagsBatch: widget.onDroppedTagsBatch,
                   emptyText: omittedEmpty ? '未检测到，默认不传入' : '未拆分',
                   onChanged: enabled
                       ? (value) {

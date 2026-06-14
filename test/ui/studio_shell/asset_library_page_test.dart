@@ -40,6 +40,60 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   final List<bool> includeLegacyCodexRequests = [];
   final List<int> legacyCodexLimitRequests = [];
   int resolveImagePathCallCount = 0;
+  StudioAssetCatalogCacheLoadResult? cacheLoadResult;
+  int loadSnapshotWithCacheCallCount = 0;
+  int sourceFingerprintStaleCheckCount = 0;
+  int refreshSnapshotCacheCallCount = 0;
+  Map<String, String>? lastCheckedSourceFingerprint;
+  bool sourceFingerprintIsStale = false;
+
+  @override
+  Future<StudioAssetCatalogCacheLoadResult> loadSnapshotWithCache({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool checkStaleness = true,
+  }) async {
+    loadSnapshotWithCacheCallCount += 1;
+    final cached = cacheLoadResult;
+    if (cached != null) return cached;
+    return StudioAssetCatalogCacheLoadResult(
+      snapshot: await loadSnapshot(
+        includeLegacyCodex: includeLegacyCodex,
+        legacyCodexLimit: legacyCodexLimit,
+        legacyCodexQuery: legacyCodexQuery,
+        legacyCodexCategoryKey: legacyCodexCategoryKey,
+      ),
+      fromCache: false,
+      isStale: false,
+    );
+  }
+
+  @override
+  Future<bool> isSourceFingerprintStale(
+    Map<String, String> sourceFingerprint,
+  ) async {
+    sourceFingerprintStaleCheckCount += 1;
+    lastCheckedSourceFingerprint = sourceFingerprint;
+    return sourceFingerprintIsStale;
+  }
+
+  @override
+  Future<StudioAssetCatalogSnapshot> refreshSnapshotCache({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+  }) async {
+    refreshSnapshotCacheCallCount += 1;
+    return loadSnapshot(
+      includeLegacyCodex: includeLegacyCodex,
+      legacyCodexLimit: legacyCodexLimit,
+      legacyCodexQuery: legacyCodexQuery,
+      legacyCodexCategoryKey: legacyCodexCategoryKey,
+    );
+  }
 
   @override
   Future<StudioAssetCatalogSnapshot> loadSnapshot({
@@ -170,6 +224,8 @@ class _FakePreviewGenerationService
     extends StudioAssetPreviewGenerationService {
   _FakePreviewGenerationService({
     this.onGenerateCharacterPreview,
+    this.onDiscardCharacterPreview,
+    this.characterPreviewPath,
   }) : super(
           workspaceService: WorkspaceService(),
           requestImage: (_) async => Uint8List(0),
@@ -178,7 +234,11 @@ class _FakePreviewGenerationService
 
   final List<String> characterIds = [];
   final List<String> artistChainIds = [];
+  final List<String> discardedCharacterPreviews = [];
+  final List<String> discardedArtistChainPreviews = [];
   final void Function(String id)? onGenerateCharacterPreview;
+  final void Function(String id, String path)? onDiscardCharacterPreview;
+  final String Function(String id)? characterPreviewPath;
   int characterFailuresRemaining = 0;
   int artistChainFailuresRemaining = 0;
 
@@ -190,7 +250,7 @@ class _FakePreviewGenerationService
       throw StateError('character preview failed');
     }
     onGenerateCharacterPreview?.call(id);
-    return 'generated-character-$id.png';
+    return characterPreviewPath?.call(id) ?? 'generated-character-$id.png';
   }
 
   @override
@@ -201,6 +261,17 @@ class _FakePreviewGenerationService
       throw StateError('artist preview failed');
     }
     return 'generated-artist-$id.png';
+  }
+
+  @override
+  Future<void> discardCharacterPreview(String id, String previewPath) async {
+    discardedCharacterPreviews.add('$id:$previewPath');
+    onDiscardCharacterPreview?.call(id, previewPath);
+  }
+
+  @override
+  Future<void> discardArtistChainPreview(String id, String previewPath) async {
+    discardedArtistChainPreviews.add('$id:$previewPath');
   }
 }
 
@@ -225,6 +296,30 @@ Future<void> _addPromptTags(
     text,
   );
   await tester.testTextInput.receiveAction(TextInputAction.done);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _finishPreviewGenerationDialog(
+  WidgetTester tester, {
+  required bool keep,
+}) async {
+  await tester.pumpAndSettle();
+  expect(find.text('预览生成完成'), findsOneWidget);
+  expect(
+    find.byKey(
+      const ValueKey('asset-preview-generation-preview-image'),
+    ),
+    findsOneWidget,
+  );
+  await tester.tap(
+    find.byKey(
+      ValueKey(
+        keep
+            ? 'asset-preview-generation-keep'
+            : 'asset-preview-generation-discard',
+      ),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -596,6 +691,41 @@ void main() {
     expect(find.text('引用待检查'), findsNothing);
   });
 
+  testWidgets(
+      'cached asset library checks freshness without a second cache load',
+      (tester) async {
+    final config = payload();
+    final catalogService = _FakeCatalogService(snapshot)
+      ..cacheLoadResult = const StudioAssetCatalogCacheLoadResult(
+        snapshot: snapshot,
+        fromCache: true,
+        isStale: false,
+        sourceFingerprint: {'library/characters.json': '1:2'},
+      );
+
+    await tester.pumpWidget(
+      page(config: config, catalogService: catalogService),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('asset-card-character-char-1')),
+      findsOneWidget,
+    );
+    expect(catalogService.loadSnapshotWithCacheCallCount, 1);
+    expect(catalogService.sourceFingerprintStaleCheckCount, 0);
+
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+
+    expect(catalogService.loadSnapshotWithCacheCallCount, 1);
+    expect(catalogService.sourceFingerprintStaleCheckCount, 1);
+    expect(catalogService.lastCheckedSourceFingerprint, {
+      'library/characters.json': '1:2',
+    });
+    expect(catalogService.refreshSnapshotCacheCallCount, 0);
+  });
+
   testWidgets('asset waterfall cards only show preview and name before opening',
       (tester) async {
     tester.view.physicalSize = const Size(1800, 1000);
@@ -660,7 +790,8 @@ void main() {
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('正在生成预览'), findsOneWidget);
+    await _finishPreviewGenerationDialog(tester, keep: true);
     await tester.tap(find.byKey(const ValueKey('asset-detail-dialog-close')));
     await tester.pumpAndSettle();
 
@@ -672,7 +803,8 @@ void main() {
     await tester.ensureVisible(artistButton);
     await tester.tap(artistButton);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('正在生成预览'), findsOneWidget);
+    await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.characterIds, ['char-1']);
     expect(previewService.artistChainIds, ['artist-1']);
@@ -776,14 +908,16 @@ void main() {
     );
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('预览图生成失败'), findsOneWidget);
+    await tester
+        .tap(find.byKey(const ValueKey('asset-preview-generation-close')));
+    await tester.pumpAndSettle();
 
     await tester.tap(characterButton);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.characterIds, ['char-1', 'char-1']);
   });
@@ -892,7 +1026,7 @@ void main() {
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.characterIds, ['char-refresh']);
     expect(
@@ -900,6 +1034,120 @@ void main() {
         const ValueKey('asset-detail-preview-image-character-char-refresh'),
       ),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('discarding a generated preview removes it before refresh',
+      (tester) async {
+    tester.view.physicalSize = const Size(1800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+    final tempDir =
+        Directory.systemTemp.createTempSync('asset-discard-preview-test-');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final generatedPath =
+        '${tempDir.path}${Platform.pathSeparator}generated-discard.png';
+    File(generatedPath).writeAsBytesSync(
+      img.encodePng(img.Image(width: 320, height: 480)),
+    );
+    final resolvedRefs = <String, String>{generatedPath: generatedPath};
+    final refreshCatalog = const StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-discard',
+          name: 'Discard Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair'),
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+    final catalogService = _FakeCatalogService(
+      refreshCatalog,
+      resolvedRefs: resolvedRefs,
+    );
+    final previewService = _FakePreviewGenerationService(
+      characterPreviewPath: (_) => generatedPath,
+      onGenerateCharacterPreview: (id) {
+        catalogService.snapshot = StudioAssetCatalogSnapshot(
+          summary: catalogService.snapshot.summary,
+          characters: [
+            for (final character in catalogService.snapshot.characters)
+              character.id == id
+                  ? character.copyWith(imageRefs: [generatedPath])
+                  : character,
+          ],
+          outfits: catalogService.snapshot.outfits,
+          artistChains: catalogService.snapshot.artistChains,
+          recipes: catalogService.snapshot.recipes,
+          tags: catalogService.snapshot.tags,
+        );
+      },
+      onDiscardCharacterPreview: (id, path) {
+        catalogService.snapshot = StudioAssetCatalogSnapshot(
+          summary: catalogService.snapshot.summary,
+          characters: [
+            for (final character in catalogService.snapshot.characters)
+              character.id == id
+                  ? character.copyWith(
+                      imageRefs: [
+                        for (final ref in character.imageRefs)
+                          if (ref != path) ref,
+                      ],
+                    )
+                  : character,
+          ],
+          outfits: catalogService.snapshot.outfits,
+          artistChains: catalogService.snapshot.artistChains,
+          recipes: catalogService.snapshot.recipes,
+          tags: catalogService.snapshot.tags,
+        );
+      },
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalogService: catalogService,
+        previewGenerationService: previewService,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('asset-card-character-char-discard')),
+    );
+    await tester.pumpAndSettle();
+    final characterButton = find.byKey(
+      const ValueKey('asset-detail-generate-preview-character-char-discard'),
+    );
+    await tester.ensureVisible(characterButton);
+    await tester.tap(characterButton);
+    await tester.pump();
+    expect(find.text('正在生成预览'), findsOneWidget);
+    await _finishPreviewGenerationDialog(tester, keep: false);
+
+    expect(previewService.characterIds, ['char-discard']);
+    expect(
+      previewService.discardedCharacterPreviews,
+      ['char-discard:$generatedPath'],
+    );
+    expect(
+      find.byKey(
+        const ValueKey('asset-detail-preview-image-character-char-discard'),
+      ),
+      findsNothing,
     );
   });
 
@@ -939,6 +1187,30 @@ void main() {
 
     expect(clipboardText, 'silver hair, blue eyes');
     expect(find.text('已复制提示词'), findsOneWidget);
+  });
+
+  testWidgets('detail header keeps actions clear of close and compact favorite',
+      (tester) async {
+    tester.view.physicalSize = const Size(1800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+
+    await tester.pumpWidget(page(config: config));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('asset-card-artist-artist-1')));
+    await tester.pumpAndSettle();
+
+    final favorite = find.byKey(const ValueKey('asset-detail-favorite'));
+    final copy = find.byKey(const ValueKey('asset-detail-copy'));
+    final close = find.byKey(const ValueKey('asset-detail-dialog-close'));
+    expect(favorite, findsOneWidget);
+    expect(copy, findsOneWidget);
+    expect(close, findsOneWidget);
+    expect(tester.getSize(favorite).width, lessThanOrEqualTo(36));
+    expect(tester.getRect(copy).right, lessThan(tester.getRect(close).left));
   });
 
   testWidgets('asset library favorites pin cards and can be cleared',
@@ -1311,6 +1583,13 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byKey(
+        const ValueKey('asset-card-preview-count-artist-multi-preview'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('2 张'), findsOneWidget);
 
     await tester
         .tap(find.byKey(const ValueKey('asset-card-artist-multi-preview')));
@@ -1318,6 +1597,41 @@ void main() {
     final preview =
         find.byKey(const ValueKey('asset-detail-preview-artist-multi-preview'));
     await tester.ensureVisible(preview);
+    expect(
+      find.byKey(
+        const ValueKey('asset-detail-preview-count-artist-multi-preview'),
+      ),
+      findsOneWidget,
+    );
+    final detailImage = find.byKey(
+      const ValueKey('asset-detail-preview-image-artist-multi-preview'),
+    );
+    expect(
+      tester.widget<Image>(detailImage).image,
+      isA<FileImage>().having(
+        (provider) => provider.file.path,
+        'file path',
+        first.path,
+      ),
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(preview),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Image>(detailImage).image,
+      isA<FileImage>().having(
+        (provider) => provider.file.path,
+        'file path',
+        second.path,
+      ),
+    );
+
     await tester.tap(preview);
     await tester.pumpAndSettle();
 
@@ -1343,10 +1657,13 @@ void main() {
     final counter =
         find.byKey(const ValueKey('asset-preview-carousel-counter'));
     final before = tester.widget<Text>(counter).data;
+    final artistCarousel = find.byKey(
+      const ValueKey('asset-preview-carousel-artist-multi-preview'),
+    );
     await tester.sendEventToBinding(
-      const PointerScrollEvent(
-        position: Offset(300, 300),
-        scrollDelta: Offset(0, 120),
+      PointerScrollEvent(
+        position: tester.getCenter(artistCarousel),
+        scrollDelta: const Offset(0, 120),
       ),
     );
     await tester.pumpAndSettle();
@@ -1369,11 +1686,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final config = payload();
-    final tempDir = Directory.systemTemp.createTempSync('asset-ratio-test-');
-    addTearDown(() => tempDir.deleteSync(recursive: true));
-    final portrait = File('${tempDir.path}${Platform.pathSeparator}tall.png');
-    portrait
-        .writeAsBytesSync(img.encodePng(img.Image(width: 600, height: 1200)));
+    final previewFile = File(
+      '${Directory.current.path}${Platform.pathSeparator}'
+      'assets${Platform.pathSeparator}appicon.png',
+    );
+    final previewImage = img.decodeImage(previewFile.readAsBytesSync())!;
+    final expectedRatio = previewImage.width / previewImage.height;
     final catalog = StudioAssetCatalogSnapshot(
       summary: const StudioAssetCatalogSummary(
         characterCount: 0,
@@ -1400,9 +1718,13 @@ void main() {
       page(
         config: config,
         catalog: catalog,
-        resolvedRefs: {'preview/tall.png': portrait.path},
+        resolvedRefs: {'preview/tall.png': previewFile.path},
       ),
     );
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
     await tester.pumpAndSettle();
 
     final preview = find.byKey(
@@ -1410,13 +1732,19 @@ void main() {
     );
     final previewSize = tester.getSize(preview);
 
-    expect(previewSize.width / previewSize.height, closeTo(0.5, 0.03));
+    expect(
+        previewSize.width / previewSize.height, closeTo(expectedRatio, 0.03));
     expect(
       find.byKey(
         const ValueKey('asset-card-preview-image-artist-tall-preview'),
       ),
       findsOneWidget,
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
   testWidgets('asset card can request navigation to the script asset drawer',
@@ -1729,7 +2057,7 @@ void main() {
     expect(find.text('char-1'), findsWidgets);
     expect(find.text('1 套'), findsOneWidget);
     expect(find.text('1 张'), findsOneWidget);
-    expect(find.text('2 条'), findsOneWidget);
+    expect(find.text('1 条'), findsWidgets);
     expect(
       find.byKey(
         const ValueKey('asset-detail-prompt-editor-character-char-1'),
@@ -1753,22 +2081,24 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('雨披'), findsWidgets);
-    expect(find.text('blue eyes'), findsWidgets);
-    expect(find.text('fox tail'), findsWidgets);
-    expect(find.text('yellow rain coat'), findsWidgets);
-    expect(find.text('yellow jacket'), findsWidgets);
-    expect(find.text('rain skirt'), findsWidgets);
+    expect(find.text('蓝眼睛'), findsWidgets);
+    expect(find.text('fox tail'), findsNothing);
+    expect(find.text('黄色雨衣'), findsNothing);
+    expect(find.text('黄色夹克'), findsWidgets);
+    expect(find.text('雨裙'), findsWidgets);
     expect(
       find.byKey(
-        const ValueKey('asset-detail-prompt-editor-character-char-1-upper-body'),
+        const ValueKey(
+            'asset-detail-prompt-editor-character-char-1-upper-body'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(
-        const ValueKey('asset-detail-prompt-editor-character-char-1-lower-body'),
+        const ValueKey(
+            'asset-detail-prompt-editor-character-char-1-lower-body'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(
@@ -1816,12 +2146,24 @@ void main() {
     final dialog = find.byKey(
       const ValueKey('asset-detail-dialog-character-char-1'),
     );
+    final content = find.byKey(
+      const ValueKey('asset-library-detail-content'),
+    );
     final editorPane = find.byKey(
       const ValueKey('asset-detail-editor-pane-character-char-1'),
     );
+    final close = find.byKey(const ValueKey('asset-detail-dialog-close'));
 
     expect(tester.getSize(dialog).width, lessThanOrEqualTo(1220));
     expect(tester.getSize(editorPane).width, inInclusiveRange(420, 640));
+    expect(
+      tester.getRect(content).right,
+      closeTo(tester.getRect(dialog).right, 0.1),
+    );
+    expect(
+      tester.getRect(close).right,
+      lessThan(tester.getRect(content).right),
+    );
   });
 
   testWidgets('asset detail dialog stays visible after selecting a low card',
@@ -2479,6 +2821,10 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('asset-detail-translation-toggle')),
+      findsOneWidget,
+    );
     expect(find.byType(Slider), findsNothing);
     expect(find.text('Prompt'), findsNothing);
     expect(find.text('Tags'), findsNothing);
@@ -2808,7 +3154,7 @@ void main() {
     expect(savedCharacters.single.identityTags, contains('new ribbon'));
   });
 
-  testWidgets('asset detail edits structured character and outfit tag fields',
+  testWidgets('asset detail edits structured outfit tag fields',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
@@ -2831,15 +3177,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
     await tester.pumpAndSettle();
 
-    final characterUpperEditor = find.byKey(
-      const ValueKey('asset-detail-prompt-editor-character-char-1-upper-body'),
-    );
-    expect(characterUpperEditor, findsOneWidget);
-    await _addPromptTags(tester, characterUpperEditor, 'white ribbon');
-
-    expect(savedCharacters, hasLength(1));
-    expect(savedCharacters.single.traits.frontUpper, 'blue eyes, white ribbon');
-
     final outfitUpperEditor = find.byKey(
       const ValueKey(
         'asset-detail-prompt-editor-character-char-1-outfit-0-upper-clothing',
@@ -2858,7 +3195,7 @@ void main() {
     );
   });
 
-  testWidgets('asset detail shows each outfit as five fixed tag fields only',
+  testWidgets('asset detail matches drawer outfit prompt and part rows',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
@@ -2880,7 +3217,11 @@ void main() {
         CharacterEntry(
           id: 'char-outfit-fields',
           name: 'Outfit Fields',
-          traits: ViewVariantTexts(frontFull: 'base identity'),
+          traits: ViewVariantTexts(
+            frontFull: 'base identity',
+            frontUpper: 'hidden character upper',
+            frontLower: 'hidden character lower',
+          ),
           outfits: [
             WorkspaceOutfit(
               id: 'outfit-fields',
@@ -2922,8 +3263,11 @@ void main() {
           'asset-detail-prompt-editor-character-char-outfit-fields-outfit-0',
         ),
       ),
-      findsOneWidget,
+      findsNothing,
     );
+    expect(find.text('outfit identity'), findsNothing);
+    expect(find.text('hidden character upper'), findsNothing);
+    expect(find.text('hidden character lower'), findsNothing);
     expect(
       find.byKey(
         const ValueKey(
@@ -2967,7 +3311,264 @@ void main() {
     expect(find.text('sword'), findsNothing);
   });
 
-  testWidgets('asset detail edits selected outfit prompt tags inline',
+  testWidgets('asset detail keeps skin identity out of outfit tag slots',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final config = payload();
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-suzuran',
+          name: 'Suzuran',
+          traits: ViewVariantTexts(frontFull: 'suzuran (arknights)'),
+          identityTags: ['suzuran (arknights)'],
+          outfits: [
+            WorkspaceOutfit(
+              id: 'yukibare',
+              name: 'Yukibare',
+              tags: ViewVariantTexts(
+                frontFull: 'suzuran (yukibare) (arknights), kimono',
+              ),
+              partTags: WorkspaceOutfitPartTags(
+                upperClothingTags: ['kimono'],
+              ),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(page(config: config, catalog: catalog));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.byKey(const ValueKey('asset-card-character-char-suzuran')));
+    await tester.pumpAndSettle();
+
+    final outfitEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-char-suzuran-outfit-0',
+      ),
+    );
+    expect(outfitEditor, findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('asset-detail-prompt-editor-character-char-suzuran'),
+        ),
+        matching: find.text('suzuran (arknights)'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('suzuran (yukibare) (arknights)'),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey(
+            'asset-detail-prompt-editor-character-char-suzuran-outfit-0-upper-clothing',
+          ),
+        ),
+        matching: find.text('kimono'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'asset detail shows structured character outfit fields without duplicate raw tags',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    GetIt.I<TranslationCache>()
+      ..setManual('pepe_(arknights)', '佩佩')
+      ..setManual('girl', '少女')
+      ..setManual('loli', '萝莉')
+      ..setManual('cat_ears', '猫耳')
+      ..setManual('cat_tail', '猫尾')
+      ..setManual('animal_ear_fluff', '兽耳绒毛')
+      ..setManual('animal_ears', '兽耳')
+      ..setManual('lotus_flower_headdress', '莲花头饰')
+      ..setManual('animal_ear_hood', '兽耳兜帽')
+      ..setManual('black_jacket', '黑色夹克')
+      ..setManual('black_shorts', '黑色短裤');
+
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'legacy-character-sheet-r14',
+          name: '佩佩',
+          traits: ViewVariantTexts(
+            frontFull:
+                'pepe_(arknights), girl, 2::loli::, cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_tail::, Lotus flower headdress',
+            frontUpper:
+                'cat_ears, animal_ear_fluff, animal_ears, lotus_flower_headdress',
+            frontLower: 'cat_tail',
+          ),
+          identityTags: [
+            'pepe_(arknights)',
+            'girl',
+            'loli',
+          ],
+          outfits: [
+            WorkspaceOutfit(
+              id: 'default-outfit',
+              name: '默认服装',
+              tags: ViewVariantTexts(
+                frontFull:
+                    'animal_ear_hood, black_jacket, black_shorts, cat_ears, cat_tail',
+                frontUpper: 'animal_ear_hood, black_jacket',
+                frontLower: 'black_shorts',
+              ),
+              partTags: WorkspaceOutfitPartTags(
+                upperBodyTags: [
+                  'cat_ears',
+                  'animal_ear_fluff',
+                  'animal_ears',
+                  'lotus_flower_headdress',
+                ],
+                upperClothingTags: [
+                  'animal_ear_hood',
+                  'black_jacket',
+                ],
+                lowerBodyTags: ['cat_tail'],
+                lowerClothingTags: ['black_shorts'],
+              ),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(page(config: payload(), catalog: catalog));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('asset-card-character-legacy-character-sheet-r14'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'asset-detail-prompt-editor-character-legacy-character-sheet-r14-outfit-0',
+        ),
+      ),
+      findsNothing,
+    );
+
+    final roleEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-character-sheet-r14',
+      ),
+    );
+    final upperBodyEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-character-sheet-r14-outfit-0-upper-body',
+      ),
+    );
+    final upperClothingEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-character-sheet-r14-outfit-0-upper-clothing',
+      ),
+    );
+    final lowerBodyEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-character-sheet-r14-outfit-0-lower-body',
+      ),
+    );
+    final lowerClothingEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-character-sheet-r14-outfit-0-lower-clothing',
+      ),
+    );
+
+    expect(roleEditor, findsOneWidget);
+    expect(upperBodyEditor, findsOneWidget);
+    expect(upperClothingEditor, findsOneWidget);
+    expect(lowerBodyEditor, findsOneWidget);
+    expect(lowerClothingEditor, findsOneWidget);
+    expect(
+      find.descendant(of: roleEditor, matching: find.text('佩佩')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: roleEditor, matching: find.text('少女')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: roleEditor, matching: find.text('猫耳')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: upperBodyEditor, matching: find.text('猫耳')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: lowerBodyEditor, matching: find.text('猫尾')),
+      findsOneWidget,
+    );
+
+    expect(
+      find.descendant(of: upperBodyEditor, matching: find.text('cat_ears')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: lowerBodyEditor, matching: find.text('cat_tail')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: upperClothingEditor,
+        matching: find.text('animal_ear_hood'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: lowerClothingEditor,
+        matching: find.text('black_shorts'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('asset detail keeps character outfit editing to five tag slots',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
@@ -2976,10 +3577,43 @@ void main() {
 
     List<CharacterEntry> savedCharacters = const [];
     final config = payload();
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'legacy-outfit-character',
+          name: 'Legacy Outfit Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair, blue eyes'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'legacy-outfit',
+              name: 'Legacy Outfit',
+              tags: ViewVariantTexts(
+                frontFull: 'yellow rain coat',
+                frontUpper: 'legacy upper fallback',
+                frontLower: 'legacy lower fallback',
+              ),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
 
     await tester.pumpWidget(
       page(
         config: config,
+        catalog: catalog,
         saveCharacters: (characters) async {
           savedCharacters = characters;
         },
@@ -2987,14 +3621,39 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
+    await tester.tap(
+      find.byKey(
+        const ValueKey('asset-card-character-legacy-outfit-character'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     final outfitEditor = find.byKey(
-      const ValueKey('asset-detail-prompt-editor-character-char-1-outfit-0'),
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-outfit-character-outfit-0',
+      ),
     );
-    expect(outfitEditor, findsOneWidget);
-    await _addPromptTags(tester, outfitEditor, 'muddy boots');
+    expect(outfitEditor, findsNothing);
+    final upperClothingEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-outfit-character-outfit-0-upper-clothing',
+      ),
+    );
+    final lowerClothingEditor = find.byKey(
+      const ValueKey(
+        'asset-detail-prompt-editor-character-legacy-outfit-character-outfit-0-lower-clothing',
+      ),
+    );
+    expect(upperClothingEditor, findsOneWidget);
+    expect(lowerClothingEditor, findsOneWidget);
+    expect(
+      find.descendant(
+          of: upperClothingEditor, matching: find.text('yellow rain coat')),
+      findsOneWidget,
+    );
+    expect(find.text('legacy upper fallback'), findsNothing);
+    expect(find.text('legacy lower fallback'), findsNothing);
+    await _addPromptTags(tester, lowerClothingEditor, 'muddy boots');
 
     expect(savedCharacters, hasLength(1));
     expect(savedCharacters.single.traits.frontFull, 'silver hair, blue eyes');
@@ -3033,27 +3692,33 @@ void main() {
       find.byKey(const ValueKey('asset-outfit-editor-name-field')),
       'Travel Cloak',
     );
-    await tester.enterText(
+    expect(
       find.byKey(const ValueKey('asset-outfit-editor-prompt-field')),
-      'black cloak, boots',
+      findsNothing,
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-outfit-editor-front-upper-field')),
-      'black cloak',
+    expect(
+      find.byKey(const ValueKey('asset-outfit-editor-image-refs-field')),
+      findsNothing,
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-outfit-editor-front-lower-field')),
-      'boots',
+    expect(
+      find.byKey(const ValueKey('asset-outfit-editor-negative-field')),
+      findsNothing,
     );
-    await tester.enterText(
+    expect(
+      find.byKey(const ValueKey('asset-outfit-editor-weapon-tags-field')),
+      findsNothing,
+    );
+    await _addPromptTags(
+      tester,
       find.byKey(
-        const ValueKey('asset-outfit-editor-upper-clothing-tags-field'),
+        const ValueKey('asset-outfit-editor-upper-clothing-tags-editor'),
       ),
       'black cloak',
     );
-    await tester.enterText(
+    await _addPromptTags(
+      tester,
       find.byKey(
-        const ValueKey('asset-outfit-editor-lower-clothing-tags-field'),
+        const ValueKey('asset-outfit-editor-lower-clothing-tags-editor'),
       ),
       'boots',
     );
@@ -3064,6 +3729,10 @@ void main() {
       'outfit-1',
       'outfit-travel-cloak',
     ]);
+    expect(
+      savedCharacters.single.outfits.last.tags.frontFull,
+      'black cloak, boots',
+    );
     expect(savedCharacters.single.outfits.last.tags.frontUpper, 'black cloak');
     expect(
       savedCharacters.single.outfits.last.partTags.upperClothingTags,
@@ -3079,15 +3748,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(editTravelCloak);
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-outfit-editor-prompt-field')),
-      'white cloak, leather boots',
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-outfit-editor-lower-clothing-tags-editor'),
+      ),
+      'leather boots',
     );
     await tester.tap(find.byKey(const ValueKey('asset-outfit-editor-save')));
     await tester.pumpAndSettle();
 
-    expect(savedCharacters.single.outfits.last.tags.frontFull,
-        'white cloak, leather boots');
+    expect(
+      savedCharacters.single.outfits.last.tags.frontFull,
+      'black cloak, boots, leather boots',
+    );
 
     final duplicateTravelCloak = find.byKey(
       const ValueKey(
@@ -3105,6 +3779,91 @@ void main() {
       'outfit-travel-cloak-copy',
     ]);
     expect(savedCharacters.single.outfits.last.name, 'Travel Cloak Copy');
+  });
+
+  testWidgets('adding an outfit manualizes a legacy imported character',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    List<CharacterEntry> savedCharacters = const [];
+    final config = payload();
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'legacy-character',
+          name: 'Legacy Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair'),
+          source: SourceRef(type: 'legacy_artist_workbook'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'default-outfit',
+              name: 'Default Outfit',
+              tags: ViewVariantTexts(frontFull: 'school uniform'),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: catalog,
+        saveCharacters: (characters) async {
+          savedCharacters = characters;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('asset-card-character-legacy-character')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-detail-add-outfit')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-outfit-editor-name-field')),
+      'Travel Cloak',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-outfit-editor-upper-clothing-tags-editor'),
+      ),
+      'black cloak',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-outfit-editor-lower-clothing-tags-editor'),
+      ),
+      'boots',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-outfit-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(savedCharacters.single.source.type, 'manual');
+    expect(
+      savedCharacters.single.outfits.map((outfit) => outfit.id),
+      ['default-outfit', 'outfit-travel-cloak'],
+    );
   });
 
   testWidgets('artist chain preview carousel can remove a preview ref',
@@ -3182,6 +3941,246 @@ void main() {
     );
   });
 
+  testWidgets('artist chain preview delete removes the file after saving refs',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final config = payload();
+    final tempDir = Directory.systemTemp.createTempSync(
+      'asset-preview-delete-save-failure-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    bool? fileExistedDuringSave;
+    final previewFile = File(
+      '${tempDir.path}${Platform.pathSeparator}artist-preview.png',
+    );
+    File('${Uri.base.toFilePath()}assets/appicon.png')
+        .copySync(previewFile.path);
+    final artistOnlyCatalog = const StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        artistChainCount: 1,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [
+        ArtistChain(
+          id: 'artist-save-fails',
+          name: 'Painter',
+          prompt: 'artist:source, watercolor wash',
+          imageRefs: ['refs/artist-save-fails.png'],
+        ),
+      ],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: artistOnlyCatalog,
+        resolvedRefs: {
+          'refs/artist-save-fails.png': previewFile.path,
+        },
+        saveArtistChains: (_) async {
+          fileExistedDuringSave = previewFile.existsSync();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(previewFile.existsSync(), isTrue);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('asset-card-artist-artist-save-fails'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'asset-detail-delete-preview-artist-artist-save-fails',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fileExistedDuringSave, isTrue);
+    expect(previewFile.existsSync(), isFalse);
+  });
+
+  testWidgets('character preview delete removes the local preview file',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    List<CharacterEntry> savedCharacters = const [];
+    final config = payload();
+    final tempDir = Directory.systemTemp.createTempSync(
+      'asset-character-preview-delete-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final previewFile = File(
+      '${tempDir.path}${Platform.pathSeparator}character-preview.png',
+    );
+    File('${Uri.base.toFilePath()}assets/appicon.png')
+        .copySync(previewFile.path);
+    final characterOnlyCatalog = const StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-delete',
+          name: 'Preview Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair'),
+          imageRefs: ['refs/character-delete.png'],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: characterOnlyCatalog,
+        resolvedRefs: {
+          'refs/character-delete.png': previewFile.path,
+        },
+        saveCharacters: (characters) async {
+          savedCharacters = characters;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(previewFile.existsSync(), isTrue);
+
+    await tester
+        .tap(find.byKey(const ValueKey('asset-card-character-char-delete')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('asset-detail-delete-preview-character-char-delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(savedCharacters.single.imageRefs, isEmpty);
+    expect(previewFile.existsSync(), isFalse);
+    expect(
+      find.byKey(
+        const ValueKey('asset-detail-preview-image-character-char-delete'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('outfit preview delete removes the local preview file',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    List<CharacterEntry> savedCharacters = const [];
+    final config = payload();
+    final tempDir = Directory.systemTemp.createTempSync(
+      'asset-outfit-preview-delete-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final previewFile = File(
+      '${tempDir.path}${Platform.pathSeparator}outfit-preview.png',
+    );
+    File('${Uri.base.toFilePath()}assets/appicon.png')
+        .copySync(previewFile.path);
+    final outfitCatalog = const StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-outfit-delete',
+          name: 'Outfit Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'outfit-delete',
+              name: 'Preview Outfit',
+              tags: ViewVariantTexts(frontFull: 'yellow coat'),
+              imageRefs: ['refs/outfit-delete.png'],
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: outfitCatalog,
+        resolvedRefs: {
+          'refs/outfit-delete.png': previewFile.path,
+        },
+        saveCharacters: (characters) async {
+          savedCharacters = characters;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(previewFile.existsSync(), isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey('asset-card-character-char-outfit-delete')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'asset-character-outfit-delete-preview-char-outfit-delete-outfit-delete',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(savedCharacters.single.outfits.single.imageRefs, isEmpty);
+    expect(previewFile.existsSync(), isFalse);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'asset-character-outfit-preview-image-char-outfit-delete-outfit-delete',
+        ),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('asset detail content uses inline editable character tags',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
@@ -3202,11 +4201,19 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('asset-detail-translation-toggle')),
-      findsNothing,
+      findsOneWidget,
     );
+    expect(find.text('银发'), findsWidgets);
+    expect(find.text('蓝眼睛'), findsWidgets);
+    expect(find.text('黄色雨衣'), findsNothing);
+    expect(find.text('黄色夹克'), findsWidgets);
+    expect(find.text('雨裙'), findsWidgets);
+
+    await tester
+        .tap(find.byKey(const ValueKey('asset-detail-translation-toggle')));
+    await tester.pumpAndSettle();
+
     expect(find.text('silver hair'), findsWidgets);
-    expect(find.text('blue eyes'), findsWidgets);
-    expect(find.text('yellow rain coat'), findsWidgets);
   });
 
   testWidgets('character detail outfit cards switch the viewed outfit',
@@ -3223,11 +4230,26 @@ void main() {
         File('${tempDir.path}${Platform.pathSeparator}uniform.png');
     final casualPreviewFile =
         File('${tempDir.path}${Platform.pathSeparator}casual.png');
+    final casualAltPreviewFile =
+        File('${tempDir.path}${Platform.pathSeparator}casual-alt.png');
+    final portraitPreviewA =
+        File('${tempDir.path}${Platform.pathSeparator}portrait-a.png');
+    final portraitPreviewB =
+        File('${tempDir.path}${Platform.pathSeparator}portrait-b.png');
     uniformPreview.writeAsBytesSync(
       img.encodePng(img.Image(width: 320, height: 480)),
     );
     casualPreviewFile.writeAsBytesSync(
       img.encodePng(img.Image(width: 480, height: 320)),
+    );
+    casualAltPreviewFile.writeAsBytesSync(
+      img.encodePng(img.Image(width: 480, height: 320)),
+    );
+    portraitPreviewA.writeAsBytesSync(
+      img.encodePng(img.Image(width: 360, height: 480)),
+    );
+    portraitPreviewB.writeAsBytesSync(
+      img.encodePng(img.Image(width: 360, height: 480)),
     );
     final catalog = StudioAssetCatalogSnapshot(
       summary: const StudioAssetCatalogSummary(
@@ -3244,6 +4266,7 @@ void main() {
           id: 'char-multi',
           name: '多衣角色',
           traits: ViewVariantTexts(frontFull: 'green eyes'),
+          imageRefs: ['refs/portrait-a.png', 'refs/portrait-b.png'],
           outfits: [
             WorkspaceOutfit(
               id: 'uniform',
@@ -3271,7 +4294,7 @@ void main() {
                 upperClothingTags: ['white hoodie'],
                 lowerClothingTags: ['denim shorts'],
               ),
-              imageRefs: ['refs/casual.png'],
+              imageRefs: ['refs/casual.png', 'refs/casual-alt.png'],
             ),
           ],
         ),
@@ -3286,8 +4309,11 @@ void main() {
         config: config,
         catalog: catalog,
         resolvedRefs: {
+          'refs/portrait-a.png': portraitPreviewA.path,
+          'refs/portrait-b.png': portraitPreviewB.path,
           'refs/uniform.png': uniformPreview.path,
           'refs/casual.png': casualPreviewFile.path,
+          'refs/casual-alt.png': casualAltPreviewFile.path,
         },
       ),
     );
@@ -3334,17 +4360,94 @@ void main() {
         casualPreviewFile.path,
       ),
     );
+    final infoStrip = find.byKey(
+      const ValueKey('asset-detail-info-strip-character-char-multi'),
+    );
+    expect(
+      find.descendant(of: infoStrip, matching: find.text('2 张')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: infoStrip, matching: find.text('5 张')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: infoStrip, matching: find.text('2 条')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: infoStrip, matching: find.text('5 条')),
+      findsNothing,
+    );
+    for (var index = 0; index < 2; index += 1) {
+      expect(
+        find.byKey(ValueKey('asset-character-preview-dot-char-multi-$index')),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('asset-character-preview-dot-char-multi-2')),
+      findsNothing,
+    );
 
     final casualPreview = find.byKey(
       const ValueKey('asset-character-outfit-preview-char-multi-casual'),
     );
     await tester.ensureVisible(casualPreview);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(casualPreview),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scrolledCasualImage = tester.widget<Image>(
+      find.byKey(
+        const ValueKey(
+          'asset-character-outfit-preview-image-char-multi-casual',
+        ),
+      ),
+    );
+    expect(
+      scrolledCasualImage.image,
+      isA<FileImage>().having(
+        (provider) => provider.file.path,
+        'file path',
+        casualAltPreviewFile.path,
+      ),
+    );
+
     await tester.tap(casualPreview);
     await tester.pumpAndSettle();
 
     expect(
       find.byKey(
         const ValueKey('asset-preview-carousel-outfit-char-multi-casual'),
+      ),
+      findsOneWidget,
+    );
+    final counter =
+        find.byKey(const ValueKey('asset-preview-carousel-counter'));
+    expect(tester.widget<Text>(counter).data, '1/2');
+
+    final carousel = find.byKey(
+      const ValueKey('asset-preview-carousel-outfit-char-multi-casual'),
+    );
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(carousel),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<Text>(counter).data, '2/2');
+    expect(
+      find.byKey(
+        const ValueKey(
+          'asset-preview-carousel-image-outfit-char-multi-casual-1',
+        ),
       ),
       findsOneWidget,
     );
@@ -3418,6 +4521,122 @@ void main() {
     expect(find.text('Variant'), findsOneWidget);
     expect(find.text('blue coat'), findsNothing);
     expect(find.text('white dress'), findsWidgets);
+  });
+
+  testWidgets('expanded asset detail click targets expose hover feedback',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+    final tempDir =
+        Directory.systemTemp.createTempSync('asset-detail-hover-test-');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final uniformPreview =
+        File('${tempDir.path}${Platform.pathSeparator}uniform.png');
+    final casualPreview =
+        File('${tempDir.path}${Platform.pathSeparator}casual.png');
+    File('${Uri.base.toFilePath()}assets/appicon.png')
+        .copySync(uniformPreview.path);
+    File('${Uri.base.toFilePath()}assets/appicon.png')
+        .copySync(casualPreview.path);
+    final catalog = StudioAssetCatalogSnapshot(
+      summary: const StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 2,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: const [
+        CharacterEntry(
+          id: 'char-hover',
+          name: 'Hover Heroine',
+          traits: ViewVariantTexts(frontFull: 'green eyes'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'uniform',
+              name: 'Uniform',
+              tags: ViewVariantTexts(frontFull: 'navy uniform'),
+              imageRefs: ['refs/uniform-hover.png'],
+            ),
+            WorkspaceOutfit(
+              id: 'casual',
+              name: 'Casual',
+              tags: ViewVariantTexts(frontFull: 'white hoodie'),
+              imageRefs: ['refs/casual-hover.png'],
+            ),
+          ],
+        ),
+      ],
+      artistChains: const [],
+      recipes: const [],
+      tags: const [],
+    );
+    Color borderColor(Finder finder) {
+      final decoration =
+          tester.widget<AnimatedContainer>(finder).decoration! as BoxDecoration;
+      return (decoration.border! as Border).top.color;
+    }
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: catalog,
+        resolvedRefs: {
+          'refs/uniform-hover.png': uniformPreview.path,
+          'refs/casual-hover.png': casualPreview.path,
+        },
+        saveCharacters: (_) async {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('asset-card-character-char-hover')),
+    );
+    await tester.pumpAndSettle();
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+
+    final preview = find.byKey(
+      const ValueKey('asset-character-outfit-preview-char-hover-uniform'),
+    );
+    final previewFrame = find.descendant(
+      of: preview,
+      matching: find.byType(AnimatedContainer),
+    );
+    final previewBorder = borderColor(previewFrame);
+    await mouse.moveTo(tester.getCenter(preview));
+    await tester.pumpAndSettle();
+    expect(borderColor(previewFrame), isNot(previewBorder));
+
+    final outfitIcon = find.byKey(
+      const ValueKey('asset-character-outfit-icon-char-hover-casual'),
+    );
+    final outfitIconFrame = find.descendant(
+      of: outfitIcon,
+      matching: find.byType(AnimatedContainer),
+    );
+    final outfitIconBorder = borderColor(outfitIconFrame);
+    await mouse.moveTo(tester.getCenter(outfitIcon));
+    await tester.pumpAndSettle();
+    expect(borderColor(outfitIconFrame), isNot(outfitIconBorder));
+
+    final addOutfit = find.byKey(const ValueKey('asset-detail-add-outfit'));
+    final addOutfitFrame = find.descendant(
+      of: addOutfit,
+      matching: find.byType(AnimatedContainer),
+    );
+    final addOutfitBorder = borderColor(addOutfitFrame);
+    await mouse.moveTo(tester.getCenter(addOutfit));
+    await tester.pumpAndSettle();
+    expect(borderColor(addOutfitFrame), isNot(addOutfitBorder));
   });
 
   testWidgets('character detail outfit preview uses the outfit image refs',
@@ -3706,7 +4925,7 @@ void main() {
       catalogService.includeLegacyCodexRequests.skip(1),
       everyElement(isTrue),
     );
-    expect(catalogService.legacyCodexLimitRequests[1], 160);
+    expect(catalogService.legacyCodexLimitRequests[1], 48);
     expect(
       find.byKey(
         const ValueKey('asset-card-inspiration-legacy-codex-regular-0001'),
@@ -3888,17 +5107,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(catalogService.includeLegacyCodexRequests, [false, true]);
-    expect(catalogService.legacyCodexLimitRequests, [160, 160]);
+    expect(catalogService.legacyCodexLimitRequests, [48, 48]);
 
+    expect(find.textContaining('48/500'), findsOneWidget);
     expect(
       find.byKey(
-        const ValueKey('asset-card-inspiration-legacy-codex-regular-0160'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(
-        const ValueKey('asset-card-inspiration-legacy-codex-regular-0161'),
+        const ValueKey('asset-card-inspiration-legacy-codex-regular-0049'),
       ),
       findsNothing,
     );
@@ -3910,13 +5124,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(catalogService.includeLegacyCodexRequests, [false, true, true]);
-    expect(catalogService.legacyCodexLimitRequests, [160, 160, 320]);
-    expect(
-      find.byKey(
-        const ValueKey('asset-card-inspiration-legacy-codex-regular-0320'),
-      ),
-      findsOneWidget,
-    );
+    expect(catalogService.legacyCodexLimitRequests, [48, 48, 96]);
+    expect(find.textContaining('96/500'), findsOneWidget);
   });
 }
 

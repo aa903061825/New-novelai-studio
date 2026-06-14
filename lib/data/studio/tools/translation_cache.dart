@@ -128,6 +128,25 @@ class TranslationCache {
 
   bool get isEmpty => _entries.isEmpty;
 
+  int mergeMissingFrom(TranslationCache other) {
+    var merged = 0;
+    for (final entry in other._entries.entries) {
+      if (_usableTranslation(entry.value) == null) {
+        continue;
+      }
+      final existing = _entries[entry.key];
+      if (_usableTranslation(existing) != null) {
+        continue;
+      }
+      _entries[entry.key] = entry.value;
+      merged += 1;
+    }
+    if (merged > 0) {
+      _reverseLookupBySourceMode.clear();
+    }
+    return merged;
+  }
+
   TranslationCacheEntry? entryFor(String text, {String mode = 'en2zh'}) {
     final key = cacheKey(text, mode: mode);
     return _entries[key];

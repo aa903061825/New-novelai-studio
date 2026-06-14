@@ -22,10 +22,15 @@ List<String> deriveOutfitIdentityTags(WorkspaceOutfit? outfit) {
     final baseRecord = byKey[baseKey];
     if (baseRecord != null) {
       result.add(baseRecord.display);
+    } else {
+      result.add(_skinVariantBaseDisplay(record.display));
     }
     result.add(record.display);
   }
-  return _uniqueTags(result);
+  if (result.isNotEmpty) {
+    return _uniqueTags(result);
+  }
+  return _uniqueTags(records.map((record) => record.display));
 }
 
 String deriveSelectedOutfitIdentityPrompt(
@@ -75,7 +80,7 @@ bool _isDefaultOutfit(WorkspaceOutfit outfit) {
 List<_IdentityRecord> _identityRecords(String text) {
   final result = <_IdentityRecord>[];
   for (final tag in _splitPromptTags(text)) {
-    final display = PromptTagProcessor.cleanTagDisplay(tag).trim();
+    final display = _displayTagPreservingWeights(tag);
     final key = _metadataTagKey(display);
     if (key.isEmpty || !_isMetadataCharacterTag(key)) {
       continue;
@@ -87,10 +92,14 @@ List<_IdentityRecord> _identityRecords(String text) {
 
 List<String> _splitPromptTags(String text) {
   return PromptTagProcessor.splitWorkshopTags(text)
-      .map(PromptTagProcessor.cleanTagDisplay)
+      .map(_displayTagPreservingWeights)
       .map((tag) => tag.trim())
       .where((tag) => tag.isNotEmpty)
       .toList(growable: false);
+}
+
+String _displayTagPreservingWeights(String tag) {
+  return PromptTagProcessor.cleanTagDisplay(tag, removeWeights: false).trim();
 }
 
 bool _isMetadataCharacterTag(String key) {
@@ -115,6 +124,27 @@ String? _skinVariantBaseKey(String key) {
     return null;
   }
   return '${baseName}_($series)';
+}
+
+String _skinVariantBaseDisplay(String display) {
+  final descriptor = PromptTagProcessor.describeWorkshopTag(display);
+  final value = descriptor.displayText.trim();
+  final match = RegExp(r'^(.+?)([_\s])(?:\([^()]+\)[_\s])+\(([^()]+)\)$')
+      .firstMatch(value);
+  if (match == null) return display;
+  final baseName = match.group(1)?.trim();
+  final series = match.group(3)?.trim();
+  if (baseName == null ||
+      baseName.isEmpty ||
+      series == null ||
+      series.isEmpty) {
+    return display;
+  }
+  final separator = match.group(2) == '_' ? '_' : ' ';
+  final baseDisplay = '$baseName$separator($series)';
+  final weight = descriptor.weight;
+  if (weight == null) return baseDisplay;
+  return PromptTagProcessor.formatInlineWeightTag(baseDisplay, weight);
 }
 
 String _joinUniqueTags(Iterable<String> tags) {

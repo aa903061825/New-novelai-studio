@@ -6,9 +6,10 @@ import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
 import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
 import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:nai_casrand/ui/studio_core/services/prompt_tag_presentation.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/filter_rules_library_dialog.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
@@ -29,6 +30,7 @@ class StudioToolsPage extends StatefulWidget {
   final FilterRulesConfigSaver? saveFilterRuleConfig;
   final StudioRecastKnowledgeBaseLoader? loadRecastKnowledgeBase;
   final TranslationCache? translationCache;
+  final PromptTagClassificationCache? classificationCache;
   final StudioTranslationCacheSaver? saveTranslationCache;
   final PromptTranslationService? translationService;
   final StudioRecastCachesLoader? loadRecastCaches;
@@ -42,6 +44,7 @@ class StudioToolsPage extends StatefulWidget {
     this.saveFilterRuleConfig,
     this.loadRecastKnowledgeBase,
     this.translationCache,
+    this.classificationCache,
     this.saveTranslationCache,
     this.translationService,
     this.loadRecastCaches,
@@ -272,6 +275,7 @@ class _StudioToolsPageState extends State<StudioToolsPage>
       builder: (_) => _TranslationCacheDialog(
         initialCache: cache,
         saveTranslationCache: saver,
+        classificationCache: widget.classificationCache,
         translationService: widget.translationService,
       ),
     );
@@ -644,11 +648,13 @@ class _KnowledgeOverviewDialog extends StatelessWidget {
 class _TranslationCacheDialog extends StatefulWidget {
   final TranslationCache initialCache;
   final StudioTranslationCacheSaver saveTranslationCache;
+  final PromptTagClassificationCache? classificationCache;
   final PromptTranslationService? translationService;
 
   const _TranslationCacheDialog({
     required this.initialCache,
     required this.saveTranslationCache,
+    this.classificationCache,
     this.translationService,
   });
 
@@ -670,8 +676,12 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
     super.initState();
     _entries = [
       for (final entry in widget.initialCache.entries.entries)
-        _EditableTranslationEntry(entry.key, entry.value),
-    ]..sort((left, right) => left.text.compareTo(right.text));
+        _EditableTranslationEntry(
+          entry.key,
+          entry.value,
+          classification: _classifyTranslationEntry(entry.key),
+        ),
+    ]..sort(_compareTranslationEntries);
     if (_entries.isNotEmpty) {
       _selectedCacheKey = _entries.first.cacheKey;
     }
@@ -679,9 +689,6 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
 
   @override
   void dispose() {
-    for (final entry in _entries) {
-      entry.dispose();
-    }
     super.dispose();
   }
 
@@ -724,35 +731,39 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
             Expanded(
               child: visibleEntries.isEmpty
                   ? const Center(child: Text('没有匹配的翻译缓存。'))
-                  : SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          PromptTagDisplay(
-                            key: const ValueKey(
-                              'translation-cache-tag-display',
-                            ),
-                            text: visibleEntries
-                                .map((entry) => entry.text)
-                                .join(', '),
-                            defaultTranslated: true,
-                            dense: true,
-                            showLayoutControls: true,
-                            initialLayoutMode: PromptTagLayoutMode.grouped,
-                            translationCache: _cacheFor(visibleEntries),
-                            onTagTap: _selectEntryByText,
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: _TranslationCacheEntryList(
+                            entries: visibleEntries,
+                            selectedCacheKey: selectedEntry?.cacheKey,
+                            onSelected: _selectEntry,
                           ),
-                          const SizedBox(height: 14),
-                          if (selectedEntry != null)
-                            _TranslationCacheEditorPanel(
-                              entry: selectedEntry,
-                              retranslateEnabled:
-                                  widget.translationService != null &&
-                                      !_retranslating,
-                              onRetranslate: () => _retranslate(selectedEntry),
-                            ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: selectedEntry == null
+                              ? const SizedBox.shrink()
+                              : SingleChildScrollView(
+                                  child: _TranslationCacheEditorPanel(
+                                    entry: selectedEntry,
+                                    retranslateEnabled:
+                                        widget.translationService != null &&
+                                            !_retranslating,
+                                    onTranslationChanged: (value) =>
+                                        _updateTranslation(
+                                      selectedEntry,
+                                      value,
+                                    ),
+                                    onRetranslate: () =>
+                                        _retranslate(selectedEntry),
+                                  ),
+                                ),
+                        ),
+                      ],
                     ),
             ),
             if (_status.isNotEmpty) ...[
@@ -786,7 +797,7 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
     if (_query.isEmpty) return true;
     final query = _query.toLowerCase();
     return entry.text.toLowerCase().contains(query) ||
-        entry.controller.text.toLowerCase().contains(query);
+        entry.translation.toLowerCase().contains(query);
   }
 
   _EditableTranslationEntry? _selectedEntry(
@@ -803,26 +814,15 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
     return visibleEntries.first;
   }
 
-  void _selectEntryByText(String text) {
-    for (final entry in _entries) {
-      if (entry.text == text) {
-        setState(() => _selectedCacheKey = entry.cacheKey);
-        return;
-      }
-    }
+  void _selectEntry(_EditableTranslationEntry entry) {
+    setState(() => _selectedCacheKey = entry.cacheKey);
   }
 
-  TranslationCache _cacheFor(List<_EditableTranslationEntry> entries) {
-    return TranslationCache(
-      entries: {
-        for (final entry in entries)
-          entry.cacheKey: TranslationCacheEntry(
-            translation: entry.controller.text.trim(),
-            source: entry.source,
-            ts: entry.ts,
-          ),
-      },
-    );
+  void _updateTranslation(_EditableTranslationEntry entry, String translation) {
+    setState(() {
+      entry.translation = translation;
+      entry.source = 'manual';
+    });
   }
 
   Map<String, int> _sourceCounts() {
@@ -831,6 +831,25 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
       counts.update(entry.source, (value) => value + 1, ifAbsent: () => 1);
     }
     return counts;
+  }
+
+  PromptTagClassification _classifyTranslationEntry(String cacheKey) {
+    return classifyPromptTagForPresentation(
+      TranslationCache.textFromCacheKey(cacheKey),
+      cache: widget.classificationCache,
+    );
+  }
+
+  int _compareTranslationEntries(
+    _EditableTranslationEntry left,
+    _EditableTranslationEntry right,
+  ) {
+    final groupCompare = _categorySortIndex(left.classification.category)
+        .compareTo(_categorySortIndex(right.classification.category));
+    if (groupCompare != 0) {
+      return groupCompare;
+    }
+    return left.text.compareTo(right.text);
   }
 
   Future<void> _retranslate(_EditableTranslationEntry entry) async {
@@ -856,7 +875,7 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
         setState(() => _status = '${entry.text} 重译失败：结果为空');
       } else {
         setState(() {
-          entry.controller.text = translated;
+          entry.translation = translated;
           entry.source = 'ai-refresh';
           entry.ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
           _status = '${entry.text} 已重译';
@@ -881,9 +900,9 @@ class _TranslationCacheDialogState extends State<_TranslationCacheDialog> {
         TranslationCache(
           entries: {
             for (final entry in _entries)
-              if (entry.controller.text.trim().isNotEmpty)
+              if (entry.translation.trim().isNotEmpty)
                 entry.cacheKey: TranslationCacheEntry(
-                  translation: entry.controller.text.trim(),
+                  translation: entry.translation.trim(),
                   source: entry.source,
                   ts: entry.ts,
                 ),
@@ -1033,19 +1052,251 @@ class _AiAnalysisDialogState extends State<_AiAnalysisDialog> {
   }
 }
 
-class _TranslationCacheEditorPanel extends StatelessWidget {
+class _TranslationCacheEntryList extends StatefulWidget {
+  final List<_EditableTranslationEntry> entries;
+  final String? selectedCacheKey;
+  final ValueChanged<_EditableTranslationEntry> onSelected;
+
+  const _TranslationCacheEntryList({
+    required this.entries,
+    required this.selectedCacheKey,
+    required this.onSelected,
+  });
+
+  @override
+  State<_TranslationCacheEntryList> createState() =>
+      _TranslationCacheEntryListState();
+}
+
+class _TranslationCacheEntryListState
+    extends State<_TranslationCacheEntryList> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: StudioTokens.surface2,
+        borderRadius: StudioTokens.radiusSlot,
+        border: Border.all(color: StudioTokens.border),
+      ),
+      child: Scrollbar(
+        controller: _scrollController,
+        thumbVisibility: true,
+        child: ListView.separated(
+          key: const ValueKey('translation-cache-entry-list'),
+          controller: _scrollController,
+          primary: false,
+          padding: const EdgeInsets.all(8),
+          itemCount: widget.entries.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 6),
+          itemBuilder: (context, index) {
+            final entry = widget.entries[index];
+            final selected = entry.cacheKey == widget.selectedCacheKey;
+            return _TranslationCacheEntryRow(
+              key: ValueKey('translation-cache-entry-${entry.cacheKey}'),
+              entry: entry,
+              selected: selected,
+              onTap: () => widget.onSelected(entry),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _TranslationCacheEntryRow extends StatelessWidget {
+  final _EditableTranslationEntry entry;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _TranslationCacheEntryRow({
+    super.key,
+    required this.entry,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final category = entry.classification.category;
+    final categoryColor = _categoryColor(category);
+    final borderColor = selected ? StudioTokens.primary : StudioTokens.border;
+    final background =
+        selected ? StudioTokens.primary.withAlpha(26) : StudioTokens.surface3;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: StudioTokens.radiusSlot,
+        onTap: onTap,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: StudioTokens.radiusSlot,
+            border: Border.all(color: borderColor),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 58),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 4,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: categoryColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(10),
+                      bottomLeft: Radius.circular(10),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                entry.text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                      color: StudioTokens.textPrimary,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _TranslationCacheMetaPill(
+                              label: _categoryLabel(category),
+                              color: categoryColor,
+                            ),
+                            const SizedBox(width: 6),
+                            StudioChip(label: entry.source),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          entry.translation,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textSecondary,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TranslationCacheMetaPill extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _TranslationCacheMetaPill({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withAlpha(38),
+        borderRadius: StudioTokens.radiusBadge,
+        border: Border.all(color: color.withAlpha(130)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: StudioTokens.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+    );
+  }
+}
+
+class _TranslationCacheEditorPanel extends StatefulWidget {
   final _EditableTranslationEntry entry;
   final bool retranslateEnabled;
+  final ValueChanged<String> onTranslationChanged;
   final VoidCallback onRetranslate;
 
   const _TranslationCacheEditorPanel({
     required this.entry,
     required this.retranslateEnabled,
+    required this.onTranslationChanged,
     required this.onRetranslate,
   });
 
   @override
+  State<_TranslationCacheEditorPanel> createState() =>
+      _TranslationCacheEditorPanelState();
+}
+
+class _TranslationCacheEditorPanelState
+    extends State<_TranslationCacheEditorPanel> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.entry.translation);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TranslationCacheEditorPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller.text != widget.entry.translation) {
+      _controller.value = TextEditingValue(
+        text: widget.entry.translation,
+        selection: TextSelection.collapsed(
+          offset: widget.entry.translation.length,
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
     return Container(
       key: const ValueKey('translation-cache-editor-panel'),
       padding: const EdgeInsets.all(12),
@@ -1076,10 +1327,10 @@ class _TranslationCacheEditorPanel extends StatelessWidget {
           const SizedBox(height: 10),
           TextFormField(
             key: ValueKey('translation-cache-edit-${_keySlug(entry.text)}'),
-            controller: entry.controller,
+            controller: _controller,
             minLines: 1,
             maxLines: 2,
-            onChanged: (_) => entry.source = 'manual',
+            onChanged: widget.onTranslationChanged,
             decoration: const InputDecoration(
               isDense: true,
               labelText: '中文翻译',
@@ -1095,7 +1346,8 @@ class _TranslationCacheEditorPanel extends StatelessWidget {
               label: '重新 AI 翻译',
               icon: Icons.auto_fix_high,
               tone: StudioButtonTone.secondary,
-              onPressed: retranslateEnabled ? onRetranslate : null,
+              onPressed:
+                  widget.retranslateEnabled ? widget.onRetranslate : null,
             ),
           ),
         ],
@@ -1251,17 +1503,19 @@ class _KnowledgeSummary {
 class _EditableTranslationEntry {
   final String cacheKey;
   final String text;
-  final TextEditingController controller;
+  final PromptTagClassification classification;
+  String translation;
   String source;
   int ts;
 
-  _EditableTranslationEntry(this.cacheKey, TranslationCacheEntry entry)
-      : text = TranslationCache.textFromCacheKey(cacheKey),
-        controller = TextEditingController(text: entry.translation),
+  _EditableTranslationEntry(
+    this.cacheKey,
+    TranslationCacheEntry entry, {
+    required this.classification,
+  })  : text = TranslationCache.textFromCacheKey(cacheKey),
+        translation = entry.translation,
         source = entry.source,
         ts = entry.ts;
-
-  void dispose() => controller.dispose();
 }
 
 class _AiAnalysisSummary {
@@ -1313,6 +1567,59 @@ String _keySlug(String value) {
       .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
       .replaceAll(RegExp(r'^-+|-+$'), '');
   return slug.isEmpty ? 'entry' : slug;
+}
+
+int _categorySortIndex(PromptTagCategory category) {
+  return switch (PromptTagClassifier.groupFor(category).id) {
+    'quality' => 0,
+    'artist' => 1,
+    'character' => 2,
+    'clothing' => 3,
+    'action' => 4,
+    'scene' => 5,
+    'style' => 6,
+    'negative' => 7,
+    'syntax' => 8,
+    _ => 9,
+  };
+}
+
+String _categoryLabel(PromptTagCategory category) {
+  return switch (category) {
+    PromptTagCategory.character => '角色',
+    PromptTagCategory.upperBody => '上身',
+    PromptTagCategory.lowerBody => '下身',
+    PromptTagCategory.upperClothing => '上装',
+    PromptTagCategory.lowerClothing => '下装',
+    PromptTagCategory.clothing => '服装',
+    PromptTagCategory.action => '动作',
+    PromptTagCategory.scene => '场景',
+    PromptTagCategory.camera => '镜头',
+    PromptTagCategory.artist => '画师',
+    PromptTagCategory.style => '风格',
+    PromptTagCategory.quality => '画质',
+    PromptTagCategory.negativeQuality => '负面画质',
+    PromptTagCategory.negativeBody => '负面人体',
+    PromptTagCategory.negativeArtist => '负面画师',
+    PromptTagCategory.negativeContent => '负面内容',
+    PromptTagCategory.promptSyntax => '语法',
+    PromptTagCategory.other => '其它',
+  };
+}
+
+Color _categoryColor(PromptTagCategory category) {
+  return switch (PromptTagClassifier.groupFor(category).id) {
+    'quality' => StudioTokens.primary,
+    'artist' => StudioTokens.info,
+    'character' => StudioTokens.secondary,
+    'clothing' => const Color(0xFF2DD4BF),
+    'action' => const Color(0xFFA78BFA),
+    'scene' => const Color(0xFF38BDF8),
+    'style' => const Color(0xFFF472B6),
+    'negative' => StudioTokens.danger,
+    'syntax' => StudioTokens.warning,
+    _ => StudioTokens.textMuted,
+  };
 }
 
 class _DetailLine extends StatelessWidget {

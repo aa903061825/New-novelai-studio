@@ -55,6 +55,7 @@ void main() {
     expect(captured?.headers['Content-Type'], 'application/json');
     expect(captured?.payload['model'], 'gpt-4.1-mini');
     expect(captured?.payload['response_format'], {'type': 'json_object'});
+    expect(captured?.payload.containsKey('reasoning_effort'), isFalse);
 
     final messages = (captured?.payload['messages'] as List).cast<Map>();
     expect(messages.first['role'], 'system');
@@ -95,6 +96,41 @@ void main() {
       'schema_version': 1,
       'request_kind': 'chunk_extract_v2',
     });
+  });
+
+  test('role extraction client sends configured reasoning effort', () async {
+    ApiRequest? captured;
+    final client = OpenAiCompatibleScriptAiRoleExtractionClient(
+      fetchData: (request) async {
+        captured = request;
+        return ApiResponse(
+          status: '200',
+          data: Uint8List.fromList(
+            utf8.encode(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {'content': '{}'},
+                  },
+                ],
+              }),
+            ),
+          ),
+        );
+      },
+    );
+
+    await client.extractRoles(
+      const ScriptAiRoleExtractionClientRequest(
+        baseUrl: 'https://script.example/v1',
+        token: 'secret',
+        model: 'gpt-5.4',
+        reasoningEffort: 'xhigh',
+        requestJson: {},
+      ),
+    );
+
+    expect(captured?.payload['reasoning_effort'], 'xhigh');
   });
 
   test('role extraction client appends v1 chat completions to non-v1 base URL',

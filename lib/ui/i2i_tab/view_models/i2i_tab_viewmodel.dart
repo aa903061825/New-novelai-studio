@@ -38,6 +38,12 @@ class I2iTabViewmodel extends ChangeNotifier {
       return;
     }
     payloadConfig.usePreciseReference = value;
+    if (value && payloadConfig.generationRuntimeState.vibeEnabled) {
+      payloadConfig.generationRuntimeState.vibeEnabled = false;
+      configService.saveGenerationRuntimeState(
+        payloadConfig.generationRuntimeState,
+      );
+    }
     notifyListeners();
   }
 }

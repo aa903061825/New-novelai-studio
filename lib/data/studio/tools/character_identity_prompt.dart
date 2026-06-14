@@ -95,9 +95,13 @@ String? _skinVariantBaseKey(String key) {
 
 List<String> _splitDisplayTags(String text) {
   return PromptTagProcessor.splitWorkshopTags(text)
-      .map(PromptTagProcessor.cleanTagDisplay)
+      .map(_displayTagPreservingWeights)
       .where((tag) => tag.isNotEmpty)
       .toList(growable: false);
+}
+
+String _displayTagPreservingWeights(String tag) {
+  return PromptTagProcessor.cleanTagDisplay(tag, removeWeights: false).trim();
 }
 
 List<String> _uniqueTags(Iterable<String> tags) {

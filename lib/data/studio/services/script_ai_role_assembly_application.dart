@@ -37,6 +37,9 @@ class ScriptAiRoleAssemblyApplication {
       for (final role in normalizedExtraction.roles)
         if (role.sourceRoleId.trim().isNotEmpty) role.sourceRoleId: role,
     };
+    final coveredSourceRoleIds = _coveredSourceRoleIds(
+      normalizedExtraction.roles,
+    );
     final usedStageIds = <String>{
       for (final assembly in mapping.roleAssemblies)
         for (final stage in assembly.stages)
@@ -49,7 +52,10 @@ class ScriptAiRoleAssemblyApplication {
     for (final assembly in mapping.roleAssemblies) {
       final role = rolesBySourceId[assembly.sourceRoleId];
       if (role == null) {
-        if (_isUserAuthoredAssembly(assembly)) {
+        if (_shouldKeepUnmatchedExistingAssembly(
+          assembly,
+          coveredSourceRoleIds,
+        )) {
           nextAssemblies.add(assembly);
         } else {
           changed = true;
@@ -221,18 +227,13 @@ class ScriptAiRoleAssemblyApplication {
       if (usedExistingStageIds.contains(stage.id)) {
         continue;
       }
-      if (_isUserAuthoredStage(stage) &&
-          _isAiGeneratedRoleStage(stage) &&
-          mergedStages.isNotEmpty) {
+      if (_isUserAuthoredStage(stage) && mergedStages.isNotEmpty) {
         final targetIndex = _bestAiStageIndexForUserStage(stage, mergedStages);
         mergedStages[targetIndex] = _stageWithUserStateOverlay(
           mergedStages[targetIndex],
           stage,
         );
         continue;
-      }
-      if (_shouldKeepUnmatchedExistingRoleStage(stage)) {
-        mergedStages.add(stage);
       }
     }
     return List.unmodifiable(mergedStages);
@@ -269,6 +270,16 @@ class ScriptAiRoleAssemblyApplication {
 
   bool _isUserAuthoredAssembly(RoleAssembly assembly) {
     return assembly.stages.any(_isUserAuthoredStage);
+  }
+
+  bool _shouldKeepUnmatchedExistingAssembly(
+    RoleAssembly assembly,
+    Set<String> coveredSourceRoleIds,
+  ) {
+    if (coveredSourceRoleIds.contains(assembly.sourceRoleId.trim())) {
+      return false;
+    }
+    return _isUserAuthoredAssembly(assembly);
   }
 
   bool _isUserAuthoredStage(RoleAssemblyStage stage) {
@@ -405,23 +416,6 @@ class ScriptAiRoleAssemblyApplication {
     );
   }
 
-  bool _shouldKeepUnmatchedExistingRoleStage(RoleAssemblyStage stage) {
-    if (!_isUserAuthoredStage(stage)) {
-      return false;
-    }
-    return !_isAiGeneratedRoleStage(stage);
-  }
-
-  bool _isAiGeneratedRoleStage(RoleAssemblyStage stage) {
-    final id = stage.id.trim().toLowerCase();
-    final label = stage.label.trim().toLowerCase();
-    return _isLocalDefaultRoleStage(stage) ||
-        RegExp(r'^(stage|base-role)-\d+(-\d+)?$').hasMatch(id) ||
-        id.startsWith('ai-role-') ||
-        RegExp(r'^stage\s+\d+$').hasMatch(label) ||
-        label.startsWith('ai ');
-  }
-
   bool _isLocalDefaultRoleStage(RoleAssemblyStage stage) {
     final id = stage.id.trim().toLowerCase();
     return RegExp(r'^slot-\d+-stage-\d+$').hasMatch(id);
@@ -473,6 +467,7 @@ class ScriptAiRoleAssemblyApplication {
 
   bool _isEmptyAutomaticSlotAssembly(RoleAssembly assembly) {
     return RegExp(r'^slot-\d+$').hasMatch(assembly.sourceRoleId.trim()) &&
+        assembly.sourceName.trim().isEmpty &&
         assembly.sourceAppearances.isEmpty &&
         assembly.stages.isEmpty;
   }
@@ -484,9 +479,23 @@ class ScriptAiRoleAssemblyApplication {
     if (_isUserAuthoredStage(stage)) {
       return false;
     }
+    if (!_isAutomaticStage(stage)) {
+      return false;
+    }
     return RegExp(
       '^${RegExp.escape(assembly.sourceRoleId)}-stage-\\d+\$',
     ).hasMatch(stage.id.trim());
+  }
+
+  bool _isAutomaticStage(RoleAssemblyStage stage) {
+    return stage.targetCharacterId == null &&
+        stage.targetUpperOutfitId == null &&
+        stage.targetLowerOutfitId == null &&
+        stage.omittedParts.isEmpty &&
+        stage.preservedParts.isEmpty &&
+        stage.sourceSummary.trim().isEmpty &&
+        stage.sourceParts.isEmpty &&
+        stage.manualParts.isEmpty;
   }
 
   Set<RecastPromptPart> _omittedPartsFromAiMissingFields(
@@ -601,5 +610,23 @@ class ScriptAiRoleAssemblyApplication {
     }
     return left.containsAll(right);
   }
-}
 
+  Set<String> _coveredSourceRoleIds(List<ScriptAiExtractedRole> roles) {
+    final result = <String>{};
+    for (final role in roles) {
+      final roleId = role.sourceRoleId.trim();
+      for (final appearance in role.appearances) {
+        final sourceId = appearance.sourceId.trim();
+        if (sourceId.isEmpty) {
+          continue;
+        }
+        final sourceKind = appearance.sourceKind.trim();
+        if ((sourceKind.isEmpty || sourceKind == 'slot') &&
+            sourceId != roleId) {
+          result.add(sourceId);
+        }
+      }
+    }
+    return Set.unmodifiable(result);
+  }
+}

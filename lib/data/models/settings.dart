@@ -8,6 +8,16 @@ const defaultNaiImageGenerationEndpoint =
 
 enum TranslationProviderMode { ai, google }
 
+const scriptAiReasoningEffortOptions = [
+  '',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
+
 class Settings {
   // Don't show again
   String welcomeMessageVersion;
@@ -25,6 +35,7 @@ class Settings {
   String scriptAiBaseUrl;
   String scriptAiToken;
   String scriptAiModel;
+  String scriptAiReasoningEffort;
   String translationProvider;
   String translationAiBaseUrl;
   String translationAiToken;
@@ -64,6 +75,7 @@ class Settings {
     this.scriptAiBaseUrl = '',
     this.scriptAiToken = '',
     this.scriptAiModel = '',
+    this.scriptAiReasoningEffort = '',
     this.translationProvider = 'ai',
     this.translationAiBaseUrl = '',
     this.translationAiToken = '',
@@ -96,6 +108,9 @@ class Settings {
       scriptAiBaseUrl: json['script_ai_base_url'] ?? '',
       scriptAiToken: json['script_ai_token'] ?? '',
       scriptAiModel: json['script_ai_model'] ?? '',
+      scriptAiReasoningEffort: normalizeScriptAiReasoningEffort(
+        json['script_ai_reasoning_effort'] as String?,
+      ),
       translationProvider: _translationProviderName(
         json['translation_provider'] as String?,
       ),
@@ -136,6 +151,7 @@ class Settings {
       'script_ai_base_url': scriptAiBaseUrl,
       'script_ai_token': scriptAiToken,
       'script_ai_model': scriptAiModel,
+      'script_ai_reasoning_effort': scriptAiReasoningEffort,
       'translation_provider': translationProvider,
       'translation_ai_base_url': translationAiBaseUrl,
       'translation_ai_token': translationAiToken,
@@ -180,4 +196,9 @@ String _translationProviderName(String? value) {
   return value == TranslationProviderMode.google.name
       ? TranslationProviderMode.google.name
       : TranslationProviderMode.ai.name;
+}
+
+String normalizeScriptAiReasoningEffort(String? value) {
+  final normalized = value?.trim() ?? '';
+  return scriptAiReasoningEffortOptions.contains(normalized) ? normalized : '';
 }

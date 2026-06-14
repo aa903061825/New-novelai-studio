@@ -48,68 +48,222 @@ class _StudioBatchPageState extends State<StudioBatchPage> {
     final viewModel = widget.viewModel;
     return Scaffold(
       backgroundColor: StudioTokens.surface1,
-      body: ListenableBuilder(
-        listenable: viewModel,
-        builder: (context, _) {
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 1180;
-              if (compact) {
-                return ListView(
-                  key: const ValueKey('studio-batch-page-compact'),
-                  padding: const EdgeInsets.all(12),
-                  children: [
-                    _QueueOverviewPanel(viewModel: viewModel),
-                    const SizedBox(height: 12),
-                    _ExecutionSettingsPanel(viewModel: viewModel),
-                    const SizedBox(height: 12),
-                    _TaskListPanel(
-                      viewModel: viewModel,
-                      expandList: false,
-                    ),
-                    const SizedBox(height: 12),
-                    _ProductionResultsPanel(
-                      viewModel: viewModel,
-                      expandBody: false,
-                    ),
-                  ],
-                );
-              }
-
-              return Padding(
-                key: const ValueKey('studio-batch-page-wide'),
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        children: [
-                          _QueueOverviewPanel(viewModel: viewModel),
-                          const SizedBox(height: 12),
-                          _ExecutionSettingsPanel(viewModel: viewModel),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: _TaskListPanel(viewModel: viewModel),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 4,
-                      child: _ProductionResultsPanel(viewModel: viewModel),
-                    ),
-                  ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 1180;
+          if (compact) {
+            return ListView(
+              key: const ValueKey('studio-batch-page-compact'),
+              padding: const EdgeInsets.all(12),
+              children: [
+                _ViewModelRebuildGate(
+                  viewModel: viewModel,
+                  selector: _queueOverviewRebuildToken,
+                  builder: (context) => _QueueOverviewPanel(
+                    viewModel: viewModel,
+                  ),
                 ),
-              );
-            },
+                const SizedBox(height: 12),
+                _ViewModelRebuildGate(
+                  viewModel: viewModel,
+                  selector: _settingsRebuildToken,
+                  builder: (context) => _ExecutionSettingsPanel(
+                    viewModel: viewModel,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _ViewModelRebuildGate(
+                  viewModel: viewModel,
+                  selector: _tasksRebuildToken,
+                  builder: (context) => _TaskListPanel(
+                    viewModel: viewModel,
+                    expandList: false,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _ViewModelRebuildGate(
+                  viewModel: viewModel,
+                  selector: _tasksRebuildToken,
+                  builder: (context) => _ProductionResultsPanel(
+                    viewModel: viewModel,
+                    expandBody: false,
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Padding(
+            key: const ValueKey('studio-batch-page-wide'),
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: Column(
+                    children: [
+                      _ViewModelRebuildGate(
+                        viewModel: viewModel,
+                        selector: _queueOverviewRebuildToken,
+                        builder: (context) => _QueueOverviewPanel(
+                          viewModel: viewModel,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _ViewModelRebuildGate(
+                        viewModel: viewModel,
+                        selector: _settingsRebuildToken,
+                        builder: (context) => _ExecutionSettingsPanel(
+                          viewModel: viewModel,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: _ViewModelRebuildGate(
+                          viewModel: viewModel,
+                          selector: _tasksRebuildToken,
+                          builder: (context) => _TaskListPanel(
+                            viewModel: viewModel,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 4,
+                  child: _ViewModelRebuildGate(
+                    viewModel: viewModel,
+                    selector: _tasksRebuildToken,
+                    builder: (context) => _ProductionResultsPanel(
+                      viewModel: viewModel,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
     );
   }
+}
+
+class _ViewModelRebuildGate<T> extends StatefulWidget {
+  final ProductionQueueViewModel viewModel;
+  final T Function(ProductionQueueViewModel viewModel) selector;
+  final WidgetBuilder builder;
+
+  const _ViewModelRebuildGate({
+    required this.viewModel,
+    required this.selector,
+    required this.builder,
+  });
+
+  @override
+  State<_ViewModelRebuildGate<T>> createState() =>
+      _ViewModelRebuildGateState<T>();
+}
+
+class _ViewModelRebuildGateState<T> extends State<_ViewModelRebuildGate<T>> {
+  late T _selectedValue;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedValue = widget.selector(widget.viewModel);
+    widget.viewModel.addListener(_handleViewModelChanged);
+  }
+
+  @override
+  void didUpdateWidget(_ViewModelRebuildGate<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewModel != widget.viewModel) {
+      oldWidget.viewModel.removeListener(_handleViewModelChanged);
+      widget.viewModel.addListener(_handleViewModelChanged);
+    }
+    _selectedValue = widget.selector(widget.viewModel);
+  }
+
+  @override
+  void dispose() {
+    widget.viewModel.removeListener(_handleViewModelChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(context);
+  }
+
+  void _handleViewModelChanged() {
+    final nextValue = widget.selector(widget.viewModel);
+    if (nextValue == _selectedValue) return;
+    setState(() {
+      _selectedValue = nextValue;
+    });
+  }
+}
+
+Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
+  final plan = viewModel.selectedPlan;
+  return (
+    planId: plan?.id,
+    planName: plan?.name,
+    planFingerprint: plan?.planFingerprint,
+    totalTasks: viewModel.totalTasks,
+    completedTasks: viewModel.completedTasks,
+    failedTasks: viewModel.failedTasks,
+    abnormalTasks: viewModel.abnormalTasks,
+    runningTasks: viewModel.runningTasks,
+    isExecuting: viewModel.isExecuting,
+    pauseRequested: viewModel.pauseRequested,
+    isPaused: viewModel.isPaused,
+    canPause: viewModel.canPause,
+    canResume: viewModel.canResume,
+    canStop: viewModel.canStop,
+    canClearCurrentPlan: viewModel.canClearCurrentPlan,
+    canRenameSelectedPlan: viewModel.canRenameSelectedPlan,
+  );
+}
+
+Object _settingsRebuildToken(ProductionQueueViewModel viewModel) {
+  final selectedTask = viewModel.selectedTask;
+  return (
+    selectedTaskId: selectedTask?.id,
+    selectedTaskUpdatedAt:
+        selectedTask?.updatedAt.toUtc().microsecondsSinceEpoch,
+    isExecuting: viewModel.isExecuting,
+    useOriginalModel: viewModel.useOriginalModel,
+    useOriginalSize: viewModel.useOriginalSize,
+    useOriginalSampler: viewModel.useOriginalSampler,
+    useOriginalSteps: viewModel.useOriginalSteps,
+    useOriginalScale: viewModel.useOriginalScale,
+    useOriginalSeed: viewModel.useOriginalSeed,
+    batchModel: viewModel.batchModel,
+    batchSampler: viewModel.batchSampler,
+    batchWidth: viewModel.batchWidth,
+    batchHeight: viewModel.batchHeight,
+    batchSteps: viewModel.batchSteps,
+    batchScale: viewModel.batchScale,
+    batchSeed: viewModel.batchSeed,
+    requestIntervalSeconds: viewModel.requestIntervalSeconds,
+    requestIntervalRandomRangeSeconds:
+        viewModel.requestIntervalRandomRangeSeconds,
+    retryCount: viewModel.retryCount,
+    retryIndefinitely: viewModel.retryIndefinitely,
+    outputDirectory: viewModel.outputDirectory,
+    canPickOutputDirectory: viewModel.canPickOutputDirectory,
+  );
+}
+
+Object _tasksRebuildToken(ProductionQueueViewModel viewModel) {
+  return (
+    selectedTaskId: viewModel.selectedTask?.id,
+    tasks: viewModel.selectedPlan?.tasks,
+  );
 }
 
 Future<void> _exportSelectedTaskJson(
@@ -450,7 +604,7 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = !viewModel.isExecuting;
+    const canEdit = true;
     final samplerOptions = _samplerOptionsForModel(generationSettings.model);
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -625,7 +779,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = !viewModel.isExecuting;
+    const canEdit = true;
     return LayoutBuilder(
       builder: (context, constraints) {
         final tileWidth = constraints.maxWidth >= 960
@@ -1182,7 +1336,9 @@ class _TaskListPanel extends StatelessWidget {
                     task: task,
                     selected: task.id == viewModel.selectedTask?.id,
                     onSelect: () => viewModel.selectTask(task),
-                    onRerun: () => viewModel.rerunTask(task),
+                    onRerun: () {
+                      unawaited(viewModel.queueRerunTask(task));
+                    },
                   );
                 },
               ),
@@ -1355,6 +1511,9 @@ class _ProductionResultsPanel extends StatelessWidget {
                 tasks: tasks,
                 selectedTaskId: selectedTask?.id,
                 scrollable: expandBody,
+                onQuickRerun: (task) {
+                  unawaited(viewModel.queueRerunTask(task));
+                },
                 onOpen: (task) {
                   viewModel.selectTask(task);
                   _showProductionResultDetails(
@@ -1376,12 +1535,14 @@ class _ProductionResultWaterfall extends StatelessWidget {
   final String? selectedTaskId;
   final bool scrollable;
   final ValueChanged<ProductionTask> onOpen;
+  final ValueChanged<ProductionTask> onQuickRerun;
 
   const _ProductionResultWaterfall({
     required this.tasks,
     required this.selectedTaskId,
     required this.scrollable,
     required this.onOpen,
+    required this.onQuickRerun,
   });
 
   @override
@@ -1394,6 +1555,15 @@ class _ProductionResultWaterfall extends StatelessWidget {
       columnWidth: 250,
       scrollable: scrollable,
       cardKeyPrefix: 'studio-production-result-card',
+      imageOverlayBuilder: (context, item) {
+        final task = item.source as ProductionTask;
+        return StudioIconButton(
+          key: ValueKey('studio-production-quick-rerun-${task.id}'),
+          icon: Icons.replay,
+          tooltip: '插队重跑',
+          onPressed: () => onQuickRerun(task),
+        );
+      },
       onOpen: (context, item) {
         final task = item.source as ProductionTask;
         onOpen(task);
@@ -1404,17 +1574,10 @@ class _ProductionResultWaterfall extends StatelessWidget {
 
 StudioGeneratedImageItem _productionGeneratedImageItem(ProductionTask task) {
   final outputPath = task.outputImagePath?.trim();
-  if (_existingOutputFile(outputPath) != null) {
-    return StudioGeneratedImageItem.file(
-      id: task.id,
-      name: task.title,
-      imagePath: outputPath!,
-      source: task,
-    );
-  }
   return StudioGeneratedImageItem(
     id: task.id,
     name: task.title,
+    imagePath: outputPath == null || outputPath.isEmpty ? null : outputPath,
     source: task,
     placeholder: _resultPreviewTitle(task),
   );

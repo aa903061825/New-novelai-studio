@@ -609,57 +609,124 @@ class _PromptControlSection extends StatelessWidget {
   }
 }
 
-class _ReferenceInputSection extends StatelessWidget {
+class _ReferenceInputSection extends StatefulWidget {
   final WorkbenchSingleImageParametersViewmodel viewmodel;
 
   const _ReferenceInputSection({required this.viewmodel});
 
   @override
+  State<_ReferenceInputSection> createState() => _ReferenceInputSectionState();
+}
+
+class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
+  late bool _i2iEnabled = widget.viewmodel.hasI2iImage;
+
+  @override
+  void didUpdateWidget(covariant _ReferenceInputSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.viewmodel.hasI2iImage && widget.viewmodel.hasI2iImage) {
+      _i2iEnabled = true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final viewmodel = widget.viewmodel;
     return ListenableBuilder(
       listenable: viewmodel.payloadConfig.i2iConfig,
       builder: (context, _) {
         final payload = viewmodel.payloadConfig;
+        final i2iConfig = payload.i2iConfig;
         final vibeCount =
             payload.vibeConfigList.length + payload.vibeConfigListV4.length;
         final preciseCount = payload.preciseReferenceList.length;
+        final hasSourceImage = viewmodel.hasI2iImage;
+        final sourceSize = i2iConfig.width > 0 && i2iConfig.height > 0
+            ? '${i2iConfig.width} x ${i2iConfig.height}'
+            : '已选择';
+        final title = !_i2iEnabled
+            ? '图生图（可选）'
+            : hasSourceImage
+                ? '图生图已启用'
+                : '图生图已开启';
+        final referenceCount = payload.usePreciseReference
+            ? preciseCount
+            : payload.generationRuntimeState.vibeEnabled
+                ? vibeCount
+                : 0;
         return Column(
           key: const ValueKey('workbench-reference-input-section'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _SectionTitle(icon: Icons.image_search, title: 'vibe'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                StudioChip(
-                  icon: Icons.auto_awesome_outlined,
-                  label:
-                      'Vibe ${payload.generationRuntimeState.vibeEnabled ? 'On' : 'Off'} / $vibeCount',
-                ),
-                StudioChip(
-                  icon: Icons.compare_outlined,
-                  label: viewmodel.hasI2iImage ? 'I2I 1' : 'I2I 0',
-                ),
-                StudioChip(
-                  icon: Icons.center_focus_strong_outlined,
-                  label: 'Precise $preciseCount',
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            KeyedSubtree(
-              key: const ValueKey('workbench-reference-editor'),
-              child: I2iTabView(
-                viewmodel: I2iTabViewmodel(),
-                compact: true,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _SectionTitle(
+                      icon: Icons.compare_outlined,
+                      title: title,
+                    ),
+                  ),
+                  if (_i2iEnabled) ...[
+                    StudioChip(
+                      icon: hasSourceImage
+                          ? Icons.image_outlined
+                          : Icons.add_photo_alternate_outlined,
+                      label: hasSourceImage ? '底图 $sourceSize' : '未选择底图',
+                      selected: hasSourceImage,
+                    ),
+                    if (referenceCount > 0) ...[
+                      const SizedBox(width: 8),
+                      StudioChip(
+                        icon: payload.usePreciseReference
+                            ? Icons.center_focus_strong_outlined
+                            : Icons.auto_awesome_outlined,
+                        label: payload.usePreciseReference
+                            ? '精确参考 $referenceCount'
+                            : '风格参考 $referenceCount',
+                        selected: true,
+                      ),
+                    ],
+                    const SizedBox(width: 8),
+                  ],
+                  StudioChip(
+                    key: const ValueKey('workbench-i2i-section-toggle'),
+                    icon: _i2iEnabled
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    label: _i2iEnabled ? '关闭' : '开启',
+                    selected: _i2iEnabled,
+                    onTap: _toggleI2iEnabled,
+                  ),
+                ],
               ),
             ),
+            if (_i2iEnabled) ...[
+              const SizedBox(height: 8),
+              KeyedSubtree(
+                key: const ValueKey('workbench-reference-editor'),
+                child: I2iTabView(
+                  viewmodel: I2iTabViewmodel(),
+                  compact: true,
+                  showImageSizeControl: false,
+                  showPresetControl: false,
+                  useReferenceModeCards: true,
+                ),
+              ),
+            ],
           ],
         );
       },
     );
+  }
+
+  void _toggleI2iEnabled() {
+    final nextEnabled = !_i2iEnabled;
+    if (!nextEnabled) {
+      widget.viewmodel.disableI2iInputs();
+    }
+    setState(() => _i2iEnabled = nextEnabled);
   }
 }
 

@@ -224,6 +224,22 @@ class NaiMetadataParser {
         target.addAll(_stringKeyMap(entry.value as Map));
         continue;
       }
+      if (entry.key == 'parameters' && entry.value is String) {
+        final parametersMetadata = _parametersTextMetadata(entry.value);
+        if (parametersMetadata != null) {
+          if (parametersMetadata.prompt != null) {
+            target.putIfAbsent('prompt', () => parametersMetadata.prompt);
+          }
+          if (parametersMetadata.negativePrompt != null) {
+            target.putIfAbsent(
+              'negative_prompt',
+              () => parametersMetadata.negativePrompt,
+            );
+          }
+          target.addAll(parametersMetadata.parameters);
+        }
+        continue;
+      }
       if (entry.key == 'prompt') {
         final comfyMetadata = _comfyPromptMetadata(entry.value);
         if (comfyMetadata != null) {
@@ -291,6 +307,96 @@ class NaiMetadataParser {
     } on FormatException {
       return null;
     }
+  }
+
+  static _ComfyPromptMetadata? _parametersTextMetadata(dynamic value) {
+    if (value is! String) {
+      return null;
+    }
+    final text = value.trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    final negativeMatch = RegExp(
+      r'(?:^|\n)\s*Negative prompt:\s*',
+      caseSensitive: false,
+    ).firstMatch(text);
+    final stepsMatch = RegExp(
+      r'(?:^|\n)\s*Steps:\s*',
+      caseSensitive: false,
+    ).firstMatch(text);
+
+    final promptEnd = negativeMatch?.start ?? stepsMatch?.start ?? text.length;
+    final prompt = text.substring(0, promptEnd).trim();
+
+    String? negativePrompt;
+    if (negativeMatch != null) {
+      final negativeEnd =
+          stepsMatch != null && stepsMatch.start > negativeMatch.end
+              ? stepsMatch.start
+              : text.length;
+      negativePrompt = text.substring(negativeMatch.end, negativeEnd).trim();
+    }
+
+    final settingsText = stepsMatch == null
+        ? ''
+        : text.substring(stepsMatch.start).trim().replaceFirst(
+              RegExp(r'^Steps:\s*', caseSensitive: false),
+              'Steps: ',
+            );
+    final parameters = _parametersTextValues(settingsText);
+
+    if (prompt.isEmpty &&
+        (negativePrompt == null || negativePrompt.isEmpty) &&
+        parameters.isEmpty) {
+      return null;
+    }
+    return _ComfyPromptMetadata(
+      prompt: prompt.isEmpty ? null : prompt,
+      negativePrompt: negativePrompt == null || negativePrompt.isEmpty
+          ? null
+          : negativePrompt,
+      parameters: parameters,
+    );
+  }
+
+  static Map<String, dynamic> _parametersTextValues(String settingsText) {
+    final parameters = <String, dynamic>{};
+    if (settingsText.trim().isEmpty) {
+      return parameters;
+    }
+    for (final part in settingsText.split(',')) {
+      final index = part.indexOf(':');
+      if (index <= 0) {
+        continue;
+      }
+      final key = part.substring(0, index).trim().toLowerCase();
+      final value = part.substring(index + 1).trim();
+      if (value.isEmpty) {
+        continue;
+      }
+      switch (key) {
+        case 'steps':
+          parameters['steps'] = _toInt(value) ?? value;
+        case 'sampler':
+          parameters['sampler'] = value;
+        case 'cfg scale':
+          parameters['scale'] = _firstNum([value]) ?? value;
+        case 'seed':
+          parameters['seed'] = _toInt(value) ?? value;
+        case 'size':
+          final width = _resolutionPart(value, 0);
+          final height = _resolutionPart(value, 1);
+          if (width != null) parameters['width'] = width;
+          if (height != null) parameters['height'] = height;
+        case 'model':
+          parameters['model'] = value;
+        case 'model hash':
+          parameters['model_hash'] = value;
+      }
+    }
+    return parameters;
   }
 
   static Map<String, dynamic> _stringKeyMap(Map<dynamic, dynamic> map) {

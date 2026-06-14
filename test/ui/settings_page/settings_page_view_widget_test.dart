@@ -232,6 +232,8 @@ void main() {
         find.byKey(const ValueKey('settings-script-ai-token')), findsOneWidget);
     expect(
         find.byKey(const ValueKey('settings-script-ai-model')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-script-ai-reasoning-effort')),
+        findsOneWidget);
     expect(find.byKey(const ValueKey('settings-script-ai-test-connection')),
         findsOneWidget);
     expect(find.byKey(const ValueKey('settings-script-ai-test-status')),
@@ -279,6 +281,24 @@ void main() {
         findsNothing);
     expect(find.byKey(const ValueKey('settings-translation-cache-ai-refresh')),
         findsOneWidget);
+  });
+
+  testWidgets('settings page updates script ai reasoning effort', (
+    tester,
+  ) async {
+    await _pumpLocalizedSettingsPage(tester);
+
+    final effortFinder =
+        find.byKey(const ValueKey('settings-script-ai-reasoning-effort'));
+    await tester.ensureVisible(effortFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(effortFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('xhigh').last);
+    await tester.pumpAndSettle();
+
+    final config = GetIt.I<PayloadConfig>();
+    expect(config.settings.scriptAiReasoningEffort, 'xhigh');
   });
 
   testWidgets('settings page exposes cache package import actions',

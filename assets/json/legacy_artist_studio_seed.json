@@ -568,7 +568,7 @@
           "id": "legacy-character-sheet-r1-outfit-0",
           "name": "音律联觉",
           "tags": {
-            "front_full": "eyjafjalla (ambience synesthesia) (arknights)",
+            "front_full": "eyjafjalla (arknights), eyjafjalla (ambience synesthesia) (arknights)",
             "front_upper": "dress, white_dress, gloves, white_gloves, long_sleeves, short_sleeves, dress_bow, layered_dress, puffy_sleeves, wide_sleeves, black_dress, frilled_dress, frilled_shirt, japanese_clothes",
             "front_lower": "dress, white_dress, dress_bow, layered_dress, black_dress, frilled_dress, japanese_clothes, boots, lace-up_boots, pink_skirt, skirt, ankle_boots"
           },
@@ -610,7 +610,7 @@
           "id": "legacy-character-sheet-r1-outfit-2",
           "name": "泳装",
           "tags": {
-            "front_full": "eyjafjalla_(summer_flower)_(arknights)",
+            "front_full": "eyjafjalla_(arknights), eyjafjalla_(summer_flower)_(arknights)",
             "front_upper": "bikini, pink_bikini, plaid_bikini, plaid_clothes, swimsuit, swimsuit_cover-up",
             "front_lower": "bikini, pink_bikini, plaid_bikini, swimsuit, swimsuit_cover-up"
           },
@@ -637,7 +637,7 @@
           "id": "legacy-character-sheet-r1-outfit-3",
           "name": "毛茸茸",
           "tags": {
-            "front_full": "eyjafjalla (fluffy little witch) (arknights)",
+            "front_full": "eyjafjalla (arknights), eyjafjalla (fluffy little witch) (arknights)",
             "front_upper": "gloves, black_gloves, long_sleeves, dress, coat, open_clothes, jacket, open_coat, pink_coat, pink_dress, pink_jacket, white_dress, capelet, pink_capelet",
             "front_lower": "dress, pink_dress, white_dress, boots, fur-trimmed_boots, high_heel_boots, shorts, black_boots, black_shoes, frilled_dress"
           },
@@ -677,7 +677,7 @@
           "id": "legacy-character-sheet-r1-outfit-4",
           "name": "童话爱丽丝",
           "tags": {
-            "front_full": "eyjafjalla the hvit aska (a picnic before a long trip) (arknights)",
+            "front_full": "eyjafjalla the hvit aska (arknights), eyjafjalla the hvit aska (a picnic before a long trip) (arknights)",
             "front_upper": "shirt, coat, white_coat, dress, long_sleeves, open_clothes, purple_shirt, jacket, lab_coat, white_jacket, open_coat, detached_sleeves, jacket_on_shoulders, purple_dress",
             "front_lower": "dress, purple_dress, black_skirt, shoes, skirt, black_shoes, blue_dress, frilled_dress"
           },
@@ -730,7 +730,7 @@
           "id": "legacy-character-sheet-r3-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "myrtle_(summer_flowers)_(arknights)",
+            "front_full": "myrtle_(arknights), myrtle_(summer_flowers)_(arknights)",
             "front_upper": "shirt, sleeveless, sleeveless_shirt, swimsuit, white_shirt",
             "front_lower": "swimsuit, sandals, white_sandals"
           },
@@ -770,7 +770,7 @@
           "id": "legacy-character-sheet-r4-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "goldenglow (summer flowers) (arknights)",
+            "front_full": "goldenglow (arknights), goldenglow (summer flowers) (arknights)",
             "front_upper": "shirt, white_shirt, clothing_cutout, short_sleeves, bikini, dress, glove_cutout, gloves, jacket, letterman_jacket, puffy_short_sleeves, puffy_sleeves, sleeves_past_wrists, swimsuit",
             "front_lower": "bikini, dress, swimsuit, shorts, denim_shorts, black_shorts, blue_shorts, sandals, swimsuit_cover-up, white_dress"
           },
@@ -810,7 +810,7 @@
           "id": "legacy-character-sheet-r4-outfit-5",
           "name": "变体 2",
           "tags": {
-            "front_full": "goldenglow (party in the garden) (arknights)",
+            "front_full": "goldenglow (arknights), goldenglow (party in the garden) (arknights)",
             "front_upper": "gloves, white_gloves, dress, short_sleeves, white_dress, puffy_sleeves, puffy_short_sleeves, frilled_dress, apron, white_apron, frilled_apron, frilled_gloves, checkered_clothes, clothing_cutout",
             "front_lower": "dress, white_dress, frilled_dress, pink_dress, pink_shoes, red_dress, shoes"
           },
@@ -962,7 +962,7 @@
       "id": "legacy-character-sheet-r8",
       "name": "克洛丝",
       "traits": {
-        "front_full": "kroos_the_keen_glint_(along_the_corridor)_(arknights)",
+        "front_full": "kroos_the_keen_glint_(arknights)",
         "front_upper": "animal_ears, rabbit_ears, closed_eyes, blonde_hair, bow, hair_between_eyes, hair_bow, hair_ornament, orange_hair, purple_bow, ribbon, brown_hair, ear_ribbon, long_hair"
       },
       "outfits": [
@@ -970,7 +970,7 @@
           "id": "legacy-character-sheet-r8-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "kroos_(moonlit_voyage)_(arknights)",
+            "front_full": "kroos_(arknights), kroos_(moonlit_voyage)_(arknights)",
             "front_upper": "dress, purple_dress, long_sleeves, blue_dress, clothing_cutout",
             "front_lower": "dress, purple_dress, blue_dress, shoes"
           },
@@ -1168,7 +1168,7 @@
       "id": "legacy-character-sheet-r13",
       "name": "铃兰",
       "traits": {
-        "front_full": "suzuran (spring praise) (arknights), fox girl, fox ears, fox tail",
+        "front_full": "suzuran (arknights), fox girl, fox ears, fox tail",
         "front_upper": "fox_ears, animal_ears, hairband, blue_hairband, frilled_hairband, green_eyes, long_hair, blonde_hair, neck_ribbon, red_ribbon, ribbon, animal_ear_fluff, fang, skin_fang",
         "front_lower": "fox_tail, tail"
       },
@@ -1177,7 +1177,7 @@
           "id": "legacy-character-sheet-r13-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "suzuran (yukibare) (arknights)",
+            "front_full": "suzuran (arknights), suzuran (yukibare) (arknights)",
             "front_upper": "japanese_clothes, kimono, long_sleeves, pink_kimono, wide_sleeves, apron, frilled_apron, waist_apron, white_apron, cross-laced_clothes, open_clothes, shirt, white_shirt",
             "front_lower": "japanese_clothes, kimono, pink_kimono, skirt, hakama_skirt, black_skirt, sandals, high-waist_skirt, long_skirt, platform_sandals, shoes"
           },
@@ -1217,7 +1217,7 @@
           "id": "legacy-character-sheet-r13-outfit-4",
           "name": "变体 2",
           "tags": {
-            "front_full": "girl,loli,young,suzuran (spring praise) (arknights), fox girl, fox ears, fox tail",
+            "front_full": "girl,loli,young,suzuran (arknights), suzuran (spring praise) (arknights), fox girl, fox ears, fox tail",
             "front_upper": "long_sleeves, shirt, white_shirt, puffy_long_sleeves, puffy_sleeves, cross-laced_clothes, open_clothes, short_sleeves",
             "front_lower": "skirt, blue_skirt, cross-laced_skirt"
           },
@@ -1376,7 +1376,7 @@
           "id": "legacy-character-sheet-r15-outfit-4",
           "name": "变体 1",
           "tags": {
-            "front_full": "girl,loli,young,rosmontis_(become_anew)_(arknights),cat_ears, cat_girl, cat_tail",
+            "front_full": "girl,loli,young,rosmontis_(arknights), rosmontis_(become_anew)_(arknights),cat_ears, cat_girl, cat_tail",
             "front_upper": "dress, white_dress, sleeveless, sleeveless_dress, clothing_cutout, shirt, short_dress, sleeveless_shirt",
             "front_lower": "dress, white_dress, sleeveless_dress, short_dress"
           },
@@ -1460,7 +1460,7 @@
       "id": "legacy-character-sheet-r20",
       "name": "绮良良",
       "traits": {
-        "front_full": "girl,1.5::loli::,kirara (post office) (genshin impact),cat_girl,3::cat_ears,cat_tail::,",
+        "front_full": "girl,1.5::loli::,kirara (genshin impact),cat_girl,3::cat_ears,cat_tail::,",
         "front_upper": "cat_ears",
         "front_lower": "cat_tail"
       },
@@ -1483,7 +1483,7 @@
           "id": "legacy-character-sheet-r21-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "girl,3::loli,fox earsi::,yuel (summer) (granblue fantasy), animal_ears, bell, fluffy_tail, fox_ears, fox_",
+            "front_full": "girl,3::loli,fox earsi::,yuel (granblue fantasy), yuel (summer) (granblue fantasy), animal_ears, bell, fluffy_tail, fox_ears, fox_",
             "front_upper": "bikini, swimsuit, black_bikini, long_sleeves, wide_sleeves, open_clothes, robe, white_robe, detached_sleeves",
             "front_lower": "bikini, swimsuit, black_bikini, robe, white_robe"
           },
@@ -1529,7 +1529,7 @@
           "id": "legacy-character-sheet-r22-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": "girl,1.5::loli,animal_ear::,vajra_(summer)_(granblue_fantasy)",
+            "front_full": "girl,1.5::loli,animal_ear::,vajra_(granblue_fantasy), vajra_(summer)_(granblue_fantasy)",
             "front_upper": "sleeveless, shirt, jacket, white_shirt, open_clothes, open_jacket, sleeveless_shirt, white_jacket, sleeveless_jacket, bikini, swimsuit, blue_jacket, hood, sailor_bikini",
             "front_lower": "bikini, swimsuit, sailor_bikini, blue_shorts, shorts, short_shorts, sandals, denim_shorts, multicolored_shorts, platform_sandals, two-tone_shorts, white_bikini, white_shorts"
           },
@@ -1572,7 +1572,7 @@
           "id": "legacy-character-sheet-r22-outfit-4",
           "name": "变体 2",
           "tags": {
-            "front_full": "girl,1.5::loli,animal_ear::,vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders, brown_eyes, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
+            "front_full": "girl,1.5::loli,animal_ear::,vajra (granblue fantasy), vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders, brown_eyes, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
             "front_upper": "japanese_clothes",
             "front_lower": "japanese_clothes"
           },
@@ -1615,7 +1615,7 @@
           "id": "legacy-character-sheet-r22-outfit-8",
           "name": "变体 4",
           "tags": {
-            "front_full": "girl,1.5::loli,animal_ear::,vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders,, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
+            "front_full": "girl,1.5::loli,animal_ear::,vajra (granblue fantasy), vajra (ritual robes) (granblue fantasy),animal_ears, bare_shoulders,, brown_hair, cherry_blossoms, dog_ears, dog_girl, hair_ornament, japanese_clothes",
             "front_upper": "japanese_clothes",
             "front_lower": "japanese_clothes"
           },
@@ -1640,7 +1640,7 @@
       "id": "legacy-character-sheet-r23",
       "name": "长门",
       "traits": {
-        "front_full": "nagato (guardian fox's blessed bonds) (azur lane), fox_ears, fox_girl, fox_tail,",
+        "front_full": "nagato (azur lane), fox_ears, fox_girl, fox_tail,",
         "front_upper": "fox_ears, hair_ornament",
         "front_lower": "fox_tail, thigh_strap"
       },
@@ -1729,7 +1729,7 @@
           "id": "legacy-character-sheet-r26-outfit-3",
           "name": "变体 1",
           "tags": {
-            "front_full": ",1.5::loli,mint_(tsukiyoi)_(arknights),animal_ears, bell, fluffy_tail,cat_girl,1.5::cat_ears,cat_tail",
+            "front_full": "1.5::loli,mint_(arknights), mint_(tsukiyoi)_(arknights),animal_ears, bell, fluffy_tail,cat_girl,1.5::cat_ears,cat_tail",
             "front_upper": "japanese_clothes, shirt, white_shirt, kimono, long_sleeves, collared_shirt, red_kimono, dress, frilled_shirt_collar, open_clothes, open_kimono, black_cape, black_vest, cape",
             "front_lower": "japanese_clothes, kimono, red_kimono, dress, open_kimono, skirt, black_skirt, black_shoes, shoes"
           },

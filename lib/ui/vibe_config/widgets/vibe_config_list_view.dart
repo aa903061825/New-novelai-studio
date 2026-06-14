@@ -15,6 +15,7 @@ class VibeConfigListView extends StatelessWidget {
   final ValueChanged<bool> onVibeEnabledChanged;
   final Widget? footer;
   final bool compact;
+  final bool showEnabledSwitch;
 
   const VibeConfigListView({
     super.key,
@@ -23,6 +24,7 @@ class VibeConfigListView extends StatelessWidget {
     required this.onVibeEnabledChanged,
     this.footer,
     this.compact = false,
+    this.showEnabledSwitch = true,
   });
 
   @override
@@ -33,6 +35,7 @@ class VibeConfigListView extends StatelessWidget {
         vibeEnabled: vibeEnabled,
         onVibeEnabledChanged: onVibeEnabledChanged,
         footer: footer,
+        showEnabledSwitch: showEnabledSwitch,
       );
     }
 
@@ -119,12 +122,14 @@ class _CompactVibeConfigList extends StatelessWidget {
   final bool vibeEnabled;
   final ValueChanged<bool> onVibeEnabledChanged;
   final Widget? footer;
+  final bool showEnabledSwitch;
 
   const _CompactVibeConfigList({
     required this.viewmodel,
     required this.vibeEnabled,
     required this.onVibeEnabledChanged,
     required this.footer,
+    required this.showEnabledSwitch,
   });
 
   @override
@@ -135,19 +140,20 @@ class _CompactVibeConfigList extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SwitchListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(context.tr('enable_vibe_transfer')),
-              subtitle: Text(context.tr('enable_vibe_transfer_hint')),
-              secondary: const Icon(Icons.auto_awesome_outlined),
-              value: vibeEnabled,
-              onChanged: onVibeEnabledChanged,
-            ),
+            if (showEnabledSwitch)
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(context.tr('enable_vibe_transfer')),
+                subtitle: Text(context.tr('enable_vibe_transfer_hint')),
+                secondary: const Icon(Icons.auto_awesome_outlined),
+                value: vibeEnabled,
+                onChanged: onVibeEnabledChanged,
+              ),
             Opacity(
-              opacity: vibeEnabled ? 1 : 0.45,
+              opacity: !showEnabledSwitch || vibeEnabled ? 1 : 0.45,
               child: IgnorePointer(
-                ignoring: !vibeEnabled,
+                ignoring: showEnabledSwitch && !vibeEnabled,
                 child: Wrap(
                   spacing: 10,
                   runSpacing: 10,

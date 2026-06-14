@@ -158,6 +158,7 @@ void main() async {
     () => DefaultPromptTranslationService(
       translationCache: promptWorkshopTranslationCache,
       settingsProvider: () => payloadConfig.settings,
+      translationCacheReloader: PromptWorkshopBridge.loadTranslationCache,
     ),
   );
   GetIt.instance.registerLazySingleton(
@@ -253,6 +254,8 @@ void main() async {
       scriptAiBaseUrlProvider: () => payloadConfig.settings.scriptAiBaseUrl,
       scriptAiTokenProvider: () => payloadConfig.settings.scriptAiToken,
       scriptAiModelProvider: () => payloadConfig.settings.scriptAiModel,
+      scriptAiReasoningEffortProvider: () =>
+          payloadConfig.settings.scriptAiReasoningEffort,
       scriptAiProxyProvider: () => payloadConfig.settings.proxy,
       translationCache: promptWorkshopTranslationCache,
       classificationCache: promptTagClassificationCache,

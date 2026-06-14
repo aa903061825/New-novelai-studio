@@ -10,13 +10,17 @@ class ProductionQueueService {
 
   Future<List<ProductionPlan>> loadPlans() async {
     final plans = await workspaceService.loadProductionPlans();
+    final compactedPlans = _compactPlans(plans);
+    if (_hasCompactedPlans(plans, compactedPlans)) {
+      await workspaceService.saveProductionPlans(compactedPlans);
+    }
     return [
-      ...plans,
+      ...compactedPlans,
     ]..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
   }
 
   Future<void> savePlans(List<ProductionPlan> plans) {
-    return workspaceService.saveProductionPlans(plans);
+    return workspaceService.saveProductionPlans(_compactPlans(plans));
   }
 
   Future<ProductionPlanExecutionSettings?> loadLastExecutionSettings() {
@@ -28,4 +32,25 @@ class ProductionQueueService {
   ) {
     return workspaceService.saveProductionExecutionSettings(settings);
   }
+}
+
+List<ProductionPlan> _compactPlans(List<ProductionPlan> plans) {
+  return [
+    for (final plan in plans) plan.compactSharedPayloadParameters(),
+  ];
+}
+
+bool _hasCompactedPlans(
+  List<ProductionPlan> original,
+  List<ProductionPlan> compacted,
+) {
+  if (original.length != compacted.length) {
+    return true;
+  }
+  for (var index = 0; index < original.length; index += 1) {
+    if (!identical(original[index], compacted[index])) {
+      return true;
+    }
+  }
+  return false;
 }

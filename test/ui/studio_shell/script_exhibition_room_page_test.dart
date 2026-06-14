@@ -61,6 +61,7 @@ void main() {
       loadScripts: () async => [_script()],
       loadProductionPlans: () async => [_plan()],
       loadGalleryRecords: () async => const [],
+      renameScriptRecord: (_, __) async {},
     );
 
     await tester.pumpWidget(
@@ -209,6 +210,64 @@ void main() {
       ),
     );
     expect(tagDisplay.defaultTranslated, isFalse);
+  });
+
+  testWidgets('renders shelf scripts as full cover wall cards', (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final sentScriptFocuses = <ScriptExhibitionFocus>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      renameScriptRecord: (_, __) async {},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: sentScriptFocuses.add,
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-cover-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-script-cover-image-script-1'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('新图封面'), findsOneWidget);
+    expect(find.text('原始剧本 1 / 新图 1 / 需处理 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-rename-script-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-delete-script-script-1')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-send-script-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(sentScriptFocuses.single.scriptId, 'script-1');
   });
 
   testWidgets('large version shelves build only visible waterfall cards', (
@@ -507,6 +566,66 @@ void main() {
     expect(headerSize.width, greaterThan(1700));
   });
 
+  testWidgets('changes script shelf sort from the room sort menu', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script().copyWith(
+          scriptId: 'script-beta',
+          name: 'Beta',
+          sourceFolder: r'C:\stories\beta',
+          updatedAt: DateTime.parse('2026-06-01T09:00:00Z'),
+        ),
+        _script().copyWith(
+          scriptId: 'script-alpha',
+          name: 'Alpha',
+          sourceFolder: r'C:\stories\alpha',
+          updatedAt: DateTime.parse('2026-06-03T09:00:00Z'),
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-alpha',
+      'script-beta',
+    ]);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-title')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.scriptSort, ScriptExhibitionScriptSort.title);
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-alpha',
+      'script-beta',
+    ]);
+  });
+
   testWidgets('imports a script folder from the room header', (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
     tester.view.devicePixelRatio = 1;
@@ -656,8 +775,11 @@ void main() {
                 attachmentId: 'attachment-1',
                 imagePath: r'C:\stories\rain\manual_001.png',
                 label: 'Default 1',
+                versionId: 'script-image-version-1',
+                versionLabel: '导入图片 1',
                 frameIndex: 1,
                 sourceFileName: '001.json',
+                prompt: 'artist:manual, imported json prompt',
                 createdAt: DateTime.parse('2026-06-03T10:00:00Z'),
               ),
             ],
@@ -673,8 +795,11 @@ void main() {
                 attachmentId: item.imageAttachmentId!,
                 imagePath: item.imagePath,
                 label: label,
+                versionId: item.versionId,
+                versionLabel: item.versionLabel,
                 frameIndex: item.frameIndex,
                 sourceFileName: item.sourceFileName,
+                prompt: item.prompt,
                 createdAt: item.updatedAt,
               ),
             ],
@@ -706,20 +831,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(importedScripts, ['script-1']);
 
-    await tester.tap(
-      find.byKey(
-        const ValueKey(
-          'script-exhibition-version-${ScriptExhibitionVersion.attachmentsId}',
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
     final itemKey = const ValueKey(
       'script-exhibition-item-attachment-script-1-attachment-1',
     );
     expect(find.byKey(itemKey), findsOneWidget);
     expect(find.text('Default 1'), findsOneWidget);
+    expect(viewModel.selectedVersion?.label, '导入图片 1');
 
     await tester.tap(
       find.byKey(
@@ -995,6 +1112,176 @@ void main() {
     expect(find.text('雨夜档案'), findsNothing);
   });
 
+  testWidgets('marquee selects scripts and drops them onto a category', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [
+      _script(),
+      _script().copyWith(
+        scriptId: 'script-2',
+        name: '旁支档案',
+        sourceFolder: r'C:\stories\branch',
+      ),
+      _script().copyWith(
+        scriptId: 'script-3',
+        name: '留档档案',
+        sourceFolder: r'C:\stories\archive',
+      ),
+    ];
+    final assignments = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      customCategories: const [
+        ScriptExhibitionUserCategory(
+          id: 'custom:收藏馆区',
+          title: '收藏馆区',
+          description: '手动归入的剧本。',
+          tags: ['自由分类'],
+        ),
+      ],
+      assignScriptCategory: (script, categoryName) async {
+        assignments.add('${script.scriptId}:$categoryName');
+        scripts = [
+          for (final existing in scripts)
+            existing.scriptId == script.scriptId
+                ? existing.copyWith(categoryNames: [
+                    ...existing.categoryNames,
+                    categoryName,
+                  ])
+                : existing,
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final firstCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final secondCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-2'),
+    );
+    final firstRect = tester.getRect(firstCard);
+    final secondRect = tester.getRect(secondCard);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(Offset(firstRect.left + 8, firstRect.top - 8));
+    await tester.pump();
+    await gesture.moveTo(secondRect.bottomRight + const Offset(8, 8));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1', 'script-2'});
+
+    final categoryCard = find.byKey(
+      const ValueKey('script-exhibition-category-custom:收藏馆区'),
+    );
+    await tester.dragFrom(
+      tester.getCenter(firstCard),
+      tester.getCenter(categoryCard) - tester.getCenter(firstCard),
+      touchSlopY: 0,
+    );
+    await tester.pumpAndSettle();
+
+    expect(assignments, ['script-1:收藏馆区', 'script-2:收藏馆区']);
+    expect(find.text('雨夜档案'), findsWidgets);
+    expect(find.text('旁支档案'), findsOneWidget);
+    expect(find.text('留档档案'), findsNothing);
+  });
+
+  testWidgets('right-click deletes a custom category without deleting scripts',
+      (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [
+      _script().copyWith(categoryNames: const ['收藏馆区']),
+      _script().copyWith(
+        scriptId: 'script-2',
+        name: '旁支档案',
+        sourceFolder: r'C:\stories\branch',
+        categoryNames: const ['收藏馆区'],
+      ),
+    ];
+    final deletedCategories = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      deleteCategoryRecord: (categoryName) async {
+        deletedCategories.add(categoryName);
+        scripts = [
+          for (final script in scripts)
+            script.copyWith(
+              categoryNames: script.categoryNames
+                  .where(
+                    (name) =>
+                        name.trim().toLowerCase() !=
+                        categoryName.trim().toLowerCase(),
+                  )
+                  .toList(growable: false),
+            ),
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final categoryCard = find.byKey(
+      const ValueKey('script-exhibition-category-custom:收藏馆区'),
+    );
+    await tester.tapAt(
+      tester.getCenter(categoryCard),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除分类'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-confirm-delete-category')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedCategories, ['收藏馆区']);
+    expect(find.text('雨夜档案'), findsWidgets);
+    expect(find.text('旁支档案'), findsOneWidget);
+    expect(find.text('收藏馆区'), findsNothing);
+  });
+
   testWidgets('deletes an entire script exhibition record', (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
     tester.view.devicePixelRatio = 1;
@@ -1008,7 +1295,7 @@ void main() {
       loadScripts: () async => scripts,
       loadProductionPlans: () async => plans,
       loadGalleryRecords: () async => records,
-      deleteScriptRecord: (script) async {
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
         scripts = const [];
         plans = const [];
         records = const [];
@@ -1045,6 +1332,64 @@ void main() {
       find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
       findsNothing,
     );
+  });
+
+  testWidgets('delete script dialog can request local image deletion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [_script()];
+    bool? requestedDeleteLocalFiles;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
+        scripts = const [];
+        requestedDeleteLocalFiles = deleteLocalFiles;
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-delete-script-detail-script-1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final localDelete = find.byKey(
+      const ValueKey('script-exhibition-delete-local-files'),
+    );
+    expect(localDelete, findsOneWidget);
+
+    await tester.tap(localDelete);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-confirm-delete-script')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestedDeleteLocalFiles, isTrue);
   });
 
   testWidgets('deletes a gallery item from the waterfall', (tester) async {
@@ -1106,13 +1451,14 @@ void main() {
   });
 
   testWidgets(
-    'shows save-as-asset for structured script gallery artist chains',
+    'waterfall card sets the current script cover instead of saving assets',
     (tester) async {
       tester.view.physicalSize = const Size(1320, 980);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
+      final coverItems = <ScriptExhibitionItem>[];
       final viewModel = ScriptExhibitionRoomViewModel(
         loadScripts: () async => [_script()],
         loadProductionPlans: () async => [_plan()],
@@ -1130,6 +1476,9 @@ void main() {
             },
           ),
         ],
+        setCoverItemRecord: (item) async {
+          coverItems.add(item);
+        },
       );
 
       await tester.pumpWidget(
@@ -1161,11 +1510,23 @@ void main() {
           'artist-chain-0',
         ),
       );
-      expect(saveAction, findsOneWidget);
-      expect(
-        find.descendant(of: saveAction, matching: find.text('保存素材')),
-        findsOneWidget,
+      expect(saveAction, findsNothing);
+
+      final setCoverAction = find.byKey(
+        const ValueKey(
+          'script-exhibition-set-cover-production-plan-1-task-1',
+        ),
       );
+      expect(setCoverAction, findsOneWidget);
+      expect(
+        tester.widget<IconButton>(setCoverAction).tooltip,
+        '设为当前剧本封面',
+      );
+
+      await tester.tap(setCoverAction);
+      await tester.pumpAndSettle();
+
+      expect(coverItems.single.id, 'production-plan-1-task-1');
     },
   );
 
@@ -1385,6 +1746,7 @@ TokenizerScript _script() {
     fileName: '001.json',
     path: r'C:\stories\rain\001.json',
     kind: TokenizerScriptSourceKind.json,
+    defaultImagePath: r'C:\stories\rain\001.png',
   );
   return TokenizerScript(
     scriptId: 'script-1',
@@ -1425,6 +1787,7 @@ TokenizerScript _scriptWithBareArtistPrompt() {
     fileName: '001.json',
     path: r'C:\stories\rain\001.json',
     kind: TokenizerScriptSourceKind.json,
+    defaultImagePath: r'C:\stories\rain\001.png',
   );
   const prompt =
       '1girl, arato_asato, ratatatat74, artist collaboration, bedroom';

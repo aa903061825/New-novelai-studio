@@ -507,6 +507,50 @@ void main() {
     expect(chipKey('year_2022', 1, selected: true), findsNothing);
   });
 
+  testWidgets('ctrl c copies selected interactive display tags', (
+    tester,
+  ) async {
+    String? copiedText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair, white shirt',
+          enableTagActions: true,
+          translationCache: cache(),
+        ),
+      ),
+    );
+
+    await dragSelectionAround(
+      tester,
+      chipKey('blue eyes', 0, selected: false),
+      chipKey('long hair', 1, selected: false),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    expect(copiedText, 'blue eyes, long hair');
+  });
+
   testWidgets(
     'selected editable display tags can be dragged between displays',
     (tester) async {
@@ -831,12 +875,13 @@ void main() {
     await mouse.moveTo(end);
     await tester.pump();
 
-    final previewChip = tester.widget<AnimatedContainer>(
+    final previewChip = tester.widget<Container>(
       chipKey('blue eyes', 0, selected: false),
     );
     final decoration = previewChip.decoration! as BoxDecoration;
     final border = decoration.border! as Border;
 
+    expect(previewChip.clipBehavior, Clip.antiAlias);
     expect(decoration.color, const Color(0xFF1F2430));
     expect(border.top.color, StudioTokens.info);
     final previewMarker = tester.widget<DecoratedBox>(
@@ -930,6 +975,49 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(addedTags, ['blue eyes', 'long hair']);
+  });
+
+  testWidgets('right click weight edit applies to selected display tags', (
+    tester,
+  ) async {
+    var value = 'blue eyes, long hair, white shirt';
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await dragSelectionAround(
+      tester,
+      chipKey('blue eyes', 0, selected: false),
+      chipKey('long hair', 1, selected: false),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('long hair'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-edit-weight')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-edit-weight-field')),
+      '0.6',
+    );
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-edit-weight-save')));
+    await tester.pumpAndSettle();
+
+    expect(value, '0.6:: blue eyes ::, 0.6:: long hair ::, white shirt');
+    expect(find.text('x0.60'), findsNWidgets(2));
+    expect(find.text('white shirt'), findsOneWidget);
   });
 
   testWidgets('right click can expose an extra script-only filter target', (

@@ -10,14 +10,12 @@ class PromptWorkshopBridge {
     return [
       ..._workspaceCacheCandidates('trans_cache.json'),
       File(r'E:\NAI的脚本群\trans_cache.json'),
-      File(r'E:\NAI的脚本群\trans_cache.json'),
     ];
   }
 
   static List<File> defaultTagClassificationCacheCandidates() {
     return [
       ..._workspaceCacheCandidates('tag_classification_cache.json'),
-      File(r'E:\NAI的脚本群\tag_classification_cache.json'),
       File(r'E:\NAI的脚本群\tag_classification_cache.json'),
     ];
   }
@@ -62,7 +60,19 @@ class PromptWorkshopBridge {
       (file) => file.existsSync(),
       orElse: () => files.first,
     );
-    await TranslationCacheRepository(target).save(cache);
+    var cacheToSave = cache;
+    if (target.existsSync()) {
+      final existing = await TranslationCacheRepository(target).load();
+      if (existing.length > cache.length) {
+        cacheToSave = TranslationCache(
+          entries: {
+            ...existing.entries,
+            ...cache.entries,
+          },
+        );
+      }
+    }
+    await TranslationCacheRepository(target).save(cacheToSave);
   }
 
   static Future<PromptTagClassificationCache> loadTagClassificationCache({

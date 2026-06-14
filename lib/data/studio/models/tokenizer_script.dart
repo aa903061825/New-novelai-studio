@@ -41,6 +41,7 @@ class TokenizerScript {
   final List<TokenizerScriptImageAttachment> imageAttachments;
   final List<String> categoryNames;
   final Map<String, String> exhibitionVersionLabels;
+  final String? exhibitionCoverItemId;
   final Map<String, dynamic> pipelineExportConfig;
   final Map<String, dynamic> legacyExportConfig;
   final Map<String, dynamic> knowledgeSnapshot;
@@ -65,6 +66,7 @@ class TokenizerScript {
     this.imageAttachments = const [],
     this.categoryNames = const [],
     this.exhibitionVersionLabels = const {},
+    this.exhibitionCoverItemId,
     this.pipelineExportConfig = const {},
     this.legacyExportConfig = const {},
     this.knowledgeSnapshot = const {},
@@ -108,6 +110,7 @@ class TokenizerScript {
     List<TokenizerScriptImageAttachment>? imageAttachments,
     List<String>? categoryNames,
     Map<String, String>? exhibitionVersionLabels,
+    String? exhibitionCoverItemId,
     Map<String, dynamic>? pipelineExportConfig,
     Map<String, dynamic>? legacyExportConfig,
     Map<String, dynamic>? knowledgeSnapshot,
@@ -134,6 +137,8 @@ class TokenizerScript {
       categoryNames: categoryNames ?? this.categoryNames,
       exhibitionVersionLabels:
           exhibitionVersionLabels ?? this.exhibitionVersionLabels,
+      exhibitionCoverItemId:
+          exhibitionCoverItemId ?? this.exhibitionCoverItemId,
       pipelineExportConfig: pipelineExportConfig ?? this.pipelineExportConfig,
       legacyExportConfig: legacyExportConfig ?? this.legacyExportConfig,
       knowledgeSnapshot: knowledgeSnapshot ?? this.knowledgeSnapshot,
@@ -181,6 +186,7 @@ class TokenizerScript {
       ),
       categoryNames: _stringList(json['categoryNames']),
       exhibitionVersionLabels: _stringMap(json['exhibitionVersionLabels']),
+      exhibitionCoverItemId: _nullableString(json['exhibitionCoverItemId']),
       pipelineExportConfig: _map(json['pipelineExportConfig']),
       legacyExportConfig: _map(json['legacyExportConfig']),
       knowledgeSnapshot: _map(json['knowledgeSnapshot']),
@@ -212,6 +218,8 @@ class TokenizerScript {
       if (categoryNames.isNotEmpty) 'categoryNames': categoryNames,
       if (exhibitionVersionLabels.isNotEmpty)
         'exhibitionVersionLabels': exhibitionVersionLabels,
+      if (exhibitionCoverItemId?.trim().isNotEmpty == true)
+        'exhibitionCoverItemId': exhibitionCoverItemId!.trim(),
       'pipelineExportConfig': pipelineExportConfig,
       'legacyExportConfig': legacyExportConfig,
       'knowledgeSnapshot': knowledgeSnapshot,
@@ -275,16 +283,24 @@ class TokenizerScriptImageAttachment {
   final String attachmentId;
   final String imagePath;
   final String label;
+  final String versionId;
+  final String versionLabel;
   final int? frameIndex;
   final String? sourceFileName;
+  final String prompt;
+  final Map<String, dynamic> payload;
   final DateTime createdAt;
 
   const TokenizerScriptImageAttachment({
     required this.attachmentId,
     required this.imagePath,
     required this.label,
+    this.versionId = '',
+    this.versionLabel = '',
     this.frameIndex,
     this.sourceFileName,
+    this.prompt = '',
+    this.payload = const {},
     required this.createdAt,
   });
 
@@ -292,16 +308,24 @@ class TokenizerScriptImageAttachment {
     String? attachmentId,
     String? imagePath,
     String? label,
+    String? versionId,
+    String? versionLabel,
     int? frameIndex,
     String? sourceFileName,
+    String? prompt,
+    Map<String, dynamic>? payload,
     DateTime? createdAt,
   }) {
     return TokenizerScriptImageAttachment(
       attachmentId: attachmentId ?? this.attachmentId,
       imagePath: imagePath ?? this.imagePath,
       label: label ?? this.label,
+      versionId: versionId ?? this.versionId,
+      versionLabel: versionLabel ?? this.versionLabel,
       frameIndex: frameIndex ?? this.frameIndex,
       sourceFileName: sourceFileName ?? this.sourceFileName,
+      prompt: prompt ?? this.prompt,
+      payload: payload ?? this.payload,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -311,8 +335,12 @@ class TokenizerScriptImageAttachment {
       attachmentId: _string(json['attachmentId'], ''),
       imagePath: _string(json['imagePath'], ''),
       label: _string(json['label'], 'Image'),
+      versionId: _string(json['versionId'], ''),
+      versionLabel: _string(json['versionLabel'], ''),
       frameIndex: _optionalInt(json['frameIndex']),
       sourceFileName: json['sourceFileName'] as String?,
+      prompt: _string(json['prompt'], ''),
+      payload: _map(json['payload']),
       createdAt: _date(json['createdAt']),
     );
   }
@@ -321,8 +349,12 @@ class TokenizerScriptImageAttachment {
         'attachmentId': attachmentId,
         'imagePath': imagePath,
         'label': label,
+        if (versionId.isNotEmpty) 'versionId': versionId,
+        if (versionLabel.isNotEmpty) 'versionLabel': versionLabel,
         if (frameIndex != null) 'frameIndex': frameIndex,
         if (sourceFileName != null) 'sourceFileName': sourceFileName,
+        if (prompt.isNotEmpty) 'prompt': prompt,
+        if (payload.isNotEmpty) 'payload': payload,
         'createdAt': createdAt.toIso8601String(),
       };
 }
@@ -750,6 +782,11 @@ T _enumValue<T extends Enum>(List<T> values, dynamic value, T fallback) {
 String _string(dynamic value, String fallback) {
   if (value is String && value.trim().isNotEmpty) return value;
   return fallback;
+}
+
+String? _nullableString(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
 }
 
 int _int(dynamic value, int fallback) {

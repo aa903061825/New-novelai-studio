@@ -5,6 +5,13 @@ import 'package:nai_casrand/data/services/api_service.dart';
 import 'package:nai_casrand/data/studio/services/script_ai_client.dart';
 import 'package:nai_casrand/data/studio/services/script_ai_openai_chat_client.dart';
 
+const _scriptAiReasoningEffortOptions = ['low', 'medium', 'high', 'xhigh'];
+
+String _normalizeScriptAiReasoningEffort(String? value) {
+  final normalized = value?.trim() ?? '';
+  return _scriptAiReasoningEffortOptions.contains(normalized) ? normalized : '';
+}
+
 typedef ScriptAiStreamData = Future<ApiResponse> Function(
   ApiRequest request, {
   required void Function(String text) onTextChunk,
@@ -34,6 +41,7 @@ class ScriptAiRoleExtractionClientRequest {
   final String baseUrl;
   final String token;
   final String model;
+  final String reasoningEffort;
   final String proxy;
   final Map<String, dynamic> requestJson;
   final ScriptAiRoleExtractionStreamUpdate? onStreamDelta;
@@ -42,6 +50,7 @@ class ScriptAiRoleExtractionClientRequest {
     required this.baseUrl,
     required this.token,
     required this.model,
+    this.reasoningEffort = '',
     this.proxy = '',
     required this.requestJson,
     this.onStreamDelta,
@@ -140,6 +149,10 @@ class OpenAiCompatibleScriptAiRoleExtractionClient
         'response_format': {
           'type': 'json_object',
         },
+        if (_normalizeScriptAiReasoningEffort(request.reasoningEffort)
+            .isNotEmpty)
+          'reasoning_effort':
+              _normalizeScriptAiReasoningEffort(request.reasoningEffort),
         if (stream) 'stream': true,
       },
     );
@@ -251,6 +264,7 @@ Role inference rules:
 - slotless_base_prompt_frames are structural evidence only. They do not prove that the base prompt contains a character. If the base prompt is scene/style/quality only, do not create a role from it.
 - Every role must include evidence_terms and frame_indexes.
 - Every role must explicitly say who the role is in display_name and explain the evidence in role_reason.
+- Every role's display_name must be UI-facing and include a concise Chinese translation. Keep canonical_name and franchise in source-faithful normalized form; do not translate prompt replacement fields.
 - Every role must include canonical_name, franchise, raw_identity_tags, variant_tags, and merge_with_role_id.
 - official costume variants, event variants, version variants, and parenthetical outfit variants are not separate characters. For example, kokkoro (princess_connect!) and kokkoro (ceremonial) (princess_connect!) are one canonical role with canonical_name "kokkoro" and franchise "princess_connect!"; "ceremonial" belongs in variant_tags, not as a second role.
 - If a role is the same canonical character as another role, set merge_with_role_id to the target role id. Do not create a second role solely because the raw identity tag contains swimsuit, maid, bunny, dress, school uniform, ceremonial, alter costume, or another outfit/version/event qualifier.
@@ -294,6 +308,7 @@ Outfit stage rules:
 - If two or more stages are the same stable appearance and should be merged, list which stages should be merged in merge_with_stage_ids on each affected stage.
 - For every stage, include field_reasons explaining why each stable term belongs to identity, upper_body, lower_body, upper_clothing, or lower_clothing. The reasons should make clear that action/pose/expression/transient terms are not replacement fields and must not be output as stage terms.
 - Output every stage label in Chinese. Use concise Chinese outfit names such as "校服", "和服", "休闲服", "比基尼泳装", "裸体", or "裸体（项圈）"; do not output English labels such as "Casual Outfit" or "Completely nude with choker".
+- When source frames provide stable scene, location, or work context, prefer context-aware Chinese stage labels such as "浴室裸体" or "车间工装". Use context only in the label; do not copy scene/action context into identity, body, or clothing fields unless the original tag is valid five-field role evidence.
 - Create separate stages only when the character's core worn garment set changes into a different outfit category, such as school uniform vs nightgown vs towel wrap vs china dress, or when the evidence changes from wearing garments to no garments at all.
 - A variant tag alone must not invent outfit fields or an outfit stage. If "ceremonial" appears only inside the character identity tag and there is no concrete stable clothing evidence, keep it as variant/stage evidence or an attention item, and do not create a ceremonial clothing field.
 - Do not split separate outfit slots for state variants of the same outfit. Merge them into the same stage.
@@ -355,7 +370,7 @@ Output JSON shape:
     {
       "source_role_id": "slot-0, role-0, or global-0",
       "source_kind": "slot, cross_slot, or global",
-      "display_name": "short human readable name",
+      "display_name": "short UI name with Chinese translation, e.g. original tag / Chinese name",
       "role_reason": "why this role is one actual character and which evidence identifies it",
       "canonical_name": "character name with outfit/version/event qualifiers removed",
       "franchise": "source work or franchise such as princess_connect!",
@@ -376,7 +391,7 @@ Output JSON shape:
       "stages": [
         {
           "stage_id": "stable id",
-          "label": "short outfit label",
+          "label": "short Chinese outfit label, context-aware when source evidence supports it",
           "appearance_group_id": "stable outfit or appearance group id",
           "merge_with_stage_ids": ["other stage ids that should merge into this stable appearance"],
           "field_reasons": {

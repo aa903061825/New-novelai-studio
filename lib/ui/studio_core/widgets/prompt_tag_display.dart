@@ -12,11 +12,13 @@ import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
 import 'package:nai_casrand/ui/core/app_display_settings.dart';
+import 'package:nai_casrand/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
 import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
 import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
 import 'package:nai_casrand/ui/studio_core/services/prompt_tag_presentation.dart';
 import 'package:nai_casrand/ui/studio_core/theme/prompt_tag_category_style.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_chip.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
 import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_selection_toolbar.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,6 +38,13 @@ typedef PromptTagClassificationCacheSaver = Future<void> Function(
 typedef PromptTagGroupActionBuilder = Widget? Function(
   BuildContext context,
   PromptTagGroupActionContext group,
+);
+typedef PromptTagDisplayDiffResolver = PromptTagChipDiffState Function(
+  String tag,
+);
+typedef PromptTagGroupDiffResolver = PromptTagChipDiffState Function(
+  String groupId,
+  String tag,
 );
 
 const defaultPromptTagFilterRuleTargets = [
@@ -135,6 +144,7 @@ class PromptTagGroupDisplay extends StatelessWidget {
   final ValueChanged<String>? onTagTap;
   final ValueChanged<String>? onChanged;
   final PromptTagGroupActionBuilder? groupActionBuilder;
+  final PromptTagGroupDiffResolver? diffStateForTag;
   final String groupKeyPrefix;
   final String tagKeyPrefix;
 
@@ -163,6 +173,7 @@ class PromptTagGroupDisplay extends StatelessWidget {
     this.onTagTap,
     this.onChanged,
     this.groupActionBuilder,
+    this.diffStateForTag,
     this.groupKeyPrefix = 'prompt-tag-display-layer',
     this.tagKeyPrefix = 'prompt-tag-display-layer-tags',
   });
@@ -231,6 +242,9 @@ class PromptTagGroupDisplay extends StatelessWidget {
                   onTagTap: onTagTap,
                   onChanged: onChanged,
                   groupActionBuilder: groupActionBuilder,
+                  diffStateForTag: diffStateForTag == null
+                      ? null
+                      : (tag) => diffStateForTag!(group.id, tag),
                 ),
               ],
             ),
@@ -464,6 +478,7 @@ class PromptTagDisplay extends StatefulWidget {
   final String? selectionGroupId;
   final bool showSelectionToolbar;
   final PromptTagGroupActionBuilder? groupActionBuilder;
+  final PromptTagDisplayDiffResolver? diffStateForTag;
 
   const PromptTagDisplay({
     super.key,
@@ -495,6 +510,7 @@ class PromptTagDisplay extends StatefulWidget {
     this.selectionGroupId,
     this.showSelectionToolbar = true,
     this.groupActionBuilder,
+    this.diffStateForTag,
   });
 
   @override
@@ -508,9 +524,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   late final String _hoverId = 'prompt-tag-display-${_nextHoverId++}';
   late final String _dragOriginId = 'prompt-tag-display-${_nextDragOrigin++}';
   bool _shortcutTranslated = false;
-  bool _autoTranslationRunning = false;
   int? _hoveredIndex;
-  final List<String> _autoTranslationQueue = <String>[];
   final Set<String> _autoTranslationPending = <String>{};
   final Set<int> _selectedIndexes = <int>{};
   final Set<int> _selectionPreviewIndexes = <int>{};
@@ -557,9 +571,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       _clearParsedTagCache();
       _chipKeys.clear();
       _shortcutTranslated = false;
-      _autoTranslationQueue.clear();
       _autoTranslationPending.clear();
-      _autoTranslationRunning = false;
       _hoveredIndex = null;
       _selectedIndexes.clear();
       _selectionPreviewIndexes.clear();
@@ -704,16 +716,16 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         if (overflow > 0)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: _PromptTagChip(
-              index: shown.length,
-              text: '+$overflow',
+            child: PromptTagChip(
+              label: '+$overflow',
               translation: '',
-              loading: false,
-              warning: false,
               category: PromptTagCategory.other,
               dense: widget.dense,
               selected: false,
-              enableActions: false,
+              enabled: false,
+              bodyKey: ValueKey(
+                'prompt-tag-chip-+$overflow-${shown.length}-idle',
+              ),
             ),
           ),
       ],
@@ -758,6 +770,14 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             widget.onChanged != null &&
             _selectedCount > 0) {
           _deleteSelectedTags();
+          return KeyEventResult.handled;
+        }
+        if (event is KeyDownEvent &&
+            (HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed) &&
+            event.logicalKey == LogicalKeyboardKey.keyC &&
+            (_selectedCount > 0 || _hoveredTag() != null)) {
+          unawaited(_copySelectedFromKeyboard(context));
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -1491,9 +1511,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           ),
           builder: (context, candidates, rejected) {
             final selected = _isSelected(item.index);
-            final chip = _PromptTagChip(
-              index: item.index,
-              text: item.text,
+            final diffState = widget.diffStateForTag?.call(item.text) ??
+                PromptTagChipDiffState.unchanged;
+            final chip = PromptTagChip(
+              label: item.text,
               weightLabel: item.weightLabel,
               weight: item.weight,
               translation: translate
@@ -1501,6 +1522,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
                   : _translationOverrides[item.text] ?? '',
               loading: _autoTranslationPending.contains(item.text),
               warning: item.warning,
+              diffState: diffState,
               category: item.classification.category,
               dense: widget.dense,
               hovered: _hoveredIndex == item.index,
@@ -1508,7 +1530,28 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
                   _isPreviewed(item.index) ||
                   candidates.isNotEmpty,
               selected: selected,
-              enableActions: canOpenTagMenu,
+              bodyKey: ValueKey(
+                'prompt-tag-chip-${item.text}-${item.index}-'
+                '${selected ? 'selected' : 'idle'}',
+              ),
+              markerKey: ValueKey(
+                'prompt-tag-chip-marker-${item.text}-${item.index}',
+              ),
+              weightKey: ValueKey(
+                'prompt-tag-chip-weight-${item.text}-${item.index}',
+              ),
+              deleteKey: ValueKey(
+                'prompt-tag-chip-delete-${item.text}-${item.index}',
+              ),
+              checkKey: ValueKey(
+                'prompt-tag-chip-check-${item.text}-${item.index}',
+              ),
+              diffKey: diffState == PromptTagChipDiffState.unchanged
+                  ? null
+                  : ValueKey(
+                      'prompt-tag-chip-diff-${diffState.name}-'
+                      '${item.text}-${item.index}',
+                    ),
               onDeleted: widget.onChanged == null
                   ? null
                   : () => _removeIndexes({item.index}),
@@ -1647,6 +1690,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       return DefaultPromptTranslationService(
         translationCache: _translationCache(),
         settingsProvider: () => GetIt.I<PayloadConfig>().settings,
+        translationCacheReloader: PromptWorkshopBridge.loadTranslationCache,
       );
     }
     return null;
@@ -1688,51 +1732,36 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         continue;
       }
       _autoTranslationPending.add(tag);
-      _autoTranslationQueue.add(tag);
+      PromptTagAutoTranslationQueue.instance
+          .request(
+            tag: tag,
+            sourceLanguage: 'en',
+            targetLanguage: 'zh',
+            cache: cache,
+            service: service,
+            saveTranslationCache: _saveTranslationCache,
+          )
+          .then((result) => _applyAutoTranslationResult(tag, result));
       added = true;
     }
     if (added && mounted) {
       setState(() {});
     }
-    if (!_autoTranslationRunning) {
-      _processAutoTranslationQueue(service);
-    }
   }
 
-  Future<void> _processAutoTranslationQueue(
-    PromptTranslationService service,
-  ) async {
-    if (_autoTranslationRunning) {
+  void _applyAutoTranslationResult(
+    String tag,
+    OnlineTranslationResult result,
+  ) {
+    _autoTranslationPending.remove(tag);
+    if (!mounted) {
       return;
     }
-    _autoTranslationRunning = true;
-    while (_autoTranslationQueue.isNotEmpty) {
-      final tag = _autoTranslationQueue.removeAt(0);
-      final result = await service.translate(
-        OnlineTranslationRequest(
-          text: tag,
-          sourceLanguage: 'en',
-          targetLanguage: 'zh',
-        ),
-      );
-      final translated = result.text.trim();
-      if (translated.isNotEmpty) {
-        if (result.source == OnlineAiResultSource.online) {
-          _translationCache().setCached(
-            tag,
-            translated,
-            source: result.providerName ?? 'ai',
-          );
-          unawaited(_saveTranslationCache(_translationCache()));
-        }
-        _translationOverrides[tag] = translated;
-      }
-      _autoTranslationPending.remove(tag);
-      if (mounted) {
-        setState(() {});
-      }
+    final translated = result.text.trim();
+    if (translated.isNotEmpty) {
+      _translationOverrides[tag] = translated;
     }
-    _autoTranslationRunning = false;
+    setState(() {});
   }
 
   List<PromptTagFilterRuleTarget> _enabledFilterRuleTargets() {
@@ -1743,7 +1772,6 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     ];
   }
 
-  // ignore: unused_element
   Future<void> _copySelectedFromKeyboard(BuildContext context) async {
     final tags = _copySourceTags(_hoveredTag() ?? '');
     if (tags.isEmpty || tags.every((tag) => tag.trim().isEmpty)) {
@@ -1986,6 +2014,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
 
   Future<void> _aiRetranslateTag(BuildContext context, String tag) async {
     final translator = widget.onAiRetranslate;
+    final usesDefaultTranslator = translator == null;
     final result = translator == null
         ? await _defaultAiRetranslate(tag)
         : OnlineTranslationResult(
@@ -2003,7 +2032,8 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
 
     final cache = _translationCache();
-    if (result.source == OnlineAiResultSource.online) {
+    if (!usesDefaultTranslator &&
+        result.source == OnlineAiResultSource.online) {
       cache.setCached(tag, translated, source: result.providerName ?? 'ai');
       unawaited(_saveTranslationCache(cache));
     }
@@ -2025,23 +2055,21 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   Future<OnlineTranslationResult> _defaultAiRetranslate(String tag) async {
     final service = _promptTranslationService();
     if (service != null) {
-      return service.translate(
-        OnlineTranslationRequest(
-          text: tag,
-          sourceLanguage: 'en',
-          targetLanguage: 'zh',
-        ),
+      return PromptTagAutoTranslationQueue.instance.request(
+        tag: tag,
+        sourceLanguage: 'en',
+        targetLanguage: 'zh',
+        cache: _translationCache(),
+        service: service,
         preferCache: false,
+        saveTranslationCache: _saveTranslationCache,
       );
     }
 
-    final local = _translationCache().translate(tag).text.trim();
-    return OnlineTranslationResult(
-      text: local,
-      source: local.isEmpty
-          ? OnlineAiResultSource.emptyFallback
-          : OnlineAiResultSource.localFallback,
-      providerName: local.isEmpty ? null : 'translation-cache',
+    return const OnlineTranslationResult(
+      text: '',
+      source: OnlineAiResultSource.emptyFallback,
+      error: '未配置翻译服务',
     );
   }
 
@@ -2105,8 +2133,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       return;
     }
     final item = analyses[index];
+    final targetIndexes = _weightEditTargetIndexes(index, analyses.length);
     final controller = TextEditingController(
-      text: item.weight == null ? '' : _formatWeightText(item.weight!),
+      text: item.weight == null ? '' : formatPromptTagWeightText(item.weight!),
     );
     final nextWeight = await showDialog<String>(
       context: context,
@@ -2160,18 +2189,35 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       }
       return;
     }
-    final replacement = parsed == 1.0
-        ? item.displayText.trim()
-        : _weightedTagValue(item.displayText.trim(), parsed);
+    String weightedValue(WorkshopTagAnalysis tag) {
+      final clean = tag.displayText.trim();
+      return parsed == 1.0
+          ? clean
+          : formatPromptTagWeightedValue(clean, parsed);
+    }
+
     final nextTags = [
       for (final (tagIndex, tag) in analyses.indexed)
-        tagIndex == index ? replacement : promptTagRawValueForAnalysis(tag),
+        targetIndexes.contains(tagIndex)
+            ? weightedValue(tag)
+            : promptTagRawValueForAnalysis(tag),
     ];
     widget.onChanged?.call(joinPromptTags(nextTags));
     if (!mounted) {
       return;
     }
     setState(_clearSelectionStateOnly);
+  }
+
+  Set<int> _weightEditTargetIndexes(int index, int tagCount) {
+    final activeSelected = _activeSelectedIndexes;
+    if (!activeSelected.contains(index)) {
+      return {index};
+    }
+    final validIndexes = activeSelected
+        .where((targetIndex) => targetIndex >= 0 && targetIndex < tagCount)
+        .toSet();
+    return validIndexes.isEmpty ? {index} : validIndexes;
   }
 
   Future<void> _copyTags(
@@ -2310,14 +2356,6 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       }
     }
     return result.isEmpty ? [fallbackTag] : result;
-  }
-
-  String _weightedTagValue(String tag, double weight) {
-    return PromptTagProcessor.formatInlineWeightTag(tag, weight);
-  }
-
-  String _formatWeightText(double weight) {
-    return weight.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
   }
 
   void _showSnack(BuildContext context, String message) {
@@ -2611,285 +2649,6 @@ class _PromptTagGroupBlock extends StatelessWidget {
           const SizedBox(height: 7),
           Wrap(spacing: 7, runSpacing: 7, children: children),
         ],
-      ),
-    );
-  }
-}
-
-class _PromptTagChip extends StatelessWidget {
-  final int index;
-  final String text;
-  final String? weightLabel;
-  final double? weight;
-  final String translation;
-  final bool loading;
-  final bool hovered;
-  final bool previewed;
-  final bool warning;
-  final PromptTagCategory category;
-  final bool dense;
-  final bool selected;
-  final bool enableActions;
-  final VoidCallback? onDeleted;
-  final ValueChanged<bool>? onHoverChanged;
-  final GestureTapDownCallback? onSecondaryTapDown;
-  final VoidCallback? onTap;
-
-  const _PromptTagChip({
-    required this.index,
-    required this.text,
-    this.weightLabel,
-    this.weight,
-    required this.translation,
-    this.loading = false,
-    this.hovered = false,
-    this.previewed = false,
-    required this.warning,
-    required this.category,
-    required this.dense,
-    required this.selected,
-    required this.enableActions,
-    this.onDeleted,
-    this.onHoverChanged,
-    this.onSecondaryTapDown,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasTranslation = translation.trim().isNotEmpty;
-    final showLoading = loading && !hasTranslation;
-    final weightText = weightLabel?.trim();
-    final hasWeight = weightText != null && weightText.isNotEmpty;
-    final isNegativeWeight = (weight ?? 0) < 0;
-    final weightColor =
-        isNegativeWeight ? StudioTokens.danger : StudioTokens.primary;
-    final weightBackgroundColor = weightColor.withAlpha(
-      isNegativeWeight ? 30 : 28,
-    );
-    final weightBorderColor = weightColor.withAlpha(
-      isNegativeWeight ? 150 : 120,
-    );
-    final categoryColor = promptTagCategoryColor(category);
-    final borderColor = selected
-        ? StudioTokens.primary
-        : previewed
-            ? StudioTokens.info
-            : hovered
-                ? StudioTokens.borderStrong
-                : warning
-                    ? StudioTokens.warning
-                    : StudioTokens.border;
-    final backgroundColor = selected
-        ? const Color(0xFF22200B)
-        : previewed
-            ? const Color(0xFF1F2430)
-            : hovered
-                ? const Color(0xFF1C1C1C)
-                : warning
-                    ? const Color(0xFF2B1E12)
-                    : const Color(0xFF181818);
-    final chipBody = AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      key: ValueKey(
-        'prompt-tag-chip-$text-$index-${selected ? 'selected' : 'idle'}',
-      ),
-      constraints: BoxConstraints(maxWidth: dense ? 210 : 280),
-      padding: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: StudioTokens.radiusTag,
-        border: Border.all(color: borderColor),
-        boxShadow: selected
-            ? const [
-                BoxShadow(
-                  color: Color(0xCCFFE500),
-                  blurRadius: 0,
-                  spreadRadius: 1,
-                ),
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 20,
-                  offset: Offset(0, 8),
-                ),
-              ]
-            : null,
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: DecoratedBox(
-              key: ValueKey('prompt-tag-chip-marker-$text-$index'),
-              decoration: BoxDecoration(
-                color: categoryColor,
-                borderRadius: StudioTokens.radiusTagStripe,
-              ),
-              child: const SizedBox(width: 3),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              dense ? 14 : 14,
-              dense ? 7 : 7,
-              onDeleted == null ? (dense ? 11 : 11) : (dense ? 28 : 30),
-              dense ? 7 : 7,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        text,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: (dense
-                                ? Theme.of(context).textTheme.labelSmall
-                                : Theme.of(context).textTheme.labelMedium)
-                            ?.copyWith(
-                          color: StudioTokens.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    if (hasWeight) ...[
-                      const SizedBox(width: 6),
-                      DecoratedBox(
-                        key: ValueKey('prompt-tag-chip-weight-$text-$index'),
-                        decoration: BoxDecoration(
-                          color: weightBackgroundColor,
-                          borderRadius: StudioTokens.radiusBadge,
-                          border: Border.all(
-                            color: weightBorderColor,
-                          ),
-                        ),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: dense ? 4 : 5,
-                            vertical: dense ? 1 : 2,
-                          ),
-                          child: Text(
-                            weightText,
-                            maxLines: 1,
-                            overflow: TextOverflow.fade,
-                            softWrap: false,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: weightColor,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                if (hasTranslation || showLoading) ...[
-                  SizedBox(height: dense ? 1 : 2),
-                  Text(
-                    hasTranslation ? translation : '翻译中...',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: StudioTokens.textSecondary,
-                        ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (onDeleted != null)
-            Positioned(
-              top: dense ? 1 : 2,
-              right: dense ? 1 : 2,
-              child: Tooltip(
-                message: '删除标签',
-                child: SizedBox.square(
-                  dimension: dense ? 22 : 24,
-                  child: IconButton(
-                    key: ValueKey('prompt-tag-chip-delete-$text-$index'),
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    iconSize: dense ? 13 : 14,
-                    color: StudioTokens.textMuted,
-                    icon: const Icon(Icons.close),
-                    onPressed: onDeleted,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-    final chip = Stack(
-      clipBehavior: Clip.none,
-      children: [
-        chipBody,
-        if (selected)
-          Positioned(
-            top: -7,
-            right: -6,
-            child: DecoratedBox(
-              key: ValueKey('prompt-tag-chip-check-$text-$index'),
-              decoration: const BoxDecoration(
-                color: StudioTokens.primary,
-                shape: BoxShape.circle,
-              ),
-              child: const SizedBox(
-                width: 18,
-                height: 18,
-                child: Center(
-                  child: Icon(
-                    Icons.check,
-                    size: 12,
-                    color: StudioTokens.onPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-    final wrappedChip = chip;
-    if (!enableActions) {
-      return MouseRegion(
-        cursor:
-            onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: Semantics(
-            button: onTap != null,
-            label: text,
-            child: wrappedChip,
-          ),
-        ),
-      );
-    }
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverChanged?.call(true),
-      onExit: (_) => onHoverChanged?.call(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        onSecondaryTapDown: onSecondaryTapDown,
-        child: Semantics(
-          selected: selected,
-          button: true,
-          label: text,
-          child: wrappedChip,
-        ),
       ),
     );
   }

@@ -820,22 +820,17 @@ void main() {
     expect(viewModel.selectedTask?.outputImagePath, 'C:/rerun/task-2.png');
   });
 
-  testWidgets('batch page rerun button starts the selected task again',
+  testWidgets('batch page task-row rerun queues a clone without starting',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final requestStarted = Completer<void>();
-    final requestCompleter = Completer<Uint8List>();
     final viewModel = ProductionQueueViewModel(
       plans: [_fakePlan()],
       executorService: ProductionExecutorService(
-        requestImage: (_) {
-          requestStarted.complete();
-          return requestCompleter.future;
-        },
+        requestImage: (_) async => Uint8List.fromList([137, 80, 78, 71]),
         saveImage: (bytes, fileName) async => 'C:/rerun/$fileName',
         now: () => DateTime.utc(2026, 5, 25, 12),
       ),
@@ -855,22 +850,54 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    await requestStarted.future.timeout(const Duration(seconds: 1));
-    await tester.pump();
-
-    expect(viewModel.isExecuting, isTrue);
-    expect(viewModel.selectedTask?.id, 'task-1');
-    expect(viewModel.selectedTask?.status, ProductionTaskStatus.running);
-    expect(viewModel.selectedTask?.attempts, 2);
-
-    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
-    await tester.pumpAndSettle();
-
     expect(viewModel.isExecuting, isFalse);
-    expect(viewModel.selectedTask?.status, ProductionTaskStatus.completed);
-    expect(viewModel.selectedTask?.outputImagePath, 'C:/rerun/task-1.png');
+    expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
+      'task-1',
+      'task-1-rerun',
+      'task-2',
+    ]);
+    expect(viewModel.selectedTask?.id, 'task-1-rerun');
+    expect(viewModel.selectedTask?.status, ProductionTaskStatus.queued);
+    expect(viewModel.selectedTask?.attempts, 0);
+    expect(viewModel.selectedTask?.outputImagePath, isNull);
     expect(find.byWidgetPredicate((widget) => widget is ErrorWidget),
         findsNothing);
+  });
+
+  testWidgets('result card quick rerun queues a clone without starting rerun',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ProductionQueueViewModel(
+      plans: [_fakePlan()],
+      now: () => DateTime.utc(2026, 5, 28, 10, 30),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-quick-rerun-task-1')),
+    );
+    await tester.pump();
+
+    expect(viewModel.isExecuting, isFalse);
+    expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
+      'task-1',
+      'task-1-rerun',
+      'task-2',
+    ]);
+    expect(
+        viewModel.selectedPlan?.tasks[1].status, ProductionTaskStatus.queued);
+    expect(viewModel.selectedPlan?.tasks[1].outputImagePath, isNull);
   });
 
   testWidgets('batch page shows result waterfall and detail dialog',

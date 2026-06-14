@@ -46,7 +46,7 @@ class _EnglishGenerationAssetLoader extends AssetLoader {
       'config_preview_saved': 'Saved {num} preview images.',
       'config_preview_no_images': 'Generate images first.',
       'image_size': 'Image Size',
-      'enhance_presets': 'Enhance parameter presets',
+      'enhance_presets': 'Redraw presets',
       'drag_and_drop_image_notice': 'Drop image here or press to upload',
       'override_random_prompts': 'Override random prompts',
       'enable_vibe_transfer': 'Enable Vibe Transfer',
@@ -268,8 +268,9 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('workbench-reference-editor')),
-      findsOneWidget,
+      findsNothing,
     );
+    expect(find.text('图生图（可选）'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('workbench-prompt-control-section')),
       findsOneWidget,
@@ -298,6 +299,19 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('workbench-reference-editor')),
+      findsNothing,
+    );
+    expect(find.text('图生图（可选）'), findsOneWidget);
+
+    final i2iToggle =
+        find.byKey(const ValueKey('workbench-i2i-section-toggle'));
+    await tester.ensureVisible(i2iToggle);
+    await tester.pumpAndSettle();
+    await tester.tap(i2iToggle);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('workbench-reference-editor')),
       findsOneWidget,
     );
     expect(
@@ -316,14 +330,31 @@ void main() {
       find.byKey(const ValueKey('workbench-i2i-noise-slider')),
       findsOneWidget,
     );
-    expect(find.text('Enable Vibe Transfer'), findsOneWidget);
-    expect(find.text('Enable Precise Reference'), findsOneWidget);
-    expect(find.text('I2I 0'), findsOneWidget);
+    expect(find.textContaining('Redraw presets'), findsNothing);
+    expect(find.text('参考图（可选）'), findsOneWidget);
+    expect(find.text('Enable Vibe Transfer'), findsNothing);
+    expect(find.text('Enable Precise Reference'), findsNothing);
+
+    final referenceExpansion =
+        find.byKey(const ValueKey('workbench-reference-options-expansion'));
+    await tester.ensureVisible(referenceExpansion);
+    await tester.pumpAndSettle();
+    await tester.tap(referenceExpansion);
+    await tester.pumpAndSettle();
+
+    expect(find.text('风格参考'), findsOneWidget);
+    expect(find.text('精确参考'), findsOneWidget);
+    expect(find.text('Enable Vibe Transfer'), findsNothing);
+    expect(find.text('Enable Precise Reference'), findsNothing);
+    expect(find.descendant(
+      of: find.byKey(const ValueKey('workbench-reference-editor')),
+      matching: find.text('关闭'),
+    ), findsNothing);
 
     payload.i2iConfig.setImage(base64Decode(_tinyPngBase64));
     await tester.pump();
 
-    expect(find.text('I2I 1'), findsOneWidget);
+    expect(find.text('底图 1 x 1'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 1));
   });

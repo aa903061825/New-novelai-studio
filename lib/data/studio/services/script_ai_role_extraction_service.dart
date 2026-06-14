@@ -26,6 +26,7 @@ class ScriptAiRoleExtractionServiceRequest {
   final String baseUrl;
   final String token;
   final String model;
+  final String reasoningEffort;
   final String proxy;
   final Script script;
   final List<ScriptAiRoleExtraction> completedChunkExtractions;
@@ -37,6 +38,7 @@ class ScriptAiRoleExtractionServiceRequest {
     required this.baseUrl,
     required this.token,
     required this.model,
+    this.reasoningEffort = '',
     this.proxy = '',
     required this.script,
     this.completedChunkExtractions = const [],
@@ -327,6 +329,7 @@ class DefaultScriptAiRoleExtractionService
         baseUrl: request.baseUrl,
         token: request.token,
         model: request.model,
+        reasoningEffort: request.reasoningEffort,
         proxy: request.proxy,
         requestJson: chunk,
         onStreamDelta: request.onStreamDelta,
@@ -425,6 +428,7 @@ class DefaultScriptAiRoleExtractionService
       baseUrl: request.baseUrl,
       token: request.token,
       model: request.model,
+      reasoningEffort: request.reasoningEffort,
       proxy: request.proxy,
       requestJson: mergeRequest,
       onStreamDelta: request.onStreamDelta,
@@ -758,8 +762,14 @@ class DefaultScriptAiRoleExtractionService
         frameIndexes: stage.frameIndexes,
         sourceIds: sourceIds,
       ),
-      nonRole: '',
-      nonRoleMaterialized: false,
+      nonRole: promptWeightIndex.restoreField(
+        stage.nonRole,
+        sourceRoleId: sourceRoleId,
+        sourceKind: sourceKind,
+        frameIndexes: stage.frameIndexes,
+        sourceIds: sourceIds,
+      ),
+      nonRoleMaterialized: stage.nonRoleMaterialized,
       evidenceTerms: stage.evidenceTerms,
       missingFields: stage.missingFields,
       warnings: stage.warnings,
@@ -881,7 +891,92 @@ class DefaultScriptAiRoleExtractionService
     ScriptAiExtractedStage left,
     ScriptAiExtractedStage right,
   ) {
-    return _hasSameExtractedFields(left, right);
+    return _stageReplacementStateKey(left) ==
+            _stageReplacementStateKey(right) &&
+        _hasSameExtractedFields(left, right);
+  }
+
+  String _stageReplacementStateKey(ScriptAiExtractedStage stage) {
+    final text = _normalizedReplacementStateText(stage);
+    final upperClothingKey = _stableStageTagKey(stage.upperClothing);
+    final lowerClothingKey = _stableStageTagKey(stage.lowerClothing);
+    if (_hasTowelState(text)) {
+      return [
+        'towel',
+        if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+        if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+      ].join('|');
+    }
+    if (_hasToplessState(text)) {
+      return [
+        'topless',
+        if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+      ].join('|');
+    }
+    if (_hasBottomlessState(text)) {
+      return [
+        'bottomless',
+        if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+      ].join('|');
+    }
+    if (_hasNudeState(text)) {
+      return [
+        'nude',
+        if (upperClothingKey.isNotEmpty) 'upper:$upperClothingKey',
+        if (lowerClothingKey.isNotEmpty) 'lower:$lowerClothingKey',
+      ].join('|');
+    }
+    return '';
+  }
+
+  String _normalizedReplacementStateText(ScriptAiExtractedStage stage) {
+    return [
+      stage.label,
+      ...stage.evidenceTerms,
+      stage.upperBody,
+      stage.lowerBody,
+      stage.upperClothing,
+      stage.lowerClothing,
+    ]
+        .join(' ')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[_-]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  String _stableStageTagKey(String value) {
+    final tags = _normalizedTags(value)..sort();
+    return tags.join('\u001e');
+  }
+
+  bool _hasTowelState(String text) {
+    return RegExp(
+          r'(^|[^a-z0-9])(towel|bath towel|towel wrap|wrapped in towel)'
+          r'([^a-z0-9]|$)',
+        ).hasMatch(text) ||
+        text.contains('\u6d74\u5dfe');
+  }
+
+  bool _hasToplessState(String text) {
+    return RegExp(r'(^|[^a-z0-9])topless([^a-z0-9]|$)').hasMatch(text) ||
+        text.contains('\u4e0a\u8eab\u88f8\u4f53');
+  }
+
+  bool _hasBottomlessState(String text) {
+    return RegExp(r'(^|[^a-z0-9])bottomless([^a-z0-9]|$)').hasMatch(text) ||
+        text.contains('\u4e0b\u8eab\u88f8\u4f53');
+  }
+
+  bool _hasNudeState(String text) {
+    return RegExp(
+          r'(^|[^a-z0-9])('
+          r'nude|naked|fully nude|completely nude|completly nude|no clothes|'
+          r'without clothes|unclothed'
+          r')([^a-z0-9]|$)',
+        ).hasMatch(text) ||
+        text.contains('\u5168\u88f8') ||
+        text.contains('\u88f8\u4f53');
   }
 
   bool _hasSameExtractedFields(
@@ -925,6 +1020,7 @@ class DefaultScriptAiRoleExtractionService
         _mergeTagText(left.upperClothing, right.upperClothing);
     final lowerClothing =
         _mergeTagText(left.lowerClothing, right.lowerClothing);
+    final nonRole = _mergeTagText(left.nonRole, right.nonRole);
     return ScriptAiExtractedStage(
       stageId: left.stageId.trim().isEmpty ? right.stageId : left.stageId,
       label: left.label.trim().isEmpty ? right.label : left.label,
@@ -945,8 +1041,9 @@ class DefaultScriptAiRoleExtractionService
       lowerBody: lowerBody,
       upperClothing: upperClothing,
       lowerClothing: lowerClothing,
-      nonRole: '',
-      nonRoleMaterialized: false,
+      nonRole: nonRole,
+      nonRoleMaterialized:
+          left.nonRoleMaterialized || right.nonRoleMaterialized,
       evidenceTerms: _mergeStringList(left.evidenceTerms, right.evidenceTerms),
       missingFields: _mergedMissingFields(
         missingFields:
@@ -1086,6 +1183,7 @@ class DefaultScriptAiRoleExtractionService
       baseUrl: serviceRequest.baseUrl,
       token: serviceRequest.token,
       model: serviceRequest.model,
+      reasoningEffort: serviceRequest.reasoningEffort,
       proxy: serviceRequest.proxy,
       requestJson: followUpRequest,
       onStreamDelta: serviceRequest.onStreamDelta,

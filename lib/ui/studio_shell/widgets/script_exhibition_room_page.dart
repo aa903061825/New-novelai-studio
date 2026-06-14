@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -44,7 +45,7 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
   void initState() {
     super.initState();
     widget.viewModel.addListener(_scheduleFocusedItemScroll);
-    unawaited(widget.viewModel.load());
+    unawaited(widget.viewModel.ensureLoaded());
   }
 
   @override
@@ -129,7 +130,24 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
                 onAddCategory: viewModel.canCategorizeScripts
                     ? () => _createCategory(context)
                     : null,
+                onScriptsDropped: viewModel.canCategorizeScripts
+                    ? (scripts, category) =>
+                        _assignScriptsToCategory(scripts, category)
+                    : null,
+                onDeleteCategory: (category) =>
+                    _confirmDeleteCategory(context, category),
               ),
+              if (viewModel.selectedScript == null &&
+                  viewModel.snapshot.scripts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _SortToolbar(
+                  title: '剧本排序',
+                  menu: _ScriptSortMenu(
+                    value: viewModel.scriptSort,
+                    onSelected: viewModel.selectScriptSort,
+                  ),
+                ),
+              ],
               const SizedBox(height: 18),
             ]),
           ),
@@ -161,7 +179,9 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
             sliver: SliverToBoxAdapter(
               child: _ScriptShelf(
                 scripts: viewModel.visibleScripts,
+                selectedScriptIds: viewModel.selectedScriptIds,
                 onSelect: viewModel.selectScript,
+                onSelectionChanged: viewModel.replaceShelfSelection,
                 onSend: widget.onSendToScriptWorkbench,
                 onDelete: viewModel.canDeleteScripts
                     ? (script) => _confirmDeleteScript(context, script)
@@ -209,6 +229,23 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
               pagePadding,
               12,
               pagePadding,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _SortToolbar(
+                title: '图片排序',
+                menu: _ItemSortMenu(
+                  value: viewModel.itemSort,
+                  onSelected: viewModel.selectItemSort,
+                ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              pagePadding,
+              12,
+              pagePadding,
               pagePadding,
             ),
             sliver: _SliverWaterfallBoard(
@@ -223,6 +260,9 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
                   : null,
               onRename: viewModel.canRenameItems
                   ? (item) => _renameItem(context, item)
+                  : null,
+              onSetCover: viewModel.canSetCoverItems
+                  ? (item) => _setCoverItem(context, item)
                   : null,
             ),
           ),
@@ -292,14 +332,17 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     BuildContext context,
     ScriptExhibitionScript script,
   ) async {
-    final confirmed = await _showDeleteDialog(
+    final result = await _showScriptDeleteDialog(
       context: context,
       title: '删除剧本展览记录',
       message: '会移除展览室中保存的剧本记录、批量产线任务和画廊收纳记录；不会删除原始剧本目录。',
       confirmKey: const ValueKey('script-exhibition-confirm-delete-script'),
     );
-    if (!confirmed || !mounted) return;
-    await widget.viewModel.deleteScript(script);
+    if (!result.confirmed || !mounted) return;
+    await widget.viewModel.deleteScript(
+      script,
+      deleteLocalFiles: result.deleteLocalFiles,
+    );
   }
 
   Future<void> _confirmDeleteItem(
@@ -353,6 +396,29 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     await widget.viewModel.createCategory(categoryName);
   }
 
+  Future<void> _assignScriptsToCategory(
+    List<ScriptExhibitionScript> scripts,
+    ScriptExhibitionCategory category,
+  ) async {
+    if (scripts.isEmpty) return;
+    await widget.viewModel.assignScriptsToCategory(scripts, category.title);
+  }
+
+  Future<void> _confirmDeleteCategory(
+    BuildContext context,
+    ScriptExhibitionCategory category,
+  ) async {
+    if (!widget.viewModel.canDeleteCategory(category)) return;
+    final confirmed = await _showDeleteDialog(
+      context: context,
+      title: '删除分类',
+      message: '只会移除“${category.title}”这个分类标签，不会删除任何剧本、图片或批量结果。',
+      confirmKey: const ValueKey('script-exhibition-confirm-delete-category'),
+    );
+    if (!confirmed || !mounted) return;
+    await widget.viewModel.deleteCategory(category);
+  }
+
   Future<void> _renameItem(
     BuildContext context,
     ScriptExhibitionItem item,
@@ -363,6 +429,21 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     );
     if (label == null || !mounted) return;
     await widget.viewModel.renameItem(item, label);
+  }
+
+  Future<void> _setCoverItem(
+    BuildContext context,
+    ScriptExhibitionItem item,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final scaffold = Scaffold.maybeOf(context);
+    await widget.viewModel.setCoverItem(item);
+    if (!mounted) return;
+    if (messenger != null && scaffold != null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('已设为当前剧本封面')),
+      );
+    }
   }
 
   Future<void> _renameVersion(
@@ -446,6 +527,160 @@ class _Header extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SortToolbar extends StatelessWidget {
+  final String title;
+  final Widget menu;
+
+  const _SortToolbar({required this.title, required this.menu});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.sort, size: 18, color: StudioTokens.textMuted),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: StudioTokens.textSecondary,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const Spacer(),
+        menu,
+      ],
+    );
+  }
+}
+
+class _ScriptSortMenu extends StatelessWidget {
+  final ScriptExhibitionScriptSort value;
+  final ValueChanged<ScriptExhibitionScriptSort> onSelected;
+
+  const _ScriptSortMenu({
+    required this.value,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<ScriptExhibitionScriptSort>(
+      key: const ValueKey('script-exhibition-script-sort-menu'),
+      tooltip: '剧本排序',
+      initialValue: value,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        _scriptSortItem(ScriptExhibitionScriptSort.recent),
+        _scriptSortItem(ScriptExhibitionScriptSort.title),
+        _scriptSortItem(ScriptExhibitionScriptSort.imageCount),
+        _scriptSortItem(ScriptExhibitionScriptSort.needsAction),
+      ],
+      child: _SortMenuButton(label: _scriptSortLabel(value)),
+    );
+  }
+
+  PopupMenuEntry<ScriptExhibitionScriptSort> _scriptSortItem(
+    ScriptExhibitionScriptSort sort,
+  ) {
+    return PopupMenuItem<ScriptExhibitionScriptSort>(
+      key: ValueKey('script-exhibition-script-sort-${sort.name}'),
+      value: sort,
+      child: Text(_scriptSortLabel(sort)),
+    );
+  }
+}
+
+class _ItemSortMenu extends StatelessWidget {
+  final ScriptExhibitionItemSort value;
+  final ValueChanged<ScriptExhibitionItemSort> onSelected;
+
+  const _ItemSortMenu({
+    required this.value,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<ScriptExhibitionItemSort>(
+      key: const ValueKey('script-exhibition-item-sort-menu'),
+      tooltip: '图片排序',
+      initialValue: value,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        _itemSortItem(ScriptExhibitionItemSort.frame),
+        _itemSortItem(ScriptExhibitionItemSort.recent),
+        _itemSortItem(ScriptExhibitionItemSort.oldest),
+      ],
+      child: _SortMenuButton(label: _itemSortLabel(value)),
+    );
+  }
+
+  PopupMenuEntry<ScriptExhibitionItemSort> _itemSortItem(
+    ScriptExhibitionItemSort sort,
+  ) {
+    return PopupMenuItem<ScriptExhibitionItemSort>(
+      key: ValueKey('script-exhibition-item-sort-${sort.name}'),
+      value: sort,
+      child: Text(_itemSortLabel(sort)),
+    );
+  }
+}
+
+class _SortMenuButton extends StatelessWidget {
+  final String label;
+
+  const _SortMenuButton({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: StudioTokens.surface2,
+        borderRadius: StudioTokens.radiusPill,
+        border: Border.all(color: StudioTokens.cardOutline),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: StudioTokens.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(
+              Icons.expand_more,
+              size: 18,
+              color: StudioTokens.textMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _scriptSortLabel(ScriptExhibitionScriptSort sort) {
+  return switch (sort) {
+    ScriptExhibitionScriptSort.recent => '最近更新',
+    ScriptExhibitionScriptSort.title => '名称 A-Z',
+    ScriptExhibitionScriptSort.imageCount => '图片数多到少',
+    ScriptExhibitionScriptSort.needsAction => '需处理优先',
+  };
+}
+
+String _itemSortLabel(ScriptExhibitionItemSort sort) {
+  return switch (sort) {
+    ScriptExhibitionItemSort.frame => '帧号顺序',
+    ScriptExhibitionItemSort.recent => '最近更新',
+    ScriptExhibitionItemSort.oldest => '最早更新',
+  };
 }
 
 class _Metrics extends StatelessWidget {
@@ -585,8 +820,18 @@ class _MetricTile extends StatelessWidget {
 class _CategoryStrip extends StatelessWidget {
   final ScriptExhibitionRoomViewModel viewModel;
   final VoidCallback? onAddCategory;
+  final Future<void> Function(
+    List<ScriptExhibitionScript> scripts,
+    ScriptExhibitionCategory category,
+  )? onScriptsDropped;
+  final ValueChanged<ScriptExhibitionCategory> onDeleteCategory;
 
-  const _CategoryStrip({required this.viewModel, required this.onAddCategory});
+  const _CategoryStrip({
+    required this.viewModel,
+    required this.onAddCategory,
+    required this.onScriptsDropped,
+    required this.onDeleteCategory,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -604,6 +849,14 @@ class _CategoryStrip extends StatelessWidget {
                     category: category,
                     selected: category.id == viewModel.selectedCategoryId,
                     onTap: () => viewModel.selectCategory(category.id),
+                    onScriptsDropped: viewModel.canAssignCategory(category)
+                        ? (scripts) async {
+                            await onScriptsDropped?.call(scripts, category);
+                          }
+                        : null,
+                    onDelete: viewModel.canDeleteCategory(category)
+                        ? () => onDeleteCategory(category)
+                        : null,
                     fillWidth: true,
                   ),
                 ),
@@ -625,6 +878,14 @@ class _CategoryStrip extends StatelessWidget {
                   category: category,
                   selected: category.id == viewModel.selectedCategoryId,
                   onTap: () => viewModel.selectCategory(category.id),
+                  onScriptsDropped: viewModel.canAssignCategory(category)
+                      ? (scripts) async {
+                          await onScriptsDropped?.call(scripts, category);
+                        }
+                      : null,
+                  onDelete: viewModel.canDeleteCategory(category)
+                      ? () => onDeleteCategory(category)
+                      : null,
                 ),
                 if (index != categories.length - 1) const SizedBox(width: 12),
               ],
@@ -664,107 +925,182 @@ class _CategoryCard extends StatelessWidget {
   final ScriptExhibitionCategory category;
   final bool selected;
   final VoidCallback onTap;
+  final Future<void> Function(List<ScriptExhibitionScript> scripts)?
+      onScriptsDropped;
+  final VoidCallback? onDelete;
   final bool fillWidth;
 
   const _CategoryCard({
     required this.category,
     required this.selected,
     required this.onTap,
+    required this.onScriptsDropped,
+    required this.onDelete,
     this.fillWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      key: ValueKey('script-exhibition-category-${category.id}'),
-      color: StudioTokens.surface2,
-      shape: RoundedRectangleBorder(
-        borderRadius: StudioTokens.radiusCard,
-        side: BorderSide(
-          color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
-          width: selected ? 1.4 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: fillWidth ? double.infinity : 288,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: 0,
-                  bottom: -14,
-                  child: Text(
-                    category.count.toString().padLeft(2, '0'),
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          color: StudioTokens.primary.withValues(alpha: 0.12),
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return DragTarget<List<ScriptExhibitionScript>>(
+      onWillAcceptWithDetails: (details) =>
+          onScriptsDropped != null && details.data.isNotEmpty,
+      onAcceptWithDetails: (details) {
+        final dropHandler = onScriptsDropped;
+        if (dropHandler == null) return;
+        unawaited(dropHandler(details.data));
+      },
+      builder: (context, candidateData, rejectedData) {
+        final highlighted = candidateData.isNotEmpty;
+        final borderColor = highlighted || selected
+            ? StudioTokens.primary
+            : StudioTokens.cardOutline;
+        final borderWidth = highlighted ? 2.0 : (selected ? 1.4 : 1.0);
+        Widget card = Material(
+          key: ValueKey('script-exhibition-category-${category.id}'),
+          color: highlighted ? StudioTokens.surface3 : StudioTokens.surface2,
+          shape: RoundedRectangleBorder(
+            borderRadius: StudioTokens.radiusCard,
+            side: BorderSide(color: borderColor, width: borderWidth),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: fillWidth ? double.infinity : 288,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Stack(
                   children: [
-                    Row(
+                    Positioned(
+                      right: 0,
+                      bottom: -14,
+                      child: Text(
+                        category.count.toString().padLeft(2, '0'),
+                        style: Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(
+                              color:
+                                  StudioTokens.primary.withValues(alpha: 0.12),
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            category.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: StudioTokens.textPrimary,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                        ),
-                        Text(
-                          category.count.toString(),
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                category.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      color: StudioTokens.textPrimary,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                            ),
+                            if (onScriptsDropped != null) ...[
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.input_outlined,
+                                size: 18,
+                                color: StudioTokens.textMuted,
+                              ),
+                            ],
+                            const SizedBox(width: 8),
+                            Text(
+                              category.count.toString(),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
                                     color: StudioTokens.primary,
                                     fontWeight: FontWeight.w900,
                                   ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      category.description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: StudioTokens.textMuted,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final tag in category.tags) StudioChip(label: tag),
+                        const SizedBox(height: 8),
+                        Text(
+                          category.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textMuted,
+                                  ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final tag in category.tags)
+                              StudioChip(label: tag),
+                          ],
+                        ),
                       ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+        if (onDelete == null) {
+          return card;
+        }
+        return GestureDetector(
+          onSecondaryTapDown: (details) => _showCategoryContextMenu(
+            context,
+            details.globalPosition,
+            onDelete: onDelete!,
+          ),
+          child: card,
+        );
+      },
     );
   }
 }
 
-class _ScriptShelf extends StatelessWidget {
+enum _CategoryContextAction { delete }
+
+Future<void> _showCategoryContextMenu(
+  BuildContext context,
+  Offset position, {
+  required VoidCallback onDelete,
+}) async {
+  final action = await showMenu<_CategoryContextAction>(
+    context: context,
+    position: RelativeRect.fromLTRB(
+      position.dx,
+      position.dy,
+      position.dx,
+      position.dy,
+    ),
+    items: const [
+      PopupMenuItem(
+        value: _CategoryContextAction.delete,
+        child: Text('删除分类'),
+      ),
+    ],
+  );
+  if (action == _CategoryContextAction.delete) {
+    onDelete();
+  }
+}
+
+class _ScriptShelf extends StatefulWidget {
   final List<ScriptExhibitionScript> scripts;
+  final Set<String> selectedScriptIds;
   final ValueChanged<String> onSelect;
+  final ValueChanged<Set<String>> onSelectionChanged;
   final ValueChanged<ScriptExhibitionFocus> onSend;
   final ValueChanged<ScriptExhibitionScript>? onDelete;
   final ValueChanged<ScriptExhibitionScript>? onRename;
@@ -772,7 +1108,323 @@ class _ScriptShelf extends StatelessWidget {
 
   const _ScriptShelf({
     required this.scripts,
+    required this.selectedScriptIds,
     required this.onSelect,
+    required this.onSelectionChanged,
+    required this.onSend,
+    required this.onDelete,
+    required this.onRename,
+    required this.onAssignCategory,
+  });
+
+  @override
+  State<_ScriptShelf> createState() => _ScriptShelfState();
+}
+
+class _ScriptShelfState extends State<_ScriptShelf> {
+  final GlobalKey _shelfKey = GlobalKey();
+  final Map<String, Rect> _cardRects = {};
+  Offset? _marqueeStartLocal;
+  Offset? _marqueeCurrentLocal;
+  Offset? _marqueeStartGlobal;
+  Offset? _marqueeCurrentGlobal;
+  Set<String> _lastMarqueeSelection = const {};
+
+  @override
+  void didUpdateWidget(_ScriptShelf oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final liveIds = widget.scripts.map((script) => script.scriptId).toSet();
+    _cardRects.removeWhere((scriptId, rect) => !liveIds.contains(scriptId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.scripts.isEmpty) {
+      return const _StatusPanel(
+        icon: Icons.search_off_outlined,
+        title: '当前分类没有剧本',
+        subtitle: '切换到全部馆区可以查看完整收纳结果。',
+      );
+    }
+
+    return Listener(
+      key: _shelfKey,
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
+      child: Stack(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '剧本书架',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: StudioTokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '原图与批量产线结果按剧本聚合，保留批次、帧序和角色线索。',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: StudioTokens.textMuted),
+              ),
+              const SizedBox(height: 14),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = max(1, constraints.maxWidth ~/ 220);
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: widget.scripts.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 0.72,
+                    ),
+                    itemBuilder: (context, index) {
+                      final script = widget.scripts[index];
+                      final selected =
+                          widget.selectedScriptIds.contains(script.scriptId);
+                      return _ScriptShelfCardRectReporter(
+                        scriptId: script.scriptId,
+                        onRectChanged: _recordCardRect,
+                        child: _DraggableScriptShelfCard(
+                          key: ValueKey(
+                            'script-exhibition-draggable-${script.scriptId}',
+                          ),
+                          script: script,
+                          selected: selected,
+                          dragScripts: _dragScriptsFor(script),
+                          onDragStarted: () {
+                            if (!selected) {
+                              widget.onSelectionChanged({script.scriptId});
+                            }
+                          },
+                          onTap: () => widget.onSelect(script.scriptId),
+                          onSend: () => widget.onSend(script.focus),
+                          onDelete: widget.onDelete == null
+                              ? null
+                              : () => widget.onDelete!(script),
+                          onRename: widget.onRename == null
+                              ? null
+                              : () => widget.onRename!(script),
+                          onAssignCategory: widget.onAssignCategory == null
+                              ? null
+                              : () => widget.onAssignCategory!(script),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+          if (_marqueeRect case final rect?)
+            Positioned.fromRect(
+              rect: rect,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: StudioTokens.primary.withValues(alpha: 0.12),
+                    border: Border.all(
+                      color: StudioTokens.primary,
+                      width: 1.2,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _recordCardRect(String scriptId, Rect? rect) {
+    if (rect == null) {
+      _cardRects.remove(scriptId);
+      return;
+    }
+    _cardRects[scriptId] = rect;
+  }
+
+  Rect? get _marqueeRect {
+    final start = _marqueeStartLocal;
+    final current = _marqueeCurrentLocal;
+    if (start == null || current == null) return null;
+    return Rect.fromPoints(start, current);
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (event.kind != PointerDeviceKind.mouse ||
+        event.buttons & kPrimaryMouseButton == 0 ||
+        _isInsideScriptCard(event.position)) {
+      return;
+    }
+    setState(() {
+      _marqueeStartGlobal = event.position;
+      _marqueeCurrentGlobal = event.position;
+      _marqueeStartLocal = _localPosition(event.position);
+      _marqueeCurrentLocal = _marqueeStartLocal;
+      _lastMarqueeSelection = const {};
+    });
+    widget.onSelectionChanged(const {});
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (_marqueeStartGlobal == null) return;
+    setState(() {
+      _marqueeCurrentGlobal = event.position;
+      _marqueeCurrentLocal = _localPosition(event.position);
+    });
+    _updateMarqueeSelection();
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    if (_marqueeStartGlobal == null) return;
+    _finishMarquee();
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (_marqueeStartGlobal == null) return;
+    _finishMarquee();
+  }
+
+  void _finishMarquee() {
+    setState(() {
+      _marqueeStartGlobal = null;
+      _marqueeCurrentGlobal = null;
+      _marqueeStartLocal = null;
+      _marqueeCurrentLocal = null;
+      _lastMarqueeSelection = const {};
+    });
+  }
+
+  void _updateMarqueeSelection() {
+    final start = _marqueeStartGlobal;
+    final current = _marqueeCurrentGlobal;
+    if (start == null || current == null) return;
+    final marquee = Rect.fromPoints(start, current);
+    final selected = <String>{};
+    for (final script in widget.scripts) {
+      final rect = _cardRect(script.scriptId);
+      if (rect != null && rect.overlaps(marquee)) {
+        selected.add(script.scriptId);
+      }
+    }
+    if (setEquals(selected, _lastMarqueeSelection)) return;
+    _lastMarqueeSelection = selected;
+    widget.onSelectionChanged(selected);
+  }
+
+  Offset _localPosition(Offset globalPosition) {
+    final renderObject = _shelfKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox) return globalPosition;
+    return renderObject.globalToLocal(globalPosition);
+  }
+
+  bool _isInsideScriptCard(Offset globalPosition) {
+    for (final script in widget.scripts) {
+      if (_cardRect(script.scriptId)?.contains(globalPosition) ?? false) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Rect? _cardRect(String scriptId) {
+    return _cardRects[scriptId];
+  }
+
+  List<ScriptExhibitionScript> _dragScriptsFor(ScriptExhibitionScript script) {
+    if (!widget.selectedScriptIds.contains(script.scriptId)) {
+      return [script];
+    }
+    final selectedIds = widget.selectedScriptIds;
+    return [
+      for (final candidate in widget.scripts)
+        if (selectedIds.contains(candidate.scriptId)) candidate,
+    ];
+  }
+}
+
+class _ScriptShelfCardRectReporter extends StatefulWidget {
+  final String scriptId;
+  final void Function(String scriptId, Rect? rect) onRectChanged;
+  final Widget child;
+
+  const _ScriptShelfCardRectReporter({
+    required this.scriptId,
+    required this.onRectChanged,
+    required this.child,
+  });
+
+  @override
+  State<_ScriptShelfCardRectReporter> createState() =>
+      _ScriptShelfCardRectReporterState();
+}
+
+class _ScriptShelfCardRectReporterState
+    extends State<_ScriptShelfCardRectReporter> {
+  @override
+  void didUpdateWidget(_ScriptShelfCardRectReporter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scriptId != widget.scriptId) {
+      widget.onRectChanged(oldWidget.scriptId, null);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.onRectChanged(widget.scriptId, null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reportRect());
+    return widget.child;
+  }
+
+  void _reportRect() {
+    if (!mounted) return;
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      widget.onRectChanged(widget.scriptId, null);
+      return;
+    }
+    widget.onRectChanged(
+      widget.scriptId,
+      renderObject.localToGlobal(Offset.zero) & renderObject.size,
+    );
+  }
+}
+
+class _DraggableScriptShelfCard extends StatelessWidget {
+  final ScriptExhibitionScript script;
+  final bool selected;
+  final List<ScriptExhibitionScript> dragScripts;
+  final VoidCallback onDragStarted;
+  final VoidCallback onTap;
+  final VoidCallback onSend;
+  final VoidCallback? onDelete;
+  final VoidCallback? onRename;
+  final VoidCallback? onAssignCategory;
+
+  const _DraggableScriptShelfCard({
+    super.key,
+    required this.script,
+    required this.selected,
+    required this.dragScripts,
+    required this.onDragStarted,
+    required this.onTap,
     required this.onSend,
     required this.onDelete,
     required this.onRename,
@@ -781,62 +1433,82 @@ class _ScriptShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (scripts.isEmpty) {
-      return const _StatusPanel(
-        icon: Icons.search_off_outlined,
-        title: '当前分类没有剧本',
-        subtitle: '切换到全部馆区可以查看完整收纳结果。',
-      );
-    }
+    return Draggable<List<ScriptExhibitionScript>>(
+      data: dragScripts,
+      onDragStarted: onDragStarted,
+      feedback: _ScriptDragFeedback(count: dragScripts.length),
+      childWhenDragging: Opacity(
+        opacity: 0.48,
+        child: _ScriptShelfCard(
+          script: script,
+          selected: selected,
+          onTap: onTap,
+          onSend: onSend,
+          onDelete: onDelete,
+          onRename: onRename,
+          onAssignCategory: onAssignCategory,
+        ),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey('script-exhibition-script-card-${script.scriptId}'),
+        child: _ScriptShelfCard(
+          script: script,
+          selected: selected,
+          onTap: onTap,
+          onSend: onSend,
+          onDelete: onDelete,
+          onRename: onRename,
+          onAssignCategory: onAssignCategory,
+        ),
+      ),
+    );
+  }
+}
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '剧本书架',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: StudioTokens.textPrimary,
-                fontWeight: FontWeight.w800,
+class _ScriptDragFeedback extends StatelessWidget {
+  final int count;
+
+  const _ScriptDragFeedback({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: StudioTokens.surface3,
+          border: Border.all(color: StudioTokens.primary, width: 1.4),
+          borderRadius: StudioTokens.radiusCard,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.34),
+              blurRadius: 20,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.menu_book_outlined,
+                size: 18,
+                color: StudioTokens.primary,
               ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '原图与批量产线结果按剧本聚合，保留批次、帧序和角色线索。',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: StudioTokens.textMuted),
-        ),
-        const SizedBox(height: 14),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final columns = max(1, constraints.maxWidth ~/ 330);
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: scripts.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 2.15,
+              const SizedBox(width: 8),
+              Text(
+                '$count 个剧本',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: StudioTokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
-              itemBuilder: (context, index) {
-                final script = scripts[index];
-                return _ScriptShelfCard(
-                  script: script,
-                  onTap: () => onSelect(script.scriptId),
-                  onSend: () => onSend(script.focus),
-                  onDelete: onDelete == null ? null : () => onDelete!(script),
-                  onRename: onRename == null ? null : () => onRename!(script),
-                  onAssignCategory: onAssignCategory == null
-                      ? null
-                      : () => onAssignCategory!(script),
-                );
-              },
-            );
-          },
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -905,6 +1577,7 @@ Future<void> _showVersionContextMenu(
 
 class _ScriptShelfCard extends StatelessWidget {
   final ScriptExhibitionScript script;
+  final bool selected;
   final VoidCallback onTap;
   final VoidCallback onSend;
   final VoidCallback? onDelete;
@@ -913,6 +1586,7 @@ class _ScriptShelfCard extends StatelessWidget {
 
   const _ScriptShelfCard({
     required this.script,
+    required this.selected,
     required this.onTap,
     required this.onSend,
     required this.onDelete,
@@ -922,6 +1596,7 @@ class _ScriptShelfCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final coverItem = script.coverItem;
     return GestureDetector(
       onSecondaryTapDown: (details) => _showScriptContextMenu(
         context,
@@ -930,89 +1605,317 @@ class _ScriptShelfCard extends StatelessWidget {
         onAssignCategory: onAssignCategory,
       ),
       child: Material(
-        key: ValueKey('script-exhibition-script-card-${script.scriptId}'),
         color: StudioTokens.surface2,
         shape: RoundedRectangleBorder(
           borderRadius: StudioTokens.radiusCard,
-          side: StudioTokens.cardBorder.top,
+          side: selected
+              ? const BorderSide(color: StudioTokens.primary, width: 1.6)
+              : BorderSide(color: Colors.white.withValues(alpha: 0.10)),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _ScriptCoverBackground(
+                key: ValueKey(
+                  'script-exhibition-script-cover-${script.scriptId}',
+                ),
+                imageKey: ValueKey(
+                  'script-exhibition-script-cover-image-${script.scriptId}',
+                ),
+                item: coverItem,
+              ),
+              const _ScriptCoverScrim(),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: _ScriptCoverBadge(label: _coverSourceLabel(coverItem)),
+              ),
+              if (script.pendingCount > 0)
+                Positioned(
+                  top: 44,
+                  left: 10,
+                  child: _ScriptCoverBadge(
+                    label: '需处理 ${script.pendingCount}',
+                    accentColor: StudioTokens.warning,
+                  ),
+                ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.menu_book_outlined,
-                      size: 20,
-                      color: StudioTokens.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        script.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: StudioTokens.textPrimary,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                    _ScriptCoverActionButton(
+                      key: ValueKey(
+                        'script-exhibition-send-script-${script.scriptId}',
                       ),
-                    ),
-                    IconButton(
                       tooltip: '发送到剧本工作台',
                       onPressed: script.focus.canOpenWorkbench ? onSend : null,
-                      icon: const Icon(Icons.send_outlined),
+                      icon: Icons.send_outlined,
                     ),
-                    if (onRename != null)
-                      IconButton(
+                    if (onRename != null) ...[
+                      const SizedBox(width: 4),
+                      _ScriptCoverActionButton(
                         key: ValueKey(
                           'script-exhibition-rename-script-${script.scriptId}',
                         ),
                         tooltip: '重命名剧本',
                         onPressed: onRename,
-                        icon: const Icon(Icons.edit_outlined),
+                        icon: Icons.edit_outlined,
                       ),
-                    IconButton(
+                    ],
+                    const SizedBox(width: 4),
+                    _ScriptCoverActionButton(
                       key: ValueKey(
                         'script-exhibition-delete-script-${script.scriptId}',
                       ),
                       tooltip: '删除展览记录',
                       onPressed: onDelete,
-                      icon: const Icon(Icons.delete_outline),
+                      icon: Icons.delete_outline,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '原始剧本 ${script.originalCount} / 新图 ${script.generatedImageCount} / 需处理 ${script.pendingCount}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: StudioTokens.textMuted,
-                      ),
-                ),
-                const Spacer(),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+              ),
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: 14,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final version in script.versions.take(3))
-                      StudioChip(label: version.label),
+                    Text(
+                      script.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            height: 1.1,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '原始剧本 ${script.originalCount} / 新图 ${script.generatedImageCount} / 需处理 ${script.pendingCount}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.78),
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final version in script.versions.take(3))
+                          _ScriptCoverBadge(
+                            label: version.label,
+                            muted: true,
+                          ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+class _ScriptCoverBackground extends StatelessWidget {
+  final ScriptExhibitionItem? item;
+  final Key imageKey;
+
+  const _ScriptCoverBackground({
+    super.key,
+    required this.item,
+    required this.imageKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final imagePath = item?.imagePath.trim() ?? '';
+    if (imagePath.isEmpty) {
+      return _ScriptCoverFallback(item: item);
+    }
+    return Image.file(
+      File(imagePath),
+      key: imageKey,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) =>
+          _ScriptCoverFallback(item: item),
+    );
+  }
+}
+
+class _ScriptCoverFallback extends StatelessWidget {
+  final ScriptExhibitionItem? item;
+
+  const _ScriptCoverFallback({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2A3140), Color(0xFF111111)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -32,
+            bottom: -24,
+            child: Icon(
+              item?.sourceKind == ScriptExhibitionItemSourceKind.failed
+                  ? Icons.error_outline
+                  : Icons.image_outlined,
+              size: 148,
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScriptCoverScrim extends StatelessWidget {
+  const _ScriptCoverScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.black.withValues(alpha: 0.12),
+            Colors.black.withValues(alpha: 0.20),
+            Colors.black.withValues(alpha: 0.88),
+          ],
+          stops: const [0.0, 0.42, 1.0],
+        ),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.black.withValues(alpha: 0.42),
+              Colors.transparent,
+              Colors.black.withValues(alpha: 0.26),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScriptCoverBadge extends StatelessWidget {
+  final String label;
+  final bool muted;
+  final Color? accentColor;
+
+  const _ScriptCoverBadge({
+    required this.label,
+    this.muted = false,
+    this.accentColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = accentColor ?? StudioTokens.primary;
+    final fill = muted
+        ? Colors.black.withValues(alpha: 0.38)
+        : accent.withValues(alpha: 0.90);
+    final foreground = muted ? Colors.white : StudioTokens.onPrimary;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 150),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: StudioTokens.radiusBadge,
+          border: Border.all(
+            color: muted
+                ? Colors.white.withValues(alpha: 0.16)
+                : accent.withValues(alpha: 0.96),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScriptCoverActionButton extends StatelessWidget {
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final IconData icon;
+
+  const _ScriptCoverActionButton({
+    super.key,
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        color: Colors.white,
+        disabledColor: Colors.white.withValues(alpha: 0.34),
+        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+        padding: EdgeInsets.zero,
+        iconSize: 18,
+        icon: Icon(icon),
+      ),
+    );
+  }
+}
+
+String _coverSourceLabel(ScriptExhibitionItem? item) {
+  return switch (item?.sourceKind) {
+    ScriptExhibitionItemSourceKind.generated => '新图封面',
+    ScriptExhibitionItemSourceKind.gallery => '收纳封面',
+    ScriptExhibitionItemSourceKind.attachment => '导入封面',
+    ScriptExhibitionItemSourceKind.original => '原图封面',
+    ScriptExhibitionItemSourceKind.failed => '异常封面',
+    ScriptExhibitionItemSourceKind.queued => '排队封面',
+    null => '无封面',
+  };
 }
 
 class _ScriptDetailHeader extends StatelessWidget {
@@ -1222,6 +2125,7 @@ class _SliverWaterfallBoard extends StatelessWidget {
   final ValueChanged<ScriptExhibitionFocus> onSend;
   final ValueChanged<ScriptExhibitionItem>? onDelete;
   final ValueChanged<ScriptExhibitionItem>? onRename;
+  final ValueChanged<ScriptExhibitionItem>? onSetCover;
 
   const _SliverWaterfallBoard({
     required this.items,
@@ -1230,6 +2134,7 @@ class _SliverWaterfallBoard extends StatelessWidget {
     required this.onSend,
     required this.onDelete,
     required this.onRename,
+    required this.onSetCover,
   });
 
   @override
@@ -1270,11 +2175,11 @@ class _SliverWaterfallBoard extends StatelessWidget {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _ExhibitionAssetCaptureAction(
-              itemId: item.id,
-              drafts: _captureDraftsForExhibitionItem(item),
-              iconSize: 18,
-            ),
+            if (onSetCover != null)
+              _ScriptSetCoverAction(
+                item: item,
+                onSetCover: onSetCover!,
+              ),
             IconButton(
               key: ValueKey('script-exhibition-send-workbench-${item.id}'),
               tooltip: '发送到工作台',
@@ -1977,6 +2882,26 @@ class _PreviewToolbar extends StatelessWidget {
   }
 }
 
+class _ScriptSetCoverAction extends StatelessWidget {
+  final ScriptExhibitionItem item;
+  final ValueChanged<ScriptExhibitionItem> onSetCover;
+
+  const _ScriptSetCoverAction({
+    required this.item,
+    required this.onSetCover,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      key: ValueKey('script-exhibition-set-cover-${item.id}'),
+      tooltip: '设为当前剧本封面',
+      onPressed: item.hasImage ? () => onSetCover(item) : null,
+      icon: const Icon(Icons.wallpaper_outlined, size: 18),
+    );
+  }
+}
+
 class _ExhibitionAssetCaptureAction extends StatelessWidget {
   final String itemId;
   final List<StudioAssetCaptureDraft> drafts;
@@ -2664,6 +3589,82 @@ Future<void> _showLegacyPreview(
   );
 }
 
+class _DeleteDialogResult {
+  final bool confirmed;
+  final bool deleteLocalFiles;
+
+  const _DeleteDialogResult({
+    required this.confirmed,
+    this.deleteLocalFiles = false,
+  });
+
+  static const cancelled = _DeleteDialogResult(confirmed: false);
+}
+
+Future<_DeleteDialogResult> _showScriptDeleteDialog({
+  required BuildContext context,
+  required String title,
+  required String message,
+  required ValueKey<String> confirmKey,
+}) async {
+  var deleteLocalFiles = false;
+  final result = await showDialog<_DeleteDialogResult>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: StudioTokens.surface2,
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(message),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  key: const ValueKey(
+                    'script-exhibition-delete-local-files',
+                  ),
+                  value: deleteLocalFiles,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      deleteLocalFiles = value ?? false;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('同时删除本地图片文件'),
+                  subtitle: const Text('不会删除原始剧本目录或源文件。'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(context).pop(_DeleteDialogResult.cancelled),
+                child: const Text('取消'),
+              ),
+              FilledButton.icon(
+                key: confirmKey,
+                onPressed: () => Navigator.of(context).pop(
+                  _DeleteDialogResult(
+                    confirmed: true,
+                    deleteLocalFiles: deleteLocalFiles,
+                  ),
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('删除'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  return result ?? _DeleteDialogResult.cancelled;
+}
+
 Future<bool> _showDeleteDialog({
   required BuildContext context,
   required String title,
@@ -2697,10 +3698,10 @@ Future<bool> _showDeleteDialog({
 
 String _sourceLabel(ScriptExhibitionItemSourceKind kind) {
   if (kind == ScriptExhibitionItemSourceKind.attachment) {
-    return '剧本图片';
+    return '导入图片';
   }
   return switch (kind) {
-    ScriptExhibitionItemSourceKind.attachment => '剧本图片',
+    ScriptExhibitionItemSourceKind.attachment => '导入图片',
     ScriptExhibitionItemSourceKind.original => '原始剧本',
     ScriptExhibitionItemSourceKind.generated => '批量新图',
     ScriptExhibitionItemSourceKind.queued => '待处理',

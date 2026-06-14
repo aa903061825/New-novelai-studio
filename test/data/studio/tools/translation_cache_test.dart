@@ -87,6 +87,34 @@ void main() {
       });
     });
 
+    test('mergeMissingFrom imports usable misses without overwriting entries',
+        () {
+      final cache = TranslationCache(clock: () => 1710000000)
+        ..setManual('blue eyes', 'manual-blue');
+      final refreshed = TranslationCache.fromJson({
+        'blue eyes_en2zh': {
+          'translation': 'disk-blue',
+          'source': 'ai',
+          'ts': 1710000001,
+        },
+        'green_eyes_en2zh': {
+          'translation': 'cached-green',
+          'source': 'ai',
+          'ts': 1710000002,
+        },
+        'bad_en2zh': {
+          'translation': "I'm sorry, I cannot assist with that.",
+          'source': 'ai',
+          'ts': 1710000003,
+        },
+      });
+
+      expect(cache.mergeMissingFrom(refreshed), 1);
+      expect(cache.getCached('blue eyes'), 'manual-blue');
+      expect(cache.getCached('green_eyes'), 'cached-green');
+      expect(cache.getCached('bad'), isNull);
+    });
+
     test('translation lookup falls back to cleaned weighted tags', () {
       final cache = TranslationCache();
       cache.setCached('masterpiece', '杰作', source: 'manual');

@@ -148,6 +148,26 @@ void main() {
       expect(identity, 'custom_hero');
     });
 
+    test('preserves weights on explicit identity tags', () {
+      const character = CharacterEntry(
+        id: 'weighted',
+        name: 'Weighted',
+        traits: ViewVariantTexts(frontFull: 'library_hero, green eyes'),
+        anchorTags: ['1.25::library_hero::'],
+        identityTags: ['0.75::green eyes::'],
+      );
+
+      final identity = deriveCharacterIdentityPromptExcluding(
+        character,
+        const RecastPromptParts(),
+      );
+
+      expect(
+        identity,
+        '1.25:: library_hero ::, 0.75:: green eyes ::',
+      );
+    });
+
     test('drops skin aliases when the base character anchor is present', () {
       const character = CharacterEntry(
         id: 'papyrus',

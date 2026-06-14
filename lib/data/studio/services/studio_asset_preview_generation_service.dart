@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -184,6 +185,79 @@ class StudioAssetPreviewGenerationService {
     return outputPath;
   }
 
+  Future<void> discardArtistChainPreview(
+    String id,
+    String previewPath,
+  ) async {
+    final chains = await workspaceService.loadArtistChains();
+    final chainIndex = _indexById(chains, id);
+    if (chainIndex < 0) {
+      throw StudioAssetPreviewGenerationException(
+        'Artist chain "$id" was not found while discarding preview.',
+      );
+    }
+    final chain = chains[chainIndex];
+    final updatedChain = chain.copyWith(
+      imageRefs: _removePreviewRef(chain.imageRefs, previewPath),
+    );
+    await workspaceService.saveArtistChains(
+      [...chains]..[chainIndex] = updatedChain,
+    );
+    _deleteLocalPreviewFile(previewPath);
+  }
+
+  Future<void> discardCharacterPreview(
+    String id,
+    String previewPath,
+  ) async {
+    final characters = await workspaceService.loadCharacters();
+    final characterIndex = _indexById(characters, id);
+    if (characterIndex < 0) {
+      throw StudioAssetPreviewGenerationException(
+        'Character "$id" was not found while discarding preview.',
+      );
+    }
+    final character = characters[characterIndex];
+    final updatedCharacter = character.copyWith(
+      imageRefs: _removePreviewRef(character.imageRefs, previewPath),
+    );
+    await workspaceService.saveCharacters(
+      [...characters]..[characterIndex] = updatedCharacter,
+    );
+    _deleteLocalPreviewFile(previewPath);
+  }
+
+  Future<void> discardOutfitPreview(
+    String characterId,
+    String outfitId,
+    String previewPath,
+  ) async {
+    final characters = await workspaceService.loadCharacters();
+    final characterIndex = _indexById(characters, characterId);
+    if (characterIndex < 0) {
+      throw StudioAssetPreviewGenerationException(
+        'Character "$characterId" was not found while discarding preview.',
+      );
+    }
+    final character = characters[characterIndex];
+    final outfitIndex = _outfitIndexById(character.outfits, outfitId);
+    if (outfitIndex < 0) {
+      throw StudioAssetPreviewGenerationException(
+        'Outfit "$outfitId" was not found while discarding preview.',
+      );
+    }
+    final outfits = [...character.outfits];
+    final outfit = outfits[outfitIndex];
+    outfits[outfitIndex] = _withOutfitImageRefs(
+      outfit,
+      _removePreviewRef(outfit.imageRefs, previewPath),
+    );
+    await workspaceService.saveCharacters(
+      [...characters]..[characterIndex] = character.copyWith(outfits: outfits),
+    );
+    _deleteLocalPreviewFile(previewPath);
+  }
+
   GenerationSize _randomSize() {
     final index = _boundedRandomInt(_previewSizes.length);
     return _previewSizes[index];
@@ -302,6 +376,8 @@ class StudioAssetPreviewGenerationService {
   }
 
   Iterable<String> _characterTermsForOutfit(CharacterEntry character) sync* {
+    final normalizeSkinVariants =
+        _shouldNormalizeCharacterSkinVariants(character);
     for (final tag in [
       character.name,
       character.traits.frontFull,
@@ -312,7 +388,9 @@ class StudioAssetPreviewGenerationService {
     ]) {
       for (final part in _splitPrompt(tag)) {
         if (_isOutfitSpecificIdentityLeak(part)) continue;
-        yield part;
+        yield normalizeSkinVariants
+            ? _baseCharacterIdentityForSkinVariant(part)
+            : part;
       }
     }
   }
@@ -325,9 +403,57 @@ class StudioAssetPreviewGenerationService {
   }
 
   Iterable<String> _characterTerms(CharacterEntry character) sync* {
-    yield character.traits.frontFull;
-    yield* character.identityTags;
-    yield* character.anchorTags;
+    final normalizeSkinVariants =
+        _shouldNormalizeCharacterSkinVariants(character);
+    yield* _characterTermParts(
+      character.traits.frontFull,
+      normalizeSkinVariants: normalizeSkinVariants,
+    );
+    for (final tag in character.identityTags) {
+      yield* _characterTermParts(
+        tag,
+        normalizeSkinVariants: normalizeSkinVariants,
+      );
+    }
+    for (final tag in character.anchorTags) {
+      yield* _characterTermParts(
+        tag,
+        normalizeSkinVariants: normalizeSkinVariants,
+      );
+    }
+  }
+
+  bool _shouldNormalizeCharacterSkinVariants(CharacterEntry character) {
+    return character.source.type == 'legacy_artist_workbook';
+  }
+
+  Iterable<String> _characterTermParts(
+    String value, {
+    required bool normalizeSkinVariants,
+  }) sync* {
+    for (final part in _splitPrompt(value)) {
+      yield normalizeSkinVariants
+          ? _baseCharacterIdentityForSkinVariant(part)
+          : part;
+    }
+  }
+
+  String _baseCharacterIdentityForSkinVariant(String tag) {
+    final value = tag.trim();
+    if (value.isEmpty || value.contains(':')) return tag;
+    final match = RegExp(r'^(.+?)([_\s])(?:\([^()]+\)[_\s])+\(([^()]+)\)$')
+        .firstMatch(value);
+    if (match == null) return tag;
+    final baseName = match.group(1)?.trim();
+    final series = match.group(3)?.trim();
+    if (baseName == null ||
+        baseName.isEmpty ||
+        series == null ||
+        series.isEmpty) {
+      return tag;
+    }
+    final separator = match.group(2) == '_' ? '_' : ' ';
+    return '$baseName$separator($series)';
   }
 
   Iterable<String> _outfitTerms(WorkspaceOutfit outfit) sync* {
@@ -367,6 +493,25 @@ class StudioAssetPreviewGenerationService {
       return List.unmodifiable(refs);
     }
     return List.unmodifiable([...refs, trimmed]);
+  }
+
+  List<String> _removePreviewRef(List<String> refs, String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return List.unmodifiable(refs);
+    return List.unmodifiable([
+      for (final ref in refs)
+        if (ref.trim() != trimmed) ref,
+    ]);
+  }
+
+  void _deleteLocalPreviewFile(String previewPath) {
+    if (previewPath.trim().isEmpty) return;
+    try {
+      final file = File(previewPath);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {
+      // Catalog state is authoritative; file cleanup is best effort.
+    }
   }
 
   int _boundedRandomInt(int maxExclusive) {

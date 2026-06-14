@@ -288,6 +288,32 @@ void main() {
     expect(encoded, isNot(contains('pst-saved-secret')));
   });
 
+  test('PromptChunkEntry round trips and inserts local prompt chunks', () {
+    const chunk = PromptChunkEntry(
+      id: 'chunk-1',
+      name: 'Hair randomizer',
+      prompt: '||red hair|blue hair|green hair||',
+      negativePrompt: 'bad hair',
+      tags: ['hair', 'randomizer'],
+      note: 'official randomizer syntax',
+    );
+
+    final restored = PromptChunkEntry.fromJson(chunk.toJson());
+
+    expect(restored.prompt, '||red hair|blue hair|green hair||');
+    expect(restored.negativePrompt, 'bad hair');
+    expect(restored.tags, ['hair', 'randomizer']);
+    expect(
+      restored.insertIntoPrompt('1girl, rain'),
+      '1girl, rain, ||red hair|blue hair|green hair||',
+    );
+    expect(
+      restored.insertIntoPrompt('1girl, rain', prepend: true),
+      '||red hair|blue hair|green hair||, 1girl, rain',
+    );
+    expect(restored.insertIntoPrompt(''), '||red hair|blue hair|green hair||');
+  });
+
   test('BatchPlan sanitizes item and status snapshots', () {
     final batchPlan = BatchPlan(
       id: 'batch-1',

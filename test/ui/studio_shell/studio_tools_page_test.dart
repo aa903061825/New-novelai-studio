@@ -11,9 +11,9 @@ import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
 import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
 import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
 import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
+import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
 import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:nai_casrand/ui/studio_shell/widgets/studio_tools_page.dart';
 
 void main() {
@@ -280,6 +280,12 @@ void main() {
         ),
       },
     );
+    final classificationCache = PromptTagClassificationCache()
+      ..setCategory(
+        'blue eyes',
+        PromptTagCategory.upperBody,
+        source: 'manual-test',
+      );
     TranslationCache? saved;
     final service = _FakePromptTranslationService((request) async {
       expect(request.text, 'blue eyes');
@@ -295,6 +301,7 @@ void main() {
         home: StudioToolsPage(
           payloadConfig: payload,
           translationCache: cache,
+          classificationCache: classificationCache,
           saveTranslationCache: (next) async {
             saved = next;
           },
@@ -317,11 +324,15 @@ void main() {
       find.byKey(const ValueKey('translation-cache-dialog')),
       findsOneWidget,
     );
-    expect(find.byType(PromptTagDisplay), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('translation-cache-entry-list')),
+      findsOneWidget,
+    );
     expect(find.text('blue eyes'), findsOneWidget);
+    expect(find.text('上身'), findsOneWidget);
     await tester.tap(
       find.byKey(
-        const ValueKey('prompt-tag-chip-blue eyes-0-idle'),
+        const ValueKey('translation-cache-entry-blue eyes_en2zh'),
       ),
     );
     await tester.pumpAndSettle();
@@ -347,6 +358,76 @@ void main() {
       saved?.entryFor('blue eyes')?.source,
       'ai-refresh',
     );
+  });
+
+  testWidgets('translation cache dialog virtualizes large cache entries',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final payload = _emptyPayload();
+    final cache = TranslationCache(
+      entries: {
+        for (var index = 0; index < 18000; index++)
+          TranslationCache.cacheKey(
+            'tag-${index.toString().padLeft(5, '0')}',
+          ): TranslationCacheEntry(
+            translation: 'zh-$index',
+            source: 'bulk',
+            ts: index,
+          ),
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StudioToolsPage(
+          payloadConfig: payload,
+          translationCache: cache,
+          saveTranslationCache: (_) async {},
+        ),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('studio-tool-card-translation-cache')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('studio-tools-translation-open')),
+    );
+    await tester
+        .tap(find.byKey(const ValueKey('studio-tools-translation-open')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('translation-cache-dialog')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('translation-cache-entry-list')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('translation-cache-tag-display')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('translation-cache-entry-tag-17999_en2zh')),
+      findsNothing,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('translation-cache-search')),
+      'tag-17999',
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('translation-cache-entry-tag-17999_en2zh')),
+      findsOneWidget,
+    );
+    expect(find.text('zh-17999'), findsAtLeastNWidgets(1));
   });
 
   testWidgets(

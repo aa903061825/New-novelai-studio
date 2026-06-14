@@ -133,40 +133,36 @@ void main() {
   test(
     'loadScripts prunes legacy duplicates for the same source folder',
     () async {
-      final older = service
-          .createDraftFromSources(
-            name: 'Older folder draft',
-            sourceFolder: r'C:\shots',
-            sources: const [
-              TokenizerScriptDraftSource(
-                fileName: '001.json',
-                path: r'C:\shots\001.json',
-                kind: TokenizerScriptSourceKind.json,
-                payload: {'Description': 'artist:older_a, older import'},
-              ),
-            ],
-          )
-          .copyWith(
-            scriptId: 'legacy-script-old',
-            updatedAt: DateTime.parse('2026-06-01T08:00:00Z'),
-          );
-      final newer = service
-          .createDraftFromSources(
-            name: 'Newer folder draft',
-            sourceFolder: r'C:/shots/',
-            sources: const [
-              TokenizerScriptDraftSource(
-                fileName: '001.json',
-                path: r'C:/shots/001.json',
-                kind: TokenizerScriptSourceKind.json,
-                payload: {'Description': 'artist:newer_a, newer import'},
-              ),
-            ],
-          )
-          .copyWith(
-            scriptId: 'legacy-script-new',
-            updatedAt: DateTime.parse('2026-06-02T08:00:00Z'),
-          );
+      final older = service.createDraftFromSources(
+        name: 'Older folder draft',
+        sourceFolder: r'C:\shots',
+        sources: const [
+          TokenizerScriptDraftSource(
+            fileName: '001.json',
+            path: r'C:\shots\001.json',
+            kind: TokenizerScriptSourceKind.json,
+            payload: {'Description': 'artist:older_a, older import'},
+          ),
+        ],
+      ).copyWith(
+        scriptId: 'legacy-script-old',
+        updatedAt: DateTime.parse('2026-06-01T08:00:00Z'),
+      );
+      final newer = service.createDraftFromSources(
+        name: 'Newer folder draft',
+        sourceFolder: r'C:/shots/',
+        sources: const [
+          TokenizerScriptDraftSource(
+            fileName: '001.json',
+            path: r'C:/shots/001.json',
+            kind: TokenizerScriptSourceKind.json,
+            payload: {'Description': 'artist:newer_a, newer import'},
+          ),
+        ],
+      ).copyWith(
+        scriptId: 'legacy-script-new',
+        updatedAt: DateTime.parse('2026-06-02T08:00:00Z'),
+      );
       await workspaceService.saveTokenizerScripts([older, newer]);
 
       final loaded = await service.loadScripts();
@@ -263,21 +259,21 @@ void main() {
   test('exports sanitized script document and imports it back', () {
     final script = service
         .createDraftFromSources(
-          name: 'Export draft',
-          sourceFolder: r'C:\secret\shots',
-          sources: _threeSources(),
-        )
+      name: 'Export draft',
+      sourceFolder: r'C:\secret\shots',
+      sources: _threeSources(),
+    )
         .copyWith(
-          pipelineExportConfig: const {
-            'handoff': 'oneImageOneTask',
-            'apiKey': 'sk-secret-key',
-            'nested': {'Authorization': 'Bearer secret-token', 'safe': 'kept'},
-          },
-          legacyExportConfig: const {
-            'password': 'hunter2',
-            'endpoint': 'https://example.invalid',
-          },
-        );
+      pipelineExportConfig: const {
+        'handoff': 'oneImageOneTask',
+        'apiKey': 'sk-secret-key',
+        'nested': {'Authorization': 'Bearer secret-token', 'safe': 'kept'},
+      },
+      legacyExportConfig: const {
+        'password': 'hunter2',
+        'endpoint': 'https://example.invalid',
+      },
+    );
 
     final document = service.exportScriptDocument(script);
     final encoded = document.toString();
@@ -551,7 +547,7 @@ void main() {
   });
 
   test(
-    'adds renames removes and serializes script-scoped image attachments',
+    'renames removes and serializes versioned image attachments',
     () {
       final now = DateTime.parse('2026-06-03T10:00:00Z');
       final script = service.createDraftFromSources(
@@ -573,20 +569,39 @@ void main() {
         ],
       );
 
-      final attached = service.addImageAttachments(
-        script,
-        imagePaths: const [
-          r'C:\shots\render_001.png',
-          r'C:\shots\render_002.png',
+      final attached = script.copyWith(
+        imageAttachments: [
+          TokenizerScriptImageAttachment(
+            attachmentId: 'versioned-1',
+            imagePath: r'C:\shots\render_001.png',
+            label: 'Frame 1',
+            versionId: 'script-image-version-1',
+            versionLabel: '导入图片 1',
+            frameIndex: 1,
+            sourceFileName: 'scene_001.json',
+            prompt: 'artist:json_a, first scene',
+            payload: const {'input': 'artist:json_a, first scene'},
+            createdAt: now,
+          ),
+          TokenizerScriptImageAttachment(
+            attachmentId: 'versioned-2',
+            imagePath: r'C:\shots\render_002.png',
+            label: 'Frame 2',
+            versionId: 'script-image-version-1',
+            versionLabel: '导入图片 1',
+            frameIndex: 2,
+            sourceFileName: 'scene_002.json',
+            prompt: 'artist:json_b, second scene',
+            payload: const {'input': 'artist:json_b, second scene'},
+            createdAt: now,
+          ),
         ],
-        createdAt: now,
-        labelPrefix: 'Default ',
       );
 
       expect(attached.imageAttachments, hasLength(2));
       expect(attached.imageAttachments.map((attachment) => attachment.label), [
-        'Default 1',
-        'Default 2',
+        'Frame 1',
+        'Frame 2',
       ]);
       expect(
         attached.imageAttachments.map((attachment) => attachment.frameIndex),
@@ -608,6 +623,8 @@ void main() {
 
       final restored = TokenizerScript.fromJson(renamed.toJson());
       expect(restored.imageAttachments.last.label, 'Role swap 2');
+      expect(restored.imageAttachments.last.versionLabel, '导入图片 1');
+      expect(restored.imageAttachments.last.prompt, contains('second scene'));
       expect(
         restored.imageAttachments.last.imagePath,
         r'C:\shots\render_002.png',
@@ -620,6 +637,119 @@ void main() {
       expect(removed.imageAttachments.map((attachment) => attachment.label), [
         'Role swap 2',
       ]);
+    },
+  );
+
+  test(
+    'adds ordered image attachments as a new version with JSON metadata',
+    () async {
+      final sourceDir = await Directory.systemTemp.createTemp(
+        'tokenizer-image-version-',
+      );
+      addTearDown(() async {
+        if (await sourceDir.exists()) {
+          await sourceDir.delete(recursive: true);
+        }
+      });
+      await File('${sourceDir.path}\\p001.json').writeAsString(
+        jsonEncode({
+          'Description': 'artist:first, first json prompt',
+          'width': 832,
+          'height': 1216,
+        }),
+      );
+      await File('${sourceDir.path}\\p002.json').writeAsString(
+        jsonEncode({
+          'Description': 'artist:second, second json prompt',
+          'steps': 28,
+          'scale': 4.0,
+        }),
+      );
+      await File('${sourceDir.path}\\p010.json').writeAsString(
+        jsonEncode({
+          'Description': 'artist:tenth, tenth json prompt',
+          'seed': 123,
+        }),
+      );
+
+      final script = service.createDraftFromSources(
+        name: 'Version script',
+        sourceFolder: sourceDir.path,
+        sources: [
+          TokenizerScriptDraftSource(
+            fileName: 'p001.json',
+            path: '${sourceDir.path}\\p001.json',
+            kind: TokenizerScriptSourceKind.json,
+            payload: {'Description': 'artist:first, first json prompt'},
+          ),
+          TokenizerScriptDraftSource(
+            fileName: 'p002.json',
+            path: '${sourceDir.path}\\p002.json',
+            kind: TokenizerScriptSourceKind.json,
+            payload: {'Description': 'artist:second, second json prompt'},
+          ),
+          TokenizerScriptDraftSource(
+            fileName: 'p010.json',
+            path: '${sourceDir.path}\\p010.json',
+            kind: TokenizerScriptSourceKind.json,
+            payload: {'Description': 'artist:tenth, tenth json prompt'},
+          ),
+        ],
+      );
+
+      final versioned = await service.addImageAttachmentVersion(
+        script,
+        imagePaths: [
+          '${sourceDir.path}\\render_p10.png',
+          '${sourceDir.path}\\render_p2.png',
+          '${sourceDir.path}\\render_p1.png',
+        ],
+        createdAt: DateTime.parse('2026-06-10T10:00:00Z'),
+      );
+
+      expect(versioned.imageAttachments, hasLength(3));
+      expect(
+        versioned.imageAttachments.map((attachment) => attachment.imagePath),
+        [
+          '${sourceDir.path}\\render_p1.png',
+          '${sourceDir.path}\\render_p2.png',
+          '${sourceDir.path}\\render_p10.png',
+        ],
+      );
+      expect(
+        versioned.imageAttachments.map((attachment) => attachment.versionId),
+        everyElement(versioned.imageAttachments.first.versionId),
+      );
+      expect(versioned.imageAttachments.first.versionLabel, '导入图片 1');
+      expect(
+        versioned.imageAttachments.map((attachment) => attachment.frameIndex),
+        [1, 2, 3],
+      );
+      expect(
+        versioned.imageAttachments.map((attachment) => attachment.prompt),
+        [
+          'artist:first, first json prompt',
+          'artist:second, second json prompt',
+          'artist:tenth, tenth json prompt',
+        ],
+      );
+      expect(
+        versioned.imageAttachments.map(
+          (attachment) => attachment.sourceFileName,
+        ),
+        ['p001.json', 'p002.json', 'p010.json'],
+      );
+      expect(
+        versioned.imageAttachments.first.payload['parameters'],
+        containsPair('width', 832),
+      );
+
+      final restored = TokenizerScript.fromJson(versioned.toJson());
+      expect(restored.imageAttachments.first.versionLabel, '导入图片 1');
+      expect(
+        restored.imageAttachments.last.prompt,
+        'artist:tenth, tenth json prompt',
+      );
     },
   );
 

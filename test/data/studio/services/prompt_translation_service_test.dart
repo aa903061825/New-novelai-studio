@@ -43,6 +43,77 @@ void main() {
     expect(googleCalls, 0);
   });
 
+  test('reloads disk cache before provider when in-memory cache misses',
+      () async {
+    final cache = buildCache();
+    final refreshedCache = buildCache()
+      ..setCached('green_eyes', 'cached-green', source: 'ai');
+    var reloadCalls = 0;
+    var googleCalls = 0;
+    final service = DefaultPromptTranslationService(
+      translationCache: cache,
+      settingsProvider: () => Settings.fromJson({
+        'translation_provider': 'google',
+      }),
+      translationCacheReloader: () async {
+        reloadCalls += 1;
+        return refreshedCache;
+      },
+      googleProvider: (request, settings) async {
+        googleCalls += 1;
+        return const OnlineTranslationProviderResult(
+          translatedText: 'network-green',
+          providerName: 'google',
+        );
+      },
+      aiProvider: (request, settings) async {
+        throw StateError('AI provider should not run');
+      },
+    );
+
+    final result = await service.translate(
+      const OnlineTranslationRequest(text: 'green_eyes', targetLanguage: 'zh'),
+    );
+
+    expect(result.text, 'cached-green');
+    expect(result.source, OnlineAiResultSource.localFallback);
+    expect(result.providerName, 'translation-cache');
+    expect(reloadCalls, 1);
+    expect(googleCalls, 0);
+    expect(cache.getCached('green_eyes'), 'cached-green');
+  });
+
+  test('forced retranslate reports provider failure instead of cached fallback',
+      () async {
+    final cache = buildCache()
+      ..setCached('green_eyes', 'cached-green', source: 'ai');
+    var googleCalls = 0;
+    final service = DefaultPromptTranslationService(
+      translationCache: cache,
+      settingsProvider: () => Settings.fromJson({
+        'translation_provider': 'google',
+      }),
+      googleProvider: (request, settings) async {
+        googleCalls += 1;
+        throw StateError('network unavailable');
+      },
+      aiProvider: (request, settings) async {
+        throw StateError('AI provider should not run');
+      },
+    );
+
+    final result = await service.translate(
+      const OnlineTranslationRequest(text: 'green_eyes', targetLanguage: 'zh'),
+      preferCache: false,
+    );
+
+    expect(googleCalls, 1);
+    expect(result.text, isEmpty);
+    expect(result.source, OnlineAiResultSource.emptyFallback);
+    expect(result.providerName, isNull);
+    expect(result.error, contains('network unavailable'));
+  });
+
   test('uses reverse cache hit for Chinese input before provider', () async {
     final cache = buildCache()..setManual('blue eyes', '\u84dd\u773c\u775b');
     var googleCalls = 0;

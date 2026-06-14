@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
+import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
 import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
@@ -365,6 +366,47 @@ void main() {
       final character = (await workspaceService.loadCharacters()).single;
       expect(character.outfits.map((outfit) => outfit.id), ['travel']);
       expect(character.defaultOutfitId, 'travel');
+    });
+
+    test(
+        'adding an outfit to a legacy imported character preserves it for the asset catalog',
+        () async {
+      await workspaceService.saveCharacters([
+        const CharacterEntry(
+          id: 'legacy-parent',
+          name: 'Legacy Parent',
+          traits: ViewVariantTexts(frontFull: 'blue eyes'),
+          source: SourceRef(type: 'legacy_artist_workbook'),
+          defaultOutfitId: 'default-outfit',
+          outfits: [
+            WorkspaceOutfit(
+              id: 'default-outfit',
+              name: 'Default Outfit',
+              tags: ViewVariantTexts(frontFull: 'school uniform'),
+            ),
+          ],
+        ),
+      ]);
+      final draft = StudioAssetCaptureDraft.outfit(
+        outfit: _outfit(id: 'travel', name: 'Travel', tags: 'coat, boots'),
+        parentCharacterId: 'legacy-parent',
+        source: _source,
+      );
+
+      await service.save(draft);
+
+      final character = (await workspaceService.loadCharacters()).single;
+      expect(character.source.type, 'manual');
+      expect(
+        character.outfits.map((outfit) => outfit.id),
+        ['default-outfit', 'travel'],
+      );
+
+      final snapshot = await StudioAssetCatalogService(
+        workspaceService: workspaceService,
+      ).loadSnapshot();
+      expect(snapshot.summary.outfitCount, 2);
+      expect(snapshot.characters.single.outfits, hasLength(2));
     });
 
     test('offers outfit candidates within parent by name and front full tags',

@@ -1713,7 +1713,7 @@ String _scriptIdForDirectory(Directory directory) {
       .where((part) => part.trim().isNotEmpty)
       .toList(growable: false);
   final label = parts.isEmpty ? 'script' : parts.last;
-  return stableIdFromText(prefix: 'script', text: path, label: label);
+  return stableIdFromText(prefix: 'script', text: normalizedPath, label: label);
 }
 
 String _directoryName(Directory directory) {
@@ -1725,6 +1725,10 @@ String _directoryName(Directory directory) {
 String _fileName(File file) {
   final normalized = file.path.replaceAll('\\', '/');
   return normalized.split('/').last;
+}
+
+String _normalizePath(String path) {
+  return path.trim().replaceAll('\\', '/').replaceFirst(RegExp(r'/+$'), '');
 }
 
 int _naturalCompare(String left, String right) {
@@ -1758,9 +1762,9 @@ List<String> _naturalSortParts(String value) {
 String _sourceFingerprint(Script script) {
   final parts = [
     script.id,
-    script.rootPath,
+    _normalizePath(script.rootPath),
     for (final frame in script.frames)
-      '${frame.index}:${frame.fileName}:${frame.sourcePath}:'
+      '${frame.index}:${frame.fileName}:${_normalizePath(frame.sourcePath)}:'
           '${_stableContentHash(frame.rawJson)}',
   ];
   return parts.join('|');

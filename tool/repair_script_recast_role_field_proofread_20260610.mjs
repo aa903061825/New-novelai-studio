@@ -50,6 +50,53 @@ const summary = {
   files: [],
 };
 
+const BANNED_FIELD_TERM_KEYS = new Set([
+  'adjusting hair',
+  'averting eyes',
+  'avertising eyes',
+  'bound legs',
+  'breasts squeezed together',
+  'covering one eye',
+  'covering eyes',
+  'dashed eyes',
+  'feet up',
+  'fingering through clothes',
+  'foot on another',
+  'foot on another s face',
+  'hair spread out',
+  'hands in another s clothes',
+  'hands on another',
+  'hands on another s clothes',
+  'hands on another s legs',
+  'hands on skirt',
+  'heart in eye',
+  'heart in eyes',
+  'leg hold',
+  'leg lock',
+  'legs behind head',
+  'm legs',
+  'fetal position',
+  'imminent attack',
+  'narrowed eyes',
+  'one breast out',
+  'pants pull',
+  'pantyhose pull',
+  'partially submerged',
+  'presenting removed panties',
+  'presenting_removed_panties',
+  'shirt lift',
+  'sideways glance',
+  'strap slip',
+  'strap slips',
+  'swimsuit pull',
+  'one piece swimsuit pull',
+  'tail grab',
+  'uneven eyes',
+  'upturned eyes',
+  'upright straddle',
+  'washing hair',
+]);
+
 for (const fileName of files) {
   const filePath = path.join(cacheDir, fileName);
   const cache = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -94,27 +141,9 @@ function cleanExtraction(cache, frameTextByIndex, fileReport) {
     delete extraction.raw_response;
     summary.raw_responses_removed += 1;
   }
-  if (Array.isArray(extraction.attention_items) && extraction.attention_items.length > 0) {
-    extraction.attention_items = [];
-    summary.diagnostics_cleared += 1;
-  }
-  if (Array.isArray(extraction.unassigned_terms) && extraction.unassigned_terms.length > 0) {
-    extraction.unassigned_terms = [];
-    summary.diagnostics_cleared += 1;
-  }
-
   for (const role of Array.isArray(extraction.roles) ? extraction.roles : []) {
     const roleBefore = JSON.stringify(role);
     const allRoleTerms = [];
-
-    if (Array.isArray(role.warnings) && role.warnings.length > 0) {
-      role.warnings = [];
-      summary.diagnostics_cleared += 1;
-    }
-    if (Array.isArray(role.unassigned_terms) && role.unassigned_terms.length > 0) {
-      role.unassigned_terms = [];
-      summary.diagnostics_cleared += 1;
-    }
 
     for (const stage of Array.isArray(role.stages) ? role.stages : []) {
       const before = JSON.stringify(stage);
@@ -140,13 +169,8 @@ function cleanExtraction(cache, frameTextByIndex, fileReport) {
       stage.missing_fields = Array.isArray(stage.missing_fields)
         ? stage.missing_fields.filter((field) => field.startsWith('missing_'))
         : [];
-      stage.warnings = [];
       stage.field_reasons = cleanFieldReasons(stage.field_reasons);
-      if ('non_role' in stage || 'non_role_materialized' in stage) {
-        summary.non_role_fields_cleared += 1;
-        delete stage.non_role;
-        delete stage.non_role_materialized;
-      }
+      sanitizeStageNonRole(stage, corpus, fileReport);
       stage.label = labelForStage(stage.label, clean);
 
       allRoleTerms.push(...stage.evidence_terms);
@@ -166,6 +190,37 @@ function cleanExtraction(cache, frameTextByIndex, fileReport) {
       // Count role-level diagnostics once; stage field counts are tracked in sanitizeFiveFields.
     }
   }
+}
+
+function sanitizeStageNonRole(stage, corpus, fileReport) {
+  if (!('non_role' in stage) && !('non_role_materialized' in stage)) return;
+  const before = stringValue(stage.non_role);
+  const kept = [];
+  for (const term of splitTerms(before)) {
+    if (!termHasEvidence(term, corpus)) {
+      summary.non_role_fields_cleared += 1;
+      if (fileReport.samples.length < 20) {
+        fileReport.samples.push({
+          reason: 'non_role_no_source_evidence',
+          term: redactIfNeeded(term),
+        });
+      }
+      continue;
+    }
+    kept.push(term);
+  }
+  const after = uniqueTerms(kept).join(', ');
+  if (after) {
+    stage.non_role = after;
+    stage.non_role_materialized = true;
+    if (after !== before || stage.non_role_materialized !== true) {
+      summary.non_role_fields_cleared += 1;
+    }
+    return;
+  }
+  summary.non_role_fields_cleared += 1;
+  delete stage.non_role;
+  delete stage.non_role_materialized;
 }
 
 function cleanMapping(cache, frameTextByIndex, fileReport) {
@@ -269,13 +324,14 @@ function routeTerm(field, term) {
   if (shouldDropTerm(term)) return null;
   const key = termKey(term);
   if (!key) return null;
+  if (isNamedCharacterTerm(term)) return 'identity';
   if (field === 'identity') {
     if (isIdentityTerm(term)) return 'identity';
   }
   if (isLowerClothingTerm(term)) return 'lowerClothing';
   if (isUpperClothingTerm(term)) return 'upperClothing';
-  if (isUpperBodyTerm(term)) return 'upperBody';
   if (isLowerBodyTerm(term)) return 'lowerBody';
+  if (isUpperBodyTerm(term)) return 'upperBody';
   if (field === 'upperBody' || field === 'lowerBody') return field;
   return null;
 }
@@ -283,6 +339,8 @@ function routeTerm(field, term) {
 function shouldDropTerm(term) {
   const normalized = termKey(term);
   if (!normalized) return true;
+  if (BANNED_FIELD_TERM_KEYS.has(normalized)) return true;
+  if (isPureFranchiseQualifierTerm(term)) return true;
   if (/^(none|null|nil|unknown|n\/a|empty|other|stage|slot|source slot)$/u.test(normalized)) {
     return true;
   }
@@ -299,7 +357,7 @@ function shouldDropTerm(term) {
 }
 
 function transientPattern() {
-  return /\b(gym|exercise|workout|yoga pose|pose|push up|wooden floor|floor|bed|pillow|room|hallway|background|camera|pov|close up|from side|side view|dutch angle|looking|standing|sitting|kneeling|lying|running|walking|stretching|bending|squatting|spread legs|arms up|hands up|holding|grabbing|touching|hand over mouth|stun gun|toward another|fingering|sex|intercourse|masturbat|penetrat|cum|semen|orgasm|saliva|pussy|penis|nipples?|areola|navel|ass|butt|stomach bulge|thighs?|blush|nose blush|smile|open mouth|heavy breathing|tears|crying|angry|embarrassed|wet|sweaty|sweat|stained|torn|ripped|damaged|open towel|open clothes|taking off|take off|undressing|lifted|lifting|pulled|pulling|covered nipples|facial|leash handling)\b/u;
+  return /\b(gym|exercise|workout|yoga pose|pose|push up|wooden floor|floor|bed|pillow|room|hallway|background|camera|pov|close up|from side|side view|dutch angle|looking|sideways glance|standing|sitting|kneeling|lying|running|walking|stretching|bending|squatting|spread legs|m legs|fetal position|upright straddle|arms up|hands up|holding|grabbing|touching|hands on|hands in|hand over mouth|stun gun|toward another|licking|sucking|fingering|sex|intercourse|masturbat|penetrat|cum|semen|orgasm|saliva|pussy|penis|nipples?|areola|pubic|vibrator|sex toy|toy|navel|ass|butt|stomach bulge|thighs?|blush|nose blush|smile|open mouth|dashed eyes|covering eyes|covering one eye|heavy breathing|tears|crying|angry|embarrassed|wet|sweaty|sweat|stained|torn|ripped|damaged|naked|nude|open towel|open clothes|taking off|take off|undressing|lifted|lifting|pulled|pulling|pants pull|pantyhose pull|partially submerged|imminent attack|covered nipples|facial|leash handling)\b/u;
 }
 
 function patchKnownRoleIds(cache) {
@@ -320,13 +378,40 @@ function patchKnownRoleIds(cache) {
 
 function isIdentityTerm(term) {
   const key = termKey(term);
+  if (isNamedCharacterTerm(term)) return true;
   if (/^(1?girl|1?boy|woman|man|male|female|loli|child|boy|girl|multiple boys|multiple girls)$/u.test(key)) {
     return true;
   }
+  if (/^(pekomama|elf|monster|dog|cat|animal)$/u.test(key)) return true;
   if (isStructuralLabel(term) || shouldDropTerm(term)) return false;
   if (/[()]/u.test(term)) return true;
   if (isGarmentTerm(term) || isBodyDescriptorTerm(term)) return false;
   return key.includes('(') || /^[a-z0-9]+(?: [a-z0-9]+){1,5}$/u.test(key);
+}
+
+function isNamedCharacterTerm(term) {
+  const clean = cleanDisplayTerm(term);
+  if (!clean || isPureFranchiseQualifierTerm(clean)) return false;
+  const parens = [...clean.matchAll(/\(([^)]+)\)/gu)].map((item) => item[1].trim());
+  const base = clean.slice(0, clean.indexOf('(') >= 0 ? clean.indexOf('(') : clean.length).trim();
+  if (base && parens.some(isFranchiseQualifier)) return true;
+  const lower = clean.toLowerCase();
+  if (!lower.includes('_')) return false;
+  const key = termKey(clean);
+  if (isGarmentTerm(clean) || isBodyDescriptorTerm(clean) || transientPattern().test(key)) {
+    return false;
+  }
+  return /^[a-z][a-z0-9_]*(?:\([^)]+\)|_[a-z0-9]+)*(?:\s+cosplay)?$/iu.test(clean);
+}
+
+function isPureFranchiseQualifierTerm(term) {
+  const match = /^\(([^)]+)\)$/u.exec(cleanDisplayTerm(term));
+  return Boolean(match && isFranchiseQualifier(match[1]));
+}
+
+function isFranchiseQualifier(value) {
+  const key = normalizeForEvidence(value);
+  return /\b(princess connect|blue archive|genshin|honkai|star rail|azur lane|fate|date a live|girls und panzer|hololive|touhou|vocaloid|project sekai|arknights|umamusume|nikke|granblue|glanblue|kancolle|idolmaster|re zero|rezero)\b/u.test(key);
 }
 
 function isStructuralLabel(value) {
@@ -337,6 +422,7 @@ function isStructuralLabel(value) {
 
 function isUpperBodyTerm(term) {
   const key = termKey(term);
+  if (/\b(covering eyes|covering one eye|dashed eyes)\b/u.test(key)) return false;
   return /\b(hair|twintails?|twin tails?|ponytails?|braids?|headdress|ahoge|eyes?|ears?|horns?|halo|headband|headwear|hat|beret|ornament|ribbon|bow|tiara|necklace|choker|collar|earrings?|fang|teeth|breasts?|chest|skin|tattoo|mask)\b/u.test(key);
 }
 
@@ -347,12 +433,12 @@ function isLowerBodyTerm(term) {
 
 function isUpperClothingTerm(term) {
   const key = termKey(term);
-  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini top|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tank top)\b/u.test(key);
+  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini|bikini top|neckerchief|sailor collar|harness|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|apron|vest|suit|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tank top|cheerleader|nun)\b/u.test(key);
 }
 
 function isLowerClothingTerm(term) {
   const key = termKey(term);
-  return /\b(pants|trousers|shorts|skirt|miniskirt|panties|underwear|briefs|leggings|stockings?|socks?|thighhighs?|pantyhose|garter|shoes?|boots?|sandals?|heels?|loafers?|footwear|legwear|bikini bottom|swimsuit bottom|fundoshi|pelvic curtain|mary janes?)\b/u.test(key);
+  return /\b(pants|trousers|shorts|skirt|miniskirt|panties|underwear|briefs|leggings|stockings?|socks?|thighhighs?|pantyhose|garter|shoes?|boots?|sandals?|heels?|loafers?|sneakers?|footwear|legwear|bikini bottom|swimsuit bottom|fundoshi|pelvic curtain|mary janes?)\b/u.test(key);
 }
 
 function isGarmentTerm(term) {
@@ -597,11 +683,20 @@ function parseArgs(args) {
       parsed.apply = true;
       continue;
     }
+    if (arg === '--dry-run') {
+      parsed.apply = false;
+      continue;
+    }
     if (!arg.startsWith('--')) continue;
     const equal = arg.indexOf('=');
     const key = equal > 0 ? arg.slice(2, equal) : arg.slice(2);
-    const value = equal > 0 ? arg.slice(equal + 1) : args[index + 1] ?? '';
-    if (equal < 0) index += 1;
+    const value =
+      equal > 0
+        ? arg.slice(equal + 1)
+        : args[index + 1]?.startsWith('--')
+          ? ''
+          : args[index + 1] ?? '';
+    if (equal < 0 && value !== '') index += 1;
     if (key === 'cache-dir') parsed.cacheDir = value;
     if (key === 'backup-dir') parsed.backupDir = value;
     if (key === 'report') parsed.report = value;

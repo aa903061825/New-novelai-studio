@@ -40,9 +40,29 @@ Future<ImportScriptRecastImageSetCachesReport>
   await workspace.openWorkspace(workspaceRoot);
   final existingCaches = await workspace.loadRecastScriptCaches();
   final rows = <ImportScriptRecastImageSetCacheRow>[];
+  final promptBearingDirectoryCache = <String, bool>{};
 
   for (final directory in await _candidateDirectories(source, recursive)) {
     try {
+      if (await _shouldSkipNestedSidecarDirectory(
+        sourceRoot: source,
+        directory: directory,
+        promptBearingDirectoryCache: promptBearingDirectoryCache,
+      )) {
+        rows.add(ImportScriptRecastImageSetCacheRow(
+          status: 'skipped_nested_sidecar',
+          scriptId: _scriptIdForDirectory(directory),
+          scriptName: _directoryName(directory),
+          sourceRootPath: directory.path,
+          frameCount: 0,
+          cacheFileName: '',
+          message:
+              'Skipped image sidecar directory because an ancestor already '
+              'contains prompt-bearing script frames.',
+        ));
+        continue;
+      }
+
       final script = await _parseDirectory(directory);
       if (script.frames.isEmpty) {
         rows.add(ImportScriptRecastImageSetCacheRow(
@@ -259,7 +279,7 @@ String _scriptIdForDirectory(Directory directory) {
       .where((part) => part.trim().isNotEmpty)
       .toList(growable: false);
   final label = parts.isEmpty ? 'script' : parts.last;
-  return stableIdFromText(prefix: 'script', text: path, label: label);
+  return stableIdFromText(prefix: 'script', text: normalizedPath, label: label);
 }
 
 Future<List<_ScriptFrameSource>> _scriptFrameSources(
@@ -841,6 +861,17 @@ final _legacyScriptFrameFilePattern = RegExp(
   caseSensitive: false,
 );
 
+const _sidecarDirectoryNames = {
+  'png',
+  'image',
+  'images',
+  'img',
+  'imgs',
+  'preview',
+  'previews',
+  '_py_reorganized',
+};
+
 Future<List<Directory>> _candidateDirectories(
   Directory sourceRoot,
   bool recursive,
@@ -864,6 +895,69 @@ Future<List<Directory>> _candidateDirectories(
   }
   result.sort((left, right) => _naturalCompare(left.path, right.path));
   return List.unmodifiable(result);
+}
+
+Future<bool> _shouldSkipNestedSidecarDirectory({
+  required Directory sourceRoot,
+  required Directory directory,
+  required Map<String, bool> promptBearingDirectoryCache,
+}) async {
+  final directoryPath = _normalizeScriptPath(directory.absolute.path);
+  final sourceRootPath = _normalizeScriptPath(sourceRoot.absolute.path);
+  if (directoryPath == sourceRootPath) {
+    return false;
+  }
+  if (!_sidecarDirectoryNames.contains(
+    _directoryName(directory).trim().toLowerCase(),
+  )) {
+    return false;
+  }
+
+  var parent = directory.parent;
+  while (true) {
+    final parentPath = _normalizeScriptPath(parent.absolute.path);
+    if (!_isPathInsideOrSame(parentPath, sourceRootPath)) {
+      return false;
+    }
+    if (await _directoryHasPromptBearingFrames(
+      parent,
+      promptBearingDirectoryCache,
+    )) {
+      return true;
+    }
+    if (parentPath == sourceRootPath) {
+      return false;
+    }
+    final next = parent.parent;
+    if (_normalizeScriptPath(next.absolute.path) == parentPath) {
+      return false;
+    }
+    parent = next;
+  }
+}
+
+Future<bool> _directoryHasPromptBearingFrames(
+  Directory directory,
+  Map<String, bool> promptBearingDirectoryCache,
+) async {
+  final key = _normalizeScriptPath(directory.absolute.path);
+  final cached = promptBearingDirectoryCache[key];
+  if (cached != null) {
+    return cached;
+  }
+  try {
+    final script = await _parseDirectory(directory);
+    final hasFrames = script.frames.isNotEmpty;
+    promptBearingDirectoryCache[key] = hasFrames;
+    return hasFrames;
+  } catch (_) {
+    promptBearingDirectoryCache[key] = false;
+    return false;
+  }
+}
+
+bool _isPathInsideOrSame(String path, String root) {
+  return path == root || path.startsWith('$root/');
 }
 
 Future<bool> _hasFrameSourceFiles(Directory directory) async {
@@ -961,9 +1055,10 @@ bool _cacheBelongsToScript(RecastScriptCache cache, Script script) {
 String _sourceFingerprint(Script script) {
   final parts = [
     script.id,
-    script.rootPath,
+    _normalizeScriptPath(script.rootPath),
     for (final frame in script.frames)
-      '${frame.index}:${frame.fileName}:${frame.sourcePath}:'
+      '${frame.index}:${frame.fileName}:'
+          '${_normalizeScriptPath(frame.sourcePath)}:'
           '${_stableContentHash(frame.rawJson)}',
   ];
   return parts.join('|');

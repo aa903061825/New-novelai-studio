@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>剧本展览室封面卡原型</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- THROWAWAY PROTOTYPE: Three script-cover variants, switchable via ?variant=A/B/C. -->
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <span class="brand-mark">N</span>
+          <div>
+            <strong>Novel Studio</strong>
+            <span>本地创作工作室</span>
+          </div>
+        </div>
+        <nav class="nav-list">
+          <button type="button">素材库</button>
+          <button type="button" class="is-active">剧本展览室</button>
+          <button type="button">工作台</button>
+          <button type="button">批量产线</button>
+          <button type="button">画廊</button>
+        </nav>
+        <div class="side-note">
+          <strong>封面规则</strong>
+          <span>优先使用已收纳新图，其次原图，后续可手动指定。</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="page-head">
+          <div>
+            <p class="eyebrow">Prototype / cover cards</p>
+            <h1>剧本展览室</h1>
+            <p class="summary">
+              给每个剧本一张真正的封面图，让书架不是纯文字索引，而是可以一眼回忆故事、批次和处理状态。
+            </p>
+          </div>
+          <div class="metrics" aria-label="概览">
+            <div><strong id="metricScripts">0</strong><span>剧本</span></div>
+            <div><strong id="metricImages">0</strong><span>图片</span></div>
+            <div><strong id="metricNeeds">0</strong><span>需处理</span></div>
+          </div>
+        </header>
+
+        <section class="toolbar" aria-label="浏览控制">
+          <label class="search">
+            <span>搜索</span>
+            <input id="searchInput" type="search" placeholder="剧本名 / 角色 / 批次 / 封面来源" />
+          </label>
+          <div class="segmented" aria-label="分类">
+            <button type="button" data-category="all" class="is-active">全部</button>
+            <button type="button" data-category="active">进行中</button>
+            <button type="button" data-category="archived">已归档</button>
+            <button type="button" data-category="needs">需处理</button>
+          </div>
+          <div class="segmented" aria-label="封面来源策略">
+            <button type="button" data-cover-policy="best" class="is-active">推荐封面</button>
+            <button type="button" data-cover-policy="original">原图优先</button>
+            <button type="button" data-cover-policy="latest">最新图优先</button>
+          </div>
+        </section>
+
+        <section class="variant-intro" id="variantIntro"></section>
+        <section class="content" id="contentArea" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div class="prototype-switcher" aria-label="原型方案切换">
+      <button type="button" id="prevVariant" aria-label="上一个方案">←</button>
+      <strong id="variantLabel">A</strong>
+      <button type="button" id="nextVariant" aria-label="下一个方案">→</button>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

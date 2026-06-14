@@ -47,6 +47,40 @@ void main() {
       expect(result.reasoningContent, contains('先查看 slot-0'));
     });
 
+    test('passes reasoning effort to each client request', () async {
+      final fakeClient = _FakeRoleExtractionClient(
+        (request) async {
+          if (request.requestJson['request_kind'] == 'merge_extractions') {
+            return ScriptAiRoleExtractionClientResult(
+              rawJson: _rawExtraction(roleId: 'slot-merged'),
+            );
+          }
+          return ScriptAiRoleExtractionClientResult(
+            rawJson: _rawExtraction(
+              chunkId: request.requestJson['chunk_id'] as String?,
+            ),
+          );
+        },
+      );
+      final service = DefaultScriptAiRoleExtractionService(
+        builder: const ScriptAiRoleEvidenceBuilder(maxFramesPerChunk: 1),
+        client: fakeClient,
+      );
+
+      await service.extractRoles(
+        request: _request(
+          script: _script(frameCount: 2),
+          reasoningEffort: 'high',
+        ),
+      );
+
+      expect(fakeClient.requests, hasLength(3));
+      expect(
+        fakeClient.requests.map((request) => request.reasoningEffort),
+        everyElement('high'),
+      );
+    });
+
     test('long script sends multiple chunk_extract_v2 requests', () async {
       final fakeClient = _FakeRoleExtractionClient(
         (request) async => ScriptAiRoleExtractionClientResult(
@@ -788,6 +822,67 @@ void main() {
       expect(stages.single.warnings, contains('outfit_state_variant_merged'));
     });
 
+    test(
+        'does not merge different replacement states with empty clothing fields',
+        () async {
+      final fakeClient = _FakeRoleExtractionClient(
+        (_) async => ScriptAiRoleExtractionClientResult(
+          rawJson: _rawExtractionWithStages([
+            {
+              'stage_id': 'nude',
+              'label': 'nude',
+              'confidence': 0.9,
+              'frame_indexes': [48],
+              'identity': 'aoi (mechanic) (princess connect!), girl',
+              'upper_body': 'green hair',
+              'lower_body': '',
+              'upper_clothing': '',
+              'lower_clothing': '',
+              'evidence_terms': ['completely nude'],
+              'missing_fields': [
+                'missing_upper_clothing',
+                'missing_lower_clothing',
+              ],
+              'warnings': [],
+            },
+            {
+              'stage_id': 'towel',
+              'label': 'bath towel',
+              'confidence': 0.88,
+              'frame_indexes': [29],
+              'identity': 'aoi (mechanic) (princess connect!), girl',
+              'upper_body': 'green hair',
+              'lower_body': '',
+              'upper_clothing': '',
+              'lower_clothing': '',
+              'evidence_terms': ['white towel'],
+              'missing_fields': [
+                'missing_upper_clothing',
+                'missing_lower_clothing',
+              ],
+              'warnings': [],
+            },
+          ]),
+        ),
+      );
+      final service = DefaultScriptAiRoleExtractionService(
+        client: fakeClient,
+        retryDelays: const [Duration.zero, Duration.zero],
+      );
+
+      final result = await service.extractRoles(
+        request: _request(script: _script(frameCount: 1)),
+      );
+
+      final stages = result.extraction.roles.single.stages;
+      expect(stages, hasLength(2));
+      expect(stages.map((stage) => stage.stageId), ['nude', 'towel']);
+      expect(
+        stages.singleWhere((stage) => stage.stageId == 'nude').frameIndexes,
+        [48],
+      );
+    });
+
     test('demotes action and transient terms before returning extraction',
         () async {
       final fakeClient = _FakeRoleExtractionClient(
@@ -1213,12 +1308,14 @@ class _FakeRoleExtractionClient implements ScriptAiRoleExtractionClient {
 ScriptAiRoleExtractionServiceRequest _request({
   required Script script,
   List<ScriptAiRoleExtraction> completedChunkExtractions = const [],
+  String reasoningEffort = '',
 }) {
   return ScriptAiRoleExtractionServiceRequest(
     baseUrl: 'https://script.example',
     token: 'secret',
     model: 'gpt-4.1-mini',
     proxy: '127.0.0.1:7890',
+    reasoningEffort: reasoningEffort,
     script: script,
     completedChunkExtractions: completedChunkExtractions,
   );

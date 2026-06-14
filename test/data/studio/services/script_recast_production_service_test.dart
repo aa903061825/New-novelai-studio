@@ -1,9 +1,12 @@
+import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nai_casrand/data/studio/models/production_task.dart';
 import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
+import 'package:nai_casrand/data/studio/services/script_recast_payload_adapter.dart';
 import 'package:nai_casrand/data/studio/services/script_recast_production_service.dart';
 import 'package:nai_casrand/data/workspace/workspace_service.dart';
 
@@ -71,6 +74,56 @@ void main() {
     expect(loaded.single.toJson(), plan.toJson());
   });
 
+  test('stores repeated recast reference images once per production plan',
+      () async {
+    final plan = await service.enqueueRecastResult(
+      result: _recastResultWithSharedReferences(),
+      planId: 'plan-recast-refs',
+      planName: 'Reference Recast',
+      recastRunId: 'run-refs',
+    );
+
+    final firstParameters =
+        plan.tasks.first.payload['parameters'] as Map<String, dynamic>;
+    final loaded = await queueService.loadPlans();
+    final loadedPlan = loaded.single;
+    final requestParameters =
+        loadedPlan.requestPayloadForTask(loadedPlan.tasks.first)['parameters']
+            as Map<String, dynamic>;
+    final encodedOccurrences = RegExp('encoded-shared-vibe')
+        .allMatches(jsonEncode(loadedPlan.toJson()))
+        .length;
+
+    expect(plan.sharedPayloadParameters['reference_image_multiple'], [
+      'encoded-shared-vibe',
+    ]);
+    expect(firstParameters, isNot(contains('reference_image_multiple')));
+    expect(requestParameters['reference_image_multiple'], [
+      'encoded-shared-vibe',
+    ]);
+    expect(requestParameters['seed'], 1);
+    expect(encodedOccurrences, 1);
+  });
+
+  test('enqueuing many recast frames yields while building production tasks',
+      () async {
+    final probeAdapter = _YieldProbePayloadAdapter();
+    final yieldingService = ScriptRecastProductionService(
+      queueService: queueService,
+      now: () => DateTime.utc(2026, 5, 25, 12),
+      payloadAdapter: probeAdapter,
+    );
+
+    await yieldingService.enqueueRecastResult(
+      result: _manyFrameRecastResult(16),
+      planId: 'plan-recast-many',
+      planName: 'Many Recast',
+      recastRunId: 'run-many',
+    );
+
+    expect(probeAdapter.observedTimerBeforeNinthPayload, isTrue);
+  });
+
   test('enqueuing a recast plan preserves other deterministic plans', () async {
     final existing = ProductionPlan(
       id: 'manual-plan',
@@ -135,6 +188,54 @@ void main() {
     expect(
       loaded.map((plan) => plan.id).toSet(),
       {'plan-recast-1', 'plan-recast-1-2'},
+    );
+  });
+
+  test('duplicate recast version names use a unique date label', () async {
+    final existing = ProductionPlan(
+      id: 'existing-version',
+      name: 'v4_slotted_Recast',
+      tasks: [
+        ProductionTask.manualSingleFrame(
+          id: 'existing-task',
+          planId: 'existing-version',
+          title: 'Existing',
+          payload: const {'input': 'existing'},
+          createdAt: DateTime.utc(2026, 5, 24),
+          updatedAt: DateTime.utc(2026, 5, 24),
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 5, 24),
+      updatedAt: DateTime.utc(2026, 5, 24),
+    );
+    final existingDate = existing.copyWith(
+      id: 'existing-date-version',
+      name: '2026-05-25',
+      tasks: [
+        existing.tasks.single.copyWith(
+          id: 'existing-date-task',
+          planId: 'existing-date-version',
+        ),
+      ],
+    );
+    await queueService.savePlans([existing, existingDate]);
+
+    final plan = await service.enqueueRecastResult(
+      result: _recastResult(),
+      planId: 'plan-recast-1',
+      planName: 'v4_slotted_Recast',
+      recastRunId: 'plan-recast-1-run',
+    );
+
+    expect(plan.id, 'plan-recast-1');
+    expect(plan.name, '2026-05-25-2');
+    expect(plan.tasks.first.id, 'plan-recast-1:frame-1');
+    expect(plan.tasks.first.suggestedFileName, 'plan-recast-1-nai_1.png');
+
+    final loaded = await queueService.loadPlans();
+    expect(
+      loaded.map((item) => item.name).toSet(),
+      {'v4_slotted_Recast', '2026-05-25', '2026-05-25-2'},
     );
   });
 
@@ -352,4 +453,82 @@ ScriptRecastResult _recastResult() {
       ),
     ],
   );
+}
+
+ScriptRecastResult _recastResultWithSharedReferences() {
+  return const ScriptRecastResult(
+    scriptId: 'script-1',
+    mappingId: 'mapping-1',
+    configFingerprint: 'config-fingerprint',
+    frames: [
+      ScriptRecastFramePayload(
+        frameIndex: 1,
+        sourceFileName: 'nai_1.json',
+        payload: {
+          'input': 'city lights',
+          'parameters': {
+            'seed': 1,
+            'reference_image_multiple': ['encoded-shared-vibe'],
+            'reference_strength_multiple': [0.45],
+            'reference_information_extracted_multiple': [1.0],
+          },
+        },
+        payloadFingerprint: 'payload-1',
+      ),
+      ScriptRecastFramePayload(
+        frameIndex: 2,
+        sourceFileName: 'nai_2.json',
+        payload: {
+          'input': 'rain room',
+          'parameters': {
+            'seed': 2,
+            'reference_image_multiple': ['encoded-shared-vibe'],
+            'reference_strength_multiple': [0.45],
+            'reference_information_extracted_multiple': [1.0],
+          },
+        },
+        payloadFingerprint: 'payload-2',
+      ),
+    ],
+  );
+}
+
+ScriptRecastResult _manyFrameRecastResult(int count) {
+  return ScriptRecastResult(
+    scriptId: 'script-many',
+    mappingId: 'mapping-many',
+    configFingerprint: 'config-many',
+    frames: [
+      for (var index = 1; index <= count; index += 1)
+        ScriptRecastFramePayload(
+          frameIndex: index,
+          sourceFileName: 'nai_$index.json',
+          payload: {
+            'input': 'prompt $index',
+            'parameters': {'seed': index},
+          },
+          payloadFingerprint: 'payload-$index',
+        ),
+    ],
+  );
+}
+
+class _YieldProbePayloadAdapter extends ScriptRecastPayloadAdapter {
+  int callCount = 0;
+  var timerRan = false;
+  var observedTimerBeforeNinthPayload = false;
+
+  @override
+  Map<String, dynamic> toNaiRequestPayload(Map<String, dynamic> payload) {
+    callCount += 1;
+    if (callCount == 8) {
+      Timer.run(() {
+        timerRan = true;
+      });
+    }
+    if (callCount == 9) {
+      observedTimerBeforeNinthPayload = timerRan;
+    }
+    return super.toNaiRequestPayload(payload);
+  }
 }

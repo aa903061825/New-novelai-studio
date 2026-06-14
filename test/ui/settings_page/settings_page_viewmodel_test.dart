@@ -111,6 +111,7 @@ void main() {
     viewmodel.setScriptAiBaseUrl('https://script.example/v1');
     viewmodel.setScriptAiToken('script-token');
     viewmodel.setScriptAiModel(' gpt-4.1-mini ');
+    viewmodel.setScriptAiReasoningEffort(' high ');
     viewmodel.setTranslationProvider('google');
     viewmodel.setTranslationAiBaseUrl('https://translate.example/v1');
     viewmodel.setTranslationAiToken('translation-token');
@@ -120,6 +121,7 @@ void main() {
     expect(viewmodel.settings.scriptAiBaseUrl, 'https://script.example/v1');
     expect(viewmodel.settings.scriptAiToken, 'script-token');
     expect(viewmodel.settings.scriptAiModel, 'gpt-4.1-mini');
+    expect(viewmodel.settings.scriptAiReasoningEffort, 'high');
     expect(viewmodel.settings.translationProvider, 'google');
     expect(
       viewmodel.settings.translationAiBaseUrl,
@@ -127,6 +129,22 @@ void main() {
     );
     expect(viewmodel.settings.translationAiToken, 'translation-token');
     expect(viewmodel.settings.translationAiModel, 'gpt-4.1-mini');
+  });
+
+  test('script ai reasoning effort setter only keeps supported values', () {
+    final viewmodel = SettingsPageViewmodel();
+
+    viewmodel.setScriptAiReasoningEffort('none');
+    expect(viewmodel.settings.scriptAiReasoningEffort, 'none');
+
+    viewmodel.setScriptAiReasoningEffort('minimal');
+    expect(viewmodel.settings.scriptAiReasoningEffort, 'minimal');
+
+    viewmodel.setScriptAiReasoningEffort('xhigh');
+    expect(viewmodel.settings.scriptAiReasoningEffort, 'xhigh');
+
+    viewmodel.setScriptAiReasoningEffort('ultra');
+    expect(viewmodel.settings.scriptAiReasoningEffort, '');
   });
 
   test('tests script ai connection and reports success', () async {
