@@ -574,8 +574,8 @@ class _ExecutionSettingsPanel extends StatelessWidget {
               StudioChip(
                 icon: Icons.replay_circle_filled_outlined,
                 label: viewModel.retryIndefinitely
-                    ? '重试 无限 · 429 ${viewModel.retryOn429DelaySeconds}s'
-                    : '重试次数 ${viewModel.retryCount} · 429 ${viewModel.retryOn429DelaySeconds}s',
+                    ? '重试 无限 · 重跑间隔 ${viewModel.retryOn429DelaySeconds}s'
+                    : '重试次数 ${viewModel.retryCount} · 重跑间隔 ${viewModel.retryOn429DelaySeconds}s',
               ),
               StudioChip(
                 icon: Icons.casino_outlined,
@@ -1088,41 +1088,43 @@ class _BatchRetrySettingField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          flex: 2,
-          child: _BatchSettingTextField(
-            key: const ValueKey('studio-production-retry-input'),
-            value: value,
-            label: '次数',
-            enabled: enabled && !retryIndefinitely,
-            keyboardType: TextInputType.number,
-            onChanged: onCountChanged,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _BatchSettingTextField(
+                key: const ValueKey('studio-production-retry-input'),
+                value: value,
+                label: '次数',
+                enabled: enabled && !retryIndefinitely,
+                keyboardType: TextInputType.number,
+                onChanged: onCountChanged,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: '无限重试',
+              child: Checkbox(
+                key: const ValueKey('studio-production-retry-infinite'),
+                value: retryIndefinitely,
+                onChanged: enabled
+                    ? (value) => onRetryIndefinitelyChanged(value ?? false)
+                    : null,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _BatchSettingTextField(
-            key: const ValueKey('studio-production-429-delay-input'),
-            value: retryOn429DelayValue,
-            label: '429s',
-            enabled: enabled,
-            keyboardType: TextInputType.number,
-            onChanged: onRetryOn429DelayChanged,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Tooltip(
-          message: '无限重试',
-          child: Checkbox(
-            key: const ValueKey('studio-production-retry-infinite'),
-            value: retryIndefinitely,
-            onChanged: enabled
-                ? (value) => onRetryIndefinitelyChanged(value ?? false)
-                : null,
-            visualDensity: VisualDensity.compact,
-          ),
+        const SizedBox(height: 8),
+        _BatchSettingTextField(
+          key: const ValueKey('studio-production-429-delay-input'),
+          value: retryOn429DelayValue,
+          label: '重跑间隔',
+          enabled: enabled,
+          keyboardType: TextInputType.number,
+          onChanged: onRetryOn429DelayChanged,
         ),
       ],
     );

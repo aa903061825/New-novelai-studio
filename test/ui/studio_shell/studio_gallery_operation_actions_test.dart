@@ -187,56 +187,59 @@ void main() {
         find.byKey(const ValueKey('gallery-detail-lineage-operation-1')),
         findsOneWidget,
       );
-      expect(find.text('Enhance'), findsWidgets);
+      expect(find.text('Enhance'), findsNothing);
+      expect(find.text('增强'), findsWidgets);
+      expect(find.text('操作来源'), findsOneWidget);
       expect(find.text('source-1'), findsWidgets);
       expect(find.textContaining('strength: 0.35'), findsWidgets);
       expect(
-        find.byKey(const ValueKey('gallery-card-enhance-operation-1')),
+        find.byKey(const ValueKey('gallery-card-more-operation-1')),
         findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-more-missing-image')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-enhance-operation-1')),
+        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('gallery-card-upscale-operation-1')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('gallery-card-director-operation-1')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.byKey(const ValueKey('gallery-card-inpaint-operation-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('gallery-card-enhance-missing-image')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('gallery-card-upscale-missing-image')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('gallery-card-director-missing-image')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('gallery-card-inpaint-missing-image')),
         findsNothing,
       );
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('gallery-detail-enhance')),
+      );
       await tester.tap(
-        find.byKey(const ValueKey('gallery-card-enhance-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-enhance')),
       );
       await tester.pump();
       expect(viewModel.enhancedRecordIds, ['operation-1']);
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('gallery-detail-upscale')),
+      );
       await tester.tap(
-        find.byKey(const ValueKey('gallery-card-upscale-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-upscale')),
       );
       await tester.pump();
       expect(viewModel.upscaledRecordIds, ['operation-1']);
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('gallery-detail-director')),
+      );
       await tester.tap(
-        find.byKey(const ValueKey('gallery-card-director-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-director')),
       );
       await tester.pumpAndSettle();
       expect(
@@ -258,8 +261,11 @@ void main() {
           viewModel.directorOptions.single.tool, StudioDirectorTool.colorize);
       expect(viewModel.directorOptions.single.prompt, 'blue eyes');
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('gallery-detail-inpaint')),
+      );
       await tester.tap(
-        find.byKey(const ValueKey('gallery-card-inpaint-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-inpaint')),
       );
       await tester.pumpAndSettle();
       expect(
@@ -330,6 +336,70 @@ void main() {
   );
 
   testWidgets(
+    'gallery detail actions stay localized inside the desktop drawer',
+    (tester) async {
+      tester.view.physicalSize = const Size(2200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final tempDir = Directory(
+        '${Directory.current.path}${Platform.pathSeparator}'
+        'build${Platform.pathSeparator}gallery_detail_actions_layout_test',
+      );
+      tempDir.createSync(recursive: true);
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      final imageFile = _writePngFixture(tempDir, 'one.png');
+      final records = [
+        _record(
+          id: 'operation-1',
+          prompt: 'enhanced prompt',
+          title: 'enhanced.png',
+          imagePath: imageFile.path,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: StudioTheme.build(),
+          home: StudioGalleryPage(
+            viewModel: _TrackingGalleryOperationViewmodel(),
+            galleryService: _FakeGalleryService(records),
+            payloadConfig: GetIt.I<PayloadConfig>(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('Enhance'), findsNothing);
+      expect(find.text('Upscale'), findsNothing);
+      expect(find.text('Director'), findsNothing);
+      expect(find.text('Inpaint'), findsNothing);
+      expect(find.text('增强'), findsWidgets);
+      expect(find.text('放大'), findsOneWidget);
+      expect(find.text('导演工具'), findsOneWidget);
+      expect(find.text('重绘'), findsOneWidget);
+      expect(find.text('元数据缺失'), findsWidgets);
+
+      final drawerRect = tester.getRect(
+        find.byKey(const ValueKey('gallery-detail-drawer')),
+      );
+      final actionsRect = tester.getRect(
+        find.byKey(const ValueKey('gallery-detail-actions')),
+      );
+      expect(actionsRect.left, greaterThanOrEqualTo(drawerRect.left));
+      expect(actionsRect.right, lessThanOrEqualTo(drawerRect.right + 0.5));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'inpaint and preview actions fit a constrained viewport',
     (tester) async {
       tester.view.physicalSize = const Size(520, 760);
@@ -378,11 +448,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       await tester.ensureVisible(
-        find.byKey(const ValueKey('gallery-card-inpaint-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-inpaint')),
       );
       await tester.pumpAndSettle();
       await tester.tap(
-        find.byKey(const ValueKey('gallery-card-inpaint-operation-1')),
+        find.byKey(const ValueKey('gallery-detail-inpaint')),
       );
       await tester.pumpAndSettle();
       expect(
@@ -397,7 +467,7 @@ void main() {
             .onPressed,
         isNull,
       );
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(

@@ -351,9 +351,21 @@ void main() {
     expect(find.text('间隔 4s'), findsOneWidget);
     expect(find.text('随机 +0~8s'), findsOneWidget);
     expect(find.textContaining('重试次数 3'), findsOneWidget);
+    expect(find.text('重跑间隔'), findsOneWidget);
     expect(find.text(r'C:\outputs'), findsWidgets);
     expect(find.text('Frame 1'), findsWidgets);
     expect(find.text('Frame 2'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('HTTP 429'),
+      120,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('studio-production-task-list-panel')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pump();
     expect(find.text('HTTP 429'), findsWidgets);
     expect(find.text('重跑'), findsWidgets);
     expect(find.text('重跑异常'), findsOneWidget);
@@ -493,7 +505,8 @@ void main() {
     expect(find.text('随机 +0~20s'), findsOneWidget);
     expect(find.text('retry'), findsNothing);
     expect(find.textContaining('重试次数 4'), findsOneWidget);
-    expect(find.textContaining('429 30s'), findsOneWidget);
+    expect(find.text('重跑间隔'), findsOneWidget);
+    expect(find.textContaining('重跑间隔 30s'), findsOneWidget);
     expect(find.text(r'D:\batch-output'), findsWidgets);
   });
 
