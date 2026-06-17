@@ -5141,11 +5141,21 @@ class _RoleReplacementSection extends StatelessWidget {
                 targetRuleId: targetRuleId,
                 tags: tags,
               ),
+              onRuleMerged: (sourceRuleId, targetRuleId) =>
+                  viewModel.mergeRoleReplacementRules(
+                sourceRoleId: role.sourceRoleId,
+                sourceRuleId: sourceRuleId,
+                targetRuleId: targetRuleId,
+              ),
               onRuleDeletedChanged: (ruleId, deleted) =>
                   viewModel.setRoleReplacementRuleDeleted(
                 role.sourceRoleId,
                 ruleId,
                 deleted,
+              ),
+              onRuleRemoved: (ruleId) => viewModel.removeRoleReplacementRule(
+                role.sourceRoleId,
+                ruleId,
               ),
               onRuleMatchModeChanged: (ruleId, mode) =>
                   viewModel.setRoleReplacementRuleMatchMode(
@@ -5178,6 +5188,8 @@ class _RoleReplacementSection extends StatelessWidget {
                   viewModel.syncRoleReplacementTargetToSelectedRules(
                 role.sourceRoleId,
               ),
+              onResetReplacementGroup: () =>
+                  viewModel.resetRoleReplacementGroup(role.sourceRoleId),
             ),
       ],
     );
@@ -5223,11 +5235,21 @@ class _SceneReplacementSection extends StatelessWidget {
                 targetRuleId: targetRuleId,
                 tags: tags,
               ),
+              onRuleMerged: (sourceRuleId, targetRuleId) =>
+                  viewModel.mergeSceneReplacementRules(
+                groupId: group.id,
+                sourceRuleId: sourceRuleId,
+                targetRuleId: targetRuleId,
+              ),
               onRuleDeletedChanged: (ruleId, deleted) =>
                   viewModel.setSceneReplacementRuleDeleted(
                 group.id,
                 ruleId,
                 deleted,
+              ),
+              onRuleRemoved: (ruleId) => viewModel.removeSceneReplacementRule(
+                group.id,
+                ruleId,
               ),
               onRuleSelectedChanged: (ruleId, selected) =>
                   viewModel.setSceneReplacementRuleSelected(
@@ -5239,6 +5261,8 @@ class _SceneReplacementSection extends StatelessWidget {
                   viewModel.clearSceneReplacementRuleSelection(group.id),
               onMergeSelectedRules: () =>
                   viewModel.mergeSelectedSceneReplacementRules(group.id),
+              onResetReplacementGroup: () =>
+                  viewModel.resetSceneReplacementGroup(group.id),
             ),
       ],
     );
@@ -5572,7 +5596,9 @@ class _RoleReplacementCard extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final ValueChanged<String> onRuleRemoved;
   final void Function(String ruleId, ScriptPromptReplacementMatchMode mode)
       onRuleMatchModeChanged;
   final void Function(String ruleId, String termId, bool excluded)
@@ -5580,6 +5606,7 @@ class _RoleReplacementCard extends StatelessWidget {
   final void Function(String ruleId, bool selected) onRuleSelectedChanged;
   final VoidCallback onClearRuleSelection;
   final VoidCallback onMergeSelectedRules;
+  final VoidCallback onResetReplacementGroup;
   final VoidCallback onSyncIdentityToSelectedRules;
 
   const _RoleReplacementCard({
@@ -5596,13 +5623,16 @@ class _RoleReplacementCard extends StatelessWidget {
     required this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
     required this.onRuleSourceTagsDropped,
+    required this.onRuleMerged,
     required this.onRuleDeletedChanged,
+    required this.onRuleRemoved,
     required this.onRuleMatchModeChanged,
     required this.onRuleTermExcludedChanged,
     required this.onRuleSelectedChanged,
     required this.onClearRuleSelection,
     required this.onMergeSelectedRules,
     required this.onSyncIdentityToSelectedRules,
+    required this.onResetReplacementGroup,
   });
 
   @override
@@ -5700,6 +5730,15 @@ class _RoleReplacementCard extends StatelessWidget {
                     ),
                     OutlinedButton.icon(
                       key: ValueKey(
+                        'role-replacement-reset-${item.sourceRoleId}',
+                      ),
+                      icon: const Icon(Icons.restart_alt_outlined, size: 16),
+                      label: const Text('重置本组'),
+                      onPressed: onResetReplacementGroup,
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      key: ValueKey(
                         'role-replacement-sync-identity-${item.sourceRoleId}',
                       ),
                       icon: const Icon(Icons.drive_file_move_outline, size: 16),
@@ -5739,7 +5778,9 @@ class _RoleReplacementCard extends StatelessWidget {
                   onRuleTargetTagsDropped: onRuleTargetTagsDropped,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
                   onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleMerged: onRuleMerged,
                   onRuleDeletedChanged: onRuleDeletedChanged,
+                  onRuleRemoved: onRuleRemoved,
                   onRuleMatchModeChanged: onRuleMatchModeChanged,
                   onRuleTermExcludedChanged: onRuleTermExcludedChanged,
                   onRuleSelectedChanged: onRuleSelectedChanged,
@@ -5862,10 +5903,13 @@ class _SceneReplacementCard extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final ValueChanged<String> onRuleRemoved;
   final void Function(String ruleId, bool selected) onRuleSelectedChanged;
   final VoidCallback onClearRuleSelection;
   final VoidCallback onMergeSelectedRules;
+  final VoidCallback onResetReplacementGroup;
 
   const _SceneReplacementCard({
     required this.item,
@@ -5873,10 +5917,13 @@ class _SceneReplacementCard extends StatelessWidget {
     required this.onRuleTargetChanged,
     required this.onRuleWeightMultiplierChanged,
     required this.onRuleSourceTagsDropped,
+    required this.onRuleMerged,
     required this.onRuleDeletedChanged,
+    required this.onRuleRemoved,
     required this.onRuleSelectedChanged,
     required this.onClearRuleSelection,
     required this.onMergeSelectedRules,
+    required this.onResetReplacementGroup,
   });
 
   @override
@@ -5916,6 +5963,13 @@ class _SceneReplacementCard extends StatelessWidget {
                       ),
                     ),
                     OutlinedButton.icon(
+                      key: ValueKey('scene-replacement-reset-${item.id}'),
+                      icon: const Icon(Icons.restart_alt_outlined, size: 16),
+                      label: const Text('重置本组'),
+                      onPressed: onResetReplacementGroup,
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
                       key: ValueKey(
                           'scene-replacement-merge-selected-${item.id}'),
                       icon: const Icon(Icons.call_merge_outlined, size: 16),
@@ -5936,7 +5990,9 @@ class _SceneReplacementCard extends StatelessWidget {
                   onRuleTargetChanged: onRuleTargetChanged,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
                   onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleMerged: onRuleMerged,
                   onRuleDeletedChanged: onRuleDeletedChanged,
+                  onRuleRemoved: onRuleRemoved,
                   onRuleSelectedChanged: onRuleSelectedChanged,
                   onMergeSelectedRules: onMergeSelectedRules,
                 ),
@@ -5969,7 +6025,9 @@ class _ReplacementRuleGrid extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)?
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final ValueChanged<String> onRuleRemoved;
   final void Function(String ruleId, ScriptPromptReplacementMatchMode mode)?
       onRuleMatchModeChanged;
   final void Function(String ruleId, String termId, bool excluded)?
@@ -5993,7 +6051,9 @@ class _ReplacementRuleGrid extends StatelessWidget {
     this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
     this.onRuleSourceTagsDropped,
+    required this.onRuleMerged,
     required this.onRuleDeletedChanged,
+    required this.onRuleRemoved,
     this.onRuleMatchModeChanged,
     this.onRuleTermExcludedChanged,
     required this.onRuleSelectedChanged,
@@ -6048,6 +6108,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
                           ),
                   onDeletedChanged: (deleted) =>
                       onRuleDeletedChanged(rule.id, deleted),
+                  onRemoved: () => onRuleRemoved(rule.id),
                   onMatchModeChanged: onRuleMatchModeChanged == null
                       ? null
                       : (mode) => onRuleMatchModeChanged!(rule.id, mode),
@@ -6064,9 +6125,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
                     if (sourceRuleId == rule.id) {
                       return;
                     }
-                    onRuleSelectedChanged(sourceRuleId, true);
-                    onRuleSelectedChanged(rule.id, true);
-                    onMergeSelectedRules();
+                    onRuleMerged(sourceRuleId, rule.id);
                   },
                 ),
             ],
@@ -6130,6 +6189,7 @@ class _ReplacementRuleRow extends StatefulWidget {
   final void Function(String sourceRuleId, List<String> tags)?
       onSourceTagsDropped;
   final ValueChanged<bool> onDeletedChanged;
+  final VoidCallback onRemoved;
   final ValueChanged<ScriptPromptReplacementMatchMode>? onMatchModeChanged;
   final void Function(String termId, bool excluded)? onTermExcludedChanged;
   final ValueChanged<bool> onSelectedChanged;
@@ -6153,6 +6213,7 @@ class _ReplacementRuleRow extends StatefulWidget {
     required this.onWeightMultiplierChanged,
     this.onSourceTagsDropped,
     required this.onDeletedChanged,
+    required this.onRemoved,
     this.onMatchModeChanged,
     this.onTermExcludedChanged,
     required this.onSelectedChanged,
@@ -6638,6 +6699,16 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                           Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              _ReplacementRuleActionButton(
+                                key: ValueKey(
+                                  'replacement-rule-remove-$ruleKey',
+                                ),
+                                tooltip: '移除规则卡片',
+                                icon: Icons.delete_outline,
+                                color: StudioTokens.danger,
+                                onPressed: widget.onRemoved,
+                              ),
+                              const SizedBox(height: 8),
                               _ReplacementRuleActionButton(
                                 tooltip: deleted ? '恢复此规则' : '删除此规则',
                                 icon:

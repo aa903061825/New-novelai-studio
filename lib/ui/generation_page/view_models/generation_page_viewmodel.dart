@@ -282,6 +282,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
       additionalInfo: additionalInfo,
       contentOrderText: payloadResult.contentOrderText,
       imageBytes: imageBytes,
+      imagePath: imagePath,
     );
     commandList.add(
       Command.createSyncNoParam<InfoCardContent>(
@@ -382,6 +383,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
         info: info,
         additionalInfo: additionalInfo,
         imageBytes: imageBytes,
+        imagePath: imagePath,
       );
       commandList.add(
         Command.createSyncNoParam<InfoCardContent>(
@@ -476,6 +478,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
       additionalInfo: additionalInfo,
       contentOrderText: payloadResult.contentOrderText,
       imageBytes: imageBytes,
+      imagePath: imagePath,
     );
     commandList.add(
       Command.createSyncNoParam<InfoCardContent>(
@@ -659,9 +662,14 @@ class GenerationPageViewmodel extends ChangeNotifier {
           fileName,
           payloadConfig.settings.outputFolderPath,
         );
+        final imagePath = await resolvePictureSavePath(
+          fileName,
+          payloadConfig.settings.outputFolderPath,
+        );
         final additionalInfo = digestPayloadResult(payloadResult);
         await _persistGeneratedResultToGallery(
           fileName: fileName,
+          imagePath: imagePath,
           info: payloadResult.comment,
           additionalInfo: additionalInfo,
         );
@@ -676,6 +684,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
           additionalInfo: additionalInfo,
           contentOrderText: payloadResult.contentOrderText,
           imageBytes: imageBytes,
+          imagePath: imagePath,
         );
       } catch (e) {
         _currentCommandFailed = true;
@@ -980,6 +989,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
   Future<void> _persistGeneratedResultToGallery({
     required String fileName,
+    required String imagePath,
     required String info,
     required Map<String, dynamic> additionalInfo,
   }) async {
@@ -987,10 +997,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
     if (service == null) return;
 
     try {
-      final imagePath = await resolvePictureSavePath(
-        fileName,
-        payloadConfig.settings.outputFolderPath,
-      );
       await service.saveSnapshot(
         config: payloadConfig,
         title: fileName,

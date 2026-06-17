@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -102,6 +103,66 @@ void main() {
           .last,
     );
     expect(image.fit, BoxFit.contain);
+  });
+
+  testWidgets('file-backed viewer reveals the current image in file manager', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'generated-image-reveal-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}result.png',
+    )..writeAsBytesSync(_pngBytes);
+    final revealedPaths = <String>[];
+    final items = [
+      StudioGeneratedImageItem.file(
+        id: 'file-one',
+        name: 'Saved result',
+        imagePath: imageFile.path,
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            child: StudioGeneratedImageGallery(
+              items: items,
+              columnWidth: 220,
+              onOpen: (context, item) {
+                StudioGeneratedImageViewerDialog.show(
+                  context,
+                  items: items,
+                  initialItemId: item.id,
+                  revealInFileManager: (path) async {
+                    revealedPaths.add(path);
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-generated-image-card-file-one')),
+    );
+    await tester.pumpAndSettle();
+
+    final revealButton = find.byKey(
+      const ValueKey('studio-generated-image-viewer-reveal-file'),
+    );
+    expect(revealButton, findsOneWidget);
+    expect(tester.widget<IconButton>(revealButton).onPressed, isNotNull);
+
+    await tester.tap(revealButton);
+    await tester.pump();
+
+    expect(revealedPaths, [imageFile.path]);
   });
 
   testWidgets(

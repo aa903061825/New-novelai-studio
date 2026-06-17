@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
@@ -1650,6 +1651,20 @@ File? _existingOutputFile(String? outputPath) {
   }
 }
 
+Future<void> _revealExistingFileInManager(
+  BuildContext context,
+  File file,
+) async {
+  try {
+    await FileService().revealInFileManager(file.path);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(error.toString())),
+    );
+  }
+}
+
 String _imageCacheRevision(ProductionTask task) {
   return [
     task.updatedAt.toUtc().microsecondsSinceEpoch,
@@ -1707,6 +1722,7 @@ class _ProductionResultDetailContent extends StatelessWidget {
     final positivePrompt = _positivePrompt(task.payload);
     final negativePrompt = _negativePrompt(task.payload);
     final parameterGroups = _visibleParameterGroups(task.payload);
+    final outputFile = _existingOutputFile(task.outputImagePath);
     final metadata = KeyedSubtree(
       key: const ValueKey('studio-production-result-detail-metadata'),
       child: Column(
@@ -1760,6 +1776,20 @@ class _ProductionResultDetailContent extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _TaskResultPreview(task: task),
+        if (outputFile != null) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              key: const ValueKey('studio-production-reveal-file'),
+              onPressed: () => unawaited(
+                _revealExistingFileInManager(context, outputFile),
+              ),
+              icon: const Icon(Icons.folder_open_outlined),
+              label: const Text('在资源管理器中显示'),
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         _PromptTagBlock(
           key: const ValueKey('studio-production-positive-prompt'),
@@ -1878,6 +1908,18 @@ void _showProductionImageZoomDialog(
               child: _ProductionZoomableFileImage(
                 file: outputFile,
                 cacheRevision: _imageCacheRevision(task),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 12,
+              child: StudioIconButton(
+                key: const ValueKey('studio-production-zoom-reveal-file'),
+                icon: Icons.folder_open_outlined,
+                tooltip: '在资源管理器中显示',
+                onPressed: () => unawaited(
+                  _revealExistingFileInManager(context, outputFile),
+                ),
               ),
             ),
             Positioned(

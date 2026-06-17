@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
@@ -8,6 +10,7 @@ import 'package:novel_studio/data/models/command_status.dart';
 import 'package:novel_studio/data/models/info_card_content.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/ui/core/utils/flushbar.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
@@ -193,8 +196,22 @@ class InfoDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageFile = _existingInfoCardImageFile(content.imagePath);
     final body = Scaffold(
-      appBar: AppBar(title: Text(content.title)),
+      appBar: AppBar(
+        title: Text(content.title),
+        actions: [
+          if (imageFile != null)
+            IconButton(
+              key: const ValueKey('info-card-reveal-file'),
+              tooltip: '在资源管理器中显示',
+              onPressed: () => unawaited(
+                _revealInfoCardImage(context, imageFile.path),
+              ),
+              icon: const Icon(Icons.folder_open_outlined),
+            ),
+        ],
+      ),
       body: InfoCardDetailPanel(
         content: content,
         includeImage: true,
@@ -206,6 +223,17 @@ class InfoDetailPage extends StatelessWidget {
       onTap: () => Navigator.of(context).pop(),
       child: body,
     );
+  }
+
+  Future<void> _revealInfoCardImage(BuildContext context, String path) async {
+    try {
+      await FileService().revealInFileManager(path);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    }
   }
 }
 
@@ -393,6 +421,17 @@ List<PromptTagDisplayGroup> _promptGroupsForInfoEntry(
     }
   }
   return const [];
+}
+
+File? _existingInfoCardImageFile(String? path) {
+  final trimmed = path?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  try {
+    final file = File(trimmed);
+    return file.existsSync() ? file : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 Map<String, dynamic> _infoMapValue(Object? value) {

@@ -11309,6 +11309,203 @@ void main() {
       },
     );
 
+    testWidgets(
+      'role replacement card drag merges only the dragged source into target',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 17),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-accessory',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-accessory',
+                          text: 'cat ears',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                      ],
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-hood',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-hood',
+                          text: 'hood',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                      ],
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-boots',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-boots',
+                          text: 'lace-up boots',
+                          category: PromptTagCategory.lowerClothing,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'black boots',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+        viewModel.setRoleReplacementRuleSelected(
+          'slot-0',
+          'rule-accessory',
+          true,
+        );
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceHandle = find.byKey(
+          const ValueKey(
+            'replacement-rule-drag-handle-role-slot-0-rule-hood',
+          ),
+        );
+        final targetRule = find.byKey(
+          const ValueKey('replacement-rule-prompt-drop-role-slot-0-rule-boots'),
+        );
+        expect(sourceHandle, findsOneWidget);
+        expect(targetRule, findsOneWidget);
+
+        await _dragSelectedTagTo(tester, sourceHandle, targetRule);
+        await tester.pumpAndSettle();
+
+        final rules = {
+          for (final rule in viewModel.roleReplacementMappings.single.rules)
+            rule.id: rule,
+        };
+        expect(rules.keys, ['rule-accessory', 'rule-boots']);
+        expect(
+          rules['rule-accessory']!.sourceTerms.map((term) => term.text),
+          ['cat ears'],
+        );
+        expect(
+          rules['rule-boots']!.sourceTerms.map((term) => term.text),
+          ['lace-up boots', 'hood'],
+        );
+        expect(rules['rule-boots']!.targetPrompt, 'black boots');
+        expect(
+          viewModel.roleReplacementMappings.single.rules
+              .where((rule) => rule.selected)
+              .map((rule) => rule.id),
+          ['rule-boots'],
+        );
+      },
+    );
+
+    testWidgets(
+      'role replacement remove button removes a rule card',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 17),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-hood',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-hood',
+                          text: 'hood',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                      ],
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-boots',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-boots',
+                          text: 'lace-up boots',
+                          category: PromptTagCategory.lowerClothing,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'black boots',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final removeButton = find.byKey(
+          const ValueKey('replacement-rule-remove-role-slot-0-rule-hood'),
+        );
+        expect(removeButton, findsOneWidget);
+
+        await tester.tap(removeButton);
+        await tester.pumpAndSettle();
+
+        final rules = {
+          for (final rule in viewModel.roleReplacementMappings.single.rules)
+            rule.id: rule,
+        };
+        expect(rules.keys, ['rule-boots']);
+        expect(rules['rule-boots']!.targetPrompt, 'black boots');
+      },
+    );
+
     test(
       'role replacement source term merge persists across immediate reimport',
       () async {
@@ -11593,6 +11790,304 @@ void main() {
           ['pepe (arknights)', '1.25:: hood ::'],
         );
         expect(rules['role-slot-0-pepe']!.targetPrompt, 'lace-up boots');
+      },
+    );
+
+    test(
+      'role replacement reset restores AI group defaults',
+      () async {
+        late final RecastScriptCache cache;
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        cache = RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: parsedScript.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(
+            parsedScript,
+          ),
+          updatedAt: DateTime.utc(2026, 6, 17),
+          mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'AI Hero',
+                sourcePreview: 'source hero',
+                targetCharacterId: 'char-hero',
+                targetIdentityPrompt: 'target identity',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'role-slot-0-pepe',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'pepe',
+                        text: 'pepe (arknights)',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [3],
+                      ),
+                      ScriptPromptReplacementTerm(
+                        id: 'hood',
+                        text: '1.25:: hood ::',
+                        category: PromptTagCategory.upperClothing,
+                        frameIndexes: [2],
+                      ),
+                    ],
+                    excludedTermIds: ['hood'],
+                    action: ScriptPromptReplacementAction.replace,
+                    matchMode: ScriptPromptReplacementMatchMode.all,
+                    targetPrompt: 'lace-up boots',
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'role-slot-0-wakamo',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'wakamo',
+                        text: 'wakamo (blue_archive)',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    action: ScriptPromptReplacementAction.delete,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          aiRoleExtraction: const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            roles: [
+              ScriptAiExtractedRole(
+                sourceRoleId: 'slot-0',
+                displayName: 'AI Hero',
+                promptTerms: [
+                  ScriptAiExtractedPromptTerm(
+                    id: 'wakamo',
+                    text: 'wakamo (blue_archive)',
+                    category: PromptTagCategory.character,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'pepe',
+                    text: 'pepe (arknights)',
+                    category: PromptTagCategory.character,
+                    frameIndexes: [3],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'hood',
+                    text: '1.25:: hood ::',
+                    category: PromptTagCategory.upperClothing,
+                    frameIndexes: [2],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+
+        await viewModel.importScriptPath(_fixturePath);
+        viewModel.resetRoleReplacementGroup('slot-0');
+
+        final replacement = viewModel.roleReplacementMappings.single;
+        expect(replacement.targetCharacterId, isNull);
+        expect(replacement.targetIdentityPrompt, isEmpty);
+        final rules = {for (final rule in replacement.rules) rule.id: rule};
+        expect(
+          rules.keys,
+          ['role-slot-0-wakamo', 'role-slot-0-pepe', 'role-slot-0-hood'],
+        );
+        for (final rule in rules.values) {
+          expect(rule.sourceTerms, hasLength(1));
+          expect(rule.excludedTermIds, isEmpty);
+          expect(rule.action, ScriptPromptReplacementAction.none);
+          expect(rule.matchMode, ScriptPromptReplacementMatchMode.any);
+          expect(rule.targetPrompt, isEmpty);
+        }
+      },
+    );
+
+    test(
+      'scene replacement reset restores AI group defaults',
+      () async {
+        late final RecastScriptCache cache;
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        cache = RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: parsedScript.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(
+            parsedScript,
+          ),
+          updatedAt: DateTime.utc(2026, 6, 17),
+          mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+            scenePromptReplacements: const [
+              ScriptScenePromptReplacement(
+                id: 'scene-ai',
+                label: 'Scene',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'scene-night',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'night',
+                        text: 'night',
+                        category: PromptTagCategory.scene,
+                        frameIndexes: [1],
+                      ),
+                      ScriptPromptReplacementTerm(
+                        id: 'rain',
+                        text: 'rain',
+                        category: PromptTagCategory.scene,
+                        frameIndexes: [2],
+                      ),
+                    ],
+                    excludedTermIds: ['rain'],
+                    action: ScriptPromptReplacementAction.replace,
+                    targetPrompt: 'sunny day',
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'scene-extra',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'extra',
+                        text: 'manual scene',
+                        category: PromptTagCategory.scene,
+                      ),
+                    ],
+                    action: ScriptPromptReplacementAction.delete,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          aiRoleExtraction: const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            sceneTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'night',
+                text: 'night',
+                category: PromptTagCategory.scene,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'rain',
+                text: 'rain',
+                category: PromptTagCategory.scene,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        );
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+
+        await viewModel.importScriptPath(_fixturePath);
+        viewModel.resetSceneReplacementGroup('scene-ai');
+
+        final rules = {
+          for (final rule in viewModel.sceneReplacementMappings.single.rules)
+            rule.id: rule,
+        };
+        expect(rules.keys, ['scene-night', 'scene-rain']);
+        for (final rule in rules.values) {
+          expect(rule.sourceTerms, hasLength(1));
+          expect(rule.excludedTermIds, isEmpty);
+          expect(rule.action, ScriptPromptReplacementAction.none);
+          expect(rule.matchMode, ScriptPromptReplacementMatchMode.any);
+          expect(rule.targetPrompt, isEmpty);
+        }
+      },
+    );
+
+    testWidgets(
+      'role replacement reset button restores group defaults',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 17),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  targetIdentityPrompt: 'target identity',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'role-slot-0-pepe',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'pepe',
+                          text: 'pepe (arknights)',
+                          category: PromptTagCategory.character,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'lace-up boots',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            aiRoleExtraction: const ScriptAiRoleExtraction(
+              status: ScriptAiRoleExtractionStatus.ready,
+              roles: [
+                ScriptAiExtractedRole(
+                  sourceRoleId: 'slot-0',
+                  displayName: 'AI Hero',
+                  promptTerms: [
+                    ScriptAiExtractedPromptTerm(
+                      id: 'pepe',
+                      text: 'pepe (arknights)',
+                      category: PromptTagCategory.character,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+        final resetButton = find.byKey(
+          const ValueKey('role-replacement-reset-slot-0'),
+        );
+        expect(resetButton, findsOneWidget);
+
+        await tester.ensureVisible(resetButton);
+        await tester.tap(resetButton);
+        await tester.pumpAndSettle();
+
+        final replacement = viewModel.roleReplacementMappings.single;
+        expect(replacement.targetIdentityPrompt, isEmpty);
+        expect(replacement.rules.single.targetPrompt, isEmpty);
+        expect(
+          replacement.rules.single.action,
+          ScriptPromptReplacementAction.none,
+        );
       },
     );
 

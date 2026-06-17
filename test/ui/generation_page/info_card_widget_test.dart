@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -41,6 +42,20 @@ Command<void, InfoCardContent> _commandWithImage() {
     info: 'prompt',
     additionalInfo: const {},
     imageBytes: _squarePngBytes(),
+  );
+  return Command.createAsyncNoParam(
+    () async => content,
+    initialValue: content,
+  );
+}
+
+Command<void, InfoCardContent> _commandWithSavedImage(String imagePath) {
+  final content = InfoCardContent(
+    title: 'saved.png',
+    info: 'prompt',
+    additionalInfo: const {},
+    imageBytes: _squarePngBytes(),
+    imagePath: imagePath,
   );
   return Command.createAsyncNoParam(
     () async => content,
@@ -152,6 +167,41 @@ void main() {
     expect(find.text('blue eyes'), findsWidgets);
     expect(find.text('蓝眼睛'), findsWidgets);
     expect(find.text('长发'), findsWidgets);
+  });
+
+  testWidgets('image detail page exposes saved file reveal action', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'info-card-reveal-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}saved.png',
+    )..writeAsBytesSync(_squarePngBytes());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 420,
+              child: InfoCard(command: _commandWithSavedImage(imageFile.path)),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(InfoCard));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final revealButton = find.byKey(const ValueKey('info-card-reveal-file'));
+    expect(revealButton, findsOneWidget);
+    expect(tester.widget<IconButton>(revealButton).onPressed, isNotNull);
   });
 
   testWidgets('image detail page keeps role prompt groups before tag grouping',

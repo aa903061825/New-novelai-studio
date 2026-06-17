@@ -2388,6 +2388,43 @@ class StudioScriptViewModel extends ChangeNotifier {
     unawaited(_saveCurrentCache());
   }
 
+  void mergeRoleReplacementRules({
+    required String sourceRoleId,
+    required String sourceRuleId,
+    required String targetRuleId,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null || sourceRuleId == targetRuleId) {
+      return;
+    }
+    final replacement = mapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (replacement == null) {
+      return;
+    }
+    final nextRules = _replacementRulesWithMergedSourceRule(
+      rules: replacement.rules,
+      sourceRuleId: sourceRuleId,
+      targetRuleId: targetRuleId,
+    );
+    if (nextRules == null) {
+      return;
+    }
+    if (!_updateRoleReplacement(
+      sourceRoleId,
+      (replacement) => replacement.copyWith(
+        rules: List.unmodifiable(nextRules),
+      ),
+    )) {
+      return;
+    }
+    _selectedRoleReplacementRuleIdsByRole[sourceRoleId] = {targetRuleId};
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
   void setRoleReplacementRuleDeleted(
     String sourceRoleId,
     String ruleId,
@@ -2400,6 +2437,32 @@ class StudioScriptViewModel extends ChangeNotifier {
     )) {
       return;
     }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void removeRoleReplacementRule(String sourceRoleId, String ruleId) {
+    if (!_updateRoleReplacement(
+      sourceRoleId,
+      (replacement) {
+        final nextRules = [
+          for (final rule in replacement.rules)
+            if (rule.id != ruleId) rule,
+        ];
+        if (nextRules.length == replacement.rules.length) {
+          return replacement;
+        }
+        return replacement.copyWith(rules: List.unmodifiable(nextRules));
+      },
+    )) {
+      return;
+    }
+    _removeReplacementSelection(
+      _selectedRoleReplacementRuleIdsByRole,
+      sourceRoleId,
+      ruleId,
+    );
     _refreshReplacementEditPreview();
     notifyListeners();
     _scheduleCurrentCacheSave();
@@ -2541,6 +2604,41 @@ class StudioScriptViewModel extends ChangeNotifier {
     _scheduleCurrentCacheSave();
   }
 
+  void resetRoleReplacementGroup(String sourceRoleId) {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      return;
+    }
+    final strippedMapping = mapping.copyWith(
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          if (replacement.sourceRoleId != sourceRoleId) replacement,
+      ]),
+    );
+    final resetApplication = _mappingWithAppliedAiRoleExtraction(
+      script: script,
+      mapping: strippedMapping,
+      extraction: aiRoleExtraction,
+    );
+    final resetReplacement = resetApplication.mapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final nextReplacements = _rolePromptReplacementsWithResetGroup(
+      current: mapping.rolePromptReplacements,
+      sourceRoleId: sourceRoleId,
+      resetReplacement: resetReplacement,
+    );
+    if (identical(nextReplacements, mapping.rolePromptReplacements)) {
+      return;
+    }
+    _mapping = mapping.copyWith(rolePromptReplacements: nextReplacements);
+    _selectedRoleReplacementRuleIdsByRole.remove(sourceRoleId);
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
   void setSceneReplacementRuleTarget(
     String groupId,
     String ruleId,
@@ -2655,6 +2753,104 @@ class StudioScriptViewModel extends ChangeNotifier {
     unawaited(_saveCurrentCache());
   }
 
+  void mergeSceneReplacementRules({
+    required String groupId,
+    required String sourceRuleId,
+    required String targetRuleId,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null || sourceRuleId == targetRuleId) {
+      return;
+    }
+    final replacement = mapping.scenePromptReplacements
+        .where((replacement) => replacement.id == groupId)
+        .firstOrNull;
+    if (replacement == null) {
+      return;
+    }
+    final nextRules = _replacementRulesWithMergedSourceRule(
+      rules: replacement.rules,
+      sourceRuleId: sourceRuleId,
+      targetRuleId: targetRuleId,
+    );
+    if (nextRules == null) {
+      return;
+    }
+    if (!_updateSceneReplacement(
+      groupId,
+      (replacement) => replacement.copyWith(
+        rules: List.unmodifiable(nextRules),
+      ),
+    )) {
+      return;
+    }
+    _selectedSceneReplacementRuleIdsByGroup[groupId] = {targetRuleId};
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
+  void removeSceneReplacementRule(String groupId, String ruleId) {
+    if (!_updateSceneReplacement(
+      groupId,
+      (replacement) {
+        final nextRules = [
+          for (final rule in replacement.rules)
+            if (rule.id != ruleId) rule,
+        ];
+        if (nextRules.length == replacement.rules.length) {
+          return replacement;
+        }
+        return replacement.copyWith(rules: List.unmodifiable(nextRules));
+      },
+    )) {
+      return;
+    }
+    _removeReplacementSelection(
+      _selectedSceneReplacementRuleIdsByGroup,
+      groupId,
+      ruleId,
+    );
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void resetSceneReplacementGroup(String groupId) {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      return;
+    }
+    final strippedMapping = mapping.copyWith(
+      scenePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.scenePromptReplacements)
+          if (replacement.id != groupId) replacement,
+      ]),
+    );
+    final resetApplication = _mappingWithAppliedAiRoleExtraction(
+      script: script,
+      mapping: strippedMapping,
+      extraction: aiRoleExtraction,
+    );
+    final resetReplacement = resetApplication.mapping.scenePromptReplacements
+        .where((replacement) => replacement.id == groupId)
+        .firstOrNull;
+    final nextReplacements = _scenePromptReplacementsWithResetGroup(
+      current: mapping.scenePromptReplacements,
+      groupId: groupId,
+      resetReplacement: resetReplacement,
+    );
+    if (identical(nextReplacements, mapping.scenePromptReplacements)) {
+      return;
+    }
+    _mapping = mapping.copyWith(scenePromptReplacements: nextReplacements);
+    _selectedSceneReplacementRuleIdsByGroup.remove(groupId);
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
   void mergeSceneReplacementSourceTerms({
     required String groupId,
     required String sourceRuleId,
@@ -2708,6 +2904,64 @@ class StudioScriptViewModel extends ChangeNotifier {
       targetPrompt: targetPrompt,
       action: action,
     );
+  }
+
+  List<ScriptRolePromptReplacement> _rolePromptReplacementsWithResetGroup({
+    required List<ScriptRolePromptReplacement> current,
+    required String sourceRoleId,
+    required ScriptRolePromptReplacement? resetReplacement,
+  }) {
+    final next = <ScriptRolePromptReplacement>[];
+    var removedExisting = false;
+    var insertedReset = false;
+    for (final replacement in current) {
+      if (replacement.sourceRoleId == sourceRoleId) {
+        removedExisting = true;
+        if (!insertedReset && resetReplacement != null) {
+          next.add(resetReplacement);
+          insertedReset = true;
+        }
+        continue;
+      }
+      next.add(replacement);
+    }
+    if (!insertedReset && resetReplacement != null) {
+      next.add(resetReplacement);
+      insertedReset = true;
+    }
+    if (!removedExisting && !insertedReset) {
+      return current;
+    }
+    return List.unmodifiable(next);
+  }
+
+  List<ScriptScenePromptReplacement> _scenePromptReplacementsWithResetGroup({
+    required List<ScriptScenePromptReplacement> current,
+    required String groupId,
+    required ScriptScenePromptReplacement? resetReplacement,
+  }) {
+    final next = <ScriptScenePromptReplacement>[];
+    var removedExisting = false;
+    var insertedReset = false;
+    for (final replacement in current) {
+      if (replacement.id == groupId) {
+        removedExisting = true;
+        if (!insertedReset && resetReplacement != null) {
+          next.add(resetReplacement);
+          insertedReset = true;
+        }
+        continue;
+      }
+      next.add(replacement);
+    }
+    if (!insertedReset && resetReplacement != null) {
+      next.add(resetReplacement);
+      insertedReset = true;
+    }
+    if (!removedExisting && !insertedReset) {
+      return current;
+    }
+    return List.unmodifiable(next);
   }
 
   ScriptPromptReplacementRule _ruleWithWeightMultiplier(
@@ -2923,6 +3177,19 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
   }
 
+  void _removeReplacementSelection(
+    Map<String, Set<String>> selectedByGroup,
+    String groupId,
+    String ruleId,
+  ) {
+    final next = {...?selectedByGroup[groupId]}..remove(ruleId);
+    if (next.isEmpty) {
+      selectedByGroup.remove(groupId);
+    } else {
+      selectedByGroup[groupId] = next;
+    }
+  }
+
   List<ScriptPromptReplacementRule> _mergedReplacementRules({
     required List<ScriptPromptReplacementRule> rules,
     required Set<String> selectedIds,
@@ -2959,6 +3226,24 @@ class StudioScriptViewModel extends ChangeNotifier {
         else if (!selectedIds.contains(rule.id))
           rule,
     ];
+  }
+
+  List<ScriptPromptReplacementRule>? _replacementRulesWithMergedSourceRule({
+    required List<ScriptPromptReplacementRule> rules,
+    required String sourceRuleId,
+    required String targetRuleId,
+  }) {
+    final sourceRule =
+        rules.where((rule) => rule.id == sourceRuleId).firstOrNull;
+    if (sourceRule == null || sourceRule.sourceTerms.isEmpty) {
+      return null;
+    }
+    return _replacementRulesWithMovedSourceTerms(
+      rules: rules,
+      sourceRuleId: sourceRuleId,
+      targetRuleId: targetRuleId,
+      tags: sourceRule.sourceTerms.map((term) => term.text),
+    );
   }
 
   List<ScriptPromptReplacementRule>? _replacementRulesWithMovedSourceTerms({

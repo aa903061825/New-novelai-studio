@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_size_getter/file_input.dart' as image_size;
 import 'package:image_size_getter/image_size_getter.dart' as image_size;
+import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 import 'package:waterfall_flow/waterfall_flow.dart';
@@ -329,6 +330,7 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
   final Key zoomableKey;
   final Key fullscreenButtonKey;
   final bool showFooterInFullscreen;
+  final Future<void> Function(String path)? revealInFileManager;
 
   const StudioGeneratedImageViewerDialog({
     super.key,
@@ -344,6 +346,7 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
     this.fullscreenButtonKey =
         const ValueKey('studio-generated-image-viewer-fullscreen'),
     this.showFooterInFullscreen = true,
+    this.revealInFileManager,
   });
 
   static Future<void> show(
@@ -365,6 +368,7 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
     Key fullscreenButtonKey =
         const ValueKey('studio-generated-image-viewer-fullscreen'),
     bool showFooterInFullscreen = true,
+    Future<void> Function(String path)? revealInFileManager,
   }) {
     return showDialog<void>(
       context: context,
@@ -379,6 +383,7 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
         zoomableKey: zoomableKey,
         fullscreenButtonKey: fullscreenButtonKey,
         showFooterInFullscreen: showFooterInFullscreen,
+        revealInFileManager: revealInFileManager,
       ),
     );
   }
@@ -455,6 +460,7 @@ class _StudioGeneratedImageViewerDialogState
           onPrevious: () => _navigate(-1),
           onNext: () => _navigate(1),
           onToggleFullscreen: _toggleFullscreen,
+          onRevealInFileManager: _revealActionForCurrentItem(context),
           actions: widget.actionsBuilder?.call(context, _item) ?? const [],
           fullscreenButtonKey: widget.fullscreenButtonKey,
           onClose: () => Navigator.of(context).pop(),
@@ -521,6 +527,7 @@ class _StudioGeneratedImageViewerDialogState
                     onPrevious: () => _navigate(-1),
                     onNext: () => _navigate(1),
                     onToggleFullscreen: _toggleFullscreen,
+                    onRevealInFileManager: _revealActionForCurrentItem(context),
                     actions:
                         widget.actionsBuilder?.call(context, _item) ?? const [],
                     fullscreenButtonKey: widget.fullscreenButtonKey,
@@ -631,6 +638,27 @@ class _StudioGeneratedImageViewerDialogState
     _imageTapStart = null;
     _imageTapMoved = false;
   }
+
+  VoidCallback? _revealActionForCurrentItem(BuildContext context) {
+    final file = _existingImageFile(_item.imagePath);
+    if (file == null) return null;
+    return () {
+      unawaited(_revealInFileManager(context, file.path));
+    };
+  }
+
+  Future<void> _revealInFileManager(BuildContext context, String path) async {
+    try {
+      await (widget.revealInFileManager ?? FileService().revealInFileManager)(
+        path,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    }
+  }
 }
 
 class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
@@ -642,6 +670,7 @@ class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onToggleFullscreen;
+  final VoidCallback? onRevealInFileManager;
   final VoidCallback onClose;
   final List<Widget> actions;
   final Key fullscreenButtonKey;
@@ -655,6 +684,7 @@ class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onToggleFullscreen,
+    required this.onRevealInFileManager,
     required this.onClose,
     required this.actions,
     required this.fullscreenButtonKey,
@@ -706,6 +736,13 @@ class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
           ),
         ],
         const SizedBox(width: 8),
+        IconButton(
+          key: const ValueKey('studio-generated-image-viewer-reveal-file'),
+          tooltip: '在资源管理器中显示',
+          color: textColor,
+          onPressed: onRevealInFileManager,
+          icon: const Icon(Icons.folder_open_outlined),
+        ),
         IconButton(
           key: fullscreenButtonKey,
           tooltip: fullscreen ? '退出全屏' : '全屏',

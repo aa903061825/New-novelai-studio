@@ -7,6 +7,7 @@ class InfoCardContent {
   final String? contentOrderText;
 
   final Uint8List? imageBytes;
+  final String? imagePath;
 
   const InfoCardContent({
     required this.title,
@@ -14,6 +15,7 @@ class InfoCardContent {
     required this.additionalInfo,
     this.contentOrderText,
     this.imageBytes,
+    this.imagePath,
   });
 
   factory InfoCardContent.fromEmpty() => const InfoCardContent(

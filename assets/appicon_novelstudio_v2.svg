@@ -1,0 +1,49 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(355 110) rotate(121) scale(390)">
+      <stop offset="0" stop-color="#9773FF"/>
+      <stop offset="0.34" stop-color="#22253F"/>
+      <stop offset="1" stop-color="#0E0F21"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="100" y1="60" x2="420" y2="458" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EC56A7"/>
+      <stop offset="0.45" stop-color="#9773FF"/>
+      <stop offset="1" stop-color="#75CF67"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="145" y1="78" x2="337" y2="425" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDE1"/>
+      <stop offset="1" stop-color="#F5F3C2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0E0F21"/>
+  <circle cx="256" cy="256" r="216" fill="url(#rim)" opacity="0.95"/>
+  <circle cx="256" cy="256" r="196" fill="url(#bgGlow)"/>
+
+  <g filter="url(#shadow)">
+    <path
+      d="M151 104C139 139 122 181 100 229C85 262 71 289 59 310C55 318 57 327 64 333C86 351 104 371 118 395C121 400 128 401 132 396L207 321C212 316 214 309 212 302C209 295 207 287 207 279V112C207 91 158 83 151 104Z"
+      fill="url(#glyph)"/>
+    <path
+      d="M361 104C373 139 390 181 412 229C427 262 441 289 453 310C457 318 455 327 448 333C426 351 408 371 394 395C391 400 384 401 380 396L305 321C300 316 298 309 300 302C303 295 305 287 305 279V112C305 91 354 83 361 104Z"
+      fill="url(#glyph)"/>
+
+    <path
+      d="M256 299L318 361C303 381 292 403 285 426C284 432 279 436 273 436H239C233 436 228 432 227 426C220 403 209 381 194 361L256 299Z"
+      fill="url(#glyph)"/>
+
+    <circle cx="256" cy="282" r="44" fill="#191B31"/>
+    <circle cx="256" cy="282" r="26" fill="url(#glyph)"/>
+    <path d="M256 307L219 344" stroke="#191B31" stroke-width="27" stroke-linecap="round"/>
+    <circle cx="219" cy="344" r="31" fill="#191B31"/>
+    <circle cx="219" cy="344" r="16" fill="url(#glyph)"/>
+  </g>
+
+  <path d="M361 113C381 166 405 220 431 275" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" opacity="0.16"/>
+  <path d="M151 113C131 166 107 220 81 275" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" opacity="0.16"/>
+  <circle cx="379" cy="119" r="7" fill="#EC56A7"/>
+  <path d="M397 137L405 156L424 164L405 172L397 191L389 172L370 164L389 156L397 137Z" fill="#75CF67"/>
+</svg>

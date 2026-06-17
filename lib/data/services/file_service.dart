@@ -67,6 +67,44 @@ class FileService {
     return false;
   }
 
+  Future<void> revealInFileManager(String path) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('File path is empty.');
+    }
+    final file = File(trimmed).absolute;
+    if (!await file.exists()) {
+      throw StateError('File does not exist: ${file.path}');
+    }
+    if (Platform.isWindows) {
+      await Process.start(
+        'explorer.exe',
+        ['/select,${file.path}'],
+        mode: ProcessStartMode.detached,
+      );
+      return;
+    }
+    if (Platform.isMacOS) {
+      await Process.start(
+        'open',
+        ['-R', file.path],
+        mode: ProcessStartMode.detached,
+      );
+      return;
+    }
+    if (Platform.isLinux) {
+      await Process.start(
+        'xdg-open',
+        [file.parent.path],
+        mode: ProcessStartMode.detached,
+      );
+      return;
+    }
+    throw UnsupportedError(
+      'Opening the file location is not supported on this platform.',
+    );
+  }
+
   String generateRandomString() {
     const length = 6;
     const lettersAndDigits = 'abcdefghijklmnopqrstuvwxyz0123456789';

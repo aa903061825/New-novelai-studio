@@ -1928,6 +1928,11 @@ void main() {
       ),
       findsOneWidget,
     );
+    final revealButton = find.byKey(
+      const ValueKey('asset-preview-carousel-reveal-file'),
+    );
+    expect(revealButton, findsOneWidget);
+    expect(tester.widget<IconButton>(revealButton).onPressed, isNotNull);
     expect(find.byKey(const ValueKey('asset-preview-carousel-dot-0')),
         findsOneWidget);
     expect(find.byKey(const ValueKey('asset-preview-carousel-dot-1')),

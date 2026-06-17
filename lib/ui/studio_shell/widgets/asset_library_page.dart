@@ -9,6 +9,7 @@ import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
 import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
@@ -4002,6 +4003,16 @@ class _PreviewCarouselDialogState extends State<_PreviewCarouselDialog> {
                       '${_index + 1}/$count',
                       key: const ValueKey('asset-preview-carousel-counter'),
                     ),
+                    IconButton(
+                      key: const ValueKey(
+                        'asset-preview-carousel-reveal-file',
+                      ),
+                      tooltip: '在资源管理器中显示',
+                      icon: const Icon(Icons.folder_open_outlined),
+                      onPressed: _canRevealCurrentPreview
+                          ? () => unawaited(_revealCurrentPreview())
+                          : null,
+                    ),
                     if (widget.onDeletePreview != null)
                       IconButton(
                         key: const ValueKey('asset-preview-carousel-delete'),
@@ -4083,6 +4094,30 @@ class _PreviewCarouselDialogState extends State<_PreviewCarouselDialog> {
     await widget.onDeletePreview?.call();
     if (mounted) {
       Navigator.of(context).pop();
+    }
+  }
+
+  bool get _canRevealCurrentPreview {
+    final path = _currentPreviewPath;
+    return path != null && File(path).existsSync();
+  }
+
+  String? get _currentPreviewPath {
+    if (widget.previewPaths.isEmpty) return null;
+    final safeIndex = _index.clamp(0, widget.previewPaths.length - 1).toInt();
+    return widget.previewPaths[safeIndex];
+  }
+
+  Future<void> _revealCurrentPreview() async {
+    final path = _currentPreviewPath;
+    if (path == null) return;
+    try {
+      await FileService().revealInFileManager(path);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
     }
   }
 }
