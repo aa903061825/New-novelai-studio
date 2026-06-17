@@ -1,8 +1,8 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 const studioImagePreviewDialogConstraints = BoxConstraints(
   maxWidth: 1180,

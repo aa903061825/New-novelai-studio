@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/workbench_document.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/workbench_document.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 void main() {
   group('StudioAssetCaptureDrafts', () {

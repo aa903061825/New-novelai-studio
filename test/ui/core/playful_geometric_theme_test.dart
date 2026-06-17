@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/core/theme/playful_geometric_theme.dart';
+import 'package:novel_studio/ui/core/theme/playful_geometric_theme.dart';
 
 void main() {
   group('PlayfulGeometricTheme', () {

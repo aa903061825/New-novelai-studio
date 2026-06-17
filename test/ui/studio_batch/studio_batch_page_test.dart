@@ -3,14 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/services/production_executor_service.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_batch/view_models/production_queue_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_batch/widgets/studio_batch_page.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
+import 'package:novel_studio/ui/studio_batch/widgets/studio_batch_page.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 
 ProductionPlan _fakePlan() {
   final now = DateTime.utc(2026, 5, 25, 12);

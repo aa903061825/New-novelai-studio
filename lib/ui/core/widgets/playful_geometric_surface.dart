@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/theme/playful_geometric_theme.dart';
+import 'package:novel_studio/ui/core/theme/playful_geometric_theme.dart';
 
 class PlayfulGeometricBackground extends StatelessWidget {
   final Widget child;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/ui/studio_core/theme/prompt_tag_category_style.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/ui/studio_core/theme/prompt_tag_category_style.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 enum PromptTagChipVariant { display, editor }
 
@@ -167,8 +167,6 @@ class PromptTagChip extends StatelessWidget {
             weightBackgroundColor: weightBackgroundColor,
             weightBorderColor: weightBorderColor,
           ),
-        if (!_isEditor && !previewed && onDeleted != null)
-          _buildOverlayDeleteButton(),
       ],
     );
     final chipBody = previewed
@@ -201,24 +199,33 @@ class PromptTagChip extends StatelessWidget {
         onDoubleTap != null ||
         onSecondaryTapDown != null ||
         onHoverChanged != null;
+    final interactiveChip = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled ? onTap : null,
+      onDoubleTap: enabled ? onDoubleTap : null,
+      onSecondaryTapDown: enabled ? onSecondaryTapDown : null,
+      child: Semantics(
+        selected: selected,
+        button: hasGesture || _isEditor,
+        label: semanticsLabel ?? label,
+        child: chip,
+      ),
+    );
+    final withActions = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        interactiveChip,
+        if (!_isEditor && !previewed && onDeleted != null)
+          _buildOverlayDeleteButton(),
+      ],
+    );
     return MouseRegion(
       cursor: enabled && (hasGesture || _isEditor)
           ? SystemMouseCursors.click
           : SystemMouseCursors.basic,
       onEnter: onHoverChanged == null ? null : (_) => onHoverChanged!(true),
       onExit: onHoverChanged == null ? null : (_) => onHoverChanged!(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onTap : null,
-        onDoubleTap: enabled ? onDoubleTap : null,
-        onSecondaryTapDown: enabled ? onSecondaryTapDown : null,
-        child: Semantics(
-          selected: selected,
-          button: hasGesture || _isEditor,
-          label: semanticsLabel ?? label,
-          child: chip,
-        ),
-      ),
+      child: withActions,
     );
   }
 

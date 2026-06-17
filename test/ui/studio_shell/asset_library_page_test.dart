@@ -6,25 +6,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/services/asset_tag_cache_prewarm_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_asset_focus.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/asset_library_page.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/asset_library_page.dart';
 
 class _FakeCatalogService extends StudioAssetCatalogService {
   _FakeCatalogService(
@@ -39,6 +41,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   final Set<String> favoriteKeys;
   final List<bool> includeLegacyCodexRequests = [];
   final List<int> legacyCodexLimitRequests = [];
+  final List<String> legacyCodexCategoryKeyRequests = [];
   int resolveImagePathCallCount = 0;
   StudioAssetCatalogCacheLoadResult? cacheLoadResult;
   int loadSnapshotWithCacheCallCount = 0;
@@ -104,7 +107,10 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   }) async {
     includeLegacyCodexRequests.add(includeLegacyCodex);
     legacyCodexLimitRequests.add(legacyCodexLimit);
+    legacyCodexCategoryKeyRequests.add(legacyCodexCategoryKey);
     if (includeLegacyCodex) {
+      final requestFilter =
+          StudioLegacyCodexCategories.requestFilterFor(legacyCodexCategoryKey);
       final normalizedQuery = legacyCodexQuery.trim().toLowerCase();
       final workspaceInspirations = snapshot.inspirations
           .where(
@@ -120,6 +126,14 @@ class _FakeCatalogService extends StudioAssetCatalogService {
         ),
       )
           .where((entry) {
+        final isAdult =
+            StudioAssetCatalogService.isAdultCodexSourceType(entry.source.type);
+        return switch (requestFilter.sourceScopeKey) {
+          StudioLegacyCodexCategories.sourceAdultKey => isAdult,
+          StudioLegacyCodexCategories.sourceRegularKey => !isAdult,
+          _ => true,
+        };
+      }).where((entry) {
         if (normalizedQuery.isEmpty) return true;
         return [entry.name, entry.prompt, entry.tags.join(' ')]
             .join('\n')
@@ -127,15 +141,22 @@ class _FakeCatalogService extends StudioAssetCatalogService {
             .contains(normalizedQuery);
       }).toList(growable: false);
       final categoryCounts =
-          StudioLegacyCodexCategories.countByCategory(queryMatchedCodex);
-      final normalizedCategory =
-          StudioLegacyCodexCategories.normalizedKey(legacyCodexCategoryKey);
+          StudioLegacyCodexCategories.countByCategoryForSource(
+        queryMatchedCodex,
+        requestFilter.sourceScopeKey,
+      );
+      final normalizedCategory = requestFilter.categoryKey;
       final codex = normalizedCategory == StudioLegacyCodexCategories.allKey
           ? queryMatchedCodex
           : queryMatchedCodex
               .where(
                 (entry) => StudioLegacyCodexCategories.matches(
-                    entry, normalizedCategory),
+                  entry,
+                  StudioLegacyCodexCategories.requestKey(
+                    sourceScopeKey: requestFilter.sourceScopeKey,
+                    categoryKey: normalizedCategory,
+                  ),
+                ),
               )
               .toList(growable: false);
       return StudioAssetCatalogSnapshot(
@@ -234,8 +255,12 @@ class _FakePreviewGenerationService
 
   final List<String> characterIds = [];
   final List<String> artistChainIds = [];
+  final List<String> outfitIds = [];
+  final List<StudioAssetPreviewGenerationOptions> characterOptions = [];
+  final List<StudioAssetPreviewGenerationOptions> artistChainOptions = [];
   final List<String> discardedCharacterPreviews = [];
   final List<String> discardedArtistChainPreviews = [];
+  final List<String> discardedOutfitPreviews = [];
   final void Function(String id)? onGenerateCharacterPreview;
   final void Function(String id, String path)? onDiscardCharacterPreview;
   final String Function(String id)? characterPreviewPath;
@@ -243,8 +268,13 @@ class _FakePreviewGenerationService
   int artistChainFailuresRemaining = 0;
 
   @override
-  Future<String> generateCharacterPreview(String id) async {
+  Future<String> generateCharacterPreview(
+    String id, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
     characterIds.add(id);
+    characterOptions.add(options);
     if (characterFailuresRemaining > 0) {
       characterFailuresRemaining -= 1;
       throw StateError('character preview failed');
@@ -254,13 +284,29 @@ class _FakePreviewGenerationService
   }
 
   @override
-  Future<String> generateArtistChainPreview(String id) async {
+  Future<String> generateArtistChainPreview(
+    String id, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
     artistChainIds.add(id);
+    artistChainOptions.add(options);
     if (artistChainFailuresRemaining > 0) {
       artistChainFailuresRemaining -= 1;
       throw StateError('artist preview failed');
     }
     return 'generated-artist-$id.png';
+  }
+
+  @override
+  Future<String> generateOutfitPreview(
+    String characterId,
+    String outfitId, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
+    outfitIds.add('$characterId:$outfitId');
+    return 'generated-outfit-$characterId-$outfitId.png';
   }
 
   @override
@@ -272,6 +318,15 @@ class _FakePreviewGenerationService
   @override
   Future<void> discardArtistChainPreview(String id, String previewPath) async {
     discardedArtistChainPreviews.add('$id:$previewPath');
+  }
+
+  @override
+  Future<void> discardOutfitPreview(
+    String characterId,
+    String outfitId,
+    String previewPath,
+  ) async {
+    discardedOutfitPreviews.add('$characterId:$outfitId:$previewPath');
   }
 }
 
@@ -321,6 +376,16 @@ Future<void> _finishPreviewGenerationDialog(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+Future<void> _startPreviewGenerationFromOptions(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  expect(
+    find.byKey(const ValueKey('asset-preview-options-dialog')),
+    findsOneWidget,
+  );
+  await tester.tap(find.byKey(const ValueKey('asset-preview-options-start')));
+  await tester.pump();
 }
 
 void main() {
@@ -375,7 +440,7 @@ void main() {
         ),
         imageRefs: ['refs/lixia.png'],
         source: SourceRef(
-          type: 'kamia',
+          type: 'external',
           id: 'k-char-1',
           path: 'characters/lixia.json',
         ),
@@ -488,7 +553,7 @@ void main() {
         tags: ['city', 'rain'],
         imageRefs: ['refs/night_alley.png'],
         source: SourceRef(
-          type: 'kamia',
+          type: 'external',
           id: 'insp-1',
           path: 'data/inspirations.json',
         ),
@@ -525,7 +590,7 @@ void main() {
         defaultStrength: 0.65,
         imageRefs: ['refs/soft_rain.png'],
         source: SourceRef(
-          type: 'kamia',
+          type: 'external',
           id: 'lora-1',
           path: 'data/loras.json',
         ),
@@ -543,7 +608,7 @@ void main() {
           'sampler': 'k_euler',
         },
         source: SourceRef(
-          type: 'kamia',
+          type: 'external',
           id: 'workflow-1',
           path: 'data/workflows/city_stack.json',
         ),
@@ -575,7 +640,7 @@ void main() {
           'layers': ['fg', 'bg', 'reflection'],
         },
         source: SourceRef(
-          type: 'kamia',
+          type: 'external',
           id: 'assembly-1',
           path: 'data/assembly_presets/city_assembly.json',
         ),
@@ -633,7 +698,7 @@ void main() {
 
     expect(find.text('素材库'), findsOneWidget);
     expect(find.text('角色'), findsWidgets);
-    expect(find.text('匹配素材 4'), findsOneWidget);
+    expect(find.text('匹配素材 5'), findsOneWidget);
     expect(find.text('璃夏'), findsWidgets);
     expect(find.text('雨披'), findsNothing);
     expect(find.text('水彩柔光'), findsOneWidget);
@@ -666,11 +731,11 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('asset-card-outfit-char-1-outfit-1')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('asset-filter-outfit')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('asset-card-artist-artist-1')),
@@ -726,7 +791,74 @@ void main() {
     expect(catalogService.refreshSnapshotCacheCallCount, 0);
   });
 
-  testWidgets('asset waterfall cards only show preview and name before opening',
+  testWidgets('refresh re-resolves preview refs after a stale empty preview',
+      (tester) async {
+    final config = payload();
+    final tempDir = Directory.systemTemp.createTempSync(
+      'asset-restored-preview-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final restoredPreview =
+        File('${tempDir.path}${Platform.pathSeparator}restored.png');
+    restoredPreview.writeAsBytesSync(
+      img.encodePng(img.Image(width: 320, height: 480)),
+    );
+    const restoredRef = 'refs/restored.png';
+    const initialCatalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-restored',
+          name: 'Restored Character',
+          traits: ViewVariantTexts(frontFull: 'silver hair'),
+          imageRefs: [restoredRef],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+    final resolvedRefs = <String, String>{};
+    final catalogService = _FakeCatalogService(
+      initialCatalog,
+      resolvedRefs: resolvedRefs,
+    );
+
+    await tester.pumpWidget(
+      page(config: config, catalogService: catalogService),
+    );
+    await tester.pump();
+    for (var i = 0; i < 8; i += 1) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(
+      find.byKey(
+        const ValueKey('asset-card-preview-image-character-char-restored'),
+      ),
+      findsNothing,
+    );
+
+    resolvedRefs[restoredRef] = restoredPreview.path;
+    await tester.tap(find.byIcon(Icons.refresh).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey('asset-card-preview-image-character-char-restored'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('asset waterfall cards compact assets without previews',
       (tester) async {
     tester.view.physicalSize = const Size(1800, 1000);
     tester.view.devicePixelRatio = 1;
@@ -741,8 +873,20 @@ void main() {
         find.byKey(const ValueKey('asset-card-character-char-1'));
     expect(tester.getSize(characterCard).width, lessThan(320));
     expect(
+      find.byKey(const ValueKey('asset-card-preview-character-char-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-card-tags-character-char-1')),
+      findsNothing,
+    );
+    expect(
       find.byKey(const ValueKey('asset-card-preview-artist-artist-1')),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-card-tags-artist-artist-1')),
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('asset-card-copy-character-char-1')),
@@ -789,7 +933,7 @@ void main() {
     );
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
-    await tester.pump();
+    await _startPreviewGenerationFromOptions(tester);
     expect(find.text('正在生成预览'), findsOneWidget);
     await _finishPreviewGenerationDialog(tester, keep: true);
     await tester.tap(find.byKey(const ValueKey('asset-detail-dialog-close')));
@@ -802,7 +946,7 @@ void main() {
     );
     await tester.ensureVisible(artistButton);
     await tester.tap(artistButton);
-    await tester.pump();
+    await _startPreviewGenerationFromOptions(tester);
     expect(find.text('正在生成预览'), findsOneWidget);
     await _finishPreviewGenerationDialog(tester, keep: true);
 
@@ -810,6 +954,137 @@ void main() {
     expect(previewService.artistChainIds, ['artist-1']);
     expect(find.text('新增预览'), findsWidgets);
     expect(find.byTooltip('Generate preview'), findsNothing);
+  });
+
+  testWidgets('character preview options pass artist and custom prompt mode',
+      (tester) async {
+    tester.view.physicalSize = const Size(1800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+    final previewService = _FakePreviewGenerationService();
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        previewGenerationService: previewService,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
+    await tester.pumpAndSettle();
+    final characterButton = find.byKey(
+      const ValueKey('asset-detail-generate-preview-character-char-1'),
+    );
+    await tester.ensureVisible(characterButton);
+    await tester.tap(characterButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-preview-options-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-artist-chain')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(snapshot.artistChains.single.name).last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-mode-replace')),
+    );
+    final customPromptEditor =
+        find.byKey(const ValueKey('asset-preview-options-custom-prompt-tags'));
+    expect(
+      find.descendant(
+        of: customPromptEditor,
+        matching: find.byType(PromptTagEditor),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(tester, customPromptEditor, 'only my prompt');
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-size')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1472 x 704').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-start')),
+    );
+    await tester.pump();
+    await _finishPreviewGenerationDialog(tester, keep: true);
+
+    expect(previewService.characterIds, ['char-1']);
+    expect(previewService.characterOptions.single.artistChainId, 'artist-1');
+    expect(
+        previewService.characterOptions.single.customPrompt, 'only my prompt');
+    expect(
+      previewService.characterOptions.single.customPromptMode,
+      StudioPreviewCustomPromptMode.replace,
+    );
+    expect(previewService.characterOptions.single.size?.width, 1472);
+    expect(previewService.characterOptions.single.size?.height, 704);
+  });
+
+  testWidgets('artist preview options pass custom append prompt',
+      (tester) async {
+    tester.view.physicalSize = const Size(1800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+    final previewService = _FakePreviewGenerationService();
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        previewGenerationService: previewService,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('asset-card-artist-artist-1')));
+    await tester.pumpAndSettle();
+    final artistButton = find.byKey(
+      const ValueKey('asset-detail-generate-preview-artistChain-artist-1'),
+    );
+    await tester.ensureVisible(artistButton);
+    await tester.tap(artistButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-preview-options-dialog')),
+      findsOneWidget,
+    );
+    final customPromptEditor =
+        find.byKey(const ValueKey('asset-preview-options-custom-prompt-tags'));
+    expect(
+      find.descendant(
+        of: customPromptEditor,
+        matching: find.byType(PromptTagEditor),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(
+      tester,
+      customPromptEditor,
+      'misty park',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-start')),
+    );
+    await tester.pump();
+    await _finishPreviewGenerationDialog(tester, keep: true);
+
+    expect(previewService.artistChainIds, ['artist-1']);
+    expect(previewService.artistChainOptions.single.customPrompt, 'misty park');
+    expect(
+      previewService.artistChainOptions.single.customPromptMode,
+      StudioPreviewCustomPromptMode.append,
+    );
   });
 
   testWidgets('preview generation buttons are only shown for supported assets',
@@ -908,15 +1183,19 @@ void main() {
     );
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
+    await _startPreviewGenerationFromOptions(tester);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('预览图生成失败'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('asset-preview-generation-close')),
+      findsOneWidget,
+    );
     await tester
         .tap(find.byKey(const ValueKey('asset-preview-generation-close')));
     await tester.pumpAndSettle();
 
     await tester.tap(characterButton);
-    await tester.pump();
+    await _startPreviewGenerationFromOptions(tester);
     await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.characterIds, ['char-1', 'char-1']);
@@ -1025,7 +1304,7 @@ void main() {
     );
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
-    await tester.pump();
+    await _startPreviewGenerationFromOptions(tester);
     await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.characterIds, ['char-refresh']);
@@ -1134,8 +1413,7 @@ void main() {
     );
     await tester.ensureVisible(characterButton);
     await tester.tap(characterButton);
-    await tester.pump();
-    expect(find.text('正在生成预览'), findsOneWidget);
+    await _startPreviewGenerationFromOptions(tester);
     await _finishPreviewGenerationDialog(tester, keep: false);
 
     expect(previewService.characterIds, ['char-discard']);
@@ -1514,9 +1792,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('asset-card-character-char-multi')),
-    );
+    final multiCharacterCard =
+        find.byKey(const ValueKey('asset-card-character-char-multi'));
+    await tester.ensureVisible(multiCharacterCard);
+    await tester.tap(multiCharacterCard);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('asset-detail-send')));
     await tester.pumpAndSettle();
@@ -1795,6 +2074,9 @@ void main() {
         find.byKey(const ValueKey('asset-library-add-custom-category'));
     final artistFilter =
         find.byKey(const ValueKey('asset-filter-artist-chain'));
+    final outfitFilter = find.byKey(const ValueKey('asset-filter-outfit'));
+    final secondaryRow =
+        find.byKey(const ValueKey('asset-filter-secondary-row'));
 
     expect(gallery, findsOneWidget);
     expect(
@@ -1804,12 +2086,337 @@ void main() {
     expect(artistFilter, findsOneWidget);
     expect(addCategoryButton, findsOneWidget);
     expect(tester.getSize(allFilter).height, greaterThanOrEqualTo(72));
+    expect(tester.getTopLeft(addCategoryButton).dx, greaterThanOrEqualTo(0));
+    expect(outfitFilter, findsOneWidget);
     expect(
-      tester.getTopLeft(addCategoryButton).dx,
+      find.descendant(of: gallery, matching: outfitFilter),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: secondaryRow, matching: outfitFilter),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('asset-filter-tag')), findsOneWidget);
+  });
+
+  testWidgets('codex filter is promoted to the primary gallery cards',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = payload();
+    final catalog = StudioAssetCatalogSnapshot(
+      summary: snapshot.summary,
+      characters: snapshot.characters,
+      outfits: snapshot.outfits,
+      artistChains: snapshot.artistChains,
+      recipes: snapshot.recipes,
+      tags: snapshot.tags,
+      inspirations: [
+        ...snapshot.inspirations,
+        const InspirationEntry(
+          id: 'legacy-codex-layout',
+          name: 'Layout Codex',
+          prompt: 'artist:wlop, dnd, fantasy',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+      legacyCodexAvailable: true,
+    );
+
+    await tester.pumpWidget(page(config: config, catalog: catalog));
+    await tester.pumpAndSettle();
+
+    final gallery = find.byKey(const ValueKey('asset-filter-gallery'));
+    final secondaryRow =
+        find.byKey(const ValueKey('asset-filter-secondary-row'));
+    final allFilter = find.byKey(const ValueKey('asset-filter-all'));
+    final characterFilter =
+        find.byKey(const ValueKey('asset-filter-character'));
+    final artistFilter =
+        find.byKey(const ValueKey('asset-filter-artist-chain'));
+    final codexFilter = find.byKey(const ValueKey('asset-filter-codex'));
+    final outfitFilter = find.byKey(const ValueKey('asset-filter-outfit'));
+
+    expect(gallery, findsOneWidget);
+    expect(
+      find.descendant(of: gallery, matching: allFilter),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: gallery, matching: characterFilter),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: gallery, matching: artistFilter),
+      findsOneWidget,
+    );
+    expect(codexFilter, findsOneWidget);
+    expect(
+      find.descendant(of: gallery, matching: codexFilter),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(codexFilter).dx,
       greaterThan(tester.getTopLeft(artistFilter).dx),
     );
-    expect(find.byKey(const ValueKey('asset-filter-outfit')), findsNothing);
-    expect(find.byKey(const ValueKey('asset-filter-tag')), findsOneWidget);
+    expect(
+      find.descendant(of: secondaryRow, matching: codexFilter),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: gallery, matching: outfitFilter),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: secondaryRow, matching: outfitFilter),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('codex source tabs render source-specific categories',
+      (tester) async {
+    final config = payload();
+    final catalogService = _FakeCatalogService(
+      StudioAssetCatalogSnapshot(
+        summary: const StudioAssetCatalogSummary(
+          characterCount: 0,
+          artistChainCount: 0,
+          recipeCount: 0,
+          tagCount: 0,
+          inspirationCount: 2,
+          recipeCountsByBlock: {},
+          tagCountsByBlock: {},
+        ),
+        characters: const [],
+        artistChains: const [],
+        recipes: const [],
+        tags: const [],
+        inspirations: const [
+          InspirationEntry(
+            id: 'regular-codex-style',
+            name: 'Regular Style',
+            prompt: 'artist:wlop, painterly, official art',
+            source: SourceRef(type: 'legacy_codex'),
+          ),
+          InspirationEntry(
+            id: 'adult-codex-view',
+            name: 'Adult View',
+            prompt: 'pov, from above, on bed, blush',
+            source: SourceRef(type: 'novalai_codex_adult_docx'),
+          ),
+        ],
+        legacyCodexAvailable: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      page(config: config, catalogService: catalogService),
+    );
+    await tester.pumpAndSettle();
+
+    final codexFilter = find.byKey(const ValueKey('asset-filter-codex'));
+    await tester.ensureVisible(codexFilter);
+    await tester.tap(codexFilter);
+    await tester.pumpAndSettle();
+
+    final regularCategory =
+        find.byKey(const ValueKey('asset-codex-category-artist-style'));
+    final adultCategory =
+        find.byKey(const ValueKey('asset-codex-category-adult-interaction'));
+    expect(regularCategory, findsOneWidget);
+    expect(adultCategory, findsNothing);
+
+    await tester.tap(regularCategory);
+    await tester.pumpAndSettle();
+    expect(
+      catalogService.legacyCodexCategoryKeyRequests.last,
+      StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceRegularKey,
+        categoryKey: StudioLegacyCodexCategories.artistStyle.key,
+      ),
+    );
+
+    final adultSource = find.byKey(const ValueKey('asset-codex-source-adult'));
+    await tester.ensureVisible(adultSource);
+    await tester.tap(adultSource);
+    await tester.pumpAndSettle();
+
+    expect(regularCategory, findsNothing);
+    expect(adultCategory, findsOneWidget);
+    expect(
+      catalogService.legacyCodexCategoryKeyRequests.last,
+      StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceAdultKey,
+        categoryKey: StudioLegacyCodexCategories.allKey,
+      ),
+    );
+
+    final regularSource =
+        find.byKey(const ValueKey('asset-codex-source-regular'));
+    await tester.tap(regularSource);
+    await tester.pumpAndSettle();
+
+    expect(regularCategory, findsOneWidget);
+    expect(adultCategory, findsNothing);
+    expect(
+      catalogService.legacyCodexCategoryKeyRequests.last,
+      StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceRegularKey,
+        categoryKey: StudioLegacyCodexCategories.allKey,
+      ),
+    );
+  });
+
+  testWidgets('codex category chips use source category paths', (tester) async {
+    final config = payload();
+    final regularSourceCategoryKey =
+        StudioLegacyCodexCategories.sourceCategoryKeyForPath(
+      const ['各种风格'],
+    )!;
+    final adultSourceCategoryKey =
+        StudioLegacyCodexCategories.sourceCategoryKeyForPath(
+      const ['基础涩涩', '各种体位', '正身位'],
+    )!;
+    final catalogService = _FakeCatalogService(
+      StudioAssetCatalogSnapshot(
+        summary: const StudioAssetCatalogSummary(
+          characterCount: 0,
+          artistChainCount: 0,
+          recipeCount: 0,
+          tagCount: 0,
+          inspirationCount: 2,
+          recipeCountsByBlock: {},
+          tagCountsByBlock: {},
+        ),
+        characters: const [],
+        artistChains: const [],
+        recipes: const [],
+        tags: const [],
+        inspirations: const [
+          InspirationEntry(
+            id: 'regular-codex-style',
+            name: 'Regular Style',
+            prompt: 'artist:wlop, painterly',
+            sourceCategoryPath: ['各种风格'],
+            source: SourceRef(type: 'legacy_codex'),
+          ),
+          InspirationEntry(
+            id: 'adult-codex-position',
+            name: 'Adult Position',
+            prompt: 'front view, leg grab',
+            sourceCategoryPath: ['基础涩涩', '各种体位', '正身位'],
+            source: SourceRef(type: 'novalai_codex_adult_docx'),
+          ),
+        ],
+        legacyCodexAvailable: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      page(config: config, catalogService: catalogService),
+    );
+    await tester.pumpAndSettle();
+
+    final codexFilter = find.byKey(const ValueKey('asset-filter-codex'));
+    await tester.ensureVisible(codexFilter);
+    await tester.tap(codexFilter);
+    await tester.pumpAndSettle();
+
+    final regularCategory = find.byKey(
+      ValueKey('asset-codex-category-$regularSourceCategoryKey'),
+    );
+    final adultCategory = find.byKey(
+      ValueKey('asset-codex-category-$adultSourceCategoryKey'),
+    );
+    expect(regularCategory, findsOneWidget);
+    expect(find.text('各种风格'), findsOneWidget);
+    expect(adultCategory, findsNothing);
+
+    await tester.tap(regularCategory);
+    await tester.pumpAndSettle();
+    expect(
+      catalogService.legacyCodexCategoryKeyRequests.last,
+      StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceRegularKey,
+        categoryKey: regularSourceCategoryKey,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('asset-codex-source-adult')));
+    await tester.pumpAndSettle();
+
+    expect(regularCategory, findsNothing);
+    expect(adultCategory, findsOneWidget);
+    expect(find.text('正身位'), findsOneWidget);
+  });
+
+  testWidgets('codex detail shows source variants under the parent card',
+      (tester) async {
+    final config = payload();
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        inspirationCount: 1,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+      inspirations: [
+        InspirationEntry(
+          id: 'legacy-codex-parent',
+          name: '脸部视角抬腿正身位',
+          prompt: 'front view, leg grab',
+          sourceCategoryPath: ['基础涩涩', '各种体位', '正身位'],
+          variants: [
+            InspirationEntry(
+              id: 'legacy-codex-variant',
+              name: '另一版本',
+              prompt: 'alternate front view, leg grab',
+              sourceParentId: 'legacy-codex-parent',
+              sourceParentName: '脸部视角抬腿正身位',
+              sourceVariantLabel: '另一版本',
+              source: SourceRef(type: 'legacy_codex'),
+            ),
+          ],
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+      legacyCodexAvailable: true,
+    );
+
+    await tester.pumpWidget(page(config: config, catalog: catalog));
+    await tester.pumpAndSettle();
+
+    final codexFilter = find.byKey(const ValueKey('asset-filter-codex'));
+    await tester.ensureVisible(codexFilter);
+    await tester.tap(codexFilter);
+    await tester.pumpAndSettle();
+
+    final codexCard = find
+        .byKey(const ValueKey('asset-card-inspiration-legacy-codex-parent'));
+    await tester.ensureVisible(codexCard);
+    await tester.tap(codexCard);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-detail-codex-variants')),
+      findsOneWidget,
+    );
+    expect(find.text('另一版本'), findsWidgets);
+    expect(
+      find.byKey(
+        const ValueKey('asset-detail-codex-variant-legacy-codex-variant'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('asset library can add a custom category filter name',
@@ -1889,7 +2496,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('匹配素材 1'), findsOneWidget);
+    expect(find.text('匹配素材 2'), findsOneWidget);
     expect(find.text('璃夏'), findsWidgets);
     expect(find.text('水彩柔光'), findsNothing);
     expect(
@@ -1898,7 +2505,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('asset-card-outfit-char-1-outfit-1')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('asset-card-artist-artist-1')),
@@ -1929,6 +2536,83 @@ void main() {
       find.byKey(const ValueKey('asset-card-artist-artist-1')),
       findsNothing,
     );
+  });
+
+  testWidgets('copied manual outfits appear as standalone outfit assets',
+      (tester) async {
+    final config = payload();
+    const catalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 3,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'legacy-character-sheet-r14',
+          name: '佩佩',
+          traits: ViewVariantTexts(frontFull: 'pepe_(arknights)'),
+          source: SourceRef(type: 'manual'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'default-outfit',
+              name: '默认服装',
+              tags: ViewVariantTexts(frontFull: 'hood, black jacket'),
+            ),
+            WorkspaceOutfit(
+              id: 'legacy-character-sheet-r14-outfit-4',
+              name: '星移',
+              tags: ViewVariantTexts(frontFull: 'white dress'),
+            ),
+            WorkspaceOutfit(
+              id: 'default-outfit-copy',
+              name: '默认服装 Copy',
+              tags: ViewVariantTexts(
+                frontFull:
+                    '6:: cat_ears ::, -6:: hood ::, black_jacket, shorts',
+                frontUpper: 'black_jacket',
+                frontLower: 'shorts',
+              ),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(page(config: config, catalog: catalog));
+    await tester.pumpAndSettle();
+
+    final outfitFilter = find.byKey(const ValueKey('asset-filter-outfit'));
+    await tester.ensureVisible(outfitFilter);
+    await tester.tap(outfitFilter);
+    await tester.pumpAndSettle();
+
+    final copiedOutfitCard = find.byKey(
+      const ValueKey(
+        'asset-card-outfit-legacy-character-sheet-r14-default-outfit-copy',
+      ),
+    );
+    expect(copiedOutfitCard, findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-library-search')),
+      'default-outfit-copy',
+    );
+    await tester.pumpAndSettle();
+
+    expect(copiedOutfitCard, findsOneWidget);
+
+    await tester.tap(copiedOutfitCard);
+    await tester.pumpAndSettle();
+
+    expect(find.text('black_jacket'), findsWidgets);
   });
 
   testWidgets('asset library filter switches reuse resolved display items',
@@ -2038,7 +2722,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('璃夏'), findsWidgets);
-    expect(find.textContaining('kamia'), findsNothing);
+    expect(find.textContaining('external'), findsNothing);
     expect(
       find.byKey(const ValueKey('prompt-tag-layout-grouped')),
       findsNothing,
@@ -4725,9 +5409,14 @@ void main() {
     await tester.pumpWidget(page(config: config, service: service));
     await tester.pumpAndSettle();
 
+    final tagFilter = find.byKey(const ValueKey('asset-filter-tag'));
+    await tester.ensureVisible(tagFilter);
+    await tester.tap(tagFilter);
+    await tester.pumpAndSettle();
+
     final tagCard = find.byKey(const ValueKey('asset-card-tag-scene-tag-1'));
     await tester.ensureVisible(tagCard);
-    await tester.tapAt(tester.getTopLeft(tagCard) + const Offset(24, 96));
+    await tester.tap(tagCard);
     await tester.pumpAndSettle();
     final detailSend = find.byKey(const ValueKey('asset-detail-send'));
     await tester.ensureVisible(detailSend);
@@ -4789,7 +5478,7 @@ void main() {
     expect(find.byKey(const ValueKey('asset-filter-workflow')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('asset-filter-batch-plan')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('asset-filter-assembly-preset')),
@@ -4897,6 +5586,51 @@ void main() {
     );
   });
 
+  testWidgets('asset library renders no-preview codex as compact cards',
+      (tester) async {
+    final config = payload();
+
+    await tester.pumpWidget(page(config: config, catalog: nonBasicSnapshot));
+    await tester.pumpAndSettle();
+
+    final codexFilter = find.byKey(const ValueKey('asset-filter-codex'));
+    await tester.ensureVisible(codexFilter);
+    await tester.tap(codexFilter);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'asset-card-preview-inspiration-legacy-codex-regular-0001',
+        ),
+      ),
+      findsNothing,
+    );
+    final codexCard = find.byKey(
+      const ValueKey('asset-card-inspiration-legacy-codex-regular-0001'),
+    );
+    expect(
+      find.descendant(of: codexCard, matching: find.byType(PromptTagDisplay)),
+      findsNothing,
+    );
+    await tester.ensureVisible(codexCard);
+    await tester.tap(codexCard);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-detail-prompt-tag-display')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey(
+          'asset-detail-preview-empty-inspiration-legacy-codex-regular-0001',
+        ),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('asset library defers codex loading until the codex filter',
       (tester) async {
     final config = payload();
@@ -4926,6 +5660,13 @@ void main() {
       everyElement(isTrue),
     );
     expect(catalogService.legacyCodexLimitRequests[1], 48);
+    expect(
+      catalogService.legacyCodexCategoryKeyRequests[1],
+      StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceRegularKey,
+        categoryKey: StudioLegacyCodexCategories.allKey,
+      ),
+    );
     expect(
       find.byKey(
         const ValueKey('asset-card-inspiration-legacy-codex-regular-0001'),
@@ -4983,6 +5724,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mood Board'), findsNothing);
+    expect(find.text('Imported Codex'), findsNothing);
+
+    final adultSource = find.byKey(const ValueKey('asset-codex-source-adult'));
+    await tester.ensureVisible(adultSource);
+    await tester.tap(adultSource);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mood Board'), findsNothing);
     expect(find.text('Imported Codex'), findsOneWidget);
   });
 
@@ -5026,9 +5775,20 @@ void main() {
     expect(find.byKey(const ValueKey('asset-filter-codex')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('asset-filter-batch-plan')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(find.text('分词任务'), findsNothing);
+
+    final batchPlanFilter =
+        find.byKey(const ValueKey('asset-filter-batch-plan'));
+    await tester.ensureVisible(batchPlanFilter);
+    await tester.tap(batchPlanFilter);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('asset-card-batch-plan-tokenizer-queue-1')),
+        findsOneWidget);
+    expect(find.text('分词任务'), findsOneWidget);
   });
 
   testWidgets('asset library filters legacy codex by finer category chips',
@@ -5057,7 +5817,7 @@ void main() {
     expect(find.text('匹配素材 1'), findsOneWidget);
   });
 
-  testWidgets('asset library keeps legacy codex paged until the user scrolls',
+  testWidgets('asset library progressively fills large codex after opening',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
@@ -5106,26 +5866,16 @@ void main() {
     await tester.tap(codexFilter);
     await tester.pumpAndSettle();
 
-    expect(catalogService.includeLegacyCodexRequests, [false, true]);
-    expect(catalogService.legacyCodexLimitRequests, [48, 48]);
-
-    expect(find.textContaining('48/500'), findsOneWidget);
+    expect(catalogService.includeLegacyCodexRequests,
+        [false, true, true, true, true]);
+    expect(catalogService.legacyCodexLimitRequests, [48, 48, 208, 368, 500]);
+    expect(find.textContaining('48/500'), findsNothing);
     expect(
       find.byKey(
-        const ValueKey('asset-card-inspiration-legacy-codex-regular-0049'),
+        const ValueKey('asset-card-inspiration-legacy-codex-regular-0500'),
       ),
-      findsNothing,
+      findsOneWidget,
     );
-
-    await tester.drag(
-      find.byKey(const ValueKey('asset-library-scroll')),
-      const Offset(0, -50000),
-    );
-    await tester.pumpAndSettle();
-
-    expect(catalogService.includeLegacyCodexRequests, [false, true, true]);
-    expect(catalogService.legacyCodexLimitRequests, [48, 48, 96]);
-    expect(find.textContaining('96/500'), findsOneWidget);
   });
 }
 

@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/data/studio/services/studio_cache_import_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/services/studio_cache_import_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 class StudioDataService {
@@ -31,7 +31,14 @@ class StudioDataService {
     await initializeAt(studioDir);
   }
 
-  Future<void> initializeAt(Directory root) async {
+  Future<void> initializeAt(
+    Directory root, {
+    List<Directory> legacyWorkspaceRoots = const [],
+  }) async {
+    await _restoreRicherLegacyWorkspaceIfNeeded(
+      targetRoot: root,
+      legacyWorkspaceRoots: legacyWorkspaceRoots,
+    );
     var manifest = File(
       '${root.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
     );
@@ -54,6 +61,187 @@ class StudioDataService {
     await workspaceService.createWorkspace(root.path);
     await _seedLegacyArtistDataIfEmpty();
     await _backfillLegacyArtistImages();
+  }
+
+  Future<void> _restoreRicherLegacyWorkspaceIfNeeded({
+    required Directory targetRoot,
+    required List<Directory> legacyWorkspaceRoots,
+  }) async {
+    final targetPath = _normalizedPath(targetRoot);
+    final seen = <String>{};
+    for (final legacyRoot in legacyWorkspaceRoots) {
+      final legacyPath = _normalizedPath(legacyRoot);
+      if (legacyPath == targetPath || !seen.add(legacyPath)) {
+        continue;
+      }
+      if (!await _hasWorkspaceManifest(legacyRoot)) {
+        continue;
+      }
+      if (!await _shouldRestoreLegacyWorkspace(targetRoot, legacyRoot)) {
+        continue;
+      }
+      await cacheImportService.importFromDirectory(
+        legacyRoot,
+        targetRoot: targetRoot,
+        createBackup: await _hasWorkspaceManifest(targetRoot),
+      );
+      await _deleteAssetCatalogCache(targetRoot);
+      return;
+    }
+  }
+
+  Future<bool> _shouldRestoreLegacyWorkspace(
+    Directory targetRoot,
+    Directory legacyRoot,
+  ) async {
+    final legacy = await _workspaceAssetSignature(legacyRoot);
+    if (!legacy.hasManifest || !legacy.hasAssets) {
+      return false;
+    }
+
+    final target = await _workspaceAssetSignature(targetRoot);
+    if (!target.hasManifest) {
+      return true;
+    }
+    if (target.characterAndOutfitPreviewRefCount == 0 &&
+        legacy.characterAndOutfitPreviewRefCount > 0) {
+      return true;
+    }
+    if (target.previewRefCount == 0 && legacy.previewRefCount > 0) {
+      return true;
+    }
+    if (target.lastDataModifiedMicros > legacy.lastDataModifiedMicros &&
+        target.previewRefCount > 0) {
+      return false;
+    }
+    if (legacy.assetCount > target.assetCount &&
+        legacy.previewRefCount > target.previewRefCount) {
+      return true;
+    }
+    return target.referenceFileCount == 0 &&
+        legacy.referenceFileCount > 0 &&
+        legacy.previewRefCount >= target.previewRefCount;
+  }
+
+  Future<_WorkspaceAssetSignature> _workspaceAssetSignature(
+    Directory root,
+  ) async {
+    final hasManifest = await _hasWorkspaceManifest(root);
+    final characterFile = _workspaceFile(root, WorkspacePaths.characters);
+    final artistFile = _workspaceFile(root, WorkspacePaths.artistChains);
+    final characters = await _readJsonList(characterFile);
+    final artistChains = await _readJsonList(artistFile);
+    var outfitCount = 0;
+    var characterPreviewRefCount = 0;
+    var outfitPreviewRefCount = 0;
+    var artistPreviewRefCount = 0;
+
+    for (final entry in characters.whereType<Map>()) {
+      characterPreviewRefCount += _imageRefCount(entry['imageRefs']);
+      final outfits = entry['outfits'];
+      if (outfits is List) {
+        outfitCount += outfits.length;
+        for (final outfit in outfits.whereType<Map>()) {
+          outfitPreviewRefCount += _imageRefCount(outfit['imageRefs']);
+        }
+      }
+    }
+    for (final entry in artistChains.whereType<Map>()) {
+      artistPreviewRefCount += _imageRefCount(entry['imageRefs']);
+    }
+
+    return _WorkspaceAssetSignature(
+      hasManifest: hasManifest,
+      characterCount: characters.length,
+      outfitCount: outfitCount,
+      artistChainCount: artistChains.length,
+      characterPreviewRefCount: characterPreviewRefCount,
+      outfitPreviewRefCount: outfitPreviewRefCount,
+      artistPreviewRefCount: artistPreviewRefCount,
+      referenceFileCount: await _referenceFileCount(root),
+      lastDataModifiedMicros: await _lastModifiedMicros([
+        characterFile,
+        artistFile,
+      ]),
+    );
+  }
+
+  Future<List<dynamic>> _readJsonList(File file) async {
+    if (!await file.exists()) {
+      return const [];
+    }
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      return decoded is List ? decoded : const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  int _imageRefCount(dynamic value) {
+    if (value is! List) {
+      return 0;
+    }
+    return value
+        .whereType<String>()
+        .where((ref) => ref.trim().isNotEmpty)
+        .length;
+  }
+
+  Future<int> _referenceFileCount(Directory root) async {
+    final referencesRoot = Directory(
+      '${root.path}${Platform.pathSeparator}assets'
+      '${Platform.pathSeparator}references',
+    );
+    if (!await referencesRoot.exists()) {
+      return 0;
+    }
+    var count = 0;
+    await for (final entity in referencesRoot.list(recursive: true)) {
+      if (entity is File) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  Future<int> _lastModifiedMicros(List<File> files) async {
+    var latest = 0;
+    for (final file in files) {
+      if (!await file.exists()) {
+        continue;
+      }
+      final modified = (await file.stat()).modified.microsecondsSinceEpoch;
+      if (modified > latest) {
+        latest = modified;
+      }
+    }
+    return latest;
+  }
+
+  Future<bool> _hasWorkspaceManifest(Directory root) {
+    return _workspaceFile(root, WorkspacePaths.manifest).exists();
+  }
+
+  File _workspaceFile(Directory root, String relativePath) {
+    return File(
+      '${root.path}${Platform.pathSeparator}'
+      '${relativePath.replaceAll('/', Platform.pathSeparator)}',
+    );
+  }
+
+  Future<void> _deleteAssetCatalogCache(Directory root) async {
+    final cache = _workspaceFile(root, WorkspacePaths.assetCatalogCache);
+    if (await cache.exists()) {
+      await cache.delete();
+    }
+  }
+
+  String _normalizedPath(Directory directory) {
+    return directory.absolute.path
+        .replaceAll('/', Platform.pathSeparator)
+        .replaceAll('\\', Platform.pathSeparator)
+        .toLowerCase();
   }
 
   Future<void> _seedLegacyArtistDataIfEmpty() async {
@@ -198,4 +386,38 @@ class StudioDataService {
     if (value is! List) return const [];
     return value.map(fromJson).toList(growable: false);
   }
+}
+
+class _WorkspaceAssetSignature {
+  final bool hasManifest;
+  final int characterCount;
+  final int outfitCount;
+  final int artistChainCount;
+  final int characterPreviewRefCount;
+  final int outfitPreviewRefCount;
+  final int artistPreviewRefCount;
+  final int referenceFileCount;
+  final int lastDataModifiedMicros;
+
+  const _WorkspaceAssetSignature({
+    required this.hasManifest,
+    required this.characterCount,
+    required this.outfitCount,
+    required this.artistChainCount,
+    required this.characterPreviewRefCount,
+    required this.outfitPreviewRefCount,
+    required this.artistPreviewRefCount,
+    required this.referenceFileCount,
+    required this.lastDataModifiedMicros,
+  });
+
+  int get assetCount => characterCount + outfitCount + artistChainCount;
+
+  int get characterAndOutfitPreviewRefCount =>
+      characterPreviewRefCount + outfitPreviewRefCount;
+
+  int get previewRefCount =>
+      characterPreviewRefCount + outfitPreviewRefCount + artistPreviewRefCount;
+
+  bool get hasAssets => assetCount > 0 || previewRefCount > 0;
 }

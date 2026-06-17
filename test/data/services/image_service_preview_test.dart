@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/services/image_service.dart';
+import 'package:novel_studio/data/services/image_service.dart';
 
 void main() {
   test('ImageService encodes preview thumbnails with a 320px maximum side', () {

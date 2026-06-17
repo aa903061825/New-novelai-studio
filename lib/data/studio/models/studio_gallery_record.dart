@@ -1,6 +1,6 @@
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/workbench_document.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/workbench_document.dart';
 
 enum StudioGalleryOperation {
   generate,

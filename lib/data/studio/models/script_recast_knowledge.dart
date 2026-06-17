@@ -1,5 +1,5 @@
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
 
 enum RecastRoleImportance { protagonist, supporting, temporary }
 

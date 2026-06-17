@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/widgets/image_config_row_card.dart';
+import 'package:novel_studio/ui/core/widgets/image_config_row_card.dart';
 
 import '../viewmodels/vibe_config_v4_viewmodel.dart';
 

@@ -1,4 +1,5 @@
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 enum ScriptSchema { v4Slotted, baseInline, v4Partial, unknown }
 
@@ -524,6 +525,304 @@ class RoleAssembly {
       };
 }
 
+PromptTagCategory promptTagCategoryFromReplacementValue(
+  Object? value, {
+  required PromptTagCategory fallback,
+}) {
+  if (value is! String) {
+    return fallback;
+  }
+  final normalized = value.trim().replaceAll(RegExp(r'[_\s-]+'), '');
+  if (normalized.isEmpty) {
+    return fallback;
+  }
+  final key = normalized.toLowerCase();
+  switch (key) {
+    case 'identity':
+      return PromptTagCategory.character;
+    case 'body':
+      return PromptTagCategory.upperBody;
+    case 'clothing':
+    case 'clothingstate':
+    case 'accessory':
+      return PromptTagCategory.clothing;
+    case 'scene':
+      return PromptTagCategory.scene;
+  }
+  for (final category in PromptTagCategory.values) {
+    final categoryKey =
+        category.name.replaceAll(RegExp(r'[_\s-]+'), '').toLowerCase();
+    if (categoryKey == key) {
+      return category;
+    }
+  }
+  return fallback;
+}
+
+enum ScriptPromptReplacementAction { none, replace, delete }
+
+enum ScriptPromptReplacementMatchMode { any, all, anchor }
+
+class ScriptPromptReplacementTerm {
+  final String id;
+  final String text;
+  final PromptTagCategory category;
+  final String sourcePhrase;
+  final String sourceLocation;
+  final List<int> frameIndexes;
+
+  const ScriptPromptReplacementTerm({
+    required this.id,
+    required this.text,
+    required this.category,
+    this.sourcePhrase = '',
+    this.sourceLocation = '',
+    this.frameIndexes = const [],
+  });
+
+  factory ScriptPromptReplacementTerm.fromJson(Map<String, dynamic> json) {
+    return ScriptPromptReplacementTerm(
+      id: json['id'] as String,
+      text: json['text'] as String,
+      category: promptTagCategoryFromReplacementValue(
+        json['category'],
+        fallback: PromptTagCategory.character,
+      ),
+      sourcePhrase: json['sourcePhrase'] as String? ?? '',
+      sourceLocation: json['sourceLocation'] as String? ?? '',
+      frameIndexes: _listOfDynamic(json['frameIndexes'])
+          .whereType<num>()
+          .map((value) => value.toInt())
+          .toList(growable: false),
+    );
+  }
+
+  ScriptPromptReplacementTerm copyWith({
+    String? id,
+    String? text,
+    PromptTagCategory? category,
+    String? sourcePhrase,
+    String? sourceLocation,
+    List<int>? frameIndexes,
+  }) {
+    return ScriptPromptReplacementTerm(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      category: category ?? this.category,
+      sourcePhrase: sourcePhrase ?? this.sourcePhrase,
+      sourceLocation: sourceLocation ?? this.sourceLocation,
+      frameIndexes: frameIndexes ?? this.frameIndexes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'category': category.name,
+        if (sourcePhrase.trim().isNotEmpty) 'sourcePhrase': sourcePhrase,
+        if (sourceLocation.trim().isNotEmpty) 'sourceLocation': sourceLocation,
+        if (frameIndexes.isNotEmpty) 'frameIndexes': frameIndexes,
+      };
+}
+
+class ScriptPromptReplacementRule {
+  final String id;
+  final List<ScriptPromptReplacementTerm> sourceTerms;
+  final List<String> excludedTermIds;
+  final ScriptPromptReplacementAction action;
+  final ScriptPromptReplacementMatchMode matchMode;
+  final String targetPrompt;
+  final String manualPhrase;
+  final String anchorTermId;
+
+  const ScriptPromptReplacementRule({
+    required this.id,
+    this.sourceTerms = const [],
+    this.excludedTermIds = const [],
+    this.action = ScriptPromptReplacementAction.none,
+    this.matchMode = ScriptPromptReplacementMatchMode.any,
+    this.targetPrompt = '',
+    this.manualPhrase = '',
+    this.anchorTermId = '',
+  });
+
+  factory ScriptPromptReplacementRule.fromJson(Map<String, dynamic> json) {
+    return ScriptPromptReplacementRule(
+      id: json['id'] as String,
+      sourceTerms: _listOfMaps(json['sourceTerms'])
+          .map(ScriptPromptReplacementTerm.fromJson)
+          .toList(growable: false),
+      excludedTermIds: [
+        for (final value in _listOfDynamic(json['excludedTermIds']))
+          value.toString(),
+      ],
+      action: _enumByNameOr(
+        ScriptPromptReplacementAction.values,
+        json['action'] as String?,
+        ScriptPromptReplacementAction.none,
+      ),
+      matchMode: _enumByNameOr(
+        ScriptPromptReplacementMatchMode.values,
+        json['matchMode'] as String?,
+        ScriptPromptReplacementMatchMode.any,
+      ),
+      targetPrompt: json['targetPrompt'] as String? ?? '',
+      manualPhrase: json['manualPhrase'] as String? ?? '',
+      anchorTermId: json['anchorTermId'] as String? ?? '',
+    );
+  }
+
+  ScriptPromptReplacementAction get effectiveAction {
+    if (action == ScriptPromptReplacementAction.delete) {
+      return ScriptPromptReplacementAction.delete;
+    }
+    if (targetPrompt.trim().isNotEmpty) {
+      return ScriptPromptReplacementAction.replace;
+    }
+    return ScriptPromptReplacementAction.none;
+  }
+
+  bool get hasEffect => effectiveAction != ScriptPromptReplacementAction.none;
+
+  ScriptPromptReplacementRule copyWith({
+    String? id,
+    List<ScriptPromptReplacementTerm>? sourceTerms,
+    List<String>? excludedTermIds,
+    ScriptPromptReplacementAction? action,
+    ScriptPromptReplacementMatchMode? matchMode,
+    String? targetPrompt,
+    String? manualPhrase,
+    String? anchorTermId,
+  }) {
+    return ScriptPromptReplacementRule(
+      id: id ?? this.id,
+      sourceTerms: sourceTerms ?? this.sourceTerms,
+      excludedTermIds: excludedTermIds ?? this.excludedTermIds,
+      action: action ?? this.action,
+      matchMode: matchMode ?? this.matchMode,
+      targetPrompt: targetPrompt ?? this.targetPrompt,
+      manualPhrase: manualPhrase ?? this.manualPhrase,
+      anchorTermId: anchorTermId ?? this.anchorTermId,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (sourceTerms.isNotEmpty)
+          'sourceTerms': sourceTerms.map((term) => term.toJson()).toList(),
+        if (excludedTermIds.isNotEmpty) 'excludedTermIds': excludedTermIds,
+        if (action != ScriptPromptReplacementAction.none) 'action': action.name,
+        if (matchMode != ScriptPromptReplacementMatchMode.any)
+          'matchMode': matchMode.name,
+        if (targetPrompt.trim().isNotEmpty) 'targetPrompt': targetPrompt,
+        if (manualPhrase.trim().isNotEmpty) 'manualPhrase': manualPhrase,
+        if (anchorTermId.trim().isNotEmpty) 'anchorTermId': anchorTermId,
+      };
+}
+
+class ScriptRolePromptReplacement {
+  final String sourceRoleId;
+  final String displayLabel;
+  final String sourcePreview;
+  final String? targetCharacterId;
+  final String targetIdentityPrompt;
+  final List<ScriptPromptReplacementRule> rules;
+
+  const ScriptRolePromptReplacement({
+    required this.sourceRoleId,
+    required this.displayLabel,
+    this.sourcePreview = '',
+    this.targetCharacterId,
+    this.targetIdentityPrompt = '',
+    this.rules = const [],
+  });
+
+  factory ScriptRolePromptReplacement.fromJson(Map<String, dynamic> json) {
+    return ScriptRolePromptReplacement(
+      sourceRoleId: json['sourceRoleId'] as String,
+      displayLabel: json['displayLabel'] as String,
+      sourcePreview: json['sourcePreview'] as String? ?? '',
+      targetCharacterId: json['targetCharacterId'] as String?,
+      targetIdentityPrompt: json['targetIdentityPrompt'] as String? ?? '',
+      rules: _listOfMaps(json['rules'])
+          .map(ScriptPromptReplacementRule.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  ScriptRolePromptReplacement copyWith({
+    String? sourceRoleId,
+    String? displayLabel,
+    String? sourcePreview,
+    Object? targetCharacterId = _recastUnset,
+    String? targetIdentityPrompt,
+    List<ScriptPromptReplacementRule>? rules,
+  }) {
+    return ScriptRolePromptReplacement(
+      sourceRoleId: sourceRoleId ?? this.sourceRoleId,
+      displayLabel: displayLabel ?? this.displayLabel,
+      sourcePreview: sourcePreview ?? this.sourcePreview,
+      targetCharacterId: identical(targetCharacterId, _recastUnset)
+          ? this.targetCharacterId
+          : targetCharacterId as String?,
+      targetIdentityPrompt: targetIdentityPrompt ?? this.targetIdentityPrompt,
+      rules: rules ?? this.rules,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'sourceRoleId': sourceRoleId,
+        'displayLabel': displayLabel,
+        if (sourcePreview.trim().isNotEmpty) 'sourcePreview': sourcePreview,
+        if (targetCharacterId != null) 'targetCharacterId': targetCharacterId,
+        if (targetIdentityPrompt.trim().isNotEmpty)
+          'targetIdentityPrompt': targetIdentityPrompt,
+        if (rules.isNotEmpty)
+          'rules': rules.map((rule) => rule.toJson()).toList(),
+      };
+}
+
+class ScriptScenePromptReplacement {
+  final String id;
+  final String label;
+  final List<ScriptPromptReplacementRule> rules;
+
+  const ScriptScenePromptReplacement({
+    required this.id,
+    required this.label,
+    this.rules = const [],
+  });
+
+  factory ScriptScenePromptReplacement.fromJson(Map<String, dynamic> json) {
+    return ScriptScenePromptReplacement(
+      id: json['id'] as String,
+      label: json['label'] as String,
+      rules: _listOfMaps(json['rules'])
+          .map(ScriptPromptReplacementRule.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  ScriptScenePromptReplacement copyWith({
+    String? id,
+    String? label,
+    List<ScriptPromptReplacementRule>? rules,
+  }) {
+    return ScriptScenePromptReplacement(
+      id: id ?? this.id,
+      label: label ?? this.label,
+      rules: rules ?? this.rules,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        if (rules.isNotEmpty)
+          'rules': rules.map((rule) => rule.toJson()).toList(),
+      };
+}
+
 class ArtistSwap {
   final String targetArtistChainId;
   final String manualPrompt;
@@ -622,9 +921,12 @@ class RecastMapping {
   final String scriptId;
   final List<RoleSwap> roleSwaps;
   final List<RoleAssembly> roleAssemblies;
+  final List<ScriptRolePromptReplacement> rolePromptReplacements;
+  final List<ScriptScenePromptReplacement> scenePromptReplacements;
   final ArtistSwap? artistSwap;
   final List<PromptBlockSwap> promptBlockSwaps;
   final List<WorkspaceVibeReference> manualVibeRefs;
+  final Set<String> suppressedPromptTagWarningKeys;
   final String? preservePresetId;
   final String? outputPolicy;
 
@@ -633,9 +935,12 @@ class RecastMapping {
     required this.scriptId,
     this.roleSwaps = const [],
     this.roleAssemblies = const [],
+    this.rolePromptReplacements = const [],
+    this.scenePromptReplacements = const [],
     this.artistSwap,
     this.promptBlockSwaps = const [],
     this.manualVibeRefs = const [],
+    this.suppressedPromptTagWarningKeys = const {},
     this.preservePresetId,
     this.outputPolicy,
   });
@@ -657,6 +962,12 @@ class RecastMapping {
       roleAssemblies: _listOfMaps(json['roleAssemblies'])
           .map(RoleAssembly.fromJson)
           .toList(growable: false),
+      rolePromptReplacements: _listOfMaps(json['rolePromptReplacements'])
+          .map(ScriptRolePromptReplacement.fromJson)
+          .toList(growable: false),
+      scenePromptReplacements: _listOfMaps(json['scenePromptReplacements'])
+          .map(ScriptScenePromptReplacement.fromJson)
+          .toList(growable: false),
       artistSwap: json['artistSwap'] == null
           ? null
           : ArtistSwap.fromJson((json['artistSwap'] as Map).cast()),
@@ -666,6 +977,12 @@ class RecastMapping {
       manualVibeRefs: _listOfDynamic(json['manualVibeRefs'])
           .map(WorkspaceVibeReference.fromJson)
           .toList(growable: false),
+      suppressedPromptTagWarningKeys: {
+        for (final value in _listOfDynamic(
+          json['suppressedPromptTagWarningKeys'],
+        ))
+          if (value.toString().trim().isNotEmpty) value.toString().trim(),
+      },
       preservePresetId: json['preservePresetId'] as String?,
       outputPolicy: json['outputPolicy'] as String?,
     );
@@ -676,10 +993,13 @@ class RecastMapping {
     String? scriptId,
     List<RoleSwap>? roleSwaps,
     List<RoleAssembly>? roleAssemblies,
+    List<ScriptRolePromptReplacement>? rolePromptReplacements,
+    List<ScriptScenePromptReplacement>? scenePromptReplacements,
     ArtistSwap? artistSwap,
     bool clearArtistSwap = false,
     List<PromptBlockSwap>? promptBlockSwaps,
     List<WorkspaceVibeReference>? manualVibeRefs,
+    Set<String>? suppressedPromptTagWarningKeys,
     String? preservePresetId,
     bool clearPreservePresetId = false,
     String? outputPolicy,
@@ -690,9 +1010,15 @@ class RecastMapping {
       scriptId: scriptId ?? this.scriptId,
       roleSwaps: roleSwaps ?? this.roleSwaps,
       roleAssemblies: roleAssemblies ?? this.roleAssemblies,
+      rolePromptReplacements:
+          rolePromptReplacements ?? this.rolePromptReplacements,
+      scenePromptReplacements:
+          scenePromptReplacements ?? this.scenePromptReplacements,
       artistSwap: clearArtistSwap ? null : artistSwap ?? this.artistSwap,
       promptBlockSwaps: promptBlockSwaps ?? this.promptBlockSwaps,
       manualVibeRefs: manualVibeRefs ?? this.manualVibeRefs,
+      suppressedPromptTagWarningKeys:
+          suppressedPromptTagWarningKeys ?? this.suppressedPromptTagWarningKeys,
       preservePresetId: clearPreservePresetId
           ? null
           : preservePresetId ?? this.preservePresetId,
@@ -712,6 +1038,16 @@ class RecastMapping {
       json['roleAssemblies'] =
           roleAssemblies.map((assembly) => assembly.toJson()).toList();
     }
+    if (rolePromptReplacements.isNotEmpty) {
+      json['rolePromptReplacements'] = rolePromptReplacements
+          .map((replacement) => replacement.toJson())
+          .toList();
+    }
+    if (scenePromptReplacements.isNotEmpty) {
+      json['scenePromptReplacements'] = scenePromptReplacements
+          .map((replacement) => replacement.toJson())
+          .toList();
+    }
     if (manualVibeRefs.isNotEmpty) {
       json['manualVibeRefs'] =
           manualVibeRefs.map((vibe) => vibe.toJson()).toList();
@@ -719,6 +1055,10 @@ class RecastMapping {
     if (promptBlockSwaps.isNotEmpty) {
       json['promptBlockSwaps'] =
           promptBlockSwaps.map((swap) => swap.toJson()).toList();
+    }
+    if (suppressedPromptTagWarningKeys.isNotEmpty) {
+      json['suppressedPromptTagWarningKeys'] =
+          (suppressedPromptTagWarningKeys.toList()..sort());
     }
     if (preservePresetId != null) {
       json['preservePresetId'] = preservePresetId;

@@ -264,7 +264,9 @@ class ParamConfig {
   ParamConfig copy() {
     return ParamConfig(
       model: model,
-      sizes: sizes.map((elem) => GenerationSize(width: elem.width, height: elem.height)).toList(),
+      sizes: sizes
+          .map((elem) => GenerationSize(width: elem.width, height: elem.height))
+          .toList(),
       scale: scale,
       sampler: sampler,
       steps: steps,

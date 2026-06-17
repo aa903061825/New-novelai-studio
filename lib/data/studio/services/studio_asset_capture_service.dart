@@ -1,6 +1,6 @@
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class StudioAssetCaptureException implements Exception {
   final String message;

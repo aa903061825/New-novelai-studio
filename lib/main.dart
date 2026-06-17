@@ -3,44 +3,42 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/models/global_generation_params.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/studio/studio_data_service.dart';
-import 'package:nai_casrand/data/studio/services/production_executor_service.dart';
-import 'package:nai_casrand/data/studio/services/production_nai_adapter_service.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:nai_casrand/data/studio/services/asset_tag_cache_prewarm_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_batch_plan_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_asset_context_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_production_service.dart';
-import 'package:nai_casrand/data/studio/services/tokenizer_script_service.dart';
-import 'package:nai_casrand/data/studio/services/workbench_transfer_service.dart';
-import 'package:nai_casrand/data/studio/services/workspace_vibe_import_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/navigation/widgets/navigation_view.dart';
-import 'package:nai_casrand/ui/navigation/view_models/navigation_view_model.dart';
-import 'package:nai_casrand/ui/studio_batch/view_models/production_queue_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_script/view_models/studio_script_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/core/app_composition.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/models/global_generation_params.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_batch_plan_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/services/script_recast_asset_context_service.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_production_service.dart';
+import 'package:novel_studio/data/studio/services/tokenizer_script_service.dart';
+import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
+import 'package:novel_studio/data/studio/services/workspace_vibe_import_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/ui/navigation/widgets/navigation_view.dart';
+import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dart';
+import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:get_it/get_it.dart';
 
@@ -49,14 +47,11 @@ void main() async {
   ErrorWidget.builder = (_) => const SizedBox.shrink();
   await EasyLocalization.ensureInitialized();
 
-  GetIt.instance.registerLazySingleton<ConfigService>(() => ConfigService());
-  final workspaceService = WorkspaceService();
-  final studioDataService = StudioDataService(
-    workspaceService: workspaceService,
+  final coreServices = await AppComposition.registerCoreServices(
+    getIt: GetIt.instance,
   );
-  await studioDataService.initializeForApp();
-  GetIt.instance.registerSingleton<WorkspaceService>(workspaceService);
-  GetIt.instance.registerSingleton<StudioDataService>(studioDataService);
+  final workspaceService = coreServices.workspaceService;
+  final configService = coreServices.configService;
   GetIt.instance.registerLazySingleton(
     () => StudioAssetCatalogService(workspaceService: workspaceService),
   );
@@ -109,7 +104,6 @@ void main() async {
       now: () => DateTime.now().toUtc(),
     ),
   );
-  final configService = GetIt.instance<ConfigService>();
   configService.packageInfo = await PackageInfo.fromPlatform();
   final savedConfig = await configService.loadSavedConfig();
   final payloadConfig = PayloadConfig.fromJson(savedConfig);

@@ -1,7 +1,7 @@
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
 
 typedef FilterRuleBlockResolver = String Function(String text);
 

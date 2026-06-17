@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
-import 'package:nai_casrand/data/studio/tools/stable_id.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/tools/stable_id.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:png_chunks_extract/png_chunks_extract.dart' as png_extract;
 
 Future<void> main(List<String> args) async {
@@ -988,7 +988,7 @@ RecastScriptCache _cacheForScript({
     sourceFingerprint: sourceFingerprint,
     updatedAt: DateTime.now().toUtc(),
     roleCandidates: existing?.roleCandidates ?? const [],
-    mapping: existing?.mapping ?? RecastMapping.defaults(script.id),
+    mapping: exactExisting?.mapping ?? RecastMapping.defaults(script.id),
     aiRoleExtraction:
         preservedAi?.aiRoleExtraction ?? const ScriptAiRoleExtraction(),
     aiRoleExtractionChunks: preservedAi?.aiRoleExtractionChunks ?? const [],
@@ -1080,8 +1080,8 @@ String _defaultWorkspaceRoot() {
   }
   return [
     appData,
-    'org.exception0x0194',
-    'nai3_autodraw',
+    'Novel Studio',
+    'Novel Studio',
     'novel_studio',
   ].join(Platform.pathSeparator);
 }

@@ -1,5 +1,5 @@
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_json_response_decoder.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/services/script_ai_json_response_decoder.dart';
 
 class ScriptAiRoleExtractionParser {
   final ScriptAiJsonResponseDecoder decoder;
@@ -71,7 +71,9 @@ class ScriptAiRoleExtractionParser {
       return true;
     }
     if (value['roles'] is! List) return false;
-    return _extractionSchemaSignals.any(value.containsKey);
+    return _extractionSchemaSignals.any(value.containsKey) ||
+        _hasRolePromptTerms(value['roles']) ||
+        _hasSceneTermsList(value);
   }
 
   bool _hasPlausibleAttentionItem(Object? value) {
@@ -80,6 +82,17 @@ class ScriptAiRoleExtractionParser {
           (item) =>
               _hasTextField(item, 'kind') || _hasTextField(item, 'message'),
         );
+  }
+
+  bool _hasRolePromptTerms(Object? value) {
+    if (value is! List) return false;
+    return value.whereType<Map>().any(
+          (role) => role['prompt_terms'] is List || role['promptTerms'] is List,
+        );
+  }
+
+  bool _hasSceneTermsList(Map value) {
+    return value['scene_terms'] is List || value['sceneTerms'] is List;
   }
 
   bool _hasTextField(Map value, String key) {

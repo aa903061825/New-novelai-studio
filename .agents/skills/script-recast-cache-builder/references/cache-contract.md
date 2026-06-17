@@ -49,8 +49,17 @@ Each cache JSON is a `RecastScriptCache`:
   `parsed.negativeCharCaptions`, `parsed.coords`, `parsed.sourcePayload`.
 - `aiRoleExtraction.status` must be `ready` for completed AI/cache drafts.
 - `aiRoleExtraction.roles[*]` is the durable role extraction draft.
+- `aiRoleExtraction.roles[*].prompt_terms` is the role source-term table for
+  point-to-point replacement.
+- `aiRoleExtraction.scene_terms` is the scene source-term table for
+  point-to-point replacement.
+- `mapping.rolePromptReplacements[*]` mirrors role `prompt_terms` into editable
+  UI replacement rules.
+- `mapping.scenePromptReplacements[*]` mirrors top-level `scene_terms` into
+  editable UI replacement rules.
 - `mapping.roleAssemblies[*].stages[*].sourceParts` mirrors visible source
-  fields in the Script Workbench.
+  fields in the Script Workbench. It is compatibility/display data once
+  `rolePromptReplacements` exists.
 
 Role object essentials:
 
@@ -76,6 +85,13 @@ Role object essentials:
   proves the labels are replacement-different appearances. The normal outcome
   for repeated "nude", "swimsuit", "school uniform", "tank top", or similar
   states is one stage whose `frame_indexes` may be non-contiguous.
+- `prompt_terms[*]`: role-level replacement source terms. Include character
+  identity, stable body/appearance, all source terms whose core subject is
+  clothing/garments/outfits/costumes/apparel/`服饰`/`服装`/`衣装`/swimwear/
+  underwear/footwear, accessories, and clothing/body-exposure states. A term
+  does not need to describe clothing motion to be replacement-relevant. Do not
+  include scene, unrelated action, pose, expression, camera, quality,
+  artist/style, censor/filter, or subject-count/composition terms.
 
 Stage five fields:
 
@@ -88,6 +104,69 @@ Stage five fields:
   garments, such as shirt, jacket, dress, uniform, bra, gloves, sleeves, armor.
 - `lower_clothing`: pants, skirt, underwear, legwear, socks, shoes, boots,
   sandals, lower swimwear, garters, footwear.
+- These five fields are compatibility summaries for old stage UI and source
+  preview fields. They are not the complete replacement table. If a term is a
+  valid replacement target but unsafe for the five fields, preserve it in
+  `prompt_terms` instead of forcing it into a stage field.
+
+Prompt replacement term object:
+
+- `id`: stable term id within the role or scene group.
+- `text`: exact or normalized source prompt term; keep source language/form
+  where possible.
+- `category`: one of `identity`, `body`, `clothing`, `clothing_state`,
+  `clothingState`, `accessory`, or `scene`. The Dart model accepts both
+  `clothing_state` and `clothingState`; cache tools may emit camelCase
+  categories because `mapping` stores `PromptTagCategory.name`.
+- `source_phrase`: exact surrounding source phrase when available.
+- `source_location`: source slot/base/frame description.
+- `frame_indexes`: frames where the source evidence appears. Empty is allowed
+  only when the source is genuinely global and frame scoping cannot be known.
+
+Role prompt-term routing:
+
+- `identity`: concrete character/source identity and bounded generic identity
+  such as `girl`, `boy`, `woman`, `man`, `loli`, or `child`.
+- `body`: stable body/appearance terms, including ears, tail, hair, eyes, body
+  shape, and non-garment accessories that are appearance traits.
+- `clothing`: role-scoped worn garments, stable clothing pieces, outfits,
+  costumes, apparel, and source terms such as `xx outfit`, `xx costume`,
+  `xx服饰`, `服装`, `衣装`, `泳装`, `水着`, or footwear/underwear terms when they
+  are not describing displacement, exposure, removal, damage, wetness, staining,
+  or another clothing state.
+- `clothing_state` / `clothingState`: replacement-relevant clothing or
+  body-exposure states. Any source term whose core subject is a garment,
+  clothing set, or clothing/body-exposure state belongs here when it describes
+  clothing displacement, opening, lifting, pulling, tearing, removal, unworn or
+  held clothing, wet/stained/damaged garments, or undressing. Examples include
+  `no panties`, `no bra`, `bottomless`, `topless`, `nude`, `completely nude`,
+  `bikini aside`, `panties aside`, `panties around one leg`, `shirt lift`,
+  `clothes lift`, `open clothes`, `torn clothes`, `ripped bra`,
+  `wet shirt`, `stained skirt`, `white panties pulled aside`, or
+  `partially undressed`.
+- `accessory`: removable/display accessories when kept separate from body.
+
+Scene prompt-term routing:
+
+- `scene`: environment, place, time, lighting, weather, background objects, and
+  reusable natural-language scene phrases from base/global prompt evidence.
+- Scene terms stay in top-level `scene_terms` and
+  `mapping.scenePromptReplacements`, never inside role `prompt_terms`.
+
+Prompt replacement mapping shape:
+
+- `mapping.rolePromptReplacements[*].sourceRoleId` matches
+  `aiRoleExtraction.roles[*].source_role_id`.
+- `displayLabel` is the role display label.
+- `sourcePreview` is a human-readable comma-joined preview of source terms.
+- `rules[*].sourceTerms[*]` mirrors AI prompt terms using camelCase keys:
+  `sourcePhrase`, `sourceLocation`, and `frameIndexes`.
+- User target fields such as `targetCharacterId`, `targetIdentityPrompt`,
+  `targetPrompt`, `manualPhrase`, `action`, `matchMode`, `excludedTermIds`, and
+  `anchorTermId` may exist and must be preserved when refreshing from AI.
+- `mapping.scenePromptReplacements` uses the AI-managed group id `scene-ai`
+  for the auto scene group unless a tool has a documented reason to preserve a
+  user-authored scene group separately.
 
 Display metadata:
 
@@ -105,8 +184,17 @@ Display metadata:
 
 - A term may appear in a role/stage only if it appears in that role/stage's
   source frames. Search `parsed`, selected safe `rawJson`, and copied metadata.
+- A term may appear in `prompt_terms` or `scene_terms` only if it appears in the
+  relevant role/base source evidence. Natural-language source phrases are valid
+  evidence, but split them into minimal replacement terms and preserve the
+  exact surrounding phrase in `source_phrase`.
 - A term appearing in a different role, different slot, or different stage is
   not evidence for this stage.
+- A clothing or clothingState `prompt_terms` entry is valid only when the term
+  or its `source_phrase` appears in that role's own `appearances[*].source_id`
+  slot caption on one of the term's `frame_indexes`. Do not mix clothing terms
+  across roles, slots, or stages even when the same frame contains multiple
+  characters.
 - Stable missing fields stay empty. Do not use known character defaults to fill
   a frame/stage.
 - Correct obvious typos only when the source evidence and project convention are
@@ -119,6 +207,13 @@ Display metadata:
   changed display text in reports when repairing live caches.
 - `evidence_terms` should be exactly the stable five-field terms after routing
   and de-duplication.
+- `prompt_terms` may be broader than `evidence_terms` because it also contains
+  ordinary clothing source terms not summarized by the five fields and
+  replacement-relevant clothing states that are intentionally kept out of the
+  five fields.
+- Do not turn `1girl`, `2girls`, `1boy`, `solo`, camera/composition words, or
+  quality/style words into role identity replacement terms. `girl` can be a
+  bounded generic role identity; `1girl` is not the same term.
 
 ## Forbidden Error Classes
 
@@ -138,6 +233,16 @@ Display metadata:
 - Duplicate stage tabs: the same role has multiple stages with the same
   UI-facing outfit/body-state label even though they should be one replacement
   target.
+- Stage-only ready cache: `aiRoleExtraction` has replacement-relevant evidence
+  but no role `prompt_terms`, no top-level `scene_terms`, or no synced mapping
+  replacement groups.
+- Stale mapping: an import/regeneration preserved old `roleAssemblies`,
+  `rolePromptReplacements`, or user targets from a related but content-changed
+  cache instead of refreshing exact-source AI terms.
+- Scene leak: scene/place/light/weather/background terms copied into role
+  `prompt_terms` instead of top-level `scene_terms`.
+- Composition leak: subject-count/composition terms such as `1girl`, `solo`, or
+  `2girls` copied into role identity prompt terms.
 
 ## Large Batch Subagents
 
@@ -163,6 +268,16 @@ Run a final parent-agent reconciliation pass after subagents finish.
 Use the active workspace path unless the user names a different cache directory.
 Set a source root matching the requested script set. Use an ASCII junction such
 as `E:/codeximage/<slug>` when shell tools corrupt non-ASCII paths.
+
+For offline cache rebuilds that should populate the new replacement tables,
+prefer `tool/build_script_recast_ai_extraction_offline.mjs` or a repair script
+that emits both `aiRoleExtraction.roles[*].prompt_terms` /
+`aiRoleExtraction.scene_terms` and synced `mapping.rolePromptReplacements` /
+`mapping.scenePromptReplacements`.
+
+For online Script AI regeneration tools, the saved cache must pass through
+`ScriptAiRoleAssemblyApplication` or an equivalent schema-preserving sync step
+before writing to disk.
 
 ```powershell
 node tool/audit_script_recast_cache_integrity.mjs `
@@ -227,6 +342,8 @@ Final cache-work summary should include:
 - backup directory;
 - scripts/tools run and reports written;
 - field-proofread result;
+- role prompt replacement group/rule count and scene prompt replacement
+  group/rule count;
 - role display translation status;
 - stage label context status;
 - remaining blanks that are intentionally empty due to missing evidence;

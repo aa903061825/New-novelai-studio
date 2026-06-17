@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
+import 'package:novel_studio/data/models/api_request.dart';
 
 import '../../tool/script_recast_acceptance.dart';
 

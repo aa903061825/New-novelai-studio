@@ -3,10 +3,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
-import 'package:nai_casrand/data/studio/services/workbench_metadata_import_service.dart';
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/services/workbench_metadata_import_service.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
 
 void main() {
   group('ScriptRecastParserService', () {

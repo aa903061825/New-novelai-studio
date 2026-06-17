@@ -7,34 +7,34 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/filter_rules_library_dialog.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_hover_preview_thumbnail.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_metric_card.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_asset_focus.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_recast_plan.dart';
-import 'package:nai_casrand/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_list_utils.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/filter_rules_library_dialog.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_drag.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_hover_preview_thumbnail.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_metric_card.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_recast_plan.dart';
+import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
 
 const _scriptPromptFilterRuleTargets = [
   PromptTagFilterRuleTarget.deleteKeywords,
@@ -378,6 +378,7 @@ class _ScopedScriptAssetDrawer extends StatelessWidget {
       select: (viewModel) => (
         viewModel.characterOptions,
         viewModel.artistChainOptions,
+        _scriptAssetDrawerPreviewSignature(viewModel),
       ),
       builder: (context, _) => _ScriptAssetDrawer(
         viewModel: viewModel,
@@ -387,6 +388,20 @@ class _ScopedScriptAssetDrawer extends StatelessWidget {
       ),
     );
   }
+}
+
+String _scriptAssetDrawerPreviewSignature(StudioScriptViewModel viewModel) {
+  final parts = <String>[];
+  for (final character in viewModel.characterOptions) {
+    parts.addAll(viewModel.characterPreviewPaths(character));
+    for (final outfit in character.outfits) {
+      parts.addAll(viewModel.outfitPreviewPaths(character, outfit));
+    }
+  }
+  for (final chain in viewModel.artistChainOptions) {
+    parts.addAll(viewModel.artistChainPreviewPaths(chain));
+  }
+  return parts.join('\u001f');
 }
 
 Future<void> _showAssetCaptureDraft(
@@ -882,18 +897,6 @@ class _ScriptAssetDragData {
         partValue = null;
 }
 
-class _RoleStageCopyDragData {
-  final String sourceRoleId;
-  final String stageId;
-  final String label;
-
-  const _RoleStageCopyDragData({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.label,
-  });
-}
-
 enum _ScriptAssetDrawerCategory {
   character(
     keySuffix: 'character',
@@ -914,6 +917,11 @@ enum _ScriptAssetDrawerCategory {
   final String keySuffix;
   final String title;
   final IconData icon;
+
+  static const topLevelValues = [
+    character,
+    artist,
+  ];
 
   const _ScriptAssetDrawerCategory({
     required this.keySuffix,
@@ -989,7 +997,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final totalCount = _ScriptAssetDrawerCategory.values.fold<int>(
+    final totalCount = _ScriptAssetDrawerCategory.topLevelValues.fold<int>(
       0,
       (count, category) => count + category.countFrom(widget.viewModel),
     );
@@ -1015,7 +1023,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
                   ? const _ScriptDrawerStateMessage(
                       icon: Icons.inventory_2_outlined,
                       title: '素材抽屉',
-                      message: '导入剧本后会显示可用角色、Outfit 和画师串',
+                      message: '导入剧本后会显示可用角色和画师串，服装可在角色内展开',
                     )
                   : _selectedCategory == null
                       ? _ScriptDrawerCategoryList(
@@ -1052,9 +1060,18 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
     _selectedCategory = _categoryForFocus(focus);
     _searchController.clear();
     _searchQuery = '';
+    _scheduleFocusedCardScroll(focus);
+  }
+
+  void _scheduleFocusedCardScroll(
+    StudioScriptAssetFocus focus, {
+    int attempts = 2,
+  }) {
+    if (attempts <= 0) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scrollFocusedCardIntoView(focus);
+      _scheduleFocusedCardScroll(focus, attempts: attempts - 1);
     });
   }
 
@@ -1062,7 +1079,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
     return switch (focus.kind) {
       StudioScriptAssetFocusKind.character =>
         _ScriptAssetDrawerCategory.character,
-      StudioScriptAssetFocusKind.outfit => _ScriptAssetDrawerCategory.outfit,
+      StudioScriptAssetFocusKind.outfit => _ScriptAssetDrawerCategory.character,
       StudioScriptAssetFocusKind.artistChain =>
         _ScriptAssetDrawerCategory.artist,
     };
@@ -1101,7 +1118,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
               icon: Icons.person_outline,
               title: character.name,
               subtitle: character.traits.frontFull,
-              previewPaths: widget.viewModel.characterPreviewPaths(character),
+              previewPaths: _characterDrawerPreviewPaths(character),
               searchableText: [
                 character.name,
                 character.traits.frontFull,
@@ -1224,6 +1241,25 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
     ];
   }
 
+  List<String> _characterDrawerPreviewPaths(CharacterEntry character) {
+    final paths = <String>[];
+    void addPaths(Iterable<String> nextPaths) {
+      for (final path in nextPaths) {
+        final trimmed = path.trim();
+        if (trimmed.isEmpty || paths.contains(trimmed)) {
+          continue;
+        }
+        paths.add(trimmed);
+      }
+    }
+
+    addPaths(widget.viewModel.characterPreviewPaths(character));
+    for (final outfit in _uniqueOutfitsById(character.outfits)) {
+      addPaths(widget.viewModel.outfitPreviewPaths(character, outfit));
+    }
+    return List.unmodifiable(paths);
+  }
+
   Iterable<WorkspaceOutfit> _uniqueOutfitsById(
     Iterable<WorkspaceOutfit> outfits,
   ) sync* {
@@ -1285,7 +1321,10 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
       _favoriteSortedScriptItems(_itemsFor(category), _favoriteKeys),
     );
     if (targetIndex < 0) return;
-    final targetOffset = targetIndex * _ScriptDrawerAssetRow.rowExtent;
+    final targetOffset = targetIndex * _ScriptDrawerAssetRow.rowExtent +
+        (focus.kind == StudioScriptAssetFocusKind.outfit
+            ? _ScriptDrawerAssetRow.rowExtent
+            : 0);
     final maxOffset = _detailScrollController.position.maxScrollExtent;
     _detailScrollController.jumpTo(targetOffset.clamp(0, maxOffset).toDouble());
   }
@@ -1296,7 +1335,13 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
   ) {
     return items.indexWhere((item) {
       final key = item.key;
-      return key is ValueKey && key.value == focus.drawerCardKey;
+      if (key is ValueKey && key.value == focus.drawerCardKey) {
+        return true;
+      }
+      return item.outfits.any((outfit) {
+        final outfitKey = outfit.itemKey;
+        return outfitKey is ValueKey && outfitKey.value == focus.drawerCardKey;
+      });
     });
   }
 
@@ -1405,7 +1450,7 @@ class _ScriptDrawerCategoryList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final categories = [
-      for (final category in _ScriptAssetDrawerCategory.values)
+      for (final category in _ScriptAssetDrawerCategory.topLevelValues)
         if (category.countFrom(viewModel) > 0) category,
     ];
     return ListView.builder(
@@ -1428,15 +1473,11 @@ class _ScriptDrawerCategoryList extends StatelessWidget {
           for (final character in viewModel.characterOptions)
             ...viewModel.characterPreviewPaths(character),
         ],
-      _ScriptAssetDrawerCategory.outfit => [
-          for (final character in viewModel.characterOptions)
-            for (final outfit in character.outfits)
-              ...viewModel.outfitPreviewPaths(character, outfit),
-        ],
       _ScriptAssetDrawerCategory.artist => [
           for (final chain in viewModel.artistChainOptions)
             ...viewModel.artistChainPreviewPaths(chain),
         ],
+      _ScriptAssetDrawerCategory.outfit => const <String>[],
     };
     return paths.take(3).toList(growable: false);
   }
@@ -1536,7 +1577,8 @@ class _ScriptDrawerCategoryPreviewStrip extends StatelessWidget {
               top: index == 1 ? 2 : 0,
               child: _ScriptDrawerSmallPreview(
                 icon: icon,
-                previewPath: path,
+                previewPaths: previewPaths,
+                activePreviewPath: path,
                 size: 32,
               ),
             ),
@@ -1604,6 +1646,7 @@ class _ScriptDrawerCategoryDetail extends StatelessWidget {
                     return _ScriptDrawerAssetRow(
                       key: ValueKey('script-drawer-row-${item.favoriteKey}'),
                       item: item,
+                      focusedCardKey: focusedCardKey,
                       focused: item.key is ValueKey &&
                           (item.key as ValueKey).value == focusedCardKey,
                       isFavorite: favoriteKeys.contains(item.favoriteKey),
@@ -1702,6 +1745,7 @@ class _ScriptDrawerAssetRow extends StatefulWidget {
   static const double rowExtent = 84;
 
   final _ScriptDrawerAssetItem item;
+  final String? focusedCardKey;
   final bool focused;
   final bool isFavorite;
   final ValueChanged<bool> onFavoriteChanged;
@@ -1709,6 +1753,7 @@ class _ScriptDrawerAssetRow extends StatefulWidget {
   const _ScriptDrawerAssetRow({
     super.key,
     required this.item,
+    required this.focusedCardKey,
     required this.focused,
     required this.isFavorite,
     required this.onFavoriteChanged,
@@ -1724,6 +1769,11 @@ class _ScriptDrawerAssetRowState extends State<_ScriptDrawerAssetRow> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final hasFocusedOutfit = item.outfits.any((outfit) {
+      final key = outfit.itemKey;
+      return key is ValueKey && key.value == widget.focusedCardKey;
+    });
+    final expanded = _expanded || hasFocusedOutfit;
     final card = InkWell(
       key: item.key,
       onTap: item.outfits.isEmpty
@@ -1754,7 +1804,8 @@ class _ScriptDrawerAssetRowState extends State<_ScriptDrawerAssetRow> {
               builder: (context, previewPath) => _ScriptDrawerSmallPreview(
                 key: item.previewKey,
                 icon: item.icon,
-                previewPath: previewPath,
+                previewPaths: item.previewPaths,
+                activePreviewPath: previewPath,
               ),
             ),
             const SizedBox(width: 10),
@@ -1792,7 +1843,7 @@ class _ScriptDrawerAssetRowState extends State<_ScriptDrawerAssetRow> {
             if (item.outfits.isNotEmpty) ...[
               const SizedBox(width: 8),
               Icon(
-                _expanded ? Icons.expand_less : Icons.expand_more,
+                expanded ? Icons.expand_less : Icons.expand_more,
                 size: 18,
                 color: StudioTokens.textSecondary,
               ),
@@ -1831,14 +1882,19 @@ class _ScriptDrawerAssetRowState extends State<_ScriptDrawerAssetRow> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         draggable,
-        if (_expanded) ...[
+        if (expanded) ...[
           Padding(
             padding: const EdgeInsets.only(left: 18, bottom: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final outfit in item.outfits)
-                  _ScriptDrawerOutfitRow(outfit: outfit),
+                  _ScriptDrawerOutfitRow(
+                    outfit: outfit,
+                    focused: outfit.itemKey is ValueKey &&
+                        (outfit.itemKey as ValueKey).value ==
+                            widget.focusedCardKey,
+                  ),
               ],
             ),
           ),
@@ -1850,8 +1906,12 @@ class _ScriptDrawerAssetRowState extends State<_ScriptDrawerAssetRow> {
 
 class _ScriptDrawerOutfitRow extends StatefulWidget {
   final _ScriptDrawerOutfitItem outfit;
+  final bool focused;
 
-  const _ScriptDrawerOutfitRow({required this.outfit});
+  const _ScriptDrawerOutfitRow({
+    required this.outfit,
+    required this.focused,
+  });
 
   @override
   State<_ScriptDrawerOutfitRow> createState() => _ScriptDrawerOutfitRowState();
@@ -1877,91 +1937,81 @@ class _ScriptDrawerOutfitRowState extends State<_ScriptDrawerOutfitRow> {
         decoration: BoxDecoration(
           color: StudioTokens.surface2,
           borderRadius: StudioTokens.radiusSlot,
-          border: StudioTokens.cardBorder,
+          border: Border.all(
+            color: widget.focused
+                ? StudioTokens.primary
+                : StudioTokens.cardOutline,
+            width: widget.focused ? 2 : 1,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Row(
           children: [
-            Row(
-              children: [
-                StudioHoverPreviewThumbnail(
-                  previewPaths: outfit.previewPaths,
-                  overlayKey: ValueKey(
-                    '${(outfit.previewKey as ValueKey).value}-overlay',
-                  ),
-                  builder: (context, previewPath) => _ScriptDrawerSmallPreview(
-                    key: outfit.previewKey,
-                    icon: Icons.checkroom_outlined,
-                    previewPath: previewPath,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        outfit.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      if (outfit.subtitle.trim().isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          outfit.subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: StudioTokens.textMuted,
-                                  ),
-                        ),
-                      ],
-                      if (outfit.fullPrompt.trim().isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          outfit.fullPrompt,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (outfit.parts.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 18,
-                    color: StudioTokens.textSecondary,
-                  ),
-                ],
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.drag_indicator,
-                  size: 18,
-                  color: StudioTokens.textSecondary,
-                ),
-              ],
+            StudioHoverPreviewThumbnail(
+              previewPaths: outfit.previewPaths,
+              overlayKey: ValueKey(
+                '${(outfit.previewKey as ValueKey).value}-overlay',
+              ),
+              builder: (context, previewPath) => _ScriptDrawerSmallPreview(
+                key: outfit.previewKey,
+                icon: Icons.checkroom_outlined,
+                previewPaths: outfit.previewPaths,
+                activePreviewPath: previewPath,
+              ),
             ),
-            if (_expanded) ...[
-              const SizedBox(height: 10),
-              for (final part in outfit.parts) ...[
-                _ScriptDrawerPromptPartCard(
-                  outfitKey: outfit.itemKey,
-                  part: part,
-                ),
-                if (part != outfit.parts.last) const SizedBox(height: 8),
-              ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    outfit.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  if (outfit.subtitle.trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      outfit.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: StudioTokens.textMuted,
+                          ),
+                    ),
+                  ],
+                  if (outfit.fullPrompt.trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      outfit.fullPrompt,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (outfit.parts.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Icon(
+                _expanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+                color: StudioTokens.textSecondary,
+              ),
             ],
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.drag_indicator,
+              size: 18,
+              color: StudioTokens.textSecondary,
+            ),
           ],
         ),
       ),
     );
 
-    return Draggable<_ScriptAssetDragData>(
+    final draggable = Draggable<_ScriptAssetDragData>(
       data: outfit.data,
       feedback: _ScriptDrawerDragFeedback(
         label: outfit.data.label,
@@ -1970,6 +2020,30 @@ class _ScriptDrawerOutfitRowState extends State<_ScriptDrawerOutfitRow> {
       ),
       childWhenDragging: Opacity(opacity: 0.45, child: card),
       child: card,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        draggable,
+        if (_expanded) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 18, bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final part in outfit.parts) ...[
+                  _ScriptDrawerPromptPartCard(
+                    outfitKey: outfit.itemKey,
+                    part: part,
+                  ),
+                  if (part != outfit.parts.last) const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -2065,18 +2139,24 @@ class _ScriptDrawerPromptPartCard extends StatelessWidget {
 
 class _ScriptDrawerSmallPreview extends StatelessWidget {
   final IconData icon;
-  final String? previewPath;
+  final List<String> previewPaths;
+  final String? activePreviewPath;
   final double size;
 
   const _ScriptDrawerSmallPreview({
     super.key,
     required this.icon,
-    required this.previewPath,
+    this.previewPaths = const [],
+    this.activePreviewPath,
     this.size = 42,
   });
 
   @override
   Widget build(BuildContext context) {
+    final previewPath = _firstExistingPreviewPath(
+      activePreviewPath,
+      previewPaths,
+    );
     return ClipRRect(
       borderRadius: StudioTokens.radiusSlot,
       child: Container(
@@ -2089,7 +2169,7 @@ class _ScriptDrawerSmallPreview extends StatelessWidget {
         child: previewPath == null
             ? Icon(icon, size: size * 0.48, color: StudioTokens.primary)
             : Image.file(
-                File(previewPath!),
+                File(previewPath),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Icon(
@@ -2102,6 +2182,28 @@ class _ScriptDrawerSmallPreview extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _firstExistingPreviewPath(
+  String? preferredPath,
+  List<String> previewPaths,
+) {
+  final candidates = <String>[
+    if (preferredPath != null) preferredPath,
+    ...previewPaths,
+  ];
+  final seen = <String>{};
+  for (final candidate in candidates) {
+    final trimmed = candidate.trim();
+    if (trimmed.isEmpty || !seen.add(trimmed)) {
+      continue;
+    }
+    final file = File(trimmed);
+    if (file.isAbsolute && file.existsSync()) {
+      return file.path;
+    }
+  }
+  return null;
 }
 
 class _ScriptDrawerDragFeedback extends StatelessWidget {
@@ -2138,7 +2240,7 @@ class _ScriptDrawerDragFeedback extends StatelessWidget {
           children: [
             _ScriptDrawerSmallPreview(
               icon: icon,
-              previewPath: previewPath,
+              activePreviewPath: previewPath,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -2286,6 +2388,7 @@ class _SelectedFrameReplacedPromptState
               emptyText: '未检测到源词',
               diffStateForTag: (groupId, tag) =>
                   _promptDiffStateForTag(diffGroups, groupId, tag),
+              showTagWarnings: false,
             )
           else
             PromptTagGroupDisplay(
@@ -2310,6 +2413,7 @@ class _SelectedFrameReplacedPromptState
                   : PromptTagLayoutMode.sourceOrder,
               respectInitialLayoutMode: true,
               dense: true,
+              showTagWarnings: false,
               emptyText: '未检测到源词',
             ),
         ],
@@ -3952,6 +4056,8 @@ class _ScriptRecastPlanWorkspace extends StatelessWidget {
             viewModel.recastPlan.roles.isEmpty,
             viewModel.recastPlan.hasAiBackedPlan,
             viewModel.artistMappings.isEmpty,
+            viewModel.roleReplacementMappings,
+            viewModel.sceneReplacementMappings,
           ),
           builder: (context, _) => _RecastPlanPanel(viewModel: viewModel),
         ),
@@ -4207,8 +4313,6 @@ class _AiRoleExtractionRoleRow extends StatefulWidget {
 }
 
 class _AiRoleExtractionRoleRowState extends State<_AiRoleExtractionRoleRow> {
-  String? _selectedStageKey;
-
   @override
   Widget build(BuildContext context) {
     final role = widget.role;
@@ -4222,8 +4326,8 @@ class _AiRoleExtractionRoleRowState extends State<_AiRoleExtractionRoleRow> {
       '角色 ${widget.roleIndex + 1}',
       if (displayName.isNotEmpty) displayName,
     ].where((part) => part.isNotEmpty).join(' · ');
-    final selected = _selectedStage(role.stages);
     final roleFrameIndexes = _aiRoleExtractionRoleFrameIndexes(role);
+    final promptTerms = _aiRoleExtractionRolePromptTerms(role);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -4278,27 +4382,6 @@ class _AiRoleExtractionRoleRowState extends State<_AiRoleExtractionRoleRow> {
                 icon: const Icon(Icons.library_add_outlined, size: 16),
                 label: const Text('保存素材'),
               ),
-              if (role.stages.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: StudioTokens.surface1,
-                    borderRadius: StudioTokens.radiusPill,
-                    border: Border.all(color: StudioTokens.border),
-                  ),
-                  child: Text(
-                    '${role.stages.length} 套服装',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: StudioTokens.textSecondary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                ),
-              ],
             ],
           ),
           if (roleFrameIndexes.isNotEmpty) ...[
@@ -4309,168 +4392,16 @@ class _AiRoleExtractionRoleRowState extends State<_AiRoleExtractionRoleRow> {
             const SizedBox(height: 8),
             _AiRoleExtractionWarningList(warnings: role.warnings),
           ],
-          if (role.stages.isNotEmpty) ...[
+          if (promptTerms.isNotEmpty) ...[
             const SizedBox(height: 10),
-            _AiRoleExtractionStageTabs(
-              stages: role.stages,
+            _AiRoleExtractionTermGroup(
+              title: '角色替换来源词',
+              icon: Icons.sell_outlined,
               translationCache: widget.viewModel.translationCache,
-              selectedKey: selected == null ? '' : _stageKey(selected.stage),
-              onSelect: (stageKey) {
-                setState(() {
-                  _selectedStageKey = stageKey;
-                });
-              },
+              terms: promptTerms,
             ),
-            if (selected != null) ...[
-              const SizedBox(height: 10),
-              _AiRoleExtractionStageCard(
-                sourceRoleId: role.sourceRoleId,
-                stage: selected.stage,
-                stageIndex: selected.index,
-                viewModel: widget.viewModel,
-              ),
-            ],
           ],
         ],
-      ),
-    );
-  }
-
-  ({int index, ScriptAiExtractedStage stage})? _selectedStage(
-    List<ScriptAiExtractedStage> stages,
-  ) {
-    if (stages.isEmpty) {
-      return null;
-    }
-    final currentKey = _selectedStageKey;
-    if (currentKey != null) {
-      for (final (index, stage) in stages.indexed) {
-        if (_stageKey(stage) == currentKey) {
-          return (index: index, stage: stage);
-        }
-      }
-    }
-    final first = stages.first;
-    _selectedStageKey = _stageKey(first);
-    return (index: 0, stage: first);
-  }
-
-  String _stageKey(ScriptAiExtractedStage stage) {
-    final id = stage.stageId.trim();
-    if (id.isNotEmpty) {
-      return id;
-    }
-    final label = stage.label.trim();
-    if (label.isNotEmpty) {
-      return label;
-    }
-    return 'stage-${identityHashCode(stage)}';
-  }
-}
-
-class _AiRoleExtractionStageTabs extends StatelessWidget {
-  final List<ScriptAiExtractedStage> stages;
-  final TranslationCache translationCache;
-  final String selectedKey;
-  final ValueChanged<String> onSelect;
-
-  const _AiRoleExtractionStageTabs({
-    required this.stages,
-    required this.translationCache,
-    required this.selectedKey,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final (index, stage) in stages.indexed)
-          _AiRoleExtractionStageTab(
-            index: index,
-            stage: stage,
-            translationCache: translationCache,
-            selected: _stageKey(stage) == selectedKey,
-            onTap: () => onSelect(_stageKey(stage)),
-          ),
-      ],
-    );
-  }
-
-  String _stageKey(ScriptAiExtractedStage stage) {
-    final id = stage.stageId.trim();
-    if (id.isNotEmpty) {
-      return id;
-    }
-    final label = stage.label.trim();
-    if (label.isNotEmpty) {
-      return label;
-    }
-    return 'stage-${identityHashCode(stage)}';
-  }
-}
-
-class _AiRoleExtractionStageTab extends StatelessWidget {
-  final int index;
-  final ScriptAiExtractedStage stage;
-  final TranslationCache translationCache;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _AiRoleExtractionStageTab({
-    required this.index,
-    required this.stage,
-    required this.translationCache,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final label = _aiRoleExtractionStageLabel(
-      stage,
-      translationCache: translationCache,
-    );
-    final background = selected ? StudioTokens.primary : StudioTokens.surface1;
-    final foreground =
-        selected ? StudioTokens.onPrimary : StudioTokens.textSecondary;
-    return Tooltip(
-      message: label,
-      child: FilledButton.icon(
-        key: ValueKey('script-ai-role-stage-tab-${index + 1}'),
-        style: FilledButton.styleFrom(
-          backgroundColor: background,
-          foregroundColor: foreground,
-          visualDensity: VisualDensity.compact,
-          minimumSize: const Size(0, 34),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: StudioTokens.radiusPill,
-            side: BorderSide(
-              color:
-                  selected ? StudioTokens.primary : StudioTokens.borderStrong,
-            ),
-          ),
-        ),
-        onPressed: onTap,
-        icon: selected
-            ? const Icon(Icons.check, size: 16)
-            : const Icon(Icons.check_box_outline_blank, size: 16),
-        label: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 180),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            softWrap: false,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: foreground,
-                  fontWeight: FontWeight.w900,
-                ),
-          ),
-        ),
       ),
     );
   }
@@ -4520,139 +4451,6 @@ class _AiRoleExtractionCompactNotice extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _AiRoleExtractionStageCard extends StatelessWidget {
-  final String sourceRoleId;
-  final ScriptAiExtractedStage stage;
-  final int stageIndex;
-  final StudioScriptViewModel viewModel;
-
-  const _AiRoleExtractionStageCard({
-    required this.sourceRoleId,
-    required this.stage,
-    required this.stageIndex,
-    required this.viewModel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final label = _aiRoleExtractionStageLabel(
-      stage,
-      translationCache: viewModel.translationCache,
-    );
-    final stageKey = '${sourceRoleId.trim()}-${stage.stageId.trim()}';
-    final stageFrameIndexes = _normalizedFrameIndexes(stage.frameIndexes);
-    return Container(
-      key: ValueKey('script-ai-role-stage-card-$stageKey'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface1,
-        borderRadius: StudioTokens.radiusSlot,
-        border: Border.all(color: StudioTokens.border),
-      ),
-      child: Column(
-        key: ValueKey('script-ai-role-stage-detail-$stageKey'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Tooltip(
-                  message: label,
-                  child: Text(
-                    '服装 ${stageIndex + 1} · $label',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                alignment: WrapAlignment.end,
-                children: [
-                  _AiRoleExtractionMetaChip(
-                    label: '置信度 ${(stage.confidence * 100).round()}%',
-                  ),
-                  if (stageFrameIndexes.isNotEmpty)
-                    _AiRoleExtractionFrameChip(
-                      frameIndexes: stageFrameIndexes,
-                    ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _AiRoleExtractionFieldEditor(
-            label: '身份',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.identity,
-            value: stage.identity,
-            viewModel: viewModel,
-          ),
-          _AiRoleExtractionFieldEditor(
-            label: '上身',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.upperBody,
-            value: stage.upperBody,
-            viewModel: viewModel,
-          ),
-          _AiRoleExtractionFieldEditor(
-            label: '下身',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.lowerBody,
-            value: stage.lowerBody,
-            viewModel: viewModel,
-          ),
-          _AiRoleExtractionFieldEditor(
-            label: '上装',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.upperClothing,
-            value: stage.upperClothing,
-            viewModel: viewModel,
-          ),
-          _AiRoleExtractionFieldEditor(
-            label: '下装',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.lowerClothing,
-            value: stage.lowerClothing,
-            viewModel: viewModel,
-          ),
-          _AiRoleExtractionFieldEditor(
-            label: '待确认',
-            sourceRoleId: sourceRoleId,
-            stageId: stage.stageId,
-            part: StudioScriptRolePart.nonRole,
-            value: stage.nonRole,
-            viewModel: viewModel,
-          ),
-          if (stage.missingFields.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _AiRoleExtractionWarningList(
-              warnings: stage.missingFields
-                  .map(_aiRoleExtractionWarningText)
-                  .toList(growable: false),
-            ),
-          ],
-          if (stage.warnings.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _AiRoleExtractionWarningList(warnings: stage.warnings),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -4715,64 +4513,6 @@ class _AiRoleExtractionMetaChip extends StatelessWidget {
                 ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _AiRoleExtractionFieldEditor extends StatelessWidget {
-  final String label;
-  final String sourceRoleId;
-  final String stageId;
-  final StudioScriptRolePart part;
-  final String value;
-  final StudioScriptViewModel viewModel;
-
-  const _AiRoleExtractionFieldEditor({
-    required this.label,
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.part,
-    required this.value,
-    required this.viewModel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: PromptTagEditor(
-        key: ValueKey(
-          'script-ai-role-field-$sourceRoleId-$stageId-${part.name}',
-        ),
-        label: label,
-        value: value,
-        dense: true,
-        emptyText: '空字段',
-        allowAdd: true,
-        enableTagActions: true,
-        showControls: false,
-        inlineLabel: true,
-        inlineLabelWidth: 44,
-        initialGroupedLayout: part == StudioScriptRolePart.nonRole,
-        onAddToFilterRules: viewModel.addTagsToFilterRulesLibrary,
-        highlightForTag: (tag) {
-          final entry = viewModel.manualRoleCacheEntryForTag(tag);
-          if (entry == null) {
-            return null;
-          }
-          return PromptTagEditorHighlight(
-            tooltip: '缓存字段: ${_promptTagCategoryLabel(entry.category)}',
-          );
-        },
-        onChanged: (next) {
-          viewModel.setAiRoleExtractionStageField(
-            sourceRoleId: sourceRoleId,
-            stageId: stageId,
-            part: part,
-            value: next,
-          );
-        },
       ),
     );
   }
@@ -4863,6 +4603,38 @@ List<int> _aiRoleExtractionRoleFrameIndexes(ScriptAiExtractedRole role) {
   return frameIndexes.toList(growable: false)..sort();
 }
 
+List<String> _aiRoleExtractionRolePromptTerms(ScriptAiExtractedRole role) {
+  final terms = <String>[];
+  if (role.promptTerms.isNotEmpty) {
+    for (final term in role.promptTerms) {
+      final text = term.text.trim();
+      if (text.isNotEmpty) {
+        terms.add(text);
+      }
+    }
+  } else {
+    for (final stage in role.stages) {
+      terms.addAll(_splitAiRolePromptTerms(stage.identity));
+      terms.addAll(_splitAiRolePromptTerms(stage.upperBody));
+      terms.addAll(_splitAiRolePromptTerms(stage.lowerBody));
+      terms.addAll(_splitAiRolePromptTerms(stage.upperClothing));
+      terms.addAll(_splitAiRolePromptTerms(stage.lowerClothing));
+    }
+  }
+  final seen = <String>{};
+  return List.unmodifiable([
+    for (final term in terms)
+      if (seen.add(PromptTagProcessor.normalizeMatchKey(term))) term,
+  ]);
+}
+
+Iterable<String> _splitAiRolePromptTerms(String value) {
+  return value
+      .split(',')
+      .map((term) => term.trim())
+      .where((term) => term.isNotEmpty);
+}
+
 List<int> _normalizedFrameIndexes(Iterable<int> frameIndexes) {
   final normalized = <int>{};
   for (final frameIndex in frameIndexes) {
@@ -4939,19 +4711,6 @@ String _aiRoleExtractionWarningText(String warning) {
   };
 }
 
-String _promptTagCategoryLabel(PromptTagCategory category) {
-  return switch (category) {
-    PromptTagCategory.character => '角色',
-    PromptTagCategory.upperBody => '上身',
-    PromptTagCategory.lowerBody => '下身',
-    PromptTagCategory.upperClothing => '上装',
-    PromptTagCategory.lowerClothing => '下装',
-    PromptTagCategory.clothing => '服装',
-    PromptTagCategory.other => '非角色',
-    _ => '其它',
-  };
-}
-
 String _aiRoleExtractionAttentionText(ScriptAiExtractionAttentionItem item) {
   final message = item.message.trim();
   if (message.isEmpty) {
@@ -4976,11 +4735,13 @@ String _aiRoleExtractionAttentionText(ScriptAiExtractionAttentionItem item) {
 class _AiRoleExtractionTermGroup extends StatelessWidget {
   final String title;
   final IconData icon;
+  final TranslationCache translationCache;
   final List<String> terms;
 
   const _AiRoleExtractionTermGroup({
     required this.title,
     required this.icon,
+    required this.translationCache,
     required this.terms,
   });
 
@@ -5017,58 +4778,18 @@ class _AiRoleExtractionTermGroup extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          _AiRoleExtractionTermWrap(terms: visibleTerms),
+          PromptTagDisplay(
+            text: visibleTerms.join(', '),
+            defaultTranslated: true,
+            dense: true,
+            enableTagActions: true,
+            initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+            respectInitialLayoutMode: true,
+            translationCache: translationCache,
+            emptyText: '暂无来源词',
+          ),
         ],
       ),
-    );
-  }
-}
-
-class _AiRoleExtractionTermWrap extends StatelessWidget {
-  final List<String> terms;
-
-  const _AiRoleExtractionTermWrap({required this.terms});
-
-  @override
-  Widget build(BuildContext context) {
-    final visibleTerms = terms
-        .map((term) => term.trim())
-        .where((term) => term.isNotEmpty)
-        .toList(growable: false);
-    if (visibleTerms.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final term in visibleTerms)
-          Tooltip(
-            message: term,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 220),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: StudioTokens.surface2,
-                  borderRadius: StudioTokens.radiusTag,
-                  border: Border.all(color: StudioTokens.border),
-                ),
-                child: Text(
-                  term,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  softWrap: false,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: StudioTokens.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -5175,6 +4896,12 @@ class _RecastPlanPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final plan = viewModel.recastPlan;
+    final hasReplacementMappings =
+        viewModel.roleReplacementMappings.isNotEmpty ||
+            viewModel.sceneReplacementMappings.isNotEmpty;
+    final isEmpty = plan.roles.isEmpty &&
+        viewModel.artistMappings.isEmpty &&
+        !hasReplacementMappings;
     return _SectionPanel(
       key: const ValueKey('script-recast-plan-panel'),
       title: 'AI 换角方案',
@@ -5182,7 +4909,7 @@ class _RecastPlanPanel extends StatelessWidget {
           ? Icons.auto_awesome_outlined
           : Icons.account_tree_outlined,
       children: [
-        if (plan.roles.isEmpty && viewModel.artistMappings.isEmpty)
+        if (isEmpty)
           const _EmptyHint(text: '导入剧本后会显示 AI 换角方案')
         else ...[
           _ViewModelSelector(
@@ -5201,10 +4928,11 @@ class _RecastPlanPanel extends StatelessWidget {
           _ViewModelSelector(
             viewModel: viewModel,
             select: (viewModel) => (
-              viewModel.roleMappings,
+              viewModel.roleReplacementMappings,
+              viewModel.sceneReplacementMappings,
               viewModel.characterOptions,
             ),
-            builder: (context, _) => _RoleMapping(viewModel: viewModel),
+            builder: (context, _) => _ReplacementMapping(viewModel: viewModel),
           ),
         ],
       ],
@@ -5321,158 +5049,2170 @@ Color _planIssueColor(StudioScriptPlanIssueKind kind) {
   };
 }
 
-class _RoleMapping extends StatelessWidget {
+class _ReplacementMapping extends StatelessWidget {
   final StudioScriptViewModel viewModel;
 
-  const _RoleMapping({required this.viewModel});
+  const _ReplacementMapping({required this.viewModel});
 
   @override
   Widget build(BuildContext context) {
+    return KeyedSubtree(
+      key: const ValueKey('script-replacement-mapping-section'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _RoleReplacementSection(viewModel: viewModel),
+          const SizedBox(height: 16),
+          _SceneReplacementSection(viewModel: viewModel),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleReplacementSection extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _RoleReplacementSection({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = viewModel.roleReplacementMappings;
     return _SectionPanel(
-      title: '角色映射',
-      icon: Icons.compare_arrows_outlined,
+      key: const ValueKey('script-role-replacement-section'),
+      title: '角色替换',
+      icon: Icons.manage_accounts_outlined,
       children: [
-        if (viewModel.roleMappings.isEmpty)
-          const _EmptyHint(text: '导入剧本后会显示角色槽位'),
-        _RoleMappingList(viewModel: viewModel),
+        if (roles.isEmpty)
+          const _EmptyHint(text: '暂无角色替换规则')
+        else
+          for (final role in roles)
+            _RoleReplacementCard(
+              item: role,
+              characters: viewModel.characterOptions,
+              translationCache: viewModel.translationCache,
+              classificationCache: viewModel.classificationCache,
+              saveClassificationCache: viewModel.saveClassificationCache,
+              suppressedTagWarningKeys:
+                  viewModel.suppressedPromptTagWarningKeys,
+              onSuppressTagWarningForScope:
+                  viewModel.suppressPromptTagWarningForCurrentScript,
+              onTargetAssetDropped: (data) {
+                if (data.kind == _ScriptAssetDragKind.outfitPart) {
+                  viewModel.appendRoleReplacementPendingPrompt(
+                    role.sourceRoleId,
+                    data.partValue ?? '',
+                  );
+                  return;
+                }
+                viewModel.setRoleReplacementTargetCharacter(
+                  role.sourceRoleId,
+                  data.characterId ?? '',
+                  outfitId: data.outfitId,
+                );
+              },
+              onIdentityChanged: (value) =>
+                  viewModel.setRoleReplacementIdentityPrompt(
+                role.sourceRoleId,
+                value,
+              ),
+              onRuleTargetChanged: (ruleId, value) =>
+                  viewModel.setRoleReplacementRuleTarget(
+                role.sourceRoleId,
+                ruleId,
+                value,
+              ),
+              onRuleTargetTagsDropped: (ruleId, tags) =>
+                  viewModel.appendRoleReplacementRuleTargetTags(
+                role.sourceRoleId,
+                ruleId,
+                tags,
+              ),
+              onRuleWeightMultiplierChanged: (ruleId, multiplier) =>
+                  viewModel.scaleRoleReplacementRuleWeight(
+                role.sourceRoleId,
+                ruleId,
+                multiplier,
+              ),
+              onRuleSourceTagsDropped: (targetRuleId, sourceRuleId, tags) =>
+                  viewModel.mergeRoleReplacementSourceTerms(
+                sourceRoleId: role.sourceRoleId,
+                sourceRuleId: sourceRuleId,
+                targetRuleId: targetRuleId,
+                tags: tags,
+              ),
+              onRuleDeletedChanged: (ruleId, deleted) =>
+                  viewModel.setRoleReplacementRuleDeleted(
+                role.sourceRoleId,
+                ruleId,
+                deleted,
+              ),
+              onRuleMatchModeChanged: (ruleId, mode) =>
+                  viewModel.setRoleReplacementRuleMatchMode(
+                role.sourceRoleId,
+                ruleId,
+                mode,
+              ),
+              onRuleTermExcludedChanged: (ruleId, termId, excluded) =>
+                  viewModel.setRoleReplacementRuleTermExcluded(
+                role.sourceRoleId,
+                ruleId,
+                termId,
+                excluded,
+              ),
+              onRuleSelectedChanged: (ruleId, selected) =>
+                  viewModel.setRoleReplacementRuleSelected(
+                role.sourceRoleId,
+                ruleId,
+                selected,
+              ),
+              onClearRuleSelection: () =>
+                  viewModel.clearRoleReplacementRuleSelection(
+                role.sourceRoleId,
+              ),
+              onMergeSelectedRules: () =>
+                  viewModel.mergeSelectedRoleReplacementRules(
+                role.sourceRoleId,
+              ),
+              onSyncIdentityToSelectedRules: () =>
+                  viewModel.syncRoleReplacementTargetToSelectedRules(
+                role.sourceRoleId,
+              ),
+            ),
       ],
     );
   }
 }
 
-class _RoleMappingList extends StatelessWidget {
-  static const int _virtualizeThreshold = 10;
-  static const double _virtualizedMinHeight = 880;
-  static const double _virtualizedMaxHeight = 1280;
-  static const double _estimatedCardExtent = 420;
-
+class _SceneReplacementSection extends StatelessWidget {
   final StudioScriptViewModel viewModel;
 
-  const _RoleMappingList({required this.viewModel});
+  const _SceneReplacementSection({required this.viewModel});
 
   @override
   Widget build(BuildContext context) {
-    final roles = viewModel.roleMappings;
-    if (roles.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    if (roles.length <= _virtualizeThreshold) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    final groups = viewModel.sceneReplacementMappings;
+    return _SectionPanel(
+      key: const ValueKey('script-scene-replacement-section'),
+      title: '场景替换',
+      icon: Icons.landscape_outlined,
+      children: [
+        if (groups.isEmpty)
+          const _EmptyHint(text: '暂无场景替换规则')
+        else
+          for (final group in groups)
+            _SceneReplacementCard(
+              item: group,
+              translationCache: viewModel.translationCache,
+              onRuleTargetChanged: (ruleId, value) =>
+                  viewModel.setSceneReplacementRuleTarget(
+                group.id,
+                ruleId,
+                value,
+              ),
+              onRuleWeightMultiplierChanged: (ruleId, multiplier) =>
+                  viewModel.scaleSceneReplacementRuleWeight(
+                group.id,
+                ruleId,
+                multiplier,
+              ),
+              onRuleSourceTagsDropped: (targetRuleId, sourceRuleId, tags) =>
+                  viewModel.mergeSceneReplacementSourceTerms(
+                groupId: group.id,
+                sourceRuleId: sourceRuleId,
+                targetRuleId: targetRuleId,
+                tags: tags,
+              ),
+              onRuleDeletedChanged: (ruleId, deleted) =>
+                  viewModel.setSceneReplacementRuleDeleted(
+                group.id,
+                ruleId,
+                deleted,
+              ),
+              onRuleSelectedChanged: (ruleId, selected) =>
+                  viewModel.setSceneReplacementRuleSelected(
+                group.id,
+                ruleId,
+                selected,
+              ),
+              onClearRuleSelection: () =>
+                  viewModel.clearSceneReplacementRuleSelection(group.id),
+              onMergeSelectedRules: () =>
+                  viewModel.mergeSelectedSceneReplacementRules(group.id),
+            ),
+      ],
+    );
+  }
+}
+
+class _ReplacementRuleSelectionScope extends StatefulWidget {
+  final Widget Function(
+    BuildContext context,
+    PromptTagSelectionController selectionController,
+  ) builder;
+  final VoidCallback? onBlankTap;
+
+  const _ReplacementRuleSelectionScope({
+    required this.builder,
+    this.onBlankTap,
+  });
+
+  @override
+  State<_ReplacementRuleSelectionScope> createState() =>
+      _ReplacementRuleSelectionScopeState();
+}
+
+class _ReplacementRuleSelectionScopeState
+    extends State<_ReplacementRuleSelectionScope> {
+  final PromptTagSelectionController _selectionController =
+      PromptTagSelectionController();
+  final _ReplacementRuleInteractionRegistry _interactionRegistry =
+      _ReplacementRuleInteractionRegistry();
+  final GlobalKey _selectionAreaKey = GlobalKey();
+  final ValueNotifier<Rect?> _selectionOverlayRect = ValueNotifier<Rect?>(null);
+  Offset? _selectionStart;
+  Offset? _selectionCurrent;
+  Offset? _selectionAnchorGlobal;
+  Rect? _lastPreviewGlobalRect;
+  bool _selectionMoved = false;
+  bool _selectionAdditive = false;
+
+  @override
+  void dispose() {
+    _selectionOverlayRect.dispose();
+    _selectionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      key: _selectionAreaKey,
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handleSelectionPointerDown,
+      onPointerMove: _handleSelectionPointerMove,
+      onPointerUp: _handleSelectionPointerUp,
+      onPointerCancel: _handleSelectionPointerCancel,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          for (final role in roles) _cardFor(context, role),
+          _ReplacementRuleInteractionScope(
+            registry: _interactionRegistry,
+            child: widget.builder(context, _selectionController),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ValueListenableBuilder<Rect?>(
+                valueListenable: _selectionOverlayRect,
+                builder: (context, rect, child) {
+                  if (rect == null) {
+                    return const SizedBox.shrink();
+                  }
+                  return Stack(
+                    children: [
+                      Positioned(
+                        key: const ValueKey('replacement-rule-marquee-overlay'),
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                        height: rect.height,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: StudioTokens.primary.withAlpha(24),
+                            borderRadius: StudioTokens.radiusSlot,
+                            border: Border.all(color: StudioTokens.primary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
         ],
-      );
-    }
-    final viewportHeight = (MediaQuery.sizeOf(context).height - 120)
-        .clamp(_virtualizedMinHeight, _virtualizedMaxHeight)
-        .toDouble();
-    return SizedBox(
-      key: const ValueKey('script-role-mapping-virtual-list'),
-      height: viewportHeight,
-      child: ListView.builder(
-        primary: false,
-        cacheExtent: _estimatedCardExtent * 2,
-        itemCount: roles.length,
-        itemBuilder: (context, index) => _cardFor(context, roles[index]),
       ),
     );
   }
 
-  Widget _cardFor(BuildContext context, StudioScriptRoleMappingItem role) {
-    return RepaintBoundary(
-      child: _RoleMappingCard(
-        item: role,
-        characters: viewModel.characterOptions,
-        translationCache: viewModel.translationCache,
-        onStageSelected: (stageId) =>
-            viewModel.selectRoleStage(role.sourceRoleId, stageId),
-        onStageLabelChanged: (stageId, label) => viewModel.renameRoleStage(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
-          label: label,
+  void _handleSelectionPointerDown(PointerDownEvent event) {
+    if (event.buttons != kPrimaryMouseButton) {
+      return;
+    }
+    if (_selectionController.hasItemAt(event.position) ||
+        _interactionRegistry.hasRegionAt(event.position)) {
+      return;
+    }
+    final local = _selectionLocalPosition(event.position);
+    if (local == null) {
+      return;
+    }
+    _selectionStart = local;
+    _selectionCurrent = local;
+    _selectionAnchorGlobal = event.position;
+    _selectionMoved = false;
+    _selectionAdditive = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    _lastPreviewGlobalRect = null;
+    _selectionOverlayRect.value = null;
+    _selectionController.beginSelectionSnapshot();
+    _selectionController.clearPreview();
+  }
+
+  void _handleSelectionPointerMove(PointerMoveEvent event) {
+    final start = _selectionStart;
+    if (start == null) {
+      return;
+    }
+    final local = _selectionLocalPosition(event.position);
+    if (local == null) {
+      return;
+    }
+    final moved = (local - start).distance > 4;
+    if (moved == _selectionMoved && local == _selectionCurrent) {
+      return;
+    }
+    _selectionCurrent = local;
+    _selectionMoved = moved;
+    _selectionOverlayRect.value = moved ? _selectionRect() : null;
+    final rect = _selectionGlobalRect();
+    if (moved && rect != null) {
+      if (_shouldRefreshSelectionPreview(rect)) {
+        _lastPreviewGlobalRect = rect;
+        _selectionController.previewIntersecting(
+          rect,
+          additive: _selectionAdditive,
+          anchorPosition: _selectionAnchorGlobal,
+        );
+      }
+    } else {
+      _lastPreviewGlobalRect = null;
+      _selectionController.clearPreview();
+    }
+  }
+
+  void _handleSelectionPointerUp(PointerUpEvent event) {
+    final rect = _selectionGlobalRect();
+    if (rect != null && _selectionMoved) {
+      _selectionController.selectIntersecting(
+        rect,
+        additive: _selectionAdditive,
+        anchorPosition: _selectionAnchorGlobal,
+      );
+    } else if (_selectionStart != null && !_selectionAdditive) {
+      _selectionController.clear();
+      widget.onBlankTap?.call();
+    }
+    _clearSelectionInteraction();
+  }
+
+  void _handleSelectionPointerCancel(PointerCancelEvent event) {
+    _clearSelectionInteraction();
+  }
+
+  void _clearSelectionInteraction() {
+    _selectionController.clearPreview();
+    _selectionController.endSelectionSnapshot();
+    _selectionOverlayRect.value = null;
+    _selectionStart = null;
+    _selectionCurrent = null;
+    _selectionAnchorGlobal = null;
+    _lastPreviewGlobalRect = null;
+    _selectionMoved = false;
+    _selectionAdditive = false;
+  }
+
+  bool _shouldRefreshSelectionPreview(Rect rect) {
+    final last = _lastPreviewGlobalRect;
+    if (last == null) {
+      return true;
+    }
+    return (rect.left - last.left).abs() > 6 ||
+        (rect.top - last.top).abs() > 6 ||
+        (rect.right - last.right).abs() > 6 ||
+        (rect.bottom - last.bottom).abs() > 6;
+  }
+
+  Offset? _selectionLocalPosition(Offset globalPosition) {
+    final box = _selectionAreaKey.currentContext?.findRenderObject();
+    if (box is! RenderBox) {
+      return null;
+    }
+    return box.globalToLocal(globalPosition);
+  }
+
+  Rect? _selectionRect() {
+    final start = _selectionStart;
+    final current = _selectionCurrent;
+    if (start == null || current == null) {
+      return null;
+    }
+    return Rect.fromLTRB(
+      start.dx < current.dx ? start.dx : current.dx,
+      start.dy < current.dy ? start.dy : current.dy,
+      start.dx > current.dx ? start.dx : current.dx,
+      start.dy > current.dy ? start.dy : current.dy,
+    );
+  }
+
+  Rect? _selectionGlobalRect() {
+    final localRect = _selectionRect();
+    final box = _selectionAreaKey.currentContext?.findRenderObject();
+    if (localRect == null || box is! RenderBox) {
+      return null;
+    }
+    final topLeft = box.localToGlobal(localRect.topLeft);
+    final bottomRight = box.localToGlobal(localRect.bottomRight);
+    return Rect.fromPoints(topLeft, bottomRight);
+  }
+}
+
+class _ReplacementRuleInteractionRegistry {
+  final Set<GlobalKey> _regionKeys = <GlobalKey>{};
+
+  void register(GlobalKey key) {
+    _regionKeys.add(key);
+  }
+
+  void unregister(GlobalKey key) {
+    _regionKeys.remove(key);
+  }
+
+  bool hasRegionAt(Offset globalPosition) {
+    for (final key in _regionKeys.toList(growable: false).reversed) {
+      final box = key.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) {
+        continue;
+      }
+      final topLeft = box.localToGlobal(Offset.zero);
+      final rect = topLeft & box.size;
+      if (rect.contains(globalPosition)) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+class _ReplacementRuleInteractionScope extends InheritedWidget {
+  final _ReplacementRuleInteractionRegistry registry;
+
+  const _ReplacementRuleInteractionScope({
+    required this.registry,
+    required super.child,
+  });
+
+  static _ReplacementRuleInteractionRegistry? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_ReplacementRuleInteractionScope>()
+        ?.registry;
+  }
+
+  @override
+  bool updateShouldNotify(_ReplacementRuleInteractionScope oldWidget) =>
+      registry != oldWidget.registry;
+}
+
+class _ReplacementRuleInteractionRegion extends StatefulWidget {
+  final Widget child;
+
+  const _ReplacementRuleInteractionRegion({required this.child});
+
+  @override
+  State<_ReplacementRuleInteractionRegion> createState() =>
+      _ReplacementRuleInteractionRegionState();
+}
+
+class _ReplacementRuleInteractionRegionState
+    extends State<_ReplacementRuleInteractionRegion> {
+  final GlobalKey _regionKey = GlobalKey();
+  _ReplacementRuleInteractionRegistry? _registry;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = _ReplacementRuleInteractionScope.maybeOf(context);
+    if (next == _registry) {
+      return;
+    }
+    _registry?.unregister(_regionKey);
+    _registry = next;
+    _registry?.register(_regionKey);
+  }
+
+  @override
+  void dispose() {
+    _registry?.unregister(_regionKey);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyedSubtree(
+      key: _regionKey,
+      child: widget.child,
+    );
+  }
+}
+
+class _RoleReplacementCard extends StatelessWidget {
+  final StudioScriptRoleReplacementItem item;
+  final List<CharacterEntry> characters;
+  final TranslationCache translationCache;
+  final PromptTagClassificationCache classificationCache;
+  final PromptTagClassificationCacheSaver? saveClassificationCache;
+  final Set<String> suppressedTagWarningKeys;
+  final PromptTagWarningScopeSuppressor onSuppressTagWarningForScope;
+  final ValueChanged<_ScriptAssetDragData> onTargetAssetDropped;
+  final ValueChanged<String> onIdentityChanged;
+  final void Function(String ruleId, String value) onRuleTargetChanged;
+  final void Function(String ruleId, List<String> tags) onRuleTargetTagsDropped;
+  final void Function(String ruleId, double multiplier)
+      onRuleWeightMultiplierChanged;
+  final void Function(
+          String targetRuleId, String sourceRuleId, List<String> tags)
+      onRuleSourceTagsDropped;
+  final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final void Function(String ruleId, ScriptPromptReplacementMatchMode mode)
+      onRuleMatchModeChanged;
+  final void Function(String ruleId, String termId, bool excluded)
+      onRuleTermExcludedChanged;
+  final void Function(String ruleId, bool selected) onRuleSelectedChanged;
+  final VoidCallback onClearRuleSelection;
+  final VoidCallback onMergeSelectedRules;
+  final VoidCallback onSyncIdentityToSelectedRules;
+
+  const _RoleReplacementCard({
+    required this.item,
+    required this.characters,
+    required this.translationCache,
+    required this.classificationCache,
+    required this.saveClassificationCache,
+    required this.suppressedTagWarningKeys,
+    required this.onSuppressTagWarningForScope,
+    required this.onTargetAssetDropped,
+    required this.onIdentityChanged,
+    required this.onRuleTargetChanged,
+    required this.onRuleTargetTagsDropped,
+    required this.onRuleWeightMultiplierChanged,
+    required this.onRuleSourceTagsDropped,
+    required this.onRuleDeletedChanged,
+    required this.onRuleMatchModeChanged,
+    required this.onRuleTermExcludedChanged,
+    required this.onRuleSelectedChanged,
+    required this.onClearRuleSelection,
+    required this.onMergeSelectedRules,
+    required this.onSyncIdentityToSelectedRules,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedCount = item.rules.where((rule) => rule.selected).length;
+    final selectedCharacter =
+        _characterById(characters, item.targetCharacterId);
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: selectedCount == 0 ? null : onClearRuleSelection,
+      child: Container(
+        key: ValueKey('role-replacement-card-${item.sourceRoleId}'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface2,
+          borderRadius: StudioTokens.radiusCard,
+          border: StudioTokens.cardBorder,
         ),
-        onStageFrameIndexesChanged: (stageId, frameIndexes) =>
-            viewModel.setRoleStageFrameIndexes(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
-          frameIndexes: frameIndexes,
-        ),
-        onSourcePartChanged: (stageId, part, value) =>
-            viewModel.setRoleStageSourcePart(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
-          part: part,
-          value: value,
-        ),
-        onPartChanged: (stageId, part, value) => viewModel.setRoleStagePart(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
-          part: part,
-          value: value,
-        ),
-        onTargetDropBatch: viewModel.batchRoleStageEdits,
-        onPartDeleted: (stageId, part, deleted) =>
-            viewModel.setRoleStagePartDeleted(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
-          part: part,
-          deleted: deleted,
-        ),
-        onCopyTargetToStage: (sourceStageId, targetStageId) {
-          viewModel.copyRoleStageTargetToStage(
-            sourceRoleId: role.sourceRoleId,
-            templateStageId: sourceStageId,
-            targetStageId: targetStageId,
-          );
-          final targetStage = role.stageItems
-              .where((stage) => stage.id == targetStageId)
-              .firstOrNull;
-          if (context.findAncestorWidgetOfExactType<Scaffold>() != null &&
-              targetStage != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('已复制到「${targetStage.label}」')),
+        child: _ReplacementRuleSelectionScope(
+          onBlankTap: onClearRuleSelection,
+          builder: (context, selectionController) {
+            final selectionGroupId = _replacementRuleSelectionGroupId(
+              'role',
+              item.sourceRoleId,
             );
-          }
-        },
-        onCopyTargetToAllOutfits: (stageId) {
-          viewModel.copyRoleStageTargetToAllOutfits(
-            sourceRoleId: role.sourceRoleId,
-            stageId: stageId,
-          );
-          if (context.findAncestorWidgetOfExactType<Scaffold>() != null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('已复制替换目标到全部服装')),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: StudioTokens.info.withValues(alpha: 0.16),
+                        borderRadius: StudioTokens.radiusPill,
+                      ),
+                      child: const Icon(
+                        Icons.person_outline,
+                        size: 20,
+                        color: StudioTokens.info,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.sourceLabel,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '源角色：${item.sourcePreview}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: StudioTokens.textMuted,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _RoleReplacementIdentityEditor(
+                  sourceRoleId: item.sourceRoleId,
+                  value: item.targetIdentityPrompt,
+                  characterName: selectedCharacter?.name,
+                  selectionController: selectionController,
+                  selectionGroupId: selectionGroupId,
+                  onChanged: onIdentityChanged,
+                  onTargetAssetDropped: onTargetAssetDropped,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '替换规则',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      key: ValueKey(
+                        'role-replacement-sync-identity-${item.sourceRoleId}',
+                      ),
+                      icon: const Icon(Icons.drive_file_move_outline, size: 16),
+                      label: const Text('同步到选中规则'),
+                      onPressed: selectedCount == 0
+                          ? null
+                          : onSyncIdentityToSelectedRules,
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      key: ValueKey(
+                        'role-replacement-merge-selected-${item.sourceRoleId}',
+                      ),
+                      icon: const Icon(Icons.call_merge_outlined, size: 16),
+                      label: Text('合并选中($selectedCount)'),
+                      onPressed:
+                          selectedCount < 2 ? null : onMergeSelectedRules,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _ReplacementRuleGrid(
+                  scope: 'role',
+                  ownerId: item.sourceRoleId,
+                  selectionController: selectionController,
+                  selectionGroupId: selectionGroupId,
+                  rules: item.rules,
+                  translationCache: translationCache,
+                  classificationCache: classificationCache,
+                  saveClassificationCache: saveClassificationCache,
+                  suppressedTagWarningKeys: suppressedTagWarningKeys,
+                  onSuppressTagWarningForScope: onSuppressTagWarningForScope,
+                  acceptedPromptTagSourceFieldIds: {
+                    _replacementRoleIdentityFieldId(item.sourceRoleId),
+                  },
+                  onRuleTargetChanged: onRuleTargetChanged,
+                  onRuleTargetTagsDropped: onRuleTargetTagsDropped,
+                  onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
+                  onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleDeletedChanged: onRuleDeletedChanged,
+                  onRuleMatchModeChanged: onRuleMatchModeChanged,
+                  onRuleTermExcludedChanged: onRuleTermExcludedChanged,
+                  onRuleSelectedChanged: onRuleSelectedChanged,
+                  onMergeSelectedRules: onMergeSelectedRules,
+                ),
+              ],
             );
-          }
-        },
-        onDeleteStage: (stageId) => viewModel.deleteRoleStage(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
+          },
         ),
-        onClearTarget: (stageId) => viewModel.clearRoleStageTarget(
-          sourceRoleId: role.sourceRoleId,
-          stageId: stageId,
+      ),
+    );
+  }
+}
+
+class _RoleReplacementIdentityEditor extends StatelessWidget {
+  final String sourceRoleId;
+  final String value;
+  final String? characterName;
+  final PromptTagSelectionController selectionController;
+  final String selectionGroupId;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<_ScriptAssetDragData> onTargetAssetDropped;
+
+  const _RoleReplacementIdentityEditor({
+    required this.sourceRoleId,
+    required this.value,
+    required this.characterName,
+    required this.selectionController,
+    required this.selectionGroupId,
+    required this.onChanged,
+    required this.onTargetAssetDropped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<_ScriptAssetDragData>(
+      key: ValueKey('role-replacement-identity-drop-$sourceRoleId'),
+      hitTestBehavior: HitTestBehavior.translucent,
+      onWillAcceptWithDetails: (details) {
+        final data = details.data;
+        if (data.kind == _ScriptAssetDragKind.outfitPart) {
+          return data.partValue?.trim().isNotEmpty ?? false;
+        }
+        return data.characterId != null &&
+            (data.kind == _ScriptAssetDragKind.character ||
+                data.kind == _ScriptAssetDragKind.outfit);
+      },
+      onAcceptWithDetails: (details) {
+        onTargetAssetDropped(details.data);
+      },
+      builder: (context, candidates, rejected) {
+        final active = candidates.isNotEmpty;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: active
+                ? StudioTokens.primary.withAlpha(18)
+                : StudioTokens.surface1,
+            borderRadius: StudioTokens.radiusSlot,
+            border: Border.all(
+              color: active ? StudioTokens.primary : StudioTokens.cardOutline,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      characterName == null ? '待选区' : '待选区：$characterName',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            color: StudioTokens.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                  ),
+                  Icon(
+                    active
+                        ? Icons.download_done_outlined
+                        : Icons.badge_outlined,
+                    size: 16,
+                    color: active
+                        ? StudioTokens.primary
+                        : StudioTokens.textSecondary,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              KeyedSubtree(
+                key: ValueKey('role-replacement-identity-$sourceRoleId'),
+                child: PromptTagEditor(
+                  value: value,
+                  dense: true,
+                  selectionController: selectionController,
+                  selectionFieldId:
+                      _replacementRoleIdentityFieldId(sourceRoleId),
+                  selectionGroupId: selectionGroupId,
+                  emptyText: '拖入角色/套装，或手动添加待选词',
+                  showSelectionToolbar: false,
+                  preferTranslatedLabels: true,
+                  onChanged: onChanged,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SceneReplacementCard extends StatelessWidget {
+  final StudioScriptSceneReplacementItem item;
+  final TranslationCache translationCache;
+  final void Function(String ruleId, String value) onRuleTargetChanged;
+  final void Function(String ruleId, double multiplier)
+      onRuleWeightMultiplierChanged;
+  final void Function(
+          String targetRuleId, String sourceRuleId, List<String> tags)
+      onRuleSourceTagsDropped;
+  final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final void Function(String ruleId, bool selected) onRuleSelectedChanged;
+  final VoidCallback onClearRuleSelection;
+  final VoidCallback onMergeSelectedRules;
+
+  const _SceneReplacementCard({
+    required this.item,
+    required this.translationCache,
+    required this.onRuleTargetChanged,
+    required this.onRuleWeightMultiplierChanged,
+    required this.onRuleSourceTagsDropped,
+    required this.onRuleDeletedChanged,
+    required this.onRuleSelectedChanged,
+    required this.onClearRuleSelection,
+    required this.onMergeSelectedRules,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedCount = item.rules.where((rule) => rule.selected).length;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: selectedCount == 0 ? null : onClearRuleSelection,
+      child: Container(
+        key: ValueKey('scene-replacement-card-${item.id}'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface2,
+          borderRadius: StudioTokens.radiusCard,
+          border: StudioTokens.cardBorder,
         ),
-        onAssetDropped: (data) {
-          if (data.kind == _ScriptAssetDragKind.character) {
-            viewModel.setRoleCharacter(role.sourceRoleId, data.characterId);
-          }
-          if (data.kind == _ScriptAssetDragKind.outfit) {
-            final characterId = data.characterId;
-            final outfitId = data.outfitId;
-            if (characterId != null && outfitId != null) {
-              viewModel.applyRoleOutfitDrop(
-                sourceRoleId: role.sourceRoleId,
-                characterId: characterId,
-                outfitId: outfitId,
+        child: _ReplacementRuleSelectionScope(
+          onBlankTap: onClearRuleSelection,
+          builder: (context, selectionController) {
+            final selectionGroupId = _replacementRuleSelectionGroupId(
+              'scene',
+              item.id,
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      key: ValueKey(
+                          'scene-replacement-merge-selected-${item.id}'),
+                      icon: const Icon(Icons.call_merge_outlined, size: 16),
+                      label: Text('合并选中($selectedCount)'),
+                      onPressed:
+                          selectedCount < 2 ? null : onMergeSelectedRules,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _ReplacementRuleGrid(
+                  scope: 'scene',
+                  ownerId: item.id,
+                  selectionController: selectionController,
+                  selectionGroupId: selectionGroupId,
+                  rules: item.rules,
+                  translationCache: translationCache,
+                  onRuleTargetChanged: onRuleTargetChanged,
+                  onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
+                  onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleDeletedChanged: onRuleDeletedChanged,
+                  onRuleSelectedChanged: onRuleSelectedChanged,
+                  onMergeSelectedRules: onMergeSelectedRules,
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementRuleGrid extends StatelessWidget {
+  final String scope;
+  final String ownerId;
+  final PromptTagSelectionController selectionController;
+  final String selectionGroupId;
+  final List<StudioScriptReplacementRuleItem> rules;
+  final TranslationCache translationCache;
+  final PromptTagClassificationCache? classificationCache;
+  final PromptTagClassificationCacheSaver? saveClassificationCache;
+  final Set<String> suppressedTagWarningKeys;
+  final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
+  final Set<String> acceptedPromptTagSourceFieldIds;
+  final void Function(String ruleId, String value) onRuleTargetChanged;
+  final void Function(String ruleId, List<String> tags)?
+      onRuleTargetTagsDropped;
+  final void Function(String ruleId, double multiplier)
+      onRuleWeightMultiplierChanged;
+  final void Function(
+          String targetRuleId, String sourceRuleId, List<String> tags)?
+      onRuleSourceTagsDropped;
+  final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
+  final void Function(String ruleId, ScriptPromptReplacementMatchMode mode)?
+      onRuleMatchModeChanged;
+  final void Function(String ruleId, String termId, bool excluded)?
+      onRuleTermExcludedChanged;
+  final void Function(String ruleId, bool selected) onRuleSelectedChanged;
+  final VoidCallback onMergeSelectedRules;
+
+  const _ReplacementRuleGrid({
+    required this.scope,
+    required this.ownerId,
+    required this.selectionController,
+    required this.selectionGroupId,
+    required this.rules,
+    required this.translationCache,
+    this.classificationCache,
+    this.saveClassificationCache,
+    this.suppressedTagWarningKeys = const {},
+    this.onSuppressTagWarningForScope,
+    this.acceptedPromptTagSourceFieldIds = const {},
+    required this.onRuleTargetChanged,
+    this.onRuleTargetTagsDropped,
+    required this.onRuleWeightMultiplierChanged,
+    this.onRuleSourceTagsDropped,
+    required this.onRuleDeletedChanged,
+    this.onRuleMatchModeChanged,
+    this.onRuleTermExcludedChanged,
+    required this.onRuleSelectedChanged,
+    required this.onMergeSelectedRules,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = _replacementRuleGroups(scope, rules);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final group in groups) ...[
+          _ReplacementRuleGroupHeader(
+            label: group.label,
+            totalCount: group.rules.length,
+            mappedCount: group.rules.where(_replacementRuleHasResult).length,
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final rule in group.rules)
+                _ReplacementRuleRow(
+                  key: ValueKey('replacement-rule-$scope-$ownerId-${rule.id}'),
+                  scope: scope,
+                  ownerId: ownerId,
+                  selectionController: selectionController,
+                  selectionGroupId: selectionGroupId,
+                  rule: rule,
+                  translationCache: translationCache,
+                  classificationCache: classificationCache,
+                  saveClassificationCache: saveClassificationCache,
+                  suppressedTagWarningKeys: suppressedTagWarningKeys,
+                  onSuppressTagWarningForScope: onSuppressTagWarningForScope,
+                  acceptedPromptTagSourceFieldIds:
+                      acceptedPromptTagSourceFieldIds,
+                  onTargetChanged: (value) =>
+                      onRuleTargetChanged(rule.id, value),
+                  onPromptTagsDropped: onRuleTargetTagsDropped == null
+                      ? null
+                      : (tags) => onRuleTargetTagsDropped!(rule.id, tags),
+                  onWeightMultiplierChanged: (multiplier) =>
+                      onRuleWeightMultiplierChanged(rule.id, multiplier),
+                  onSourceTagsDropped: onRuleSourceTagsDropped == null
+                      ? null
+                      : (sourceRuleId, tags) => onRuleSourceTagsDropped!(
+                            rule.id,
+                            sourceRuleId,
+                            tags,
+                          ),
+                  onDeletedChanged: (deleted) =>
+                      onRuleDeletedChanged(rule.id, deleted),
+                  onMatchModeChanged: onRuleMatchModeChanged == null
+                      ? null
+                      : (mode) => onRuleMatchModeChanged!(rule.id, mode),
+                  onTermExcludedChanged: onRuleTermExcludedChanged == null
+                      ? null
+                      : (termId, excluded) => onRuleTermExcludedChanged!(
+                            rule.id,
+                            termId,
+                            excluded,
+                          ),
+                  onSelectedChanged: (selected) =>
+                      onRuleSelectedChanged(rule.id, selected),
+                  onMergeWithRule: (sourceRuleId) {
+                    if (sourceRuleId == rule.id) {
+                      return;
+                    }
+                    onRuleSelectedChanged(sourceRuleId, true);
+                    onRuleSelectedChanged(rule.id, true);
+                    onMergeSelectedRules();
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReplacementRuleGroupHeader extends StatelessWidget {
+  final String label;
+  final int totalCount;
+  final int mappedCount;
+
+  const _ReplacementRuleGroupHeader({
+    required this.label,
+    required this.totalCount,
+    required this.mappedCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: StudioTokens.textPrimary,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$totalCount 个 · $mappedCount 个已映射',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: StudioTokens.textMuted,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReplacementRuleRow extends StatefulWidget {
+  final String scope;
+  final String ownerId;
+  final PromptTagSelectionController selectionController;
+  final String selectionGroupId;
+  final StudioScriptReplacementRuleItem rule;
+  final TranslationCache translationCache;
+  final PromptTagClassificationCache? classificationCache;
+  final PromptTagClassificationCacheSaver? saveClassificationCache;
+  final Set<String> suppressedTagWarningKeys;
+  final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
+  final Set<String> acceptedPromptTagSourceFieldIds;
+  final ValueChanged<String> onTargetChanged;
+  final ValueChanged<List<String>>? onPromptTagsDropped;
+  final ValueChanged<double> onWeightMultiplierChanged;
+  final void Function(String sourceRuleId, List<String> tags)?
+      onSourceTagsDropped;
+  final ValueChanged<bool> onDeletedChanged;
+  final ValueChanged<ScriptPromptReplacementMatchMode>? onMatchModeChanged;
+  final void Function(String termId, bool excluded)? onTermExcludedChanged;
+  final ValueChanged<bool> onSelectedChanged;
+  final ValueChanged<String> onMergeWithRule;
+
+  const _ReplacementRuleRow({
+    super.key,
+    required this.scope,
+    required this.ownerId,
+    required this.selectionController,
+    required this.selectionGroupId,
+    required this.rule,
+    required this.translationCache,
+    this.classificationCache,
+    this.saveClassificationCache,
+    this.suppressedTagWarningKeys = const {},
+    this.onSuppressTagWarningForScope,
+    this.acceptedPromptTagSourceFieldIds = const {},
+    required this.onTargetChanged,
+    this.onPromptTagsDropped,
+    required this.onWeightMultiplierChanged,
+    this.onSourceTagsDropped,
+    required this.onDeletedChanged,
+    this.onMatchModeChanged,
+    this.onTermExcludedChanged,
+    required this.onSelectedChanged,
+    required this.onMergeWithRule,
+  });
+
+  @override
+  State<_ReplacementRuleRow> createState() => _ReplacementRuleRowState();
+}
+
+class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
+  bool _editingTarget = false;
+
+  @override
+  void didUpdateWidget(covariant _ReplacementRuleRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.rule.id != oldWidget.rule.id ||
+        widget.rule.targetPrompt.trim().isNotEmpty ||
+        widget.rule.action == ScriptPromptReplacementAction.delete) {
+      _editingTarget = false;
+    }
+  }
+
+  bool _canAcceptPromptTags(PromptTagDragData data) {
+    if (widget.onPromptTagsDropped == null ||
+        widget.acceptedPromptTagSourceFieldIds.isEmpty ||
+        data.tags.every((tag) => tag.trim().isEmpty)) {
+      return false;
+    }
+    return data.sourceFieldIds.length == 1 &&
+        widget.acceptedPromptTagSourceFieldIds.contains(
+          data.sourceFieldIds.single,
+        );
+  }
+
+  String? _sourceRuleIdForDraggedTags(PromptTagDragData data) {
+    if (data.sourceFieldIds.length != 1 ||
+        data.tags.every((tag) => tag.trim().isEmpty)) {
+      return null;
+    }
+    final prefix = _replacementRuleSourceFieldId(
+      widget.scope,
+      widget.ownerId,
+      '',
+    );
+    final fieldId = data.sourceFieldIds.single;
+    if (!fieldId.startsWith(prefix)) {
+      return null;
+    }
+    final sourceRuleId = fieldId.substring(prefix.length);
+    if (sourceRuleId.isEmpty || sourceRuleId == widget.rule.id) {
+      return null;
+    }
+    return sourceRuleId;
+  }
+
+  bool _canAcceptSourceTagsForMerge(PromptTagDragData data) {
+    return widget.onSourceTagsDropped != null &&
+        _sourceRuleIdForDraggedTags(data) != null;
+  }
+
+  Future<void> _editWeightMultiplier(BuildContext context) async {
+    final controller = TextEditingController(text: '1.2');
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          key: const ValueKey('replacement-rule-weight-multiplier-dialog'),
+          backgroundColor: StudioTokens.surface2,
+          title: const Text('按倍率调整权重'),
+          content: SizedBox(
+            width: 320,
+            child: TextField(
+              key: const ValueKey('replacement-rule-weight-multiplier-field'),
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: false,
+              ),
+              decoration: const InputDecoration(
+                labelText: '倍率',
+                hintText: '1.2',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => Navigator.of(context).pop(controller.text),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('replacement-rule-weight-multiplier-save'),
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('应用'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || value == null) {
+      return;
+    }
+    final multiplier = double.tryParse(value.trim());
+    if (multiplier == null || !multiplier.isFinite || multiplier <= 0) {
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('请输入大于 0 的数字倍率')),
+        );
+      }
+      return;
+    }
+    widget.onWeightMultiplierChanged(multiplier);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rule = widget.rule;
+    final deleted = rule.action == ScriptPromptReplacementAction.delete;
+    final hasTarget = rule.targetPrompt.trim().isNotEmpty;
+    final hasResult = hasTarget;
+    final sourcePrompt = _replacementAllTermsPrompt(rule);
+    final ruleKey = '${widget.scope}-${widget.ownerId}-${rule.id}';
+    final frameLabel = _replacementRuleFrameLabel(rule);
+    final showingTarget = hasResult || _editingTarget;
+    final sourcePromptWidth = _replacementSourcePromptWidth(
+      rule,
+      hasFrameLabel: frameLabel.isNotEmpty,
+      showingTarget: showingTarget,
+    );
+    final targetPromptWidth = showingTarget
+        ? _replacementTargetPromptWidth(
+            rule.targetPrompt,
+            editing: _editingTarget,
+          )
+        : 0.0;
+    final ruleMaxWidth = _replacementRuleCardMaxWidth(
+      sourcePromptWidth: sourcePromptWidth,
+      targetPromptWidth: targetPromptWidth,
+      showingTarget: showingTarget,
+    );
+    final borderColor = deleted
+        ? StudioTokens.danger
+        : rule.selected
+            ? StudioTokens.primary
+            : hasTarget
+                ? StudioTokens.active
+                : StudioTokens.borderStrong;
+    final backgroundColor = rule.selected
+        ? StudioTokens.primary.withAlpha(14)
+        : deleted
+            ? StudioTokens.danger.withAlpha(10)
+            : StudioTokens.surface2;
+    return _ReplacementRuleInteractionRegion(
+      child: DragTarget<_ReplacementRuleDragData>(
+        onWillAcceptWithDetails: (details) =>
+            details.data.scope == widget.scope &&
+            details.data.ownerId == widget.ownerId &&
+            details.data.ruleId != rule.id,
+        onAcceptWithDetails: (details) => widget.onMergeWithRule(
+          details.data.ruleId,
+        ),
+        builder: (context, candidateData, rejectedData) {
+          final mergeTargetActive = candidateData.isNotEmpty;
+          final dragLabel = _replacementTermsPrompt(rule);
+          final dragData = _ReplacementRuleDragData(
+            scope: widget.scope,
+            ownerId: widget.ownerId,
+            ruleId: rule.id,
+            label: dragLabel,
+          );
+          return DragTarget<PromptTagDragData>(
+            key: ValueKey('replacement-rule-prompt-drop-$ruleKey'),
+            hitTestBehavior: HitTestBehavior.translucent,
+            onWillAcceptWithDetails: (details) =>
+                _canAcceptPromptTags(details.data) ||
+                _canAcceptSourceTagsForMerge(details.data),
+            onAcceptWithDetails: (details) {
+              final data = details.data;
+              final sourceRuleId = _sourceRuleIdForDraggedTags(data);
+              if (sourceRuleId != null && widget.onSourceTagsDropped != null) {
+                widget.onSourceTagsDropped!(sourceRuleId, data.tags);
+                return;
+              }
+              widget.onPromptTagsDropped?.call(data.tags);
+              data.removeFromSource?.call(data.indexes);
+            },
+            builder: (context, promptTagCandidateData, rejectedPromptTagData) {
+              final promptTagTargetActive = promptTagCandidateData.isNotEmpty;
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: ruleMaxWidth,
+                ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: rule.selected
+                      ? () => widget.onSelectedChanged(false)
+                      : null,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    padding: const EdgeInsets.fromLTRB(8, 7, 5, 7),
+                    decoration: BoxDecoration(
+                      color: promptTagTargetActive
+                          ? StudioTokens.primary.withAlpha(18)
+                          : backgroundColor,
+                      borderRadius: StudioTokens.radiusSlot,
+                      border: Border.all(
+                        color: mergeTargetActive || promptTagTargetActive
+                            ? StudioTokens.primary
+                            : borderColor,
+                      ),
+                      boxShadow: rule.selected
+                          ? [
+                              BoxShadow(
+                                color: StudioTokens.primary.withAlpha(38),
+                                blurRadius: 0,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : const [],
+                    ),
+                    child: IntrinsicHeight(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ReplacementRuleDragHandle(
+                            key: ValueKey(
+                              'replacement-rule-drag-handle-$ruleKey',
+                            ),
+                            data: dragData,
+                            label: dragLabel,
+                          ),
+                          const SizedBox(width: 7),
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Flexible(
+                                      child: MouseRegion(
+                                        cursor: SystemMouseCursors.click,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () => widget.onSelectedChanged(
+                                              !rule.selected),
+                                          child: ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                              maxWidth: sourcePromptWidth,
+                                            ),
+                                            child: SizedBox(
+                                              width: sourcePromptWidth,
+                                              child: PromptTagDisplay(
+                                                key: ValueKey(
+                                                  'replacement-rule-source-$ruleKey',
+                                                ),
+                                                text: sourcePrompt,
+                                                defaultTranslated: true,
+                                                dense: true,
+                                                initialLayoutMode:
+                                                    PromptTagLayoutMode
+                                                        .sourceOrder,
+                                                respectInitialLayoutMode: true,
+                                                sourceOrderCollapsedTagMaxWidth:
+                                                    _replacementRuleCollapsedTagMaxWidth,
+                                                sourceOrderHoveredTagMaxWidth:
+                                                    _replacementRuleCollapsedTagMaxWidth,
+                                                enableTagActions: true,
+                                                translationCache:
+                                                    widget.translationCache,
+                                                classificationCache:
+                                                    widget.classificationCache,
+                                                saveClassificationCache: widget
+                                                    .saveClassificationCache,
+                                                suppressedTagWarningKeys: widget
+                                                    .suppressedTagWarningKeys,
+                                                onSuppressTagWarningForScope: widget
+                                                    .onSuppressTagWarningForScope,
+                                                selectionController:
+                                                    widget.selectionController,
+                                                selectionFieldId:
+                                                    _replacementRuleSourceFieldId(
+                                                  widget.scope,
+                                                  widget.ownerId,
+                                                  rule.id,
+                                                ),
+                                                selectionGroupId:
+                                                    widget.selectionGroupId,
+                                                showSelectionToolbar: false,
+                                                emptyText: '暂无来源词',
+                                                onTagTap:
+                                                    widget.onTermExcludedChanged ==
+                                                            null
+                                                        ? null
+                                                        : (tag) {
+                                                            final termId =
+                                                                _replacementTermIdForTag(
+                                                                    rule, tag);
+                                                            if (termId ==
+                                                                null) {
+                                                              return;
+                                                            }
+                                                            widget
+                                                                .onTermExcludedChanged!(
+                                                              termId,
+                                                              !rule
+                                                                  .excludedTermIds
+                                                                  .contains(
+                                                                      termId),
+                                                            );
+                                                          },
+                                                diffStateForTag: (tag) {
+                                                  final termId =
+                                                      _replacementTermIdForTag(
+                                                    rule,
+                                                    tag,
+                                                  );
+                                                  if (deleted ||
+                                                      (termId != null &&
+                                                          rule.excludedTermIds
+                                                              .contains(
+                                                                  termId))) {
+                                                    return PromptTagChipDiffState
+                                                        .removed;
+                                                  }
+                                                  return PromptTagChipDiffState
+                                                      .unchanged;
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (frameLabel.isNotEmpty) ...[
+                                      const SizedBox(width: 5),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: _ReplacementFrameIcon(
+                                          label: frameLabel,
+                                        ),
+                                      ),
+                                    ],
+                                    if (showingTarget) ...[
+                                      const SizedBox(width: 8),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Text(
+                                          '→',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelLarge
+                                              ?.copyWith(
+                                                color: StudioTokens.primary,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxWidth: targetPromptWidth,
+                                          ),
+                                          child: _editingTarget
+                                              ? SizedBox(
+                                                  width: targetPromptWidth,
+                                                  child: PromptTagEditor(
+                                                    key: ValueKey(
+                                                      'replacement-rule-target-input-$ruleKey',
+                                                    ),
+                                                    value: rule.targetPrompt,
+                                                    dense: true,
+                                                    emptyText: '',
+                                                    showControls: false,
+                                                    showSelectionToolbar: false,
+                                                    preferTranslatedLabels:
+                                                        true,
+                                                    selectionController: widget
+                                                        .selectionController,
+                                                    selectionFieldId:
+                                                        _replacementRuleTargetFieldId(
+                                                      widget.scope,
+                                                      widget.ownerId,
+                                                      rule.id,
+                                                    ),
+                                                    selectionGroupId:
+                                                        widget.selectionGroupId,
+                                                    onChanged:
+                                                        widget.onTargetChanged,
+                                                  ),
+                                                )
+                                              : SizedBox(
+                                                  width: targetPromptWidth,
+                                                  child: PromptTagDisplay(
+                                                    key: ValueKey(
+                                                      'replacement-rule-target-$ruleKey',
+                                                    ),
+                                                    text: rule.targetPrompt,
+                                                    defaultTranslated: true,
+                                                    dense: true,
+                                                    initialLayoutMode:
+                                                        PromptTagLayoutMode
+                                                            .sourceOrder,
+                                                    respectInitialLayoutMode:
+                                                        true,
+                                                    sourceOrderCollapsedTagMaxWidth:
+                                                        _replacementRuleCollapsedTagMaxWidth,
+                                                    sourceOrderHoveredTagMaxWidth:
+                                                        _replacementRuleCollapsedTagMaxWidth,
+                                                    enableTagActions: true,
+                                                    translationCache:
+                                                        widget.translationCache,
+                                                    classificationCache: widget
+                                                        .classificationCache,
+                                                    saveClassificationCache: widget
+                                                        .saveClassificationCache,
+                                                    suppressedTagWarningKeys: widget
+                                                        .suppressedTagWarningKeys,
+                                                    onSuppressTagWarningForScope:
+                                                        widget
+                                                            .onSuppressTagWarningForScope,
+                                                    selectionController: widget
+                                                        .selectionController,
+                                                    selectionFieldId:
+                                                        _replacementRuleTargetFieldId(
+                                                      widget.scope,
+                                                      widget.ownerId,
+                                                      rule.id,
+                                                    ),
+                                                    selectionGroupId:
+                                                        widget.selectionGroupId,
+                                                    showSelectionToolbar: false,
+                                                    onChanged:
+                                                        widget.onTargetChanged,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                if (widget.onMatchModeChanged != null ||
+                                    !deleted) ...[
+                                  const SizedBox(height: 5),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      if (widget.onMatchModeChanged != null)
+                                        _ReplacementMatchModeSelector(
+                                          ruleKey: ruleKey,
+                                          value: rule.matchMode,
+                                          onChanged: widget.onMatchModeChanged!,
+                                        ),
+                                      if (!deleted)
+                                        _ReplacementRuleActionButton(
+                                          key: ValueKey(
+                                            'replacement-rule-scale-weight-$ruleKey',
+                                          ),
+                                          tooltip: '按倍率调整整块权重',
+                                          icon: Icons.monitor_weight_outlined,
+                                          color: StudioTokens.primary,
+                                          onPressed: () => unawaited(
+                                            _editWeightMultiplier(context),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _ReplacementRuleActionButton(
+                                tooltip: deleted ? '恢复此规则' : '删除此规则',
+                                icon:
+                                    deleted ? Icons.undo_outlined : Icons.close,
+                                color: deleted
+                                    ? StudioTokens.warning
+                                    : StudioTokens.textMuted,
+                                onPressed: () =>
+                                    widget.onDeletedChanged(!deleted),
+                              ),
+                              if (!deleted) ...[
+                                const SizedBox(height: 8),
+                                _ReplacementRuleActionButton(
+                                  tooltip: '添加目标词',
+                                  icon: Icons.add,
+                                  color: StudioTokens.primary,
+                                  onPressed: () {
+                                    setState(() {
+                                      _editingTarget = true;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               );
-            }
-          }
+            },
+          );
         },
       ),
     );
   }
+}
+
+class _ReplacementRuleDragData {
+  final String scope;
+  final String ownerId;
+  final String ruleId;
+  final String label;
+
+  const _ReplacementRuleDragData({
+    required this.scope,
+    required this.ownerId,
+    required this.ruleId,
+    required this.label,
+  });
+}
+
+class _ReplacementRuleDragFeedback extends StatelessWidget {
+  final String label;
+
+  const _ReplacementRuleDragFeedback({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: StudioTokens.surface3,
+        borderRadius: StudioTokens.radiusSlot,
+        border: Border.all(color: StudioTokens.primary),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(120),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Text(
+        label,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: StudioTokens.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+    );
+  }
+}
+
+class _ReplacementRuleDragHandle extends StatelessWidget {
+  final _ReplacementRuleDragData data;
+  final String label;
+
+  const _ReplacementRuleDragHandle({
+    super.key,
+    required this.data,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final handle = Tooltip(
+      message: '拖动合并整块规则',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Container(
+          width: 22,
+          constraints: const BoxConstraints(minHeight: 42),
+          decoration: BoxDecoration(
+            color: StudioTokens.surface1,
+            borderRadius: StudioTokens.radiusBadge,
+            border: Border.all(color: StudioTokens.border),
+          ),
+          child: Center(
+            child: Icon(
+              Icons.drag_indicator,
+              size: 16,
+              color: StudioTokens.textMuted,
+            ),
+          ),
+        ),
+      ),
+    );
+    return Draggable<_ReplacementRuleDragData>(
+      data: data,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: Material(
+        color: Colors.transparent,
+        child: _ReplacementRuleDragFeedback(label: label),
+      ),
+      childWhenDragging: Opacity(opacity: 0.45, child: handle),
+      child: handle,
+    );
+  }
+}
+
+class _ReplacementRuleActionButton extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  const _ReplacementRuleActionButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox.square(
+        dimension: 24,
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          iconSize: 15,
+          color: color,
+          icon: Icon(icon),
+          onPressed: onPressed,
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementFrameIcon extends StatelessWidget {
+  final String label;
+
+  const _ReplacementFrameIcon({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          color: StudioTokens.surface1,
+          borderRadius: StudioTokens.radiusBadge,
+          border: Border.all(color: StudioTokens.primary.withAlpha(100)),
+        ),
+        child: Icon(
+          Icons.filter_none_outlined,
+          size: 12,
+          color: StudioTokens.primary.withAlpha(210),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementRuleGroup {
+  final PromptTagCategory category;
+  final String label;
+  final List<StudioScriptReplacementRuleItem> rules;
+
+  const _ReplacementRuleGroup({
+    required this.category,
+    required this.label,
+    required this.rules,
+  });
+}
+
+List<_ReplacementRuleGroup> _replacementRuleGroups(
+  String scope,
+  List<StudioScriptReplacementRuleItem> rules,
+) {
+  final byCategory =
+      <PromptTagCategory, List<StudioScriptReplacementRuleItem>>{};
+  for (final rule in rules) {
+    final category = _replacementRuleCategory(scope, rule);
+    (byCategory[category] ??= []).add(rule);
+  }
+  final orderedCategories = [
+    if (scope == 'scene') ...[
+      PromptTagCategory.scene,
+      PromptTagCategory.camera,
+      PromptTagCategory.action,
+      PromptTagCategory.other,
+    ] else ...[
+      PromptTagCategory.character,
+      PromptTagCategory.upperBody,
+      PromptTagCategory.lowerBody,
+      PromptTagCategory.upperClothing,
+      PromptTagCategory.lowerClothing,
+      PromptTagCategory.clothing,
+      PromptTagCategory.other,
+    ],
+    for (final category in byCategory.keys)
+      if (scope == 'scene'
+          ? category != PromptTagCategory.scene &&
+              category != PromptTagCategory.camera &&
+              category != PromptTagCategory.action &&
+              category != PromptTagCategory.other
+          : category != PromptTagCategory.character &&
+              category != PromptTagCategory.upperBody &&
+              category != PromptTagCategory.lowerBody &&
+              category != PromptTagCategory.upperClothing &&
+              category != PromptTagCategory.lowerClothing &&
+              category != PromptTagCategory.clothing &&
+              category != PromptTagCategory.other)
+        category,
+  ];
+  return [
+    for (final category in orderedCategories)
+      if (byCategory[category]?.isNotEmpty ?? false)
+        _ReplacementRuleGroup(
+          category: category,
+          label: _replacementRuleCategoryLabel(scope, category),
+          rules: List.unmodifiable(byCategory[category]!),
+        ),
+  ];
+}
+
+PromptTagCategory _replacementRuleCategory(
+  String scope,
+  StudioScriptReplacementRuleItem rule,
+) {
+  final terms = rule.sourceTerms.where((term) => term.text.trim().isNotEmpty);
+  for (final term in terms) {
+    if (scope == 'scene') {
+      if (term.category == PromptTagCategory.scene ||
+          term.category == PromptTagCategory.camera ||
+          term.category == PromptTagCategory.action) {
+        return term.category;
+      }
+      continue;
+    }
+    if (term.category == PromptTagCategory.character ||
+        term.category == PromptTagCategory.upperBody ||
+        term.category == PromptTagCategory.lowerBody ||
+        term.category == PromptTagCategory.upperClothing ||
+        term.category == PromptTagCategory.lowerClothing ||
+        term.category == PromptTagCategory.clothing) {
+      return term.category;
+    }
+  }
+  return scope == 'scene' ? PromptTagCategory.scene : PromptTagCategory.other;
+}
+
+String _replacementRuleCategoryLabel(
+  String scope,
+  PromptTagCategory category,
+) {
+  if (scope == 'scene') {
+    return switch (category) {
+      PromptTagCategory.camera => '镜头',
+      PromptTagCategory.action => '动作',
+      PromptTagCategory.scene => '场景',
+      _ => '其它场景词',
+    };
+  }
+  return switch (category) {
+    PromptTagCategory.character => '身份',
+    PromptTagCategory.upperBody => '上身',
+    PromptTagCategory.lowerBody => '下身',
+    PromptTagCategory.upperClothing => '上装',
+    PromptTagCategory.lowerClothing => '下装',
+    PromptTagCategory.clothing => '服装状态/饰品',
+    _ => '其它角色词',
+  };
+}
+
+bool _replacementRuleHasResult(StudioScriptReplacementRuleItem rule) {
+  return rule.action == ScriptPromptReplacementAction.delete ||
+      rule.targetPrompt.trim().isNotEmpty;
+}
+
+const double _replacementRuleCollapsedTagMaxWidth = 144;
+
+double _replacementSourcePromptWidth(
+  StudioScriptReplacementRuleItem rule, {
+  required bool hasFrameLabel,
+  required bool showingTarget,
+}) {
+  final tags = [
+    for (final term in rule.sourceTerms)
+      if (term.text.trim().isNotEmpty) term.text.trim(),
+  ];
+  return _replacementPromptFlowWidth(
+    tags,
+    minWidth: 112,
+    maxWidth: showingTarget ? 420 : 620,
+    extraWidth: hasFrameLabel ? 30 : 0,
+  );
+}
+
+double _replacementTargetPromptWidth(
+  String prompt, {
+  required bool editing,
+}) {
+  final tags = [
+    for (final analysis in PromptTagProcessor.analyzeWorkshopTags(prompt))
+      if (analysis.text.trim().isNotEmpty)
+        PromptTagProcessor.cleanTagDisplay(analysis.text),
+  ];
+  final width = _replacementPromptFlowWidth(
+    tags,
+    minWidth: editing ? 320 : 112,
+    maxWidth: 620,
+  );
+  return editing && width < 320 ? 320 : width;
+}
+
+double _replacementRuleCardMaxWidth({
+  required double sourcePromptWidth,
+  required double targetPromptWidth,
+  required bool showingTarget,
+}) {
+  final promptWidth = sourcePromptWidth > targetPromptWidth
+      ? sourcePromptWidth
+      : targetPromptWidth;
+  final contentWidth =
+      sourcePromptWidth + (showingTarget ? targetPromptWidth + 42 : 0) + 52;
+  final balancedFlexWidth =
+      showingTarget ? promptWidth * 2 + 140 : contentWidth;
+  final width =
+      contentWidth > balancedFlexWidth ? contentWidth : balancedFlexWidth;
+  return width.clamp(showingTarget ? 320 : 180, showingTarget ? 1040 : 700);
+}
+
+double _replacementPromptFlowWidth(
+  Iterable<String> tags, {
+  required double minWidth,
+  required double maxWidth,
+  double extraWidth = 0,
+}) {
+  final visibleTags = [
+    for (final tag in tags)
+      if (tag.trim().isNotEmpty) tag.trim(),
+  ];
+  if (visibleTags.isEmpty) {
+    return minWidth;
+  }
+  final tagWidth = visibleTags.fold<double>(
+    0,
+    (sum, tag) => sum + _replacementPromptTagWidth(tag),
+  );
+  final spacing = (visibleTags.length - 1).clamp(0, 1000) * 4.0;
+  return (tagWidth + spacing + extraWidth).clamp(minWidth, maxWidth);
+}
+
+double _replacementPromptTagWidth(String tag) {
+  final text = PromptTagProcessor.cleanTagDisplay(tag).trim();
+  if (text.isEmpty) {
+    return _replacementRuleCollapsedTagMaxWidth;
+  }
+  return _replacementRuleCollapsedTagMaxWidth;
+}
+
+String _replacementRuleFrameLabel(StudioScriptReplacementRuleItem rule) {
+  final frames = <int>{};
+  for (final term in rule.sourceTerms) {
+    frames.addAll(term.frameIndexes);
+  }
+  if (frames.isEmpty) {
+    return '';
+  }
+  final sorted = frames.toList()..sort();
+  return '出现帧：${_compactFrameRanges(sorted)}';
+}
+
+String _compactFrameRanges(List<int> frames) {
+  if (frames.isEmpty) {
+    return '';
+  }
+  final ranges = <String>[];
+  var start = frames.first;
+  var previous = frames.first;
+  for (final frame in frames.skip(1)) {
+    if (frame == previous + 1) {
+      previous = frame;
+      continue;
+    }
+    ranges.add(start == previous ? '$start' : '$start-$previous');
+    start = frame;
+    previous = frame;
+  }
+  ranges.add(start == previous ? '$start' : '$start-$previous');
+  return ranges.join(', ');
+}
+
+class _ReplacementMatchModeSelector extends StatelessWidget {
+  final String ruleKey;
+  final ScriptPromptReplacementMatchMode value;
+  final ValueChanged<ScriptPromptReplacementMatchMode> onChanged;
+
+  const _ReplacementMatchModeSelector({
+    required this.ruleKey,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final next = _nextMode(value);
+    return Tooltip(
+      key: ValueKey('replacement-rule-match-$ruleKey'),
+      message: '匹配模式：${_modeLongLabel(value)}；点击切换为${_modeLongLabel(next)}',
+      child: InkWell(
+        borderRadius: StudioTokens.radiusBadge,
+        onTap: () => onChanged(next),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: StudioTokens.surface1,
+            borderRadius: StudioTokens.radiusBadge,
+            border: Border.all(color: StudioTokens.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _modeIcon(value),
+                size: 13,
+                color: StudioTokens.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _modeLabel(value),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: StudioTokens.textSecondary,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  ScriptPromptReplacementMatchMode _nextMode(
+    ScriptPromptReplacementMatchMode mode,
+  ) {
+    return switch (mode) {
+      ScriptPromptReplacementMatchMode.any =>
+        ScriptPromptReplacementMatchMode.all,
+      ScriptPromptReplacementMatchMode.all =>
+        ScriptPromptReplacementMatchMode.anchor,
+      ScriptPromptReplacementMatchMode.anchor =>
+        ScriptPromptReplacementMatchMode.any,
+    };
+  }
+
+  IconData _modeIcon(ScriptPromptReplacementMatchMode mode) {
+    return switch (mode) {
+      ScriptPromptReplacementMatchMode.any => Icons.filter_1_outlined,
+      ScriptPromptReplacementMatchMode.all => Icons.done_all_outlined,
+      ScriptPromptReplacementMatchMode.anchor => Icons.adjust_outlined,
+    };
+  }
+
+  String _modeLongLabel(ScriptPromptReplacementMatchMode mode) {
+    return switch (mode) {
+      ScriptPromptReplacementMatchMode.any => '任一出现',
+      ScriptPromptReplacementMatchMode.all => '同时出现',
+      ScriptPromptReplacementMatchMode.anchor => '锚点触发',
+    };
+  }
+
+  String _modeLabel(ScriptPromptReplacementMatchMode mode) {
+    return switch (mode) {
+      ScriptPromptReplacementMatchMode.any => '任一',
+      ScriptPromptReplacementMatchMode.all => '同时',
+      ScriptPromptReplacementMatchMode.anchor => '锚点',
+    };
+  }
+}
+
+String _replacementRuleSelectionGroupId(String scope, String ownerId) {
+  return 'replacement-rule-group-$scope-$ownerId';
+}
+
+String _replacementRuleSourceFieldId(
+  String scope,
+  String ownerId,
+  String ruleId,
+) {
+  return 'replacement-rule-source-field-$scope-$ownerId-$ruleId';
+}
+
+String _replacementRuleTargetFieldId(
+  String scope,
+  String ownerId,
+  String ruleId,
+) {
+  return 'replacement-rule-target-field-$scope-$ownerId-$ruleId';
+}
+
+String _replacementRoleIdentityFieldId(String sourceRoleId) {
+  return 'replacement-role-identity-field-$sourceRoleId';
+}
+
+String _replacementTermsPrompt(StudioScriptReplacementRuleItem rule) {
+  final excludedIds = rule.excludedTermIds.toSet();
+  final selectedTerms = [
+    for (final term in rule.sourceTerms)
+      if (!excludedIds.contains(term.id) && term.text.trim().isNotEmpty)
+        term.text.trim(),
+  ];
+  final terms = selectedTerms.isEmpty
+      ? [
+          for (final term in rule.sourceTerms)
+            if (term.text.trim().isNotEmpty) term.text.trim(),
+        ]
+      : selectedTerms;
+  return terms.join(', ');
+}
+
+String _replacementAllTermsPrompt(StudioScriptReplacementRuleItem rule) {
+  return [
+    for (final term in rule.sourceTerms)
+      if (term.text.trim().isNotEmpty) term.text.trim(),
+  ].join(', ');
+}
+
+String? _replacementTermIdForTag(
+  StudioScriptReplacementRuleItem rule,
+  String tag,
+) {
+  final key = PromptTagProcessor.normalizeMatchKey(tag);
+  if (key.isEmpty) {
+    return null;
+  }
+  for (final term in rule.sourceTerms) {
+    if (PromptTagProcessor.normalizeMatchKey(term.text) == key) {
+      return term.id;
+    }
+  }
+  return null;
 }
 
 class _ArtistMapping extends StatelessWidget {
@@ -6289,6 +8029,7 @@ class _AiProcessingDetailsDialog extends StatelessWidget {
                     color: StudioTokens.warning,
                     childBuilder: () => _AiRoleExtractionHiddenEvidence(
                       extraction: viewModel.aiRoleExtraction,
+                      translationCache: viewModel.translationCache,
                     ),
                   ),
                 ],
@@ -6814,8 +8555,12 @@ Color _aiTraceEventColor(StudioScriptAiTraceEventKind kind) {
 
 class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
   final ScriptAiRoleExtraction extraction;
+  final TranslationCache translationCache;
 
-  const _AiRoleExtractionHiddenEvidence({required this.extraction});
+  const _AiRoleExtractionHiddenEvidence({
+    required this.extraction,
+    required this.translationCache,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -6825,6 +8570,7 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
         _AiRoleExtractionTermGroup(
           title: '画风/画师证据：用于提示风格来源，不直接改角色字段',
           icon: Icons.brush_outlined,
+          translationCache: translationCache,
           terms: [
             for (final chain in extraction.artistChains) ...[
               if (chain.label.trim().isNotEmpty) chain.label,
@@ -6837,6 +8583,7 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
         _AiRoleExtractionTermGroup(
           title: '强过滤词：点击应用后写入过滤库',
           icon: Icons.block_outlined,
+          translationCache: translationCache,
           terms: [
             for (final keyword in extraction.strongFilterKeywords) keyword.term,
           ],
@@ -6845,6 +8592,7 @@ class _AiRoleExtractionHiddenEvidence extends StatelessWidget {
         _AiRoleExtractionTermGroup(
           title: '未使用证据：AI 没有写入五字段，仅供排查',
           icon: Icons.label_off_outlined,
+          translationCache: translationCache,
           terms: [
             for (final term in extraction.unassignedTerms.take(80))
               if (term.reason.trim().isEmpty)
@@ -6950,6 +8698,10 @@ List<_AiRoleExtractionPendingTerm> _aiRoleExtractionPendingTerms(
     required String reason,
     required List<int> frameIndexes,
   }) {
+    final display = PromptTagProcessor.cleanTagDisplay(
+      rawTerm,
+      removeWeights: false,
+    ).trim();
     final clean = PromptTagProcessor.cleanTagDisplay(rawTerm).trim();
     final normalizedFrames = _normalizedFrameIndexes(frameIndexes);
     final key = [
@@ -6958,12 +8710,12 @@ List<_AiRoleExtractionPendingTerm> _aiRoleExtractionPendingTerms(
       reason.trim(),
       ...normalizedFrames.map((index) => index.toString()),
     ].join('|');
-    if (clean.isEmpty || !seen.add(key)) {
+    if (display.isEmpty || clean.isEmpty || !seen.add(key)) {
       return;
     }
     terms.add(
       _AiRoleExtractionPendingTerm(
-        term: clean,
+        term: display,
         source: source,
         reason: reason,
         frameIndexes: normalizedFrames,
@@ -7325,1724 +9077,6 @@ class _SectionPanel extends StatelessWidget {
           ...children,
         ],
       ),
-    );
-  }
-}
-
-class _RoleMappingCard extends StatelessWidget {
-  final StudioScriptRoleMappingItem item;
-  final List<CharacterEntry> characters;
-  final TranslationCache translationCache;
-  final ValueChanged<String> onStageSelected;
-  final void Function(String stageId, String label) onStageLabelChanged;
-  final void Function(String stageId, List<int> frameIndexes)
-      onStageFrameIndexesChanged;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  ) onSourcePartChanged;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  ) onPartChanged;
-  final PromptTagDropBatch onTargetDropBatch;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    bool deleted,
-  ) onPartDeleted;
-  final void Function(String sourceStageId, String targetStageId)
-      onCopyTargetToStage;
-  final ValueChanged<String> onCopyTargetToAllOutfits;
-  final ValueChanged<String> onDeleteStage;
-  final ValueChanged<String> onClearTarget;
-  final ValueChanged<_ScriptAssetDragData> onAssetDropped;
-
-  const _RoleMappingCard({
-    required this.item,
-    required this.characters,
-    required this.translationCache,
-    required this.onStageSelected,
-    required this.onStageLabelChanged,
-    required this.onStageFrameIndexesChanged,
-    required this.onSourcePartChanged,
-    required this.onPartChanged,
-    required this.onTargetDropBatch,
-    required this.onPartDeleted,
-    required this.onCopyTargetToStage,
-    required this.onCopyTargetToAllOutfits,
-    required this.onDeleteStage,
-    required this.onClearTarget,
-    required this.onAssetDropped,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final stage = item.selectedStage ??
-        (item.stageItems.isEmpty ? null : item.stageItems.first);
-    final selectedCharacter =
-        _characterById(characters, item.selectedCharacterId);
-    final outfits = selectedCharacter?.outfits ?? const <WorkspaceOutfit>[];
-    final validOutfitId =
-        outfits.any((outfit) => outfit.id == item.selectedOutfitId)
-            ? item.selectedOutfitId
-            : null;
-    final validUpperOutfitId =
-        outfits.any((outfit) => outfit.id == stage?.selectedUpperOutfitId)
-            ? stage?.selectedUpperOutfitId
-            : validOutfitId;
-    final upperOutfit = _outfitById(outfits, validUpperOutfitId);
-    final sourceParts = _sourcePromptParts(item, stage);
-    final targetParts = _targetPromptParts(stage);
-    final stageActions = stage == null
-        ? null
-        : Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            children: [
-              OutlinedButton.icon(
-                key: ValueKey(
-                  'role-rename-stage-${item.sourceRoleId}-${stage.id}',
-                ),
-                icon: const Icon(Icons.edit_outlined, size: 16),
-                label: const Text('重命名服装'),
-                onPressed: () async {
-                  final label = await _showRoleStageRenameDialog(
-                    context,
-                    stage,
-                  );
-                  if (label != null) {
-                    onStageLabelChanged(stage.id, label);
-                  }
-                },
-              ),
-              OutlinedButton.icon(
-                key: ValueKey(
-                  'role-edit-stage-frames-${item.sourceRoleId}-${stage.id}',
-                ),
-                icon: const Icon(Icons.event_note_outlined, size: 16),
-                label: const Text('编辑帧'),
-                onPressed: () async {
-                  final frameIndexes = await _showRoleStageFramesDialog(
-                    context,
-                    stage,
-                  );
-                  if (frameIndexes != null) {
-                    onStageFrameIndexesChanged(stage.id, frameIndexes);
-                  }
-                },
-              ),
-              if (item.stageItems.length > 1)
-                _RoleStageCopyDraggable(
-                  sourceRoleId: item.sourceRoleId,
-                  stageId: stage.id,
-                  label: stage.label,
-                ),
-              if (item.stageItems.length > 1)
-                OutlinedButton.icon(
-                  key: ValueKey(
-                    'role-copy-target-to-all-outfits-${item.sourceRoleId}-${stage.id}',
-                  ),
-                  icon: const Icon(Icons.content_copy_outlined, size: 16),
-                  label: const Text('复制目标到全部服装'),
-                  onPressed: () => onCopyTargetToAllOutfits(stage.id),
-                ),
-              OutlinedButton.icon(
-                key: ValueKey(
-                  'role-delete-stage-${item.sourceRoleId}-${stage.id}',
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: StudioTokens.warning,
-                  side: const BorderSide(color: StudioTokens.warning),
-                ),
-                icon: const Icon(Icons.delete_outline, size: 16),
-                label: const Text('删除服装'),
-                onPressed: () => onDeleteStage(stage.id),
-              ),
-            ],
-          );
-    return DragTarget<_ScriptAssetDragData>(
-      key: ValueKey('role-drop-target-${item.sourceRoleId}'),
-      onWillAcceptWithDetails: (details) =>
-          details.data.kind == _ScriptAssetDragKind.character ||
-          details.data.kind == _ScriptAssetDragKind.outfit,
-      onAcceptWithDetails: (details) => onAssetDropped(details.data),
-      builder: (context, candidates, rejected) {
-        final active = candidates.isNotEmpty;
-        return Container(
-          key: ValueKey('role-card-${item.sourceRoleId}'),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: active ? StudioTokens.surface3 : StudioTokens.surface2,
-            borderRadius: StudioTokens.radiusCard,
-            border: Border.all(
-              color: active ? StudioTokens.primary : StudioTokens.cardOutline,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: StudioTokens.info.withValues(alpha: 0.16),
-                      borderRadius: StudioTokens.radiusPill,
-                    ),
-                    child: const Icon(Icons.person_outline,
-                        size: 20, color: StudioTokens.info),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.sourceLabel,
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '源角色：${item.sourcePreview}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: StudioTokens.textMuted,
-                                  ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (stageActions != null) ...[
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Align(
-                        alignment: Alignment.topRight,
-                        child: stageActions,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (item.stageItems.isNotEmpty)
-                _RoleStageSelector(
-                  sourceRoleId: item.sourceRoleId,
-                  stages: item.stageItems,
-                  selectedStageId: stage?.id,
-                  onSelected: onStageSelected,
-                  onCopyTargetToStage: onCopyTargetToStage,
-                ),
-              const SizedBox(height: 12),
-              _RolePromptComparePanel(
-                sourceRoleId: item.sourceRoleId,
-                stageId: stage?.id,
-                translationCache: translationCache,
-                sourceSubtitle: stage == null
-                    ? '尚未识别服装阶段'
-                    : _roleStageFrameSubtitle(stage.frameIndexes),
-                targetSubtitle: selectedCharacter == null
-                    ? '未选择素材库角色'
-                    : selectedCharacter.name,
-                sourceParts: sourceParts,
-                targetParts: targetParts,
-                omittedParts: stage?.omittedParts ?? const {},
-                onSourcePartChanged: stage?.isCurrentFrameSourceScoped == true
-                    ? null
-                    : onSourcePartChanged,
-                onTargetPartChanged: onPartChanged,
-                onTargetDropBatch: onTargetDropBatch,
-                onTargetPartDeleted: onPartDeleted,
-                onClearTarget:
-                    stage == null ? null : () => onClearTarget(stage.id),
-              ),
-              const SizedBox(height: 10),
-              if (selectedCharacter != null || upperOutfit != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '素材来源：${selectedCharacter?.name ?? '未选择角色'}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: StudioTokens.textMuted,
-                      ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-Future<String?> _showRoleStageRenameDialog(
-  BuildContext context,
-  StudioScriptRoleStageItem stage,
-) async {
-  return showDialog<String>(
-    context: context,
-    builder: (context) => _RoleStageRenameDialog(initialLabel: stage.label),
-  );
-}
-
-Future<List<int>?> _showRoleStageFramesDialog(
-  BuildContext context,
-  StudioScriptRoleStageItem stage,
-) async {
-  return showDialog<List<int>>(
-    context: context,
-    builder: (context) => _RoleStageFramesDialog(
-      initialFrameIndexes: stage.frameIndexes,
-    ),
-  );
-}
-
-class _RoleStageRenameDialog extends StatefulWidget {
-  final String initialLabel;
-
-  const _RoleStageRenameDialog({required this.initialLabel});
-
-  @override
-  State<_RoleStageRenameDialog> createState() => _RoleStageRenameDialogState();
-}
-
-class _RoleStageRenameDialogState extends State<_RoleStageRenameDialog> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialLabel);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      key: const ValueKey('role-stage-rename-dialog'),
-      backgroundColor: StudioTokens.surface2,
-      title: const Text('重命名服装'),
-      content: SizedBox(
-        width: 420,
-        child: TextField(
-          key: const ValueKey('role-stage-rename-input'),
-          controller: _controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '服装名称',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => _save(),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey('role-stage-rename-save'),
-          onPressed: _save,
-          child: const Text('保存'),
-        ),
-      ],
-    );
-  }
-
-  void _save() {
-    final value = _controller.text.trim();
-    if (value.isNotEmpty) {
-      Navigator.of(context).pop(value);
-    }
-  }
-}
-
-class _RoleStageFramesDialog extends StatefulWidget {
-  final List<int> initialFrameIndexes;
-
-  const _RoleStageFramesDialog({required this.initialFrameIndexes});
-
-  @override
-  State<_RoleStageFramesDialog> createState() => _RoleStageFramesDialogState();
-}
-
-class _RoleStageFramesDialogState extends State<_RoleStageFramesDialog> {
-  late final TextEditingController _controller;
-  String? errorText;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(
-      text: widget.initialFrameIndexes.join(', '),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      key: const ValueKey('role-stage-frames-dialog'),
-      backgroundColor: StudioTokens.surface2,
-      title: const Text('编辑服装对应帧'),
-      content: SizedBox(
-        width: 480,
-        child: TextField(
-          key: const ValueKey('role-stage-frames-input'),
-          controller: _controller,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 4,
-          decoration: InputDecoration(
-            labelText: '帧',
-            hintText: '93, 94, 100-105',
-            errorText: errorText,
-            border: const OutlineInputBorder(),
-          ),
-          onChanged: (_) {
-            if (errorText != null) {
-              setState(() => errorText = null);
-            }
-          },
-          onSubmitted: (_) => _save(),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const ValueKey('role-stage-frames-save'),
-          onPressed: _save,
-          child: const Text('保存'),
-        ),
-      ],
-    );
-  }
-
-  void _save() {
-    final parsed = _parseRoleStageFrameIndexes(_controller.text);
-    if (parsed == null || parsed.isEmpty) {
-      setState(() {
-        errorText = '请输入至少一个帧号';
-      });
-      return;
-    }
-    Navigator.of(context).pop(parsed);
-  }
-}
-
-String _roleStageFrameSubtitle(List<int> frameIndexes) {
-  if (frameIndexes.isEmpty) {
-    return '未设置帧';
-  }
-  return '帧 ${frameIndexes.join(', ')}';
-}
-
-List<int>? _parseRoleStageFrameIndexes(String value) {
-  final normalized = value.trim();
-  if (normalized.isEmpty) {
-    return const [];
-  }
-  final tokenPattern = RegExp(r'(\d+)\s*(?:[-~～]\s*(\d+))?');
-  final residue = normalized
-      .replaceAll(tokenPattern, '')
-      .replaceAll(RegExp(r'[,，;；\s]+'), '')
-      .trim();
-  if (residue.isNotEmpty) {
-    return null;
-  }
-  final indexes = <int>{};
-  for (final match in tokenPattern.allMatches(normalized)) {
-    final start = int.tryParse(match.group(1) ?? '');
-    final endText = match.group(2);
-    final end = endText == null ? null : int.tryParse(endText);
-    if (start == null || start < 0 || (end != null && end < start)) {
-      return null;
-    }
-    if (end == null) {
-      indexes.add(start);
-      continue;
-    }
-    for (var index = start; index <= end; index += 1) {
-      indexes.add(index);
-    }
-  }
-  return List.unmodifiable(indexes.toList()..sort());
-}
-
-class _RoleStageSelector extends StatelessWidget {
-  static const double _maxChipWidth = 320;
-
-  final String sourceRoleId;
-  final List<StudioScriptRoleStageItem> stages;
-  final String? selectedStageId;
-  final ValueChanged<String> onSelected;
-  final void Function(String sourceStageId, String targetStageId)?
-      onCopyTargetToStage;
-
-  const _RoleStageSelector({
-    required this.sourceRoleId,
-    required this.stages,
-    required this.selectedStageId,
-    required this.onSelected,
-    this.onCopyTargetToStage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final chipMaxWidth = _chipMaxWidthFor(constraints);
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final stage in stages)
-              _stageChip(stage, maxWidth: chipMaxWidth),
-          ],
-        );
-      },
-    );
-  }
-
-  double _chipMaxWidthFor(BoxConstraints constraints) {
-    final available =
-        constraints.hasBoundedWidth ? constraints.maxWidth : _maxChipWidth;
-    if (!available.isFinite || available <= 0) {
-      return _maxChipWidth;
-    }
-    return available < _maxChipWidth ? available : _maxChipWidth;
-  }
-
-  Widget _stageChip(
-    StudioScriptRoleStageItem stage, {
-    required double maxWidth,
-  }) {
-    return _RoleStageChip(
-      sourceRoleId: sourceRoleId,
-      stage: stage,
-      selected: stage.id == selectedStageId,
-      maxWidth: maxWidth,
-      onSelected: () => onSelected(stage.id),
-      onCopyTargetToStage: onCopyTargetToStage,
-    );
-  }
-}
-
-class _RoleStageChip extends StatefulWidget {
-  final String sourceRoleId;
-  final StudioScriptRoleStageItem stage;
-  final bool selected;
-  final double maxWidth;
-  final VoidCallback onSelected;
-  final void Function(String sourceStageId, String targetStageId)?
-      onCopyTargetToStage;
-
-  const _RoleStageChip({
-    required this.sourceRoleId,
-    required this.stage,
-    required this.selected,
-    required this.maxWidth,
-    required this.onSelected,
-    required this.onCopyTargetToStage,
-  });
-
-  @override
-  State<_RoleStageChip> createState() => _RoleStageChipState();
-}
-
-class _RoleStageChipState extends State<_RoleStageChip> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final stage = widget.stage;
-    return DragTarget<_RoleStageCopyDragData>(
-      onWillAcceptWithDetails: widget.onCopyTargetToStage == null
-          ? null
-          : (details) =>
-              details.data.sourceRoleId == widget.sourceRoleId &&
-              details.data.stageId != stage.id,
-      onAcceptWithDetails: widget.onCopyTargetToStage == null
-          ? null
-          : (details) =>
-              widget.onCopyTargetToStage!(details.data.stageId, stage.id),
-      builder: (context, candidates, rejected) {
-        final accepting = candidates.any(
-          (candidate) =>
-              candidate?.sourceRoleId == widget.sourceRoleId &&
-              candidate?.stageId != stage.id,
-        );
-        final highlighted = accepting || _hovered;
-        return Tooltip(
-          message: stage.label,
-          waitDuration: const Duration(milliseconds: 400),
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) {
-              if (!_hovered) {
-                setState(() => _hovered = true);
-              }
-            },
-            onExit: (_) {
-              if (_hovered) {
-                setState(() => _hovered = false);
-              }
-            },
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerHover: (_) {
-                if (!_hovered) {
-                  setState(() => _hovered = true);
-                }
-              },
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: widget.maxWidth),
-                child: AnimatedScale(
-                  duration: const Duration(milliseconds: 140),
-                  scale: accepting
-                      ? 1.03
-                      : highlighted
-                          ? 1.01
-                          : 1,
-                  child: AnimatedContainer(
-                    key: ValueKey(
-                      'role-stage-surface-${widget.sourceRoleId}-${stage.id}',
-                    ),
-                    duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.all(1),
-                    decoration: BoxDecoration(
-                      color: accepting
-                          ? StudioTokens.primary.withAlpha(24)
-                          : _hovered
-                              ? StudioTokens.primary.withAlpha(18)
-                              : Colors.transparent,
-                      borderRadius: StudioTokens.radiusPill,
-                    ),
-                    child: ChoiceChip(
-                      key: ValueKey(
-                        'role-stage-${widget.sourceRoleId}-${stage.id}',
-                      ),
-                      color: WidgetStateProperty.resolveWith((states) {
-                        if (states.contains(WidgetState.hovered) &&
-                            !states.contains(WidgetState.selected)) {
-                          return StudioTokens.primary.withAlpha(18);
-                        }
-                        return null;
-                      }),
-                      avatar: accepting
-                          ? const Icon(
-                              Icons.download_done_outlined,
-                              size: 16,
-                              color: StudioTokens.primary,
-                            )
-                          : null,
-                      label: Text(
-                        stage.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                      ),
-                      selected: widget.selected,
-                      onSelected: (_) => widget.onSelected(),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _RoleStageCopyDraggable extends StatefulWidget {
-  final String sourceRoleId;
-  final String stageId;
-  final String? label;
-
-  const _RoleStageCopyDraggable({
-    required this.sourceRoleId,
-    required this.stageId,
-    this.label,
-  });
-
-  @override
-  State<_RoleStageCopyDraggable> createState() =>
-      _RoleStageCopyDraggableState();
-}
-
-class _RoleStageCopyDraggableState extends State<_RoleStageCopyDraggable> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.grab,
-      onEnter: (_) {
-        if (!_hovered) {
-          setState(() => _hovered = true);
-        }
-      },
-      onExit: (_) {
-        if (_hovered) {
-          setState(() => _hovered = false);
-        }
-      },
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerHover: (_) {
-          if (!_hovered) {
-            setState(() => _hovered = true);
-          }
-        },
-        child: Draggable<_RoleStageCopyDragData>(
-          key: ValueKey(
-            'role-copy-target-drag-${widget.sourceRoleId}-${widget.stageId}',
-          ),
-          data: _RoleStageCopyDragData(
-            sourceRoleId: widget.sourceRoleId,
-            stageId: widget.stageId,
-            label: widget.label ?? '',
-          ),
-          feedback: Material(
-            color: Colors.transparent,
-            child: _RoleStageCopyHandle(label: widget.label),
-          ),
-          childWhenDragging: Opacity(
-            opacity: 0.48,
-            child: _RoleStageCopyHandle(label: widget.label),
-          ),
-          child: Tooltip(
-            message: '拖拽到其他服装标签以复制当前替换结果',
-            child: _RoleStageCopyHandle(
-              label: widget.label,
-              hovered: _hovered,
-              surfaceKey: ValueKey(
-                'role-copy-target-drag-surface-${widget.sourceRoleId}-${widget.stageId}',
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleStageCopyHandle extends StatelessWidget {
-  final String? label;
-  final bool hovered;
-  final Key? surfaceKey;
-
-  const _RoleStageCopyHandle({
-    this.label,
-    this.hovered = false,
-    this.surfaceKey,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final resolvedLabel = label?.trim();
-    return AnimatedContainer(
-      key: surfaceKey,
-      duration: const Duration(milliseconds: 140),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: hovered
-            ? StudioTokens.primary.withAlpha(22)
-            : StudioTokens.surface3,
-        borderRadius: StudioTokens.radiusPill,
-        border: Border.all(
-          color: hovered
-              ? StudioTokens.primary.withAlpha(230)
-              : StudioTokens.primary.withAlpha(170),
-        ),
-        boxShadow: hovered
-            ? const [
-                BoxShadow(
-                  color: Color(0x22000000),
-                  blurRadius: 14,
-                  offset: Offset(0, 4),
-                ),
-              ]
-            : null,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.drag_indicator,
-            size: 16,
-            color: StudioTokens.primary,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            resolvedLabel == null || resolvedLabel.isEmpty
-                ? '拖拽复制'
-                : '复制 $resolvedLabel',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: StudioTokens.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RolePromptParts {
-  final String identity;
-  final String upperBody;
-  final String lowerBody;
-  final String upperClothing;
-  final String lowerClothing;
-
-  const _RolePromptParts({
-    this.identity = '',
-    this.upperBody = '',
-    this.lowerBody = '',
-    this.upperClothing = '',
-    this.lowerClothing = '',
-  });
-
-  bool get isEmpty =>
-      identity.trim().isEmpty &&
-      upperBody.trim().isEmpty &&
-      lowerBody.trim().isEmpty &&
-      upperClothing.trim().isEmpty &&
-      lowerClothing.trim().isEmpty;
-}
-
-class _RolePromptComparePanel extends StatefulWidget {
-  final String sourceRoleId;
-  final String? stageId;
-  final TranslationCache translationCache;
-  final String sourceSubtitle;
-  final String targetSubtitle;
-  final _RolePromptParts sourceParts;
-  final _RolePromptParts targetParts;
-  final Set<RecastPromptPart> omittedParts;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onSourcePartChanged;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onTargetPartChanged;
-  final PromptTagDropBatch? onTargetDropBatch;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    bool deleted,
-  )? onTargetPartDeleted;
-  final VoidCallback? onClearTarget;
-
-  const _RolePromptComparePanel({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.translationCache,
-    required this.sourceSubtitle,
-    required this.targetSubtitle,
-    required this.sourceParts,
-    required this.targetParts,
-    required this.omittedParts,
-    required this.onSourcePartChanged,
-    required this.onTargetPartChanged,
-    required this.onTargetDropBatch,
-    required this.onTargetPartDeleted,
-    required this.onClearTarget,
-  });
-
-  @override
-  State<_RolePromptComparePanel> createState() =>
-      _RolePromptComparePanelState();
-}
-
-class _RolePromptComparePanelState extends State<_RolePromptComparePanel> {
-  final PromptTagSelectionController _selectionController =
-      PromptTagSelectionController();
-  final GlobalKey _selectionAreaKey = GlobalKey();
-  Offset? _selectionStart;
-  Offset? _selectionCurrent;
-  Offset? _selectionAnchorGlobal;
-  bool _selectionMoved = false;
-  bool _selectionAdditive = false;
-
-  @override
-  void dispose() {
-    _selectionController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final rect = _selectionRect();
-    final sourceRoleId = widget.sourceRoleId;
-    final stageId = widget.stageId;
-    final translationCache = widget.translationCache;
-    final sourceSubtitle = widget.sourceSubtitle;
-    final targetSubtitle = widget.targetSubtitle;
-    final sourceParts = widget.sourceParts;
-    final targetParts = widget.targetParts;
-    final omittedParts = widget.omittedParts;
-    final onSourcePartChanged = widget.onSourcePartChanged;
-    final onTargetPartChanged = widget.onTargetPartChanged;
-    final onTargetPartDeleted = widget.onTargetPartDeleted;
-    final clearTargetAction = stageId == null || widget.onClearTarget == null
-        ? null
-        : TextButton.icon(
-            key: ValueKey('role-clear-target-all-$sourceRoleId-$stageId'),
-            onPressed: widget.onClearTarget,
-            icon: const Icon(Icons.delete_outline, size: 15),
-            label: const Text('全部清空'),
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-          );
-    return Container(
-      key: const ValueKey('role-prompt-compare-panel'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface1,
-        borderRadius: StudioTokens.radiusSlot,
-        border: StudioTokens.cardBorder,
-      ),
-      child: Listener(
-        key: _selectionAreaKey,
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: _handleSelectionPointerDown,
-        onPointerMove: _handleSelectionPointerMove,
-        onPointerUp: _handleSelectionPointerUp,
-        onPointerCancel: _handleSelectionPointerCancel,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxWidth < 760;
-                    if (compact) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _CompareHeaderBlock(
-                            title: '源角色提示词',
-                            subtitle: sourceSubtitle,
-                          ),
-                          const SizedBox(height: 8),
-                          _CompareHeaderBlock(
-                            title: '替换后输出',
-                            subtitle: targetSubtitle,
-                            trailing: clearTargetAction,
-                          ),
-                        ],
-                      );
-                    }
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: _CompareHeaderBlock(
-                            title: '源角色提示词',
-                            subtitle: sourceSubtitle,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Icon(
-                            Icons.arrow_forward,
-                            size: 20,
-                            color: StudioTokens.primary.withAlpha(210),
-                          ),
-                        ),
-                        Expanded(
-                          child: _CompareHeaderBlock(
-                            title: '替换后输出',
-                            subtitle: targetSubtitle,
-                            trailing: clearTargetAction,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
-                _RolePromptCompareRow(
-                  sourceRoleId: sourceRoleId,
-                  stageId: stageId,
-                  translationCache: translationCache,
-                  part: StudioScriptRolePart.identity,
-                  label: '角色身份',
-                  source: sourceParts.identity,
-                  target: targetParts.identity,
-                  omitted: omittedParts.contains(RecastPromptPart.identity),
-                  onSourceChanged: onSourcePartChanged,
-                  onTargetChanged: onTargetPartChanged,
-                  onTargetDropBatch: widget.onTargetDropBatch,
-                  onTargetDeleted: onTargetPartDeleted,
-                  selectionController: _selectionController,
-                ),
-                _RolePromptCompareRow(
-                  sourceRoleId: sourceRoleId,
-                  stageId: stageId,
-                  translationCache: translationCache,
-                  part: StudioScriptRolePart.upperBody,
-                  label: '上身',
-                  source: sourceParts.upperBody,
-                  target: targetParts.upperBody,
-                  omitted: omittedParts.contains(RecastPromptPart.upperBody),
-                  onSourceChanged: onSourcePartChanged,
-                  onTargetChanged: onTargetPartChanged,
-                  onTargetDropBatch: widget.onTargetDropBatch,
-                  onTargetDeleted: onTargetPartDeleted,
-                  selectionController: _selectionController,
-                ),
-                _RolePromptCompareRow(
-                  sourceRoleId: sourceRoleId,
-                  stageId: stageId,
-                  translationCache: translationCache,
-                  part: StudioScriptRolePart.lowerBody,
-                  label: '下身',
-                  source: sourceParts.lowerBody,
-                  target: targetParts.lowerBody,
-                  omitted: omittedParts.contains(RecastPromptPart.lowerBody),
-                  onSourceChanged: onSourcePartChanged,
-                  onTargetChanged: onTargetPartChanged,
-                  onTargetDropBatch: widget.onTargetDropBatch,
-                  onTargetDeleted: onTargetPartDeleted,
-                  selectionController: _selectionController,
-                ),
-                _RolePromptCompareRow(
-                  sourceRoleId: sourceRoleId,
-                  stageId: stageId,
-                  translationCache: translationCache,
-                  part: StudioScriptRolePart.upperClothing,
-                  label: '上装',
-                  source: sourceParts.upperClothing,
-                  target: targetParts.upperClothing,
-                  omitted:
-                      omittedParts.contains(RecastPromptPart.upperClothing),
-                  onSourceChanged: onSourcePartChanged,
-                  onTargetChanged: onTargetPartChanged,
-                  onTargetDropBatch: widget.onTargetDropBatch,
-                  onTargetDeleted: onTargetPartDeleted,
-                  selectionController: _selectionController,
-                ),
-                _RolePromptCompareRow(
-                  sourceRoleId: sourceRoleId,
-                  stageId: stageId,
-                  translationCache: translationCache,
-                  part: StudioScriptRolePart.lowerClothing,
-                  label: '下装',
-                  source: sourceParts.lowerClothing,
-                  target: targetParts.lowerClothing,
-                  omitted:
-                      omittedParts.contains(RecastPromptPart.lowerClothing),
-                  onSourceChanged: onSourcePartChanged,
-                  onTargetChanged: onTargetPartChanged,
-                  onTargetDropBatch: widget.onTargetDropBatch,
-                  onTargetDeleted: onTargetPartDeleted,
-                  selectionController: _selectionController,
-                  bottom: true,
-                ),
-              ],
-            ),
-            if (rect != null && _selectionMoved)
-              Positioned(
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: StudioTokens.primary.withAlpha(24),
-                      borderRadius: StudioTokens.radiusSlot,
-                      border: Border.all(color: StudioTokens.primary),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _handleSelectionPointerDown(PointerDownEvent event) {
-    if (event.buttons != kPrimaryMouseButton) {
-      return;
-    }
-    if (_selectionController.hasItemAt(event.position)) {
-      return;
-    }
-    final local = _selectionLocalPosition(event.position);
-    if (local == null) {
-      return;
-    }
-    setState(() {
-      _selectionStart = local;
-      _selectionCurrent = local;
-      _selectionAnchorGlobal = event.position;
-      _selectionMoved = false;
-      _selectionAdditive = HardwareKeyboard.instance.isControlPressed ||
-          HardwareKeyboard.instance.isMetaPressed;
-    });
-    _selectionController.clearPreview();
-  }
-
-  void _handleSelectionPointerMove(PointerMoveEvent event) {
-    final start = _selectionStart;
-    if (start == null) {
-      return;
-    }
-    final local = _selectionLocalPosition(event.position);
-    if (local == null) {
-      return;
-    }
-    final moved = (local - start).distance > 4;
-    setState(() {
-      _selectionCurrent = local;
-      _selectionMoved = moved;
-    });
-    final rect = _selectionGlobalRect();
-    if (moved && rect != null) {
-      _selectionController.previewIntersecting(
-        rect,
-        additive: _selectionAdditive,
-        anchorPosition: _selectionAnchorGlobal,
-      );
-    } else {
-      _selectionController.clearPreview();
-    }
-  }
-
-  void _handleSelectionPointerUp(PointerUpEvent event) {
-    final rect = _selectionGlobalRect();
-    if (rect != null && _selectionMoved) {
-      _selectionController.selectIntersecting(
-        rect,
-        additive: _selectionAdditive,
-        anchorPosition: _selectionAnchorGlobal,
-      );
-    }
-    _clearSelectionInteraction();
-  }
-
-  void _handleSelectionPointerCancel(PointerCancelEvent event) {
-    _clearSelectionInteraction();
-  }
-
-  void _clearSelectionInteraction() {
-    _selectionController.clearPreview();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _selectionStart = null;
-      _selectionCurrent = null;
-      _selectionAnchorGlobal = null;
-      _selectionMoved = false;
-      _selectionAdditive = false;
-    });
-  }
-
-  Offset? _selectionLocalPosition(Offset globalPosition) {
-    final box = _selectionAreaKey.currentContext?.findRenderObject();
-    if (box is! RenderBox) {
-      return null;
-    }
-    return box.globalToLocal(globalPosition);
-  }
-
-  Rect? _selectionRect() {
-    final start = _selectionStart;
-    final current = _selectionCurrent;
-    if (start == null || current == null) {
-      return null;
-    }
-    return Rect.fromLTRB(
-      start.dx < current.dx ? start.dx : current.dx,
-      start.dy < current.dy ? start.dy : current.dy,
-      start.dx > current.dx ? start.dx : current.dx,
-      start.dy > current.dy ? start.dy : current.dy,
-    );
-  }
-
-  Rect? _selectionGlobalRect() {
-    final localRect = _selectionRect();
-    final box = _selectionAreaKey.currentContext?.findRenderObject();
-    if (localRect == null || box is! RenderBox) {
-      return null;
-    }
-    final topLeft = box.localToGlobal(localRect.topLeft);
-    final bottomRight = box.localToGlobal(localRect.bottomRight);
-    return Rect.fromPoints(topLeft, bottomRight);
-  }
-}
-
-class _CompareHeaderBlock extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final Widget? trailing;
-
-  const _CompareHeaderBlock({
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: StudioTokens.textPrimary,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-            ),
-            if (trailing != null) ...[
-              const SizedBox(width: 8),
-              trailing!,
-            ],
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: StudioTokens.textMuted,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RolePromptCompareRow extends StatelessWidget {
-  final String sourceRoleId;
-  final String? stageId;
-  final TranslationCache translationCache;
-  final StudioScriptRolePart part;
-  final String label;
-  final String source;
-  final String target;
-  final bool omitted;
-  final PromptTagSelectionController selectionController;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onSourceChanged;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onTargetChanged;
-  final PromptTagDropBatch? onTargetDropBatch;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    bool deleted,
-  )? onTargetDeleted;
-  final bool bottom;
-
-  const _RolePromptCompareRow({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.translationCache,
-    required this.part,
-    required this.label,
-    required this.source,
-    required this.target,
-    this.omitted = false,
-    required this.selectionController,
-    required this.onSourceChanged,
-    required this.onTargetChanged,
-    required this.onTargetDropBatch,
-    required this.onTargetDeleted,
-    this.bottom = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 760;
-        final sourceToTargetCopy = _SourceToTargetCopyButton(
-          sourceRoleId: sourceRoleId,
-          stageId: stageId,
-          part: part,
-          label: label,
-          source: source,
-          onTargetChanged: onTargetChanged,
-        );
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: bottom
-                  ? BorderSide.none
-                  : const BorderSide(color: StudioTokens.cardOutline),
-            ),
-          ),
-          child: compact
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _CompareCell(
-                      sourceRoleId: sourceRoleId,
-                      stageId: stageId,
-                      translationCache: translationCache,
-                      part: part,
-                      label: label,
-                      value: source,
-                      side: '源',
-                      onChanged: onSourceChanged,
-                      selectionController: selectionController,
-                    ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: sourceToTargetCopy,
-                    ),
-                    const SizedBox(height: 6),
-                    _ReplacementCompareCell(
-                      sourceRoleId: sourceRoleId,
-                      stageId: stageId,
-                      part: part,
-                      label: label,
-                      value: target,
-                      omitted: omitted,
-                      onChanged: onTargetChanged,
-                      onDroppedTagsBatch: onTargetDropBatch,
-                      onDeleted: onTargetDeleted,
-                      selectionController: selectionController,
-                    ),
-                  ],
-                )
-              : IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: _CompareCell(
-                          sourceRoleId: sourceRoleId,
-                          stageId: stageId,
-                          translationCache: translationCache,
-                          part: part,
-                          label: label,
-                          value: source,
-                          side: '源',
-                          onChanged: onSourceChanged,
-                          selectionController: selectionController,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Align(
-                        alignment: Alignment.center,
-                        child: sourceToTargetCopy,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: _ReplacementCompareCell(
-                          sourceRoleId: sourceRoleId,
-                          stageId: stageId,
-                          part: part,
-                          label: label,
-                          value: target,
-                          omitted: omitted,
-                          onChanged: onTargetChanged,
-                          onDroppedTagsBatch: onTargetDropBatch,
-                          onDeleted: onTargetDeleted,
-                          selectionController: selectionController,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-        );
-      },
-    );
-  }
-}
-
-class _SourceToTargetCopyButton extends StatelessWidget {
-  final String sourceRoleId;
-  final String? stageId;
-  final StudioScriptRolePart part;
-  final String label;
-  final String source;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onTargetChanged;
-
-  const _SourceToTargetCopyButton({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.part,
-    required this.label,
-    required this.source,
-    required this.onTargetChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = source.trim();
-    final enabled =
-        stageId != null && onTargetChanged != null && normalized.isNotEmpty;
-    final key =
-        'role-copy-source-to-output-$sourceRoleId-${stageId ?? 'none'}-${part.name}';
-    return Tooltip(
-      message: '复制源$label到替换输出',
-      child: SizedBox.square(
-        dimension: 34,
-        child: IconButton.outlined(
-          key: ValueKey(key),
-          padding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          iconSize: 18,
-          icon: const Icon(Icons.arrow_forward),
-          onPressed: enabled
-              ? () => onTargetChanged!(stageId!, part, normalized)
-              : null,
-        ),
-      ),
-    );
-  }
-}
-
-class _CompareCell extends StatelessWidget {
-  final String sourceRoleId;
-  final String? stageId;
-  final TranslationCache translationCache;
-  final StudioScriptRolePart part;
-  final String label;
-  final String value;
-  final String side;
-  final PromptTagSelectionController selectionController;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onChanged;
-
-  const _CompareCell({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.translationCache,
-    required this.part,
-    required this.label,
-    required this.value,
-    required this.side,
-    required this.selectionController,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = value.trim();
-    final fieldKey =
-        'role-source-part-$sourceRoleId-${stageId ?? 'none'}-${part.name}';
-    final selectionGroupId =
-        'role-source-part-$sourceRoleId-${stageId ?? 'none'}';
-    return Container(
-      key: ValueKey(fieldKey),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface2,
-        borderRadius: StudioTokens.radiusSlot,
-        border: Border.all(color: StudioTokens.cardOutline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$side$label',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: StudioTokens.primary,
-                  fontWeight: FontWeight.w900,
-                ),
-          ),
-          const SizedBox(height: 3),
-          PromptTagDisplay(
-            text: normalized,
-            defaultTranslated: true,
-            dense: true,
-            enableTagActions: true,
-            initialLayoutMode: PromptTagLayoutMode.sourceOrder,
-            respectInitialLayoutMode: true,
-            translationCache: translationCache,
-            emptyText: '未拆分',
-            selectionController: selectionController,
-            selectionFieldId: fieldKey,
-            selectionGroupId: selectionGroupId,
-            showSelectionToolbar: false,
-            onChanged: stageId == null || onChanged == null
-                ? null
-                : (value) => onChanged!(stageId!, part, value),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReplacementCompareCell extends StatefulWidget {
-  final String sourceRoleId;
-  final String? stageId;
-  final StudioScriptRolePart part;
-  final String label;
-  final String value;
-  final bool omitted;
-  final PromptTagSelectionController selectionController;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    String value,
-  )? onChanged;
-  final PromptTagDropBatch? onDroppedTagsBatch;
-  final void Function(
-    String stageId,
-    StudioScriptRolePart part,
-    bool deleted,
-  )? onDeleted;
-
-  const _ReplacementCompareCell({
-    required this.sourceRoleId,
-    required this.stageId,
-    required this.part,
-    required this.label,
-    required this.value,
-    this.omitted = false,
-    required this.selectionController,
-    required this.onChanged,
-    required this.onDroppedTagsBatch,
-    required this.onDeleted,
-  });
-
-  @override
-  State<_ReplacementCompareCell> createState() =>
-      _ReplacementCompareCellState();
-}
-
-class _ReplacementCompareCellState extends State<_ReplacementCompareCell> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.value.trim());
-  }
-
-  @override
-  void didUpdateWidget(covariant _ReplacementCompareCell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final next = widget.value.trim();
-    if (oldWidget.value.trim() != next && _controller.text != next) {
-      _controller.text = next;
-      _controller.selection = TextSelection.collapsed(offset: next.length);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  bool _shouldRemoveDroppedTagsFromSource(PromptTagDragData data) {
-    final stageId = widget.stageId;
-    if (stageId != null && data.sourceFieldIds.isNotEmpty) {
-      final sourcePrefix = 'role-source-part-${widget.sourceRoleId}-$stageId-';
-      if (data.sourceFieldIds.any(
-        (fieldId) => fieldId.startsWith(sourcePrefix),
-      )) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final stageId = widget.stageId;
-    final enabled = stageId != null && widget.onChanged != null;
-    final fieldKey =
-        'role-output-part-${widget.sourceRoleId}-${stageId ?? 'none'}-${widget.part.name}';
-    final selectionGroupId =
-        'role-output-part-${widget.sourceRoleId}-${stageId ?? 'none'}';
-    final dropKey =
-        'role-output-part-drop-${widget.sourceRoleId}-${stageId ?? 'none'}-${widget.part.name}';
-    return DragTarget<_ScriptAssetDragData>(
-      key: ValueKey(dropKey),
-      hitTestBehavior: HitTestBehavior.translucent,
-      onWillAcceptWithDetails: enabled
-          ? (details) =>
-              details.data.kind == _ScriptAssetDragKind.outfitPart &&
-              details.data.rolePart == widget.part
-          : null,
-      onAcceptWithDetails: enabled
-          ? (details) {
-              final value = details.data.partValue?.trim() ?? '';
-              widget.onChanged!(stageId, widget.part, value);
-            }
-          : null,
-      builder: (context, candidates, rejected) {
-        final active = candidates.isNotEmpty;
-        final omittedEmpty = widget.omitted && widget.value.trim().isEmpty;
-        final deleteEnabled = stageId != null && widget.onDeleted != null;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: active
-                ? StudioTokens.primary.withAlpha(18)
-                : omittedEmpty
-                    ? StudioTokens.surface1
-                    : StudioTokens.surface2,
-            borderRadius: StudioTokens.radiusSlot,
-            border: Border.all(
-              color: active
-                  ? StudioTokens.primary
-                  : omittedEmpty
-                      ? StudioTokens.border
-                      : StudioTokens.cardOutline,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '替换${widget.label}',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: omittedEmpty
-                                ? StudioTokens.textMuted
-                                : StudioTokens.primary,
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                  ),
-                  Icon(
-                    active ? Icons.download_done_outlined : Icons.edit_outlined,
-                    size: 14,
-                    color: active
-                        ? StudioTokens.primary
-                        : omittedEmpty
-                            ? StudioTokens.textMuted
-                            : StudioTokens.textSecondary,
-                  ),
-                  const SizedBox(width: 6),
-                  Tooltip(
-                    message: widget.omitted
-                        ? 'Keep source block'
-                        : 'Delete this block',
-                    child: SizedBox.square(
-                      dimension: 28,
-                      child: IconButton(
-                        key: ValueKey(
-                          'role-delete-target-part-${widget.sourceRoleId}-${stageId ?? 'none'}-${widget.part.name}',
-                        ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 16,
-                        color: widget.omitted
-                            ? StudioTokens.warning
-                            : StudioTokens.textMuted,
-                        icon: Icon(
-                          widget.omitted
-                              ? Icons.undo_outlined
-                              : Icons.delete_outline,
-                        ),
-                        onPressed: deleteEnabled
-                            ? () => widget.onDeleted!(
-                                  stageId,
-                                  widget.part,
-                                  !widget.omitted,
-                                )
-                            : null,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 3),
-              KeyedSubtree(
-                key: ValueKey(fieldKey),
-                child: PromptTagEditor(
-                  value: _controller.text,
-                  dense: true,
-                  enabled: enabled,
-                  selectionController: widget.selectionController,
-                  selectionFieldId: fieldKey,
-                  selectionGroupId: selectionGroupId,
-                  showSelectionToolbar: false,
-                  removeDroppedTagsFromSource:
-                      _shouldRemoveDroppedTagsFromSource,
-                  onDroppedTagsBatch: widget.onDroppedTagsBatch,
-                  emptyText: omittedEmpty ? '未检测到，默认不传入' : '未拆分',
-                  onChanged: enabled
-                      ? (value) {
-                          _controller.text = value;
-                          _controller.selection =
-                              TextSelection.collapsed(offset: value.length);
-                          widget.onChanged!(
-                            stageId,
-                            widget.part,
-                            value,
-                          );
-                        }
-                      : (_) {},
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }
@@ -9963,20 +9997,8 @@ CharacterEntry? _characterById(List<CharacterEntry> characters, String? id) {
   return null;
 }
 
-WorkspaceOutfit? _outfitById(List<WorkspaceOutfit> outfits, String? id) {
-  if (id == null) {
-    return null;
-  }
-  for (final outfit in outfits) {
-    if (outfit.id == id) {
-      return outfit;
-    }
-  }
-  return null;
-}
-
 ArtistChain? _artistChainById(List<ArtistChain> chains, String? id) {
-  if (id == null) {
+  if (id == null || id.trim().isEmpty) {
     return null;
   }
   for (final chain in chains) {
@@ -9987,303 +10009,48 @@ ArtistChain? _artistChainById(List<ArtistChain> chains, String? id) {
   return null;
 }
 
-String _aiRoleExtractionStageLabel(
-  ScriptAiExtractedStage stage, {
-  TranslationCache? translationCache,
-}) {
-  final rawLabel = stage.label.trim();
-  final label = rawLabel.isEmpty
-      ? ''
-      : (_localizedOrCachedAiOutfitLabel(
-            rawLabel,
-            translationCache: translationCache,
-          ) ??
-          rawLabel);
-  if (label.isNotEmpty && !_isGenericAiOutfitStageLabel(label)) {
-    return label;
-  }
-  final derived = _derivedAiRoleExtractionStageLabel(
-    stage,
-    translationCache: translationCache,
-  );
-  if (derived != null) {
-    return derived;
-  }
-  if (label.isNotEmpty) {
-    return label;
-  }
-  final stageId = stage.stageId.trim();
-  return stageId.isEmpty ? '未命名阶段' : stageId;
-}
-
-String? _derivedAiRoleExtractionStageLabel(
-  ScriptAiExtractedStage stage, {
-  TranslationCache? translationCache,
-}) {
-  final tags = <String>[];
-  void addField(String value) {
-    for (final tag in PromptTagProcessor.splitWorkshopTags(value)) {
-      final display = PromptTagProcessor.cleanTagDisplay(tag);
-      if (display.trim().isNotEmpty) {
-        tags.add(display.trim());
-      }
+String? _firstScriptPreviewPath(List<String> previewPaths) {
+  for (final path in previewPaths) {
+    final trimmed = path.trim();
+    if (trimmed.isNotEmpty) {
+      return trimmed;
     }
-  }
-
-  addField(stage.upperClothing);
-  addField(stage.lowerClothing);
-  final selected = _uniqueAiOutfitLabelTags(tags).take(3).toList();
-  if (selected.isEmpty) {
-    return null;
-  }
-  return selected
-      .map(
-        (tag) => _aiOutfitTagDisplayLabel(
-          tag,
-          translationCache: translationCache,
-        ),
-      )
-      .join(' / ');
-}
-
-List<String> _uniqueAiOutfitLabelTags(Iterable<String> tags) {
-  final seen = <String>{};
-  final result = <String>[];
-  for (final tag in tags) {
-    final key = PromptTagProcessor.normalizeMatchKey(tag);
-    if (key.isEmpty || _isNoisyAiOutfitLabelKey(key)) {
-      continue;
-    }
-    if (seen.add(key)) {
-      result.add(tag);
-    }
-  }
-  return List.unmodifiable(result);
-}
-
-bool _isGenericAiOutfitStageLabel(String label) {
-  final trimmed = label.trim();
-  if (trimmed.isEmpty) {
-    return true;
-  }
-  if (RegExp(r'^(?:AI\s*)?服装\s*\d+$').hasMatch(trimmed)) {
-    return true;
-  }
-  final key =
-      _normalizedAiLabel(trimmed).replaceAll(RegExp(r'\s+'), ' ').trim();
-  return RegExp(r'^(?:ai )?(?:outfit|clothing|costume) \d+$').hasMatch(key) ||
-      RegExp(r'^(?:ai )?stage(?: \d+)+$').hasMatch(key);
-}
-
-const _noisyAiOutfitLabelKeys = {
-  'clothes',
-  'clothing',
-  'outfit',
-  'costume',
-  'wearing',
-  'clothed',
-};
-
-bool _isNoisyAiOutfitLabelKey(String key) {
-  return _noisyAiOutfitLabelKeys.contains(key) ||
-      RegExp(
-        r'(^| )(sex|cum|semen|penis|pussy|vagina|clitoris|orgasm|'
-        r'masturbat|ejaculat|saliva|drool|blush|embarrassed|standing|'
-        r'sitting|kneeling|lying|pov|close up|from behind)( |$)',
-      ).hasMatch(key);
-}
-
-String _aiRawResponseExcerpt(String rawResponse) {
-  final normalized = rawResponse.trim();
-  if (normalized.length <= 240) {
-    return normalized;
-  }
-  return '${normalized.substring(0, 240)}...';
-}
-
-String _normalizedAiLabel(String value) {
-  return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
-}
-
-String _aiOutfitTagDisplayLabel(
-  String tag, {
-  TranslationCache? translationCache,
-}) {
-  final trimmed = tag.trim();
-  if (trimmed.isEmpty || RegExp(r'[\u4e00-\u9fff]').hasMatch(trimmed)) {
-    return trimmed;
-  }
-  return _localizedOrCachedAiOutfitLabel(
-        trimmed,
-        translationCache: translationCache,
-      ) ??
-      trimmed;
-}
-
-String? _localizedOrCachedAiOutfitLabel(
-  String label, {
-  TranslationCache? translationCache,
-}) {
-  final trimmed = label.trim();
-  if (trimmed.isEmpty || RegExp(r'[\u4e00-\u9fff]').hasMatch(trimmed)) {
-    return null;
-  }
-  final local = _localizedAiOutfitLabel(trimmed);
-  if (local != null && local.trim().isNotEmpty) {
-    return local.trim();
-  }
-  final cached = _cachedAiOutfitTranslation(
-    trimmed,
-    translationCache: translationCache,
-  );
-  if (cached != null) {
-    return cached;
-  }
-  return _localizedSlashSeparatedAiOutfitLabel(
-    trimmed,
-    translationCache: translationCache,
-  );
-}
-
-String? _localizedSlashSeparatedAiOutfitLabel(
-  String label, {
-  TranslationCache? translationCache,
-}) {
-  final parts = label
-      .split(RegExp(r'\s*/\s*'))
-      .map((part) => part.trim())
-      .where((part) => part.isNotEmpty)
-      .toList();
-  if (parts.length < 2) {
-    return null;
-  }
-  var changed = false;
-  final translated = [
-    for (final part in parts)
-      () {
-        final local = _localizedAiOutfitLabel(part);
-        final cached = local ??
-            _cachedAiOutfitTranslation(
-              part,
-              translationCache: translationCache,
-            );
-        if (cached != null && cached.trim().isNotEmpty) {
-          changed = true;
-          return cached.trim();
-        }
-        return part;
-      }(),
-  ];
-  return changed ? translated.join(' / ') : null;
-}
-
-String? _cachedAiOutfitTranslation(
-  String label, {
-  TranslationCache? translationCache,
-}) {
-  final translated = translationCache?.translate(label).text.trim();
-  if (translated == null || translated.isEmpty || translated == label.trim()) {
-    return null;
-  }
-  return translated;
-}
-
-String? _localizedAiOutfitLabel(String label) {
-  if (RegExp(r'[\u4e00-\u9fff]').hasMatch(label)) {
-    return null;
-  }
-  final key = _normalizedAiLabel(label).replaceAll(RegExp(r'\s+'), ' ');
-  final numbered =
-      RegExp(r'^(?:outfit|clothing|costume) (\d+)$').firstMatch(key);
-  if (numbered != null) {
-    return '服装 ${numbered.group(1)}';
-  }
-  if (key.contains('nude')) {
-    if (key.contains('choker') || key.contains('collar')) {
-      return '裸体（项圈）';
-    }
-    if (key.contains('beach') && key.contains('oil')) {
-      return '裸体（海边涂油）';
-    }
-    if (key.contains('oil')) {
-      return '裸体（涂油）';
-    }
-    return '裸体';
-  }
-  if (key == 'casual outfit' || key == 'casual clothes') {
-    return '休闲装';
-  }
-  if (key == 'kimono' || key == 'yukata') {
-    return '和服';
-  }
-  if (key == 'school uniform') {
-    return '校服';
-  }
-  if (key == 'nightgown') {
-    return '睡裙';
-  }
-  if (key == 'china dress' || key == 'chinese dress') {
-    return '旗袍';
-  }
-  if ((key.contains('tanktop') || key.contains('tank top')) &&
-      key.contains('bottomless')) {
-    return key.contains('white') ? '白色背心（下身无装）' : '背心（下身无装）';
-  }
-  if (key.contains('bikini') || key.contains('swimsuit')) {
-    final parts = <String>[];
-    if (key.contains('white')) parts.add('白色');
-    if (key.contains('string')) parts.add('细带');
-    if (key.contains('bikini')) parts.add('比基尼');
-    parts.add('泳装');
-    return parts.join();
   }
   return null;
 }
 
-_RolePromptParts _sourcePromptParts(
-  StudioScriptRoleMappingItem item,
-  StudioScriptRoleStageItem? stage,
-) {
-  final sourceParts = stage?.visibleSourceParts ?? const RecastPromptParts();
-  final sourceSummary = stage?.sourceSummary ?? '';
-  if (!sourceParts.isEmpty) {
-    return _RolePromptParts(
-      identity: sourceParts.identity,
-      upperBody: sourceParts.upperBody,
-      lowerBody: sourceParts.lowerBody,
-      upperClothing: sourceParts.upperClothing,
-      lowerClothing: sourceParts.lowerClothing,
-    );
+String _aiRawResponseExcerpt(String rawResponse) {
+  final normalized = rawResponse.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (normalized.length <= 280) {
+    return normalized;
   }
-  return _RolePromptParts(
-    upperClothing: sourceSummary,
-  );
+  return '${normalized.substring(0, 280)}...';
 }
 
-_RolePromptParts _targetPromptParts(StudioScriptRoleStageItem? stage) {
-  final manualParts = stage?.parts ?? const RecastPromptParts();
-  return _RolePromptParts(
-    identity: manualParts.identity,
-    upperBody: manualParts.upperBody,
-    lowerBody: manualParts.lowerBody,
-    upperClothing: manualParts.upperClothing,
-    lowerClothing: manualParts.lowerClothing,
-  );
+String _normalizedAiLabel(String value) {
+  return value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
 String _outfitLabel(WorkspaceOutfit outfit) {
   final upper = outfit.tags.frontUpper?.trim();
   final lower = outfit.tags.frontLower?.trim();
   final parts = [
-    outfit.name,
-    if (upper != null && upper.isNotEmpty) '上装: $upper',
-    if (lower != null && lower.isNotEmpty) '下装: $lower',
+    if (upper != null && upper.isNotEmpty) upper,
+    if (lower != null && lower.isNotEmpty) lower,
   ];
-  return parts.join(' / ');
+  if (parts.isNotEmpty) {
+    return parts.join(' / ');
+  }
+  final full = outfit.tags.frontFull.trim();
+  if (full.isNotEmpty) {
+    return full;
+  }
+  return outfit.name;
 }
-
-String? _firstScriptPreviewPath(List<String> paths) =>
-    paths.isEmpty ? null : paths.first;
 
 String _artistChainLabel(ArtistChain chain) {
   final prompt = chain.prompt.trim();

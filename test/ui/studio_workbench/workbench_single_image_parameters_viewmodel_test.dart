@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
 
 PayloadConfig _payload() {
   return PayloadConfig(
@@ -25,6 +25,8 @@ void main() {
     final payload = _payload();
     final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
 
+    expect(viewmodel.generationCount, 1);
+
     viewmodel.setSteps(17);
     viewmodel.setScale(7.25);
     viewmodel.setCfgRescale(0.35);
@@ -38,6 +40,29 @@ void main() {
     expect(payload.paramConfig.negativePrompt, 'bad anatomy');
   });
 
+  test('keeps workbench generation count bounded for accidental runs', () {
+    final payload = _payload();
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+
+    viewmodel.setGenerationCount('4');
+    expect(viewmodel.generationCount, 4);
+
+    viewmodel.setGenerationCount('0');
+    expect(viewmodel.generationCount, 1);
+
+    viewmodel.setGenerationCount('200');
+    expect(
+      viewmodel.generationCount,
+      WorkbenchSingleImageParametersViewmodel.maxGenerationCount,
+    );
+
+    viewmodel.setGenerationCount('not a number');
+    expect(
+      viewmodel.generationCount,
+      WorkbenchSingleImageParametersViewmodel.maxGenerationCount,
+    );
+  });
+
   test('normalizes manual size to 64 pixel multiples', () {
     final payload = _payload();
     final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
@@ -48,6 +73,36 @@ void main() {
       payload.paramConfig.sizes,
       const [GenerationSize(width: 832, height: 1216)],
     );
+  });
+
+  test('commits draft size text before starting generation', () {
+    final payload = _payload();
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+
+    viewmodel.setDraftWidthText('704');
+    viewmodel.setDraftHeightText('1472');
+
+    expect(
+      payload.paramConfig.sizes,
+      const [GenerationSize(width: 832, height: 1216)],
+    );
+    expect(viewmodel.commitDraftSize(), isTrue);
+    expect(
+      payload.paramConfig.sizes,
+      const [GenerationSize(width: 704, height: 1472)],
+    );
+  });
+
+  test('falls back to the default selected size when imported sizes are empty',
+      () {
+    final payload = _payload();
+    payload.paramConfig.sizes = [];
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+
+    expect(
+        viewmodel.selectedSize, const GenerationSize(width: 832, height: 1216));
+    expect(viewmodel.draftWidthText, '832');
+    expect(viewmodel.draftHeightText, '1216');
   });
 
   test('fixed seed input is retained when random seed is toggled', () {

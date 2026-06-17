@@ -493,8 +493,8 @@ class _Options {
     final cacheDir = values['cache-dir'] ??
         [
           appData,
-          'org.exception0x0194',
-          'nai3_autodraw',
+          'Novel Studio',
+          'Novel Studio',
           'novel_studio',
           'script_recast',
           'cache',

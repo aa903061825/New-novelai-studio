@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 
 void main() {
   setUp(() {

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 
 class WorkbenchOverviewPanel extends StatelessWidget {
   final PayloadConfig payloadConfig;

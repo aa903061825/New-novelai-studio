@@ -1,18 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_presentation.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/filter_rules_library_dialog.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_presentation.dart';
+import 'package:novel_studio/ui/studio_core/widgets/filter_rules_library_dialog.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
 
 typedef StudioRecastKnowledgeBaseLoader = Future<Map<String, dynamic>>
     Function();

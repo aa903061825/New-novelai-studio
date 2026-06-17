@@ -3,17 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/ui/studio_core/theme/prompt_tag_category_style.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_single_image_console.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/ui/studio_core/theme/prompt_tag_category_style.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/workbench_single_image_console.dart';
 
 const _sharedPreferencesChannel = MethodChannel(
   'plugins.flutter.io/shared_preferences',
@@ -214,50 +214,56 @@ void main() {
     );
   });
 
-  testWidgets('image-to-image switch reveals only approved controls',
-      (tester) async {
+  testWidgets('vibe and image-to-image activate independently', (tester) async {
     tester.view.physicalSize = const Size(1000, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final payload = _payload();
+    payload.generationRuntimeState.vibeEnabled = false;
     GetIt.I.registerSingleton<PayloadConfig>(payload);
 
     await tester.pumpWidget(_host(payload));
     await tester.pumpAndSettle();
 
-    expect(find.text('图生图（可选）'), findsOneWidget);
     expect(
-        find.byKey(const ValueKey('workbench-reference-editor')), findsNothing);
+      find.byKey(const ValueKey('workbench-vibe-section-toggle')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('workbench-i2i-section-toggle')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsNothing);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('workbench-reference-editor')),
+      findsNothing,
+    );
     expect(find.text('选择底图'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-vibe-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('workbench-reference-editor')),
+      findsNothing,
+    );
 
     await tester
         .tap(find.byKey(const ValueKey('workbench-i2i-section-toggle')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('workbench-reference-editor')),
-        findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsOneWidget);
     expect(find.text('选择底图'), findsOneWidget);
     expect(find.textContaining('重绘强度'), findsOneWidget);
     expect(find.textContaining('噪声强度'), findsOneWidget);
     expect(find.textContaining('重绘预设'), findsNothing);
-    expect(find.text('参考图（可选）'), findsOneWidget);
     expect(find.text('Override random prompts'), findsNothing);
-    expect(find.text('vibe'), findsNothing);
-
-    final referenceExpansion =
-        find.byKey(const ValueKey('workbench-reference-options-expansion'));
-    await tester.ensureVisible(referenceExpansion);
-    await tester.tap(referenceExpansion);
-    await tester.pumpAndSettle();
-
-    expect(find.text('风格参考'), findsOneWidget);
-    expect(find.text('精确参考'), findsOneWidget);
-    expect(find.text('Enable style reference'), findsNothing);
-    expect(find.text('Enable precise reference'), findsNothing);
-    expect(find.descendant(
-      of: find.byKey(const ValueKey('workbench-reference-editor')),
-      matching: find.text('关闭'),
-    ), findsNothing);
   });
 }

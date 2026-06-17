@@ -1,9 +1,9 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/services/production_nai_adapter_service.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
 
 typedef ProductionImageRequest = Future<Uint8List> Function(
   Map<String, dynamic> payload,

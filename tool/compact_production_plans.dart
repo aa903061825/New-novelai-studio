@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nai_casrand/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {

@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 
 void main() {
   test('normalizes AI cache and is idempotent on second dry-run', () async {

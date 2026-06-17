@@ -2,11 +2,11 @@ import 'dart:convert';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/core/constants/image_formats.dart';
-import 'package:nai_casrand/core/constants/parameters.dart';
-import 'package:nai_casrand/data/services/image_service.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
-import 'package:nai_casrand/ui/navigation/view_models/metadata_drop_area_viewmodel.dart';
+import 'package:novel_studio/core/constants/image_formats.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/services/image_service.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/ui/navigation/view_models/metadata_drop_area_viewmodel.dart';
 import 'package:super_clipboard/super_clipboard.dart' show DataReaderFile;
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 import 'package:image/image.dart' as img;

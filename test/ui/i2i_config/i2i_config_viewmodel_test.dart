@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
 
 void main() {
   test('imports metadata into generation parameters', () {

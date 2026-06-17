@@ -5,13 +5,13 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/core/constants/image_formats.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/services/image_service.dart';
+import 'package:novel_studio/core/constants/image_formats.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/services/image_service.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
-import 'package:nai_casrand/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
 
 class I2iVibeViewmodel extends ChangeNotifier {
   I2IConfig config;

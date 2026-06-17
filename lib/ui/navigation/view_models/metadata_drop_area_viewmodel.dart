@@ -1,9 +1,9 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
 
 class MetadataDropAreaViewmodel extends ChangeNotifier {
   PayloadConfig get payloadConfig => GetIt.I();

@@ -6,23 +6,23 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_generated_image_gallery.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_metric_card.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_metric_card.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 
 class StudioGalleryPage extends StatefulWidget {
   final GenerationPageViewmodel viewModel;
@@ -1111,104 +1111,6 @@ StudioGeneratedImageItem _galleryGeneratedImageItem(_GalleryDisplayItem item) {
     source: item,
     placeholder: imagePath == null || imagePath.isEmpty ? '没有图像路径' : '图像文件不存在',
   );
-}
-
-// ignore: unused_element
-class _GalleryCard extends StatelessWidget {
-  final _GalleryDisplayItem item;
-  final bool selected;
-  final VoidCallback onSelect;
-  final VoidCallback onPreview;
-  final VoidCallback onRestore;
-
-  const _GalleryCard({
-    required this.item,
-    required this.selected,
-    required this.onSelect,
-    required this.onPreview,
-    required this.onRestore,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      key: ValueKey('gallery-card-${item.record.id}'),
-      color:
-          selected ? StudioTokens.primary.withAlpha(20) : StudioTokens.surface2,
-      shape: RoundedRectangleBorder(
-        borderRadius: StudioTokens.radiusCard,
-        side: BorderSide(
-          color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        borderRadius: StudioTokens.radiusCard,
-        onTap: item.hasImagePath ? onPreview : onSelect,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  _MetadataStatusChip(item: item),
-                  const Spacer(),
-                  StudioIconButton(
-                    key: ValueKey('gallery-card-details-${item.record.id}'),
-                    tooltip: '查看详情',
-                    icon: Icons.info_outline,
-                    selected: selected,
-                    onPressed: onSelect,
-                  ),
-                  const SizedBox(width: 6),
-                  StudioIconButton(
-                    key: ValueKey('gallery-card-restore-${item.record.id}'),
-                    tooltip: '送回工作台',
-                    icon: Icons.keyboard_return,
-                    onPressed: onRestore,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _GalleryThumbnail(
-                key: ValueKey('gallery-card-image-${item.record.id}'),
-                item: item,
-                height: 136,
-                previewKeyPrefix: 'gallery-card-preview',
-                onPreview: null,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                item.summary,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const Spacer(),
-              Text(
-                item.footer,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: StudioTokens.textMuted,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _GalleryThumbnail extends StatelessWidget {

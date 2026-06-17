@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/models/vibe_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/models/vibe_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
 
 PayloadConfig _buildPayloadConfig() {
   return PayloadConfig(

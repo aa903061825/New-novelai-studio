@@ -3,10 +3,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/filter_rules_library_dialog.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/filter_rules_library_dialog.dart';
 
 class _FilterRulesAssetLoader extends AssetLoader {
   const _FilterRulesAssetLoader();

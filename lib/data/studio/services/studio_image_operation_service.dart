@@ -1,5 +1,5 @@
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
 
 class StudioImageOperationValidationResult {
   final bool isValid;

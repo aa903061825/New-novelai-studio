@@ -1,8 +1,334 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 
 void main() {
   group('ScriptAiRoleExtraction', () {
+    test('parses role prompt terms and scene terms separately', () {
+      final extraction = ScriptAiRoleExtraction.fromJson({
+        'status': 'ready',
+        'roles': [
+          {
+            'source_role_id': 'slot-0',
+            'display_name': 'alice',
+            'prompt_terms': [
+              {
+                'id': 'slot-0-identity-alice',
+                'text': 'alice (wonder story)',
+                'category': 'identity',
+                'source_phrase': 'alice (wonder story), brown hair',
+                'frame_indexes': [1, 2, 3],
+              },
+              {
+                'id': 'slot-0-clothing-jacket',
+                'text': 'red jacket',
+                'category': 'clothing',
+                'source_phrase': 'wearing a red jacket and black skirt',
+                'frame_indexes': [1, 2, 3],
+              },
+            ],
+          },
+        ],
+        'scene_terms': [
+          {
+            'id': 'scene-rainy-street',
+            'text': 'rainy city street',
+            'category': 'scene',
+            'source_phrase': 'in a rainy city street at night',
+            'source_location': 'base prompt',
+            'frame_indexes': [1, 2],
+          },
+        ],
+      });
+
+      final role = extraction.roles.single;
+      expect(role.promptTerms.map((term) => term.text), [
+        'alice (wonder story)',
+        'red jacket',
+      ]);
+      expect(role.promptTerms.first.category, PromptTagCategory.character);
+      expect(role.promptTerms.last.category, PromptTagCategory.clothing);
+      expect(extraction.sceneTerms.single.text, 'rainy city street');
+      expect(extraction.sceneTerms.single.category, PromptTagCategory.scene);
+
+      final allTerms = [
+        for (final role in extraction.roles) ...role.promptTerms,
+        ...extraction.sceneTerms,
+      ].map((term) => term.text).toList();
+      expect(allTerms, isNot(contains('1girl')));
+      expect(allTerms, isNot(contains('solo')));
+    });
+
+    test('round trips prompt terms and scene terms', () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'slot-0-accessory-halo',
+                text: 'halo',
+                category: PromptTagCategory.clothing,
+                sourcePhrase: 'halo, blue eyes',
+                sourceLocation: 'slot-0 prompt',
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'scene-night',
+            text: 'night',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'city street at night',
+            sourceLocation: 'base prompt',
+            frameIndexes: [1, 2],
+          ),
+        ],
+      );
+
+      final json = extraction.toJson();
+      expect(
+        ((json['roles'] as List).single
+            as Map<String, dynamic>)['prompt_terms'],
+        isA<List>(),
+      );
+      expect(json['scene_terms'], isA<List>());
+
+      final restored = ScriptAiRoleExtraction.fromJson(json);
+      expect(restored.toJson(), json);
+    });
+
+    test('prompt term category parsing accepts clothing state aliases', () {
+      final snake = ScriptAiExtractedPromptTerm.fromJson({
+        'text': 'open jacket',
+        'category': 'clothing_state',
+      });
+      final camel = ScriptAiExtractedPromptTerm.fromJson({
+        'text': 'wet shirt',
+        'category': 'clothingState',
+      });
+
+      expect(snake.category, PromptTagCategory.clothing);
+      expect(camel.category, PromptTagCategory.clothing);
+    });
+
+    test('collapseEquivalentStages preserves scene terms and role prompt terms',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'alice',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'slot-0-identity-alice',
+                text: 'alice (wonder story)',
+                category: PromptTagCategory.character,
+                sourcePhrase: 'alice (wonder story), brown hair',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'stage-1',
+                frameIndexes: [1],
+                identity: 'alice (wonder story)',
+                upperClothing: 'red jacket',
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'stage-2',
+                frameIndexes: [2],
+                identity: 'alice (wonder story)',
+                upperClothing: 'red jacket',
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'scene-rainy-street',
+            text: 'rainy city street',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'in a rainy city street at night',
+            sourceLocation: 'base prompt',
+            frameIndexes: [1, 2],
+          ),
+        ],
+      );
+
+      final collapsed = extraction.collapseEquivalentStages();
+
+      expect(collapsed.roles.single.stages, hasLength(1));
+      expect(collapsed.roles.single.promptTerms.single.text,
+          'alice (wonder story)');
+      expect(collapsed.sceneTerms.single.text, 'rainy city street');
+    });
+
+    test('split generic multi-source roles scopes prompt terms by appearance',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-generic-girl',
+            displayName: 'girl',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+              ScriptAiRoleAppearance(
+                sourceId: 'base',
+                sourceKind: 'base',
+                frameIndexes: [2],
+              ),
+            ],
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'slot-stage',
+                frameIndexes: [1],
+                identity: 'girl',
+                upperClothing: 'red jacket',
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'base-stage',
+                frameIndexes: [2],
+                identity: 'girl',
+                upperBody: 'blue eyes',
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'slot-red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourceLocation: 'slot-0 prompt',
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'base-blue-eyes',
+                text: 'blue eyes',
+                category: PromptTagCategory.upperBody,
+                sourceLocation: 'base prompt',
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final roles = extraction.collapseEquivalentStages().roles;
+      final slotRole = roles.singleWhere(
+        (role) => role.sourceRoleId == 'role-generic-girl-slot-0',
+      );
+      final baseRole = roles.singleWhere(
+        (role) => role.sourceRoleId == 'role-generic-girl-base',
+      );
+
+      expect(slotRole.promptTerms.map((term) => term.text), ['red jacket']);
+      expect(slotRole.promptTerms.single.frameIndexes, [1]);
+      expect(baseRole.promptTerms.map((term) => term.text), ['blue eyes']);
+      expect(baseRole.promptTerms.single.frameIndexes, [2]);
+    });
+
+    test('split generic roles scope frameless terms by source references', () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-generic-girl',
+            displayName: 'girl',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-1',
+                sourceKind: 'slot',
+              ),
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-10',
+                sourceKind: 'slot',
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'slot-1-red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourceLocation: 'slot-1 prompt',
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'slot-10-blue-dress',
+                text: 'blue dress',
+                category: PromptTagCategory.clothing,
+                sourceLocation: 'slot-10 prompt',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final roles = extraction.collapseEquivalentStages().roles;
+      final slotOneRole = roles.singleWhere(
+        (role) => role.sourceRoleId == 'role-generic-girl-slot-1',
+      );
+      final slotTenRole = roles.singleWhere(
+        (role) => role.sourceRoleId == 'role-generic-girl-slot-10',
+      );
+
+      expect(slotOneRole.promptTerms.map((term) => term.text), ['red jacket']);
+      expect(slotTenRole.promptTerms.map((term) => term.text), ['blue dress']);
+    });
+
+    test('merged prompt terms union frame evidence for matching ids', () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'alice-identity',
+                text: 'alice (wonder story)',
+                category: PromptTagCategory.character,
+                sourcePhrase: 'alice (wonder story), red jacket',
+                sourceLocation: 'slot-0 prompt',
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-1',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'alice-identity',
+                text: 'alice (wonder story)',
+                category: PromptTagCategory.character,
+                sourcePhrase: 'alice (wonder story), blue dress',
+                sourceLocation: 'slot-1 prompt',
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final role = extraction.collapseEquivalentStages().roles.single;
+
+      expect(role.promptTerms, hasLength(1));
+      expect(role.promptTerms.single.id, 'alice-identity');
+      expect(role.promptTerms.single.frameIndexes, [1, 2]);
+      expect(role.promptTerms.single.sourcePhrase,
+          'alice (wonder story), red jacket');
+    });
+
     test('ready extraction parses global-0', () {
       final extraction = ScriptAiRoleExtraction.fromJson({
         'schema_version': 1,

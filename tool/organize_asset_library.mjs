@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
 const workspaceRoot =
   process.argv[2] ||
-  'C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio';
+  'C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio';
 
 const charactersPath = path.join(workspaceRoot, 'library', 'characters.json');
 const artistChainsPath = path.join(
@@ -415,7 +415,7 @@ function isValidImageRef(ref) {
     path.join(workspaceRoot, ref),
     path.join(workspaceRoot, 'assets', 'references', ref),
     path.join(workspaceRoot, 'imports', 'artist_studio', ref),
-    path.join(workspaceRoot, 'imports', 'kamia', ref),
+    path.join(workspaceRoot, 'imports', 'external', ref),
   ];
   return candidates.some((candidate) => fs.existsSync(candidate));
 }

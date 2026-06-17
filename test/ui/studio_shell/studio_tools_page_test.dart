@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_tools_page.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_tools_page.dart';
 
 void main() {
   testWidgets('tools page reflects current reusable config counts',

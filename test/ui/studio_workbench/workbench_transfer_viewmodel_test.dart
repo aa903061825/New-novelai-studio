@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/services/workbench_transfer_service.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 
 PayloadConfig _payload(String prompt) {
   return PayloadConfig(

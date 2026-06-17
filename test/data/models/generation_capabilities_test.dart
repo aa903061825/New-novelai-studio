@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/generation_capabilities.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 
 void main() {
   group('GenerationModelCapabilities.fromModel', () {

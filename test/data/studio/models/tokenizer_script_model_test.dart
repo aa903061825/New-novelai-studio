@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
 
 void main() {
   test('round trips custom category names', () {

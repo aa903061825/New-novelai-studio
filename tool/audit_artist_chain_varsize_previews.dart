@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -7,7 +7,7 @@ import 'package:image/image.dart' as image;
 const _defaultQueuePath =
     'C:/Users/admin/Downloads/NAI_NEW/tool/asset-library-artist-chain-varsize-preview-queue.json';
 const _defaultReportPath =
-    'C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/library/asset_artist_chain_varsize_visual_audit.json';
+    'C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio/library/asset_artist_chain_varsize_visual_audit.json';
 const _defaultContactSheetName = 'audit-artist-chain-flagged-visual-risk.png';
 const previewRoot = 'E:/codeximage/nai-new/preview-images';
 

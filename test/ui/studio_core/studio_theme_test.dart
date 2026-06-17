@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 
 void main() {
   group('StudioTheme', () {

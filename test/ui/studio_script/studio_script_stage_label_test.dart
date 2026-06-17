@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_script/view_models/studio_script_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_script/widgets/studio_script_page.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_script/widgets/studio_script_page.dart';
 
 const scriptStageLabelFixturePath = 'test/fixtures/script_recast/v4_slotted';
 
@@ -180,7 +182,7 @@ void main() {
       expect(stages.single.sourceParts.upperClothing, 'black choker');
     });
 
-    testWidgets('AI role extraction role card switches outfit tabs',
+    testWidgets('AI role extraction role card shows prompt replacement terms',
         (tester) async {
       final viewModel = StudioScriptViewModel()
         ..aiRoleExtraction = const ScriptAiRoleExtraction(
@@ -191,6 +193,26 @@ void main() {
               sourceRoleId: 'slot-0',
               displayName: 'Plana',
               confidence: 0.95,
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-plana',
+                  text: 'plana (blue archive)',
+                  category: PromptTagCategory.character,
+                  frameIndexes: [1, 2],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-uniform',
+                  text: 'school uniform',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-nightgown',
+                  text: 'see-through white nightgown',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [2],
+                ),
+              ],
               stages: [
                 ScriptAiExtractedStage(
                   stageId: 'school',
@@ -216,27 +238,13 @@ void main() {
       await tester.pumpWidget(buildScriptStageLabelPage(viewModel: viewModel));
       await tester.pumpAndSettle();
 
-      expect(find.text('校服'), findsOneWidget);
-      expect(find.text('睡裙'), findsOneWidget);
-      expect(find.text('服装 1'), findsNothing);
-      expect(find.text('服装 2'), findsNothing);
-      expect(find.textContaining('服装 1 · 校服'), findsOneWidget);
-      expect(find.text('school uniform'), findsOneWidget);
-      expect(find.text('see-through white nightgown'), findsNothing);
+      expect(find.text('plana (blue archive)'), findsOneWidget);
 
-      final secondTab =
-          find.byKey(const ValueKey('script-ai-role-stage-tab-2'));
-      await tester.ensureVisible(secondTab);
-      await tester.pumpAndSettle();
-      await tester.tap(secondTab);
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('服装 2 · 睡裙'), findsOneWidget);
       expect(find.text('see-through white nightgown'), findsOneWidget);
-      expect(find.text('school uniform'), findsNothing);
+      expect(find.text('school uniform'), findsOneWidget);
     });
 
-    testWidgets('AI role extraction draft localizes derived outfit tabs',
+    testWidgets('AI role extraction draft shows derived replacement terms',
         (tester) async {
       final translationCache = TranslationCache()
         ..setManual('multicolored jacket', '多色夹克')
@@ -267,9 +275,10 @@ void main() {
       await tester.pumpWidget(buildScriptStageLabelPage(viewModel: viewModel));
       await tester.pumpAndSettle();
 
-      expect(find.text('多色夹克 / 黄色衬衫'), findsOneWidget);
-      expect(find.textContaining('服装 1 · 多色夹克 / 黄色衬衫'), findsOneWidget);
-      expect(find.text('multicolored jacket / yellow shirt'), findsNothing);
+      expect(find.text('multicolored jacket'), findsOneWidget);
+      expect(find.text('yellow shirt'), findsOneWidget);
+      expect(find.text('多色夹克 / 黄色衬衫'), findsNothing);
+      expect(find.textContaining('服装 1'), findsNothing);
     });
 
     testWidgets('AI role extraction draft shows source frame indexes',
@@ -319,7 +328,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      const longStageLabel =
+      const longPromptTerm =
           'main-outfit-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
       final viewModel = StudioScriptViewModel()
         ..aiRoleExtraction = const ScriptAiRoleExtraction(
@@ -330,11 +339,11 @@ void main() {
               sourceRoleId: 'slot-0',
               displayName: 'vulpisfoglia_(arknights)',
               confidence: 0.91,
-              stages: [
-                ScriptAiExtractedStage(
-                  stageId: 'main-outfit',
-                  label: longStageLabel,
-                  confidence: 0.9,
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'long-term',
+                  text: longPromptTerm,
+                  category: PromptTagCategory.clothing,
                 ),
               ],
             ),
@@ -349,7 +358,8 @@ void main() {
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
-      expect(find.byTooltip(longStageLabel), findsWidgets);
+      expect(find.byType(PromptTagDisplay), findsWidgets);
+      expect(find.text(longPromptTerm), findsWidgets);
     });
   });
 }

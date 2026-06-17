@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
 
 class StudioCacheImportResult {
   final String sourcePath;
@@ -174,15 +174,15 @@ class StudioCacheImportService {
       ),
       Directory(
         '${packageRoot.path}${Platform.pathSeparator}appdata-roaming'
-        '${Platform.pathSeparator}org.exception0x0194'
-        '${Platform.pathSeparator}nai3_autodraw'
+        '${Platform.pathSeparator}Novel Studio'
+        '${Platform.pathSeparator}Novel Studio'
         '${Platform.pathSeparator}novel_studio',
       ),
       Directory(
-        '${packageRoot.path}${Platform.pathSeparator}nai-new-cache'
+        '${packageRoot.path}${Platform.pathSeparator}novel-studio-cache'
         '${Platform.pathSeparator}appdata-roaming'
-        '${Platform.pathSeparator}org.exception0x0194'
-        '${Platform.pathSeparator}nai3_autodraw'
+        '${Platform.pathSeparator}Novel Studio'
+        '${Platform.pathSeparator}Novel Studio'
         '${Platform.pathSeparator}novel_studio',
       ),
     ];

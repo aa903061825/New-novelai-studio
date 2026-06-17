@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
 
 Map<String, dynamic> _promptJson(List<String> strs) {
   return {

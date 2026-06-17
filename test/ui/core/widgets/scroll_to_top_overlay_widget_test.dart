@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/core/widgets/scroll_to_top_overlay.dart';
+import 'package:novel_studio/ui/core/widgets/scroll_to_top_overlay.dart';
 
 void main() {
   testWidgets('shows after scrolling and scrolls the active view to the top',

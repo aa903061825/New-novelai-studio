@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -101,7 +101,7 @@ void main() {
     expect(summary.workflowCount, 1);
     expect(summary.batchPlanCount, 1);
     expect(summary.assemblyPresetCount, 1);
-    expect(summary.totalAssetCount, 10);
+    expect(summary.totalAssetCount, 11);
     expect(summary.recipeCountsByBlock['style'], 2);
     expect(summary.tagCountsByBlock['scene'], 1);
   });
@@ -206,7 +206,7 @@ void main() {
     ).loadSnapshot();
 
     expect(snapshot.summary.outfitCount, 1);
-    expect(snapshot.summary.totalAssetCount, 9);
+    expect(snapshot.summary.totalAssetCount, 10);
     expect(snapshot.characters.single.name, 'Heroine');
     expect(snapshot.outfits.single.character.name, 'Heroine');
     expect(snapshot.outfits.single.outfit.name, 'Rain Coat');
@@ -615,8 +615,7 @@ void main() {
     expect(searched.inspirations.single.id, 'legacy-codex-5');
   });
 
-  test('loadSnapshot avoids legacy codex subcategory counts for all view',
-      () async {
+  test('loadSnapshot counts legacy codex subcategories for all view', () async {
     final service = StudioAssetCatalogService(
       workspaceService: workspaceService,
       legacyCodexLoader: () async => const [
@@ -647,12 +646,12 @@ void main() {
     expect(
       snapshot.legacyCodexCategoryCounts[
           StudioLegacyCodexCategories.artistStyle.key],
-      0,
+      1,
     );
     expect(
       snapshot
           .legacyCodexCategoryCounts[StudioLegacyCodexCategories.clothing.key],
-      0,
+      1,
     );
   });
 
@@ -699,6 +698,189 @@ void main() {
       snapshot
           .legacyCodexCategoryCounts[StudioLegacyCodexCategories.clothing.key],
       2,
+    );
+  });
+
+  test('loadSnapshot filters legacy codex source scope before category',
+      () async {
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'adult-codex-clothing',
+        name: 'Adult Clothing',
+        prompt: 'shirt lifted, white ankle socks, blush',
+        source: SourceRef(type: 'novalai_codex_adult_docx'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [
+        InspirationEntry(
+          id: 'legacy-codex-clothing',
+          name: 'Regular Clothing',
+          prompt: 'red dress, white gloves, leather boots',
+          source: SourceRef(type: 'legacy_codex'),
+        ),
+      ],
+    );
+
+    final regular = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceRegularKey,
+        categoryKey: StudioLegacyCodexCategories.clothing.key,
+      ),
+    );
+    final adult = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceAdultKey,
+        categoryKey: StudioLegacyCodexCategories.adultClothingState.key,
+      ),
+    );
+
+    expect(regular.inspirations.map((entry) => entry.id), [
+      'legacy-codex-clothing',
+    ]);
+    expect(regular.legacyCodexTotalCount, 1);
+    expect(
+        regular.legacyCodexCategoryCounts[
+            StudioLegacyCodexCategories.clothing.key],
+        1);
+    expect(adult.inspirations.map((entry) => entry.id), [
+      'adult-codex-clothing',
+    ]);
+    expect(adult.legacyCodexTotalCount, 1);
+    expect(
+        adult.legacyCodexCategoryCounts[
+            StudioLegacyCodexCategories.adultClothingState.key],
+        1);
+  });
+
+  test('loadSnapshot groups codex variants under source-category parents',
+      () async {
+    final sourceCategoryKey =
+        StudioLegacyCodexCategories.sourceCategoryKeyForPath(
+      const ['基础涩涩', '各种体位', '正身位'],
+    )!;
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [
+        InspirationEntry(
+          id: 'adult-parent',
+          name: '脸部视角抬腿正身位',
+          prompt: 'front view, leg grab, on back',
+          sourceCategoryPath: ['基础涩涩', '各种体位', '正身位'],
+          source: SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+        InspirationEntry(
+          id: 'adult-variant',
+          name: '另一版本',
+          prompt: 'alternate front view, leg grab',
+          sourceCategoryPath: ['基础涩涩', '各种体位', '正身位'],
+          sourceParentId: 'adult-parent',
+          sourceParentName: '脸部视角抬腿正身位',
+          sourceVariantLabel: '另一版本',
+          source: SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+        InspirationEntry(
+          id: 'adult-other',
+          name: '背后位',
+          prompt: 'from behind',
+          sourceCategoryPath: ['基础涩涩', '各种体位', '后入/背后位'],
+          source: SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+      ],
+    );
+
+    final all = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceAdultKey,
+        categoryKey: StudioLegacyCodexCategories.allKey,
+      ),
+    );
+    final filtered = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceAdultKey,
+        categoryKey: sourceCategoryKey,
+      ),
+    );
+    final searched = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+      legacyCodexQuery: 'alternate',
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: StudioLegacyCodexCategories.sourceAdultKey,
+        categoryKey: StudioLegacyCodexCategories.allKey,
+      ),
+    );
+
+    expect(all.legacyCodexTotalCount, 2);
+    expect(all.inspirations.map((entry) => entry.id), [
+      'adult-parent',
+      'adult-other',
+    ]);
+    expect(all.inspirations.first.variants.single.id, 'adult-variant');
+    expect(all.legacyCodexCategoryCounts[sourceCategoryKey], 1);
+    expect(filtered.inspirations.single.id, 'adult-parent');
+    expect(filtered.inspirations.single.variants.single.name, '另一版本');
+    expect(searched.inspirations.single.id, 'adult-parent');
+    expect(searched.inspirations.single.variants.single.id, 'adult-variant');
+  });
+
+  test('legacy codex category lists are source-specific', () {
+    final regularFilters = StudioLegacyCodexCategories.filtersForSource(
+      StudioLegacyCodexCategories.sourceRegularKey,
+    ).map((category) => category.key);
+    final adultFilters = StudioLegacyCodexCategories.filtersForSource(
+      StudioLegacyCodexCategories.sourceAdultKey,
+    ).map((category) => category.key);
+
+    expect(regularFilters, contains(StudioLegacyCodexCategories.clothing.key));
+    expect(
+      regularFilters,
+      isNot(contains(StudioLegacyCodexCategories.adultInteraction.key)),
+    );
+    expect(
+      adultFilters,
+      contains(StudioLegacyCodexCategories.adultInteraction.key),
+    );
+    expect(adultFilters,
+        isNot(contains(StudioLegacyCodexCategories.clothing.key)));
+    expect(
+      StudioLegacyCodexCategories.normalizedKeyForSource(
+        StudioLegacyCodexCategories.adultInteraction.key,
+        StudioLegacyCodexCategories.sourceRegularKey,
+      ),
+      StudioLegacyCodexCategories.allKey,
+    );
+    expect(
+      StudioLegacyCodexCategories.normalizedKeyForSource(
+        StudioLegacyCodexCategories.clothing.key,
+        StudioLegacyCodexCategories.sourceAdultKey,
+      ),
+      StudioLegacyCodexCategories.allKey,
+    );
+    expect(
+      StudioLegacyCodexCategories.keysForSource(
+        const InspirationEntry(
+          id: 'adult-sample',
+          name: 'Adult Sample',
+          prompt: 'pov, from above, on bed, blush',
+          source: SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+        StudioLegacyCodexCategories.sourceAdultKey,
+      ),
+      containsAll([
+        StudioLegacyCodexCategories.adultView.key,
+        StudioLegacyCodexCategories.adultExpression.key,
+        StudioLegacyCodexCategories.adultSceneProp.key,
+      ]),
     );
   });
 
@@ -811,7 +993,7 @@ void main() {
     );
     expect(await cacheFile.exists(), isTrue);
     final cacheJson = jsonDecode(await cacheFile.readAsString());
-    expect(cacheJson['schemaVersion'], 5);
+    expect(cacheJson['schemaVersion'], 7);
     final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
     expect(entries, hasLength(1));
     final cacheEntry = Map<String, dynamic>.from(entries.values.single as Map);
@@ -890,6 +1072,86 @@ void main() {
     expect(codexResult.fromCache, isTrue);
     expect(codexResult.snapshot.legacyCodexLoadedCount, 1);
     expect(codexResult.snapshot.inspirations.single.id, 'legacy-codex-cache');
+  });
+
+  test('loadSnapshotWithCache reuses larger codex cache for smaller requests',
+      () async {
+    await workspaceService.saveInspirations([
+      for (var index = 1; index <= 5; index++)
+        InspirationEntry(
+          id: 'legacy-codex-cache-$index',
+          name: 'Codex Cache $index',
+          prompt: 'artist:wlop, fantasy $index',
+          source: const SourceRef(type: 'legacy_codex'),
+        ),
+    ]);
+    await StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    ).loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 5,
+    );
+
+    final reopenedWorkspace = WorkspaceService();
+    await reopenedWorkspace.openWorkspace(tempDir.path);
+    final reopenedService = StudioAssetCatalogService(
+      workspaceService: reopenedWorkspace,
+    );
+
+    final cached = await reopenedService.loadSnapshotWithCache(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 2,
+    );
+
+    expect(cached.fromCache, isTrue);
+    expect(cached.snapshot.legacyCodexLoadedCount, 5);
+    expect(cached.snapshot.legacyCodexTotalCount, greaterThan(5));
+    expect(cached.snapshot.inspirations.map((entry) => entry.id), [
+      'legacy-codex-cache-1',
+      'legacy-codex-cache-2',
+      'legacy-codex-cache-3',
+      'legacy-codex-cache-4',
+      'legacy-codex-cache-5',
+    ]);
+  });
+
+  test('loadSnapshotWithCache reuses larger in-memory codex cache', () async {
+    await workspaceService.saveInspirations([
+      for (var index = 1; index <= 5; index++)
+        InspirationEntry(
+          id: 'legacy-codex-memory-cache-$index',
+          name: 'Codex Memory Cache $index',
+          prompt: 'artist:wlop, memory cache $index',
+          source: const SourceRef(type: 'legacy_codex'),
+        ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    );
+    await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 5,
+    );
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache}',
+    );
+    await cacheFile.delete();
+
+    final cached = await service.loadSnapshotWithCache(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 2,
+    );
+
+    expect(cached.fromCache, isTrue);
+    expect(cached.snapshot.legacyCodexLoadedCount, 5);
+    expect(cached.snapshot.inspirations.map((entry) => entry.id), [
+      'legacy-codex-memory-cache-1',
+      'legacy-codex-memory-cache-2',
+      'legacy-codex-memory-cache-3',
+      'legacy-codex-memory-cache-4',
+      'legacy-codex-memory-cache-5',
+    ]);
   });
 
   test('loadSnapshotWithCache marks persisted cache stale after external edit',

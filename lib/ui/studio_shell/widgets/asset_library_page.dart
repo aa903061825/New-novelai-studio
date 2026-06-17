@@ -7,19 +7,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/studio/services/asset_tag_cache_prewarm_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_asset_focus.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/studio_shell/models/asset_library_query.dart'
+    as asset_query;
+import 'package:novel_studio/ui/studio_shell/services/asset_library_edit_document.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 import 'package:waterfall_flow/waterfall_flow.dart';
 
 enum _AssetFilter {
@@ -62,6 +69,65 @@ enum _OutfitPromptField {
   upperClothing,
   lowerBody,
   lowerClothing,
+}
+
+asset_query.AssetLibraryFilter _assetQueryFilterFor(_AssetFilter filter) {
+  return switch (filter) {
+    _AssetFilter.all => asset_query.AssetLibraryFilter.all,
+    _AssetFilter.character => asset_query.AssetLibraryFilter.character,
+    _AssetFilter.outfit => asset_query.AssetLibraryFilter.outfit,
+    _AssetFilter.artistChain => asset_query.AssetLibraryFilter.artistChain,
+    _AssetFilter.recipe => asset_query.AssetLibraryFilter.recipe,
+    _AssetFilter.tag => asset_query.AssetLibraryFilter.tag,
+    _AssetFilter.codex => asset_query.AssetLibraryFilter.codex,
+    _AssetFilter.inspiration => asset_query.AssetLibraryFilter.inspiration,
+    _AssetFilter.lora => asset_query.AssetLibraryFilter.lora,
+    _AssetFilter.workflow => asset_query.AssetLibraryFilter.workflow,
+    _AssetFilter.batchPlan => asset_query.AssetLibraryFilter.batchPlan,
+    _AssetFilter.assemblyPreset =>
+      asset_query.AssetLibraryFilter.assemblyPreset,
+  };
+}
+
+asset_query.AssetLibraryKind _assetQueryKindFor(_AssetKind kind) {
+  return switch (kind) {
+    _AssetKind.character => asset_query.AssetLibraryKind.character,
+    _AssetKind.outfit => asset_query.AssetLibraryKind.outfit,
+    _AssetKind.artistChain => asset_query.AssetLibraryKind.artistChain,
+    _AssetKind.recipe => asset_query.AssetLibraryKind.recipe,
+    _AssetKind.tag => asset_query.AssetLibraryKind.tag,
+    _AssetKind.inspiration => asset_query.AssetLibraryKind.inspiration,
+    _AssetKind.lora => asset_query.AssetLibraryKind.lora,
+    _AssetKind.workflow => asset_query.AssetLibraryKind.workflow,
+    _AssetKind.batchPlan => asset_query.AssetLibraryKind.batchPlan,
+    _AssetKind.assemblyPreset => asset_query.AssetLibraryKind.assemblyPreset,
+  };
+}
+
+AssetLibraryCharacterPromptField _editCharacterPromptFieldFor(
+  _CharacterPromptField field,
+) {
+  return switch (field) {
+    _CharacterPromptField.identity => AssetLibraryCharacterPromptField.identity,
+    _CharacterPromptField.upperBody =>
+      AssetLibraryCharacterPromptField.upperBody,
+    _CharacterPromptField.lowerBody =>
+      AssetLibraryCharacterPromptField.lowerBody,
+  };
+}
+
+AssetLibraryOutfitPromptField _editOutfitPromptFieldFor(
+  _OutfitPromptField field,
+) {
+  return switch (field) {
+    _OutfitPromptField.full => AssetLibraryOutfitPromptField.full,
+    _OutfitPromptField.upperBody => AssetLibraryOutfitPromptField.upperBody,
+    _OutfitPromptField.upperClothing =>
+      AssetLibraryOutfitPromptField.upperClothing,
+    _OutfitPromptField.lowerBody => AssetLibraryOutfitPromptField.lowerBody,
+    _OutfitPromptField.lowerClothing =>
+      AssetLibraryOutfitPromptField.lowerClothing,
+  };
 }
 
 String _assetPromptTagKey(String tag) {
@@ -131,14 +197,6 @@ Set<String> _assetPromptKeysFromTags(Iterable<String> tags) {
   return _assetPromptKeysFromValue(tags.join(', '));
 }
 
-Iterable<String> _assetOutfitPartTags(WorkspaceOutfitPartTags partTags) sync* {
-  yield* partTags.upperBodyTags;
-  yield* partTags.upperClothingTags;
-  yield* partTags.lowerBodyTags;
-  yield* partTags.lowerClothingTags;
-  yield* partTags.weaponTags;
-}
-
 double? _readPreviewAspectRatio(String path) {
   try {
     final image = img.decodeImage(File(path).readAsBytesSync());
@@ -183,6 +241,9 @@ class AssetLibraryPage extends StatefulWidget {
 
 class _AssetLibraryPageState extends State<AssetLibraryPage> {
   static const int _legacyCodexPageSize = 48;
+  static const int _legacyCodexBackgroundBatchSize = 160;
+  static const Duration _legacyCodexBackgroundLoadDelay =
+      Duration(milliseconds: 120);
   static const Duration _catalogFreshnessCheckDelay =
       Duration(milliseconds: 450);
 
@@ -199,11 +260,14 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   String? _catalogRefreshStatus;
   bool _refreshingCatalogCache = false;
   bool _loadingMoreLegacyCodex = false;
+  bool _legacyCodexAutoLoadQueued = false;
   int _legacyCodexLoadToken = 0;
   final Map<String, List<String>> _resolvedPreviewPathsCache = {};
   StudioAssetCatalogSnapshot? _displayItemsCatalog;
   List<_AssetDisplayItem>? _displayItemsCache;
   int _legacyCodexLimit = _legacyCodexPageSize;
+  String _legacyCodexSourceScopeKey =
+      StudioLegacyCodexCategories.sourceRegularKey;
   String _legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey;
 
   @override
@@ -221,6 +285,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       _snapshotFuture = _loadSnapshot();
       _selectedAsset = null;
       _localCatalog = null;
+      _resolvedPreviewPathsCache.clear();
       _clearDisplayItemsCache();
       _loadFavorites();
     }
@@ -263,6 +328,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           final catalog = _localCatalog ?? snapshot.data!;
           final allItems = _displayItemsFor(catalog);
           final filteredItems = _filterItems(allItems);
+          _scheduleLegacyCodexBackgroundLoad(catalog);
 
           return _LibraryFrame(
             onScrolledNearEnd: () => _loadMoreLegacyCodex(catalog),
@@ -276,6 +342,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                   availableFilters: _availableFilters(catalog),
                   selectedBlock: _selectedBlock,
                   selectedCustomCategory: _selectedCustomCategory,
+                  selectedCodexSourceScopeKey: _legacyCodexSourceScopeKey,
                   selectedCodexCategoryKey: _legacyCodexCategoryKey,
                   blocks: _availableBlocks(catalog),
                   customCategories: _customCategories,
@@ -296,6 +363,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                         _selectedCustomCategory == value ? null : value;
                     _selectedAsset = null;
                   }),
+                  onCodexSourceScopeChanged: _selectLegacyCodexSourceScope,
                   onCodexCategoryChanged: _selectLegacyCodexCategory,
                   onReload: _reload,
                   onAddCustomCategory: _showCustomCategoryDialog,
@@ -517,6 +585,105 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                     prompt,
                   ),
         ),
+      for (final character in catalog.characters)
+        for (final entry in character.outfits.indexed)
+          _AssetDisplayItem(
+            key: _outfitDisplayKey(character, entry.$1, entry.$2),
+            kind: _AssetKind.outfit,
+            icon: Icons.checkroom_outlined,
+            typeLabel: 'Outfit',
+            title: '${character.name} / ${entry.$2.name}',
+            summary: _outfitPrompt(entry.$2),
+            resolvedPreviewPath: _resolvePreviewPath(
+              _AssetKind.outfit,
+              _outfitPreviewCacheKey(character.id, entry.$1, entry.$2),
+              entry.$2.imageRefs,
+            ),
+            resolvedPreviewPaths: _resolvePreviewPaths(
+              _AssetKind.outfit,
+              _outfitPreviewCacheKey(character.id, entry.$1, entry.$2),
+              entry.$2.imageRefs,
+            ),
+            previewAspectRatio: _previewAspectRatio(
+              _resolvePreviewPath(
+                _AssetKind.outfit,
+                _outfitPreviewCacheKey(character.id, entry.$1, entry.$2),
+                entry.$2.imageRefs,
+              ),
+            ),
+            outfitCharacter: character,
+            outfit: entry.$2,
+            outfitIndex: entry.$1,
+            scriptFocus: StudioScriptAssetFocus.outfit(
+              characterId: character.id,
+              outfitId: entry.$2.id,
+            ),
+            meta: _compactMeta([
+              character.name,
+              'ID ${entry.$2.id}',
+            ]),
+            referencePaths: entry.$2.imageRefs,
+            details: _details([
+              const _AssetDetailLine('绫诲瀷', 'Outfit'),
+              _AssetDetailLine('瑙掕壊', character.name),
+              _AssetDetailLine('瑙掕壊 ID', character.id),
+              _AssetDetailLine('Outfit ID', entry.$2.id),
+              _AssetDetailLine('Prompt', _outfitPrompt(entry.$2)),
+              if ((entry.$2.tags.frontUpper ?? '').isNotEmpty)
+                _AssetDetailLine('涓婅', entry.$2.tags.frontUpper!),
+              if ((entry.$2.tags.frontLower ?? '').isNotEmpty)
+                _AssetDetailLine('涓嬭', entry.$2.tags.frontLower!),
+              if (entry.$2.negativePrompt.isNotEmpty)
+                _AssetDetailLine('Negative', entry.$2.negativePrompt),
+              if (entry.$2.note.isNotEmpty)
+                _AssetDetailLine('澶囨敞', entry.$2.note),
+            ]),
+            onSend: () => _sendAsset(
+              context,
+              () => widget.workbenchAssetService.appendOutfit(
+                character,
+                entry.$2,
+              ),
+            ),
+            onEdit: widget.saveCharacters == null
+                ? null
+                : () => _showOutfitEditor(
+                      catalog,
+                      character,
+                      existing: entry.$2,
+                    ),
+            onDelete: widget.saveCharacters == null
+                ? null
+                : () => _confirmDeleteAsset(
+                      onConfirm: () =>
+                          _deleteOutfit(catalog, character, entry.$2),
+                    ),
+            onDeletePreview: widget.saveCharacters == null
+                ? null
+                : () => _deleteOutfitPreview(
+                      catalog,
+                      character,
+                      entry.$1,
+                      entry.$2,
+                    ),
+            onOutfitPromptChanged: widget.saveCharacters == null
+                ? null
+                : (_, prompt) => _saveOutfitPrompt(
+                      catalog,
+                      character,
+                      entry.$1,
+                      prompt,
+                    ),
+            onOutfitPromptFieldChanged: widget.saveCharacters == null
+                ? null
+                : (_, field, prompt) => _saveOutfitPromptField(
+                      catalog,
+                      character,
+                      entry.$1,
+                      field,
+                      prompt,
+                    ),
+          ),
       for (final artistChain in catalog.artistChains)
         _AssetDisplayItem(
           key: 'artist-${artistChain.id}',
@@ -725,16 +892,31 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           ),
           meta: _compactMeta([
             'ID ${inspiration.id}',
+            if (inspiration.sourceCategoryPath.isNotEmpty)
+              inspiration.sourceCategoryPath.last,
+            if (inspiration.variants.isNotEmpty)
+              '${inspiration.variants.length} 个版本',
             _sourceLabel(inspiration.source),
           ]),
+          inspiration: inspiration,
           referencePaths: inspiration.imageRefs,
           details: _details([
             const _AssetDetailLine('Type', 'Inspiration'),
             _AssetDetailLine('ID', inspiration.id),
+            if (inspiration.sourceCategoryPath.isNotEmpty)
+              _AssetDetailLine(
+                'Source Category',
+                inspiration.sourceCategoryPath.join(' / '),
+              ),
             if (inspiration.prompt.isNotEmpty)
               _AssetDetailLine('Prompt', inspiration.prompt),
             if (inspiration.negativePrompt.isNotEmpty)
               _AssetDetailLine('Negative Prompt', inspiration.negativePrompt),
+            if (inspiration.variants.isNotEmpty)
+              _AssetDetailLine(
+                'Variants',
+                inspiration.variants.map((variant) => variant.name).join(', '),
+              ),
             if (inspiration.tags.isNotEmpty)
               _AssetDetailLine('Tags', inspiration.tags.join(', ')),
             _AssetDetailLine('Source Type', inspiration.source.type),
@@ -937,7 +1119,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     List<String> refs,
   ) {
     if (kind == _AssetKind.tag || refs.isEmpty) return const [];
-    return _resolvedPreviewPathsCache.putIfAbsent(key, () {
+    final cacheKey = _previewPathCacheKey(key, refs);
+    return _resolvedPreviewPathsCache.putIfAbsent(cacheKey, () {
       final paths = <String>[];
       final seen = <String>{};
       for (final ref in refs) {
@@ -949,37 +1132,44 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     });
   }
 
+  String _previewPathCacheKey(String key, List<String> refs) {
+    return [
+      key,
+      for (final ref in refs) ref.trim(),
+    ].join('\u001f');
+  }
+
+  void _removePreviewPathCacheFor(String key) {
+    _resolvedPreviewPathsCache.removeWhere(
+      (cacheKey, _) => cacheKey == key || cacheKey.startsWith('$key\u001f'),
+    );
+  }
+
   double _previewAspectRatio(String? _) => 3 / 4;
 
   List<_AssetDisplayItem> _filterItems(List<_AssetDisplayItem> items) {
-    final normalizedQuery = _query.trim().toLowerCase();
-    final filtered = items.where((item) {
-      final typeMatches = switch (_filter) {
-        _AssetFilter.all =>
-          !item.isLegacyCodex && item.kind != _AssetKind.batchPlan,
-        _AssetFilter.codex => item.isLegacyCodex,
-        _AssetFilter.inspiration =>
-          item.kind == _AssetKind.inspiration && !item.isLegacyCodex,
-        _ => _assetFilterFor(item.kind) == _filter && !item.isLegacyCodex,
-      };
-      final blockMatches =
-          _selectedBlock == null || item.block == _selectedBlock;
-      final customCategoryMatches = _selectedCustomCategory == null ||
-          item.tag?.category == _selectedCustomCategory;
-      final queryMatches =
-          normalizedQuery.isEmpty || item.matches(normalizedQuery);
-      return typeMatches &&
-          blockMatches &&
-          customCategoryMatches &&
-          queryMatches;
-    }).toList(growable: false);
-    return filtered
-      ..sort((a, b) {
-        final aFavorite = _favoriteKeys.contains(a.favoriteKey);
-        final bFavorite = _favoriteKeys.contains(b.favoriteKey);
-        if (aFavorite == bFavorite) return 0;
-        return aFavorite ? -1 : 1;
-      });
+    final query = asset_query.AssetLibraryQuery(
+      query: _query,
+      filter: _assetQueryFilterFor(_filter),
+      selectedBlock: _selectedBlock,
+      selectedCustomCategory: _selectedCustomCategory,
+      favoriteKeys: _favoriteKeys,
+    );
+    return query
+        .filterItems([
+          for (final item in items)
+            asset_query.AssetLibraryQueryItem(
+              value: item,
+              kind: _assetQueryKindFor(item.kind),
+              isLegacyCodex: item.isLegacyCodex,
+              block: item.block,
+              customCategory: item.tag?.category,
+              favoriteKey: item.favoriteKey,
+              matchesQuery: item.matches,
+            ),
+        ])
+        .map((item) => item.value)
+        .toList(growable: false);
   }
 
   Future<void> _loadFavorites() async {
@@ -1003,7 +1193,6 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     });
   }
 
-  // ignore: unused_element
   void _copyAssetPrompt(_AssetDisplayItem item) {
     Clipboard.setData(ClipboardData(text: item.copyText));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1011,17 +1200,18 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     );
   }
 
-  // ignore: unused_element
   Future<void> _generatePreview(_AssetDisplayItem item) async {
     final service = widget.previewGenerationService;
     if (service == null) return;
     try {
+      final options = await _previewGenerationOptions(item);
+      if (!mounted || options == null) return;
       final decision = await showDialog<_PreviewGenerationDecision>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => _PreviewGenerationDialog(
           assetTitle: item.title,
-          generate: () => _generatePreviewPath(service, item),
+          generate: () => _generatePreviewPath(service, item, options),
         ),
       );
       if (!mounted || decision == null) return;
@@ -1037,14 +1227,55 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     }
   }
 
+  Future<StudioAssetPreviewGenerationOptions?> _previewGenerationOptions(
+    _AssetDisplayItem item,
+  ) {
+    if (item.kind != _AssetKind.character &&
+        item.kind != _AssetKind.artistChain &&
+        item.kind != _AssetKind.outfit) {
+      return Future.value(const StudioAssetPreviewGenerationOptions());
+    }
+    return showDialog<StudioAssetPreviewGenerationOptions>(
+      context: context,
+      builder: (context) => _PreviewGenerationOptionsDialog(
+        assetTitle: item.title,
+        showArtistSelector: item.kind == _AssetKind.character,
+        showCustomPrompt: item.kind == _AssetKind.character ||
+            item.kind == _AssetKind.artistChain,
+        artistChains: _previewOptionArtistChains(),
+      ),
+    );
+  }
+
+  List<ArtistChain> _previewOptionArtistChains() {
+    return _localCatalog?.artistChains ??
+        _displayItemsCatalog?.artistChains ??
+        const [];
+  }
+
   Future<String> _generatePreviewPath(
     StudioAssetPreviewGenerationService service,
     _AssetDisplayItem item,
+    StudioAssetPreviewGenerationOptions options,
   ) {
+    if (item.kind == _AssetKind.outfit &&
+        item.outfitCharacter != null &&
+        item.outfit != null) {
+      return service.generateOutfitPreview(
+        item.outfitCharacter!.id,
+        item.outfit!.id,
+        options: options,
+      );
+    }
     return switch (item.kind) {
-      _AssetKind.character => service.generateCharacterPreview(item.assetId),
-      _AssetKind.artistChain =>
-        service.generateArtistChainPreview(item.assetId),
+      _AssetKind.character => service.generateCharacterPreview(
+          item.assetId,
+          options: options,
+        ),
+      _AssetKind.artistChain => service.generateArtistChainPreview(
+          item.assetId,
+          options: options,
+        ),
       _AssetKind.outfit ||
       _AssetKind.recipe ||
       _AssetKind.tag ||
@@ -1064,6 +1295,15 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     _AssetDisplayItem item,
     String previewPath,
   ) {
+    if (item.kind == _AssetKind.outfit &&
+        item.outfitCharacter != null &&
+        item.outfit != null) {
+      return service.discardOutfitPreview(
+        item.outfitCharacter!.id,
+        item.outfit!.id,
+        previewPath,
+      );
+    }
     return switch (item.kind) {
       _AssetKind.character =>
         service.discardCharacterPreview(item.assetId, previewPath),
@@ -1096,7 +1336,6 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     });
   }
 
-  // ignore: unused_element
   void _sendAssetToScript(_AssetDisplayItem item) {
     final focus = item.scriptFocus;
     if (focus == null) return;
@@ -1286,26 +1525,13 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     CharacterEntry character,
     String prompt,
   ) async {
-    final trimmed = prompt.trim();
-    final updatedCharacter = character.copyWith(
-      traits: ViewVariantTexts(
-        frontFull: trimmed,
-        frontCowboy: character.traits.frontCowboy,
-        frontUpper: character.traits.frontUpper,
-        frontLower: character.traits.frontLower,
-        backFull: character.traits.backFull,
-        backCowboy: character.traits.backCowboy,
-        backUpper: character.traits.backUpper,
-        backLower: character.traits.backLower,
-      ),
-      identityTags: _identityPromptTags(trimmed),
+    final updatedCharacter = AssetLibraryEditDocument.updateCharacterPrompt(
+      character,
+      prompt,
     );
     final characters = [
       for (final entry in catalog.characters)
-        if (entry.id == character.id)
-          _manualizedCharacter(updatedCharacter)
-        else
-          entry,
+        if (entry.id == character.id) updatedCharacter else entry,
     ];
     await _saveCharacters(
       catalog,
@@ -1320,52 +1546,15 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     _CharacterPromptField field,
     String prompt,
   ) async {
-    final trimmed = prompt.trim();
-    final traits = character.traits;
-    final updatedTraits = switch (field) {
-      _CharacterPromptField.identity => ViewVariantTexts(
-          frontFull: trimmed,
-          frontCowboy: traits.frontCowboy,
-          frontUpper: traits.frontUpper,
-          frontLower: traits.frontLower,
-          backFull: traits.backFull,
-          backCowboy: traits.backCowboy,
-          backUpper: traits.backUpper,
-          backLower: traits.backLower,
-        ),
-      _CharacterPromptField.upperBody => ViewVariantTexts(
-          frontFull: traits.frontFull,
-          frontCowboy: traits.frontCowboy,
-          frontUpper: _blankToNull(trimmed),
-          frontLower: traits.frontLower,
-          backFull: traits.backFull,
-          backCowboy: traits.backCowboy,
-          backUpper: traits.backUpper,
-          backLower: traits.backLower,
-        ),
-      _CharacterPromptField.lowerBody => ViewVariantTexts(
-          frontFull: traits.frontFull,
-          frontCowboy: traits.frontCowboy,
-          frontUpper: traits.frontUpper,
-          frontLower: _blankToNull(trimmed),
-          backFull: traits.backFull,
-          backCowboy: traits.backCowboy,
-          backUpper: traits.backUpper,
-          backLower: traits.backLower,
-        ),
-    };
-    final updatedCharacter = character.copyWith(
-      traits: updatedTraits,
-      identityTags: field == _CharacterPromptField.identity
-          ? _identityPromptTags(trimmed)
-          : character.identityTags,
+    final updatedCharacter =
+        AssetLibraryEditDocument.updateCharacterPromptField(
+      character,
+      _editCharacterPromptFieldFor(field),
+      prompt,
     );
     final characters = [
       for (final entry in catalog.characters)
-        if (entry.id == character.id)
-          _manualizedCharacter(updatedCharacter)
-        else
-          entry,
+        if (entry.id == character.id) updatedCharacter else entry,
     ];
     await _saveCharacters(
       catalog,
@@ -1381,25 +1570,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     String prompt,
   ) async {
     if (outfitIndex < 0 || outfitIndex >= character.outfits.length) return;
-    final trimmed = prompt.trim();
     final outfit = character.outfits[outfitIndex];
-    final updatedOutfit = WorkspaceOutfit(
-      id: outfit.id,
-      name: outfit.name,
-      tags: ViewVariantTexts(
-        frontFull: trimmed,
-        frontCowboy: outfit.tags.frontCowboy,
-        frontUpper: outfit.tags.frontUpper,
-        frontLower: outfit.tags.frontLower,
-        backFull: outfit.tags.backFull,
-        backCowboy: outfit.tags.backCowboy,
-        backUpper: outfit.tags.backUpper,
-        backLower: outfit.tags.backLower,
-      ),
-      partTags: outfit.partTags,
-      imageRefs: outfit.imageRefs,
-      negativePrompt: outfit.negativePrompt,
-      note: outfit.note,
+    final updatedOutfit = AssetLibraryEditDocument.updateOutfitPrompt(
+      outfit,
+      prompt,
     );
     final updatedOutfits = [...character.outfits]..[outfitIndex] =
         updatedOutfit;
@@ -1424,107 +1598,11 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     String prompt,
   ) async {
     if (outfitIndex < 0 || outfitIndex >= character.outfits.length) return;
-    final trimmed = prompt.trim();
-    final tags = _assetPromptTagValuesFromValue(trimmed);
     final outfit = character.outfits[outfitIndex];
-    final currentTags = outfit.tags;
-    final currentPartTags = outfit.partTags;
-    final fallbackUpperBodyTags = currentPartTags.isEmpty
-        ? const <String>[]
-        : currentPartTags.upperBodyTags;
-    final fallbackUpperClothingTags = currentPartTags.isEmpty
-        ? _assetPromptTagValuesFromValue(currentTags.frontFull)
-        : currentPartTags.upperClothingTags;
-    final fallbackLowerBodyTags = currentPartTags.isEmpty
-        ? const <String>[]
-        : currentPartTags.lowerBodyTags;
-    final fallbackLowerClothingTags = currentPartTags.isEmpty
-        ? const <String>[]
-        : currentPartTags.lowerClothingTags;
-    final updatedViewTags = switch (field) {
-      _OutfitPromptField.full => ViewVariantTexts(
-          frontFull: trimmed,
-          frontCowboy: currentTags.frontCowboy,
-          frontUpper: currentTags.frontUpper,
-          frontLower: currentTags.frontLower,
-          backFull: currentTags.backFull,
-          backCowboy: currentTags.backCowboy,
-          backUpper: currentTags.backUpper,
-          backLower: currentTags.backLower,
-        ),
-      _OutfitPromptField.upperClothing => ViewVariantTexts(
-          frontFull: currentTags.frontFull,
-          frontCowboy: currentTags.frontCowboy,
-          frontUpper: _blankToNull(trimmed),
-          frontLower: currentTags.frontLower,
-          backFull: currentTags.backFull,
-          backCowboy: currentTags.backCowboy,
-          backUpper: currentTags.backUpper,
-          backLower: currentTags.backLower,
-        ),
-      _OutfitPromptField.lowerClothing => ViewVariantTexts(
-          frontFull: currentTags.frontFull,
-          frontCowboy: currentTags.frontCowboy,
-          frontUpper: currentTags.frontUpper,
-          frontLower: _blankToNull(trimmed),
-          backFull: currentTags.backFull,
-          backCowboy: currentTags.backCowboy,
-          backUpper: currentTags.backUpper,
-          backLower: currentTags.backLower,
-        ),
-      _ => currentTags,
-    };
-    final updatedPartTags = switch (field) {
-      _OutfitPromptField.upperBody => WorkspaceOutfitPartTags(
-          upperBodyTags: tags,
-          upperClothingTags: fallbackUpperClothingTags,
-          lowerBodyTags: fallbackLowerBodyTags,
-          lowerClothingTags: fallbackLowerClothingTags,
-        ),
-      _OutfitPromptField.upperClothing => WorkspaceOutfitPartTags(
-          upperBodyTags: fallbackUpperBodyTags,
-          upperClothingTags: tags,
-          lowerBodyTags: fallbackLowerBodyTags,
-          lowerClothingTags: fallbackLowerClothingTags,
-        ),
-      _OutfitPromptField.lowerBody => WorkspaceOutfitPartTags(
-          upperBodyTags: fallbackUpperBodyTags,
-          upperClothingTags: fallbackUpperClothingTags,
-          lowerBodyTags: tags,
-          lowerClothingTags: fallbackLowerClothingTags,
-        ),
-      _OutfitPromptField.lowerClothing => WorkspaceOutfitPartTags(
-          upperBodyTags: fallbackUpperBodyTags,
-          upperClothingTags: fallbackUpperClothingTags,
-          lowerBodyTags: fallbackLowerBodyTags,
-          lowerClothingTags: tags,
-        ),
-      _ => currentPartTags,
-    };
-    final derivedFullPrompt =
-        _assetPromptFromTags(_assetOutfitPartTags(updatedPartTags));
-    final normalizedViewTags = field == _OutfitPromptField.full
-        ? updatedViewTags
-        : ViewVariantTexts(
-            frontFull: derivedFullPrompt.isEmpty
-                ? currentTags.frontFull
-                : derivedFullPrompt,
-            frontCowboy: updatedViewTags.frontCowboy,
-            frontUpper: updatedViewTags.frontUpper,
-            frontLower: updatedViewTags.frontLower,
-            backFull: updatedViewTags.backFull,
-            backCowboy: updatedViewTags.backCowboy,
-            backUpper: updatedViewTags.backUpper,
-            backLower: updatedViewTags.backLower,
-          );
-    final updatedOutfit = WorkspaceOutfit(
-      id: outfit.id,
-      name: outfit.name,
-      tags: normalizedViewTags,
-      partTags: updatedPartTags,
-      imageRefs: outfit.imageRefs,
-      negativePrompt: outfit.negativePrompt,
-      note: outfit.note,
+    final updatedOutfit = AssetLibraryEditDocument.updateOutfitPromptField(
+      outfit,
+      _editOutfitPromptFieldFor(field),
+      prompt,
     );
     final updatedOutfits = [...character.outfits]..[outfitIndex] =
         updatedOutfit;
@@ -1977,7 +2055,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     int outfitIndex,
     WorkspaceOutfit outfit,
   ) async {
-    final cacheKey = 'outfit-${character.id}-$outfitIndex-${outfit.id}';
+    final cacheKey = _outfitPreviewCacheKey(character.id, outfitIndex, outfit);
     final resolvedPath = _resolvePreviewPath(
       _AssetKind.outfit,
       cacheKey,
@@ -2000,7 +2078,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       characters,
       selectedCharacterId: character.id,
     );
-    _resolvedPreviewPathsCache.remove(cacheKey);
+    _removePreviewPathCacheFor(cacheKey);
     _deleteLocalPreviewFile(resolvedPath);
   }
 
@@ -2194,7 +2272,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       characters,
       selectedCharacterId: character.id,
     );
-    _resolvedPreviewPathsCache.remove('character-${character.id}');
+    _removePreviewPathCacheFor('character-${character.id}');
     _deleteLocalPreviewFile(resolvedPath);
   }
 
@@ -2217,7 +2295,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     await widget.saveArtistChains?.call(updated);
     if (!mounted) return;
     setState(() {
-      _resolvedPreviewPathsCache.remove('artist-${artistChain.id}');
+      _removePreviewPathCacheFor('artist-${artistChain.id}');
       _localCatalog = _snapshotWith(catalog, artistChains: updated);
       _selectedAsset = null;
     });
@@ -2321,21 +2399,6 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     });
   }
 
-  _AssetFilter _assetFilterFor(_AssetKind kind) {
-    return switch (kind) {
-      _AssetKind.character => _AssetFilter.character,
-      _AssetKind.outfit => _AssetFilter.outfit,
-      _AssetKind.artistChain => _AssetFilter.artistChain,
-      _AssetKind.recipe => _AssetFilter.recipe,
-      _AssetKind.tag => _AssetFilter.tag,
-      _AssetKind.inspiration => _AssetFilter.inspiration,
-      _AssetKind.lora => _AssetFilter.lora,
-      _AssetKind.workflow => _AssetFilter.workflow,
-      _AssetKind.batchPlan => _AssetFilter.batchPlan,
-      _AssetKind.assemblyPreset => _AssetFilter.assemblyPreset,
-    };
-  }
-
   List<String> _availableBlocks(StudioAssetCatalogSnapshot catalog) {
     return {
       ...catalog.recipes.map((recipe) => recipe.block),
@@ -2348,6 +2411,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     return {
       _AssetFilter.all,
       if (catalog.characters.isNotEmpty) _AssetFilter.character,
+      if (catalog.summary.outfitCount > 0 || catalog.outfits.isNotEmpty)
+        _AssetFilter.outfit,
       if (catalog.artistChains.isNotEmpty) _AssetFilter.artistChain,
       if (catalog.recipes.isNotEmpty) _AssetFilter.recipe,
       if (catalog.tags.isNotEmpty) _AssetFilter.tag,
@@ -2366,6 +2431,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         _AssetFilter.inspiration,
       if (catalog.loras.isNotEmpty) _AssetFilter.lora,
       if (catalog.workflows.isNotEmpty) _AssetFilter.workflow,
+      if (catalog.summary.batchPlanCount > 0 || catalog.batchPlans.isNotEmpty)
+        _AssetFilter.batchPlan,
       if (catalog.assemblyPresets.isNotEmpty) _AssetFilter.assemblyPreset,
     };
   }
@@ -2392,6 +2459,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     setState(() {
       _catalogRefreshStatus = '正在更新素材索引...';
       _cancelLegacyCodexBackgroundLoad();
+      _resolvedPreviewPathsCache.clear();
+      _clearDisplayItemsCache();
       _localCatalog = null;
       _snapshotFuture = _refreshSnapshotCache();
       _selectedAsset = null;
@@ -2401,7 +2470,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   Future<StudioAssetCatalogSnapshot> _loadSnapshot() async {
     final includeLegacyCodex = _filter == _AssetFilter.codex;
     final codexQuery = includeLegacyCodex ? _query : '';
-    final codexCategoryKey = _legacyCodexCategoryKey;
+    final codexCategoryKey = _legacyCodexRequestKey;
     final result = await widget.catalogService.loadSnapshotWithCache(
       includeLegacyCodex: includeLegacyCodex,
       legacyCodexLimit: _legacyCodexLimit,
@@ -2424,7 +2493,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   Future<StudioAssetCatalogSnapshot> _refreshSnapshotCache() async {
     final includeLegacyCodex = _filter == _AssetFilter.codex;
     final codexQuery = includeLegacyCodex ? _query : '';
-    final codexCategoryKey = _legacyCodexCategoryKey;
+    final codexCategoryKey = _legacyCodexRequestKey;
     final snapshot = await widget.catalogService.refreshSnapshotCache(
       includeLegacyCodex: includeLegacyCodex,
       legacyCodexLimit: _legacyCodexLimit,
@@ -2541,13 +2610,40 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     return currentIncludeLegacyCodex == includeLegacyCodex &&
         _legacyCodexLimit == legacyCodexLimit &&
         (includeLegacyCodex ? _query : '') == legacyCodexQuery &&
-        _legacyCodexCategoryKey == legacyCodexCategoryKey;
+        _legacyCodexRequestKey == legacyCodexCategoryKey;
   }
+
+  String get _legacyCodexRequestKey => StudioLegacyCodexCategories.requestKey(
+        sourceScopeKey: _legacyCodexSourceScopeKey,
+        categoryKey: _legacyCodexCategoryKey,
+      );
 
   void _selectLegacyCodexCategory(String categoryKey) {
     setState(() {
       _filter = _AssetFilter.codex;
-      _legacyCodexCategoryKey = categoryKey;
+      _legacyCodexCategoryKey =
+          StudioLegacyCodexCategories.normalizedKeyForSource(
+        categoryKey,
+        _legacyCodexSourceScopeKey,
+      );
+      _legacyCodexLimit = _legacyCodexPageSize;
+      _cancelLegacyCodexBackgroundLoad();
+      _localCatalog = null;
+      _selectedAsset = null;
+      _snapshotFuture = _loadSnapshot();
+    });
+  }
+
+  void _selectLegacyCodexSourceScope(String sourceScopeKey) {
+    setState(() {
+      _filter = _AssetFilter.codex;
+      final normalizedSourceScopeKey =
+          StudioLegacyCodexCategories.normalizedSourceScopeKey(sourceScopeKey);
+      _legacyCodexSourceScopeKey = normalizedSourceScopeKey;
+      _legacyCodexCategoryKey =
+          StudioLegacyCodexCategories.defaultCategoryKeyForSource(
+        normalizedSourceScopeKey,
+      );
       _legacyCodexLimit = _legacyCodexPageSize;
       _cancelLegacyCodexBackgroundLoad();
       _localCatalog = null;
@@ -2560,7 +2656,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     _startLegacyCodexBackgroundLoad(
       catalog,
       query: _query,
-      categoryKey: _legacyCodexCategoryKey,
+      categoryKey: _legacyCodexRequestKey,
     );
   }
 
@@ -2568,13 +2664,15 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     StudioAssetCatalogSnapshot catalog, {
     required String query,
     required String categoryKey,
+    Duration delay = Duration.zero,
   }) {
     if (_filter != _AssetFilter.codex) return;
     if (_loadingMoreLegacyCodex) return;
     if (catalog.legacyCodexLoadedCount >= catalog.legacyCodexTotalCount) {
       return;
     }
-    final nextLimit = catalog.legacyCodexLoadedCount + _legacyCodexPageSize;
+    final nextLimit =
+        catalog.legacyCodexLoadedCount + _legacyCodexBackgroundBatchSize;
     final safeLimit = nextLimit > catalog.legacyCodexTotalCount
         ? catalog.legacyCodexTotalCount
         : nextLimit;
@@ -2589,8 +2687,35 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         query: query,
         categoryKey: categoryKey,
         limit: safeLimit,
+        delay: delay,
       ),
     );
+  }
+
+  void _scheduleLegacyCodexBackgroundLoad(
+    StudioAssetCatalogSnapshot catalog,
+  ) {
+    if (_filter != _AssetFilter.codex) return;
+    if (_loadingMoreLegacyCodex || _legacyCodexAutoLoadQueued) return;
+    if (catalog.legacyCodexLoadedCount >= catalog.legacyCodexTotalCount) {
+      return;
+    }
+    final query = _query;
+    final categoryKey = _legacyCodexRequestKey;
+    _legacyCodexAutoLoadQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _legacyCodexAutoLoadQueued = false;
+      if (!_isLegacyCodexRequestCurrent(
+          query: query, categoryKey: categoryKey)) {
+        return;
+      }
+      _startLegacyCodexBackgroundLoad(
+        catalog,
+        query: query,
+        categoryKey: categoryKey,
+        delay: _legacyCodexBackgroundLoadDelay,
+      );
+    });
   }
 
   Future<void> _loadNextLegacyCodexPage({
@@ -2598,8 +2723,19 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     required String query,
     required String categoryKey,
     required int limit,
+    required Duration delay,
   }) async {
     try {
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+        if (!_isLegacyCodexBackgroundLoadCurrent(
+          token: token,
+          query: query,
+          categoryKey: categoryKey,
+        )) {
+          return;
+        }
+      }
       final result = await widget.catalogService.loadSnapshotWithCache(
         includeLegacyCodex: true,
         legacyCodexLimit: limit,
@@ -2642,14 +2778,23 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   }) {
     return mounted &&
         _legacyCodexLoadToken == token &&
+        _isLegacyCodexRequestCurrent(query: query, categoryKey: categoryKey);
+  }
+
+  bool _isLegacyCodexRequestCurrent({
+    required String query,
+    required String categoryKey,
+  }) {
+    return mounted &&
         _filter == _AssetFilter.codex &&
         _query == query &&
-        _legacyCodexCategoryKey == categoryKey;
+        _legacyCodexRequestKey == categoryKey;
   }
 
   void _cancelLegacyCodexBackgroundLoad() {
     _legacyCodexLoadToken += 1;
     _loadingMoreLegacyCodex = false;
+    _legacyCodexAutoLoadQueued = false;
   }
 
   void _setQuery(String value) {
@@ -2761,6 +2906,18 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       ...artistChain.tags,
       ...artistChain.styleTags,
     ].join(', ');
+  }
+
+  String _outfitPrompt(WorkspaceOutfit outfit) {
+    final prompt = outfit.tags.frontFull.trim();
+    if (prompt.isNotEmpty) return prompt;
+    return _assetPromptFromTags([
+      ...outfit.partTags.upperBodyTags,
+      ...outfit.partTags.upperClothingTags,
+      ...outfit.partTags.lowerBodyTags,
+      ...outfit.partTags.lowerClothingTags,
+      ...outfit.partTags.weaponTags,
+    ]);
   }
 
   String _recipePrompt(Recipe recipe) {
@@ -2944,6 +3101,7 @@ class _AssetLibraryControls extends StatelessWidget {
   final Set<_AssetFilter> availableFilters;
   final String? selectedBlock;
   final String? selectedCustomCategory;
+  final String selectedCodexSourceScopeKey;
   final String selectedCodexCategoryKey;
   final List<String> blocks;
   final Set<String> customCategories;
@@ -2955,6 +3113,7 @@ class _AssetLibraryControls extends StatelessWidget {
   final ValueChanged<_AssetFilter> onFilterChanged;
   final ValueChanged<String> onBlockChanged;
   final ValueChanged<String> onCustomCategoryChanged;
+  final ValueChanged<String> onCodexSourceScopeChanged;
   final ValueChanged<String> onCodexCategoryChanged;
   final VoidCallback onReload;
   final VoidCallback onAddCustomCategory;
@@ -2970,6 +3129,7 @@ class _AssetLibraryControls extends StatelessWidget {
     required this.availableFilters,
     required this.selectedBlock,
     required this.selectedCustomCategory,
+    required this.selectedCodexSourceScopeKey,
     required this.selectedCodexCategoryKey,
     required this.blocks,
     required this.customCategories,
@@ -2981,6 +3141,7 @@ class _AssetLibraryControls extends StatelessWidget {
     required this.onFilterChanged,
     required this.onBlockChanged,
     required this.onCustomCategoryChanged,
+    required this.onCodexSourceScopeChanged,
     required this.onCodexCategoryChanged,
     required this.onReload,
     required this.onAddCustomCategory,
@@ -3009,14 +3170,38 @@ class _AssetLibraryControls extends StatelessWidget {
     };
   }
 
+  List<StudioLegacyCodexCategory> _codexCategories() {
+    final sourceCategoryKeys = [
+      for (final entry in codexCategoryCounts.entries)
+        if (entry.key != StudioLegacyCodexCategories.allKey &&
+            entry.value > 0 &&
+            StudioLegacyCodexCategories.isSourceCategoryKey(entry.key))
+          entry.key,
+    ];
+    if (sourceCategoryKeys.isNotEmpty) {
+      return [
+        for (final key in sourceCategoryKeys)
+          StudioLegacyCodexCategory(
+            key: key,
+            label: StudioLegacyCodexCategories.labelForKey(key),
+          ),
+      ];
+    }
+    return StudioLegacyCodexCategories.filtersForSource(
+      selectedCodexSourceScopeKey,
+    )
+        .where((category) => category.key != StudioLegacyCodexCategories.allKey)
+        .toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final filters = [
-      (_AssetFilter.codex, '法典', 'asset-filter-codex'),
       (_AssetFilter.all, '全部', 'asset-filter-all'),
       (_AssetFilter.character, '角色', 'asset-filter-character'),
-      (_AssetFilter.outfit, 'Outfit', 'asset-filter-outfit'),
       (_AssetFilter.artistChain, '画师串', 'asset-filter-artist-chain'),
+      (_AssetFilter.codex, '法典', 'asset-filter-codex'),
+      (_AssetFilter.outfit, 'Outfit', 'asset-filter-outfit'),
       (_AssetFilter.recipe, '配方', 'asset-filter-recipe'),
       (_AssetFilter.tag, 'Tag', 'asset-filter-tag'),
       (_AssetFilter.inspiration, 'Inspiration', 'asset-filter-inspiration'),
@@ -3030,6 +3215,7 @@ class _AssetLibraryControls extends StatelessWidget {
       ),
     ];
     final primaryFilterValues = {
+      _AssetFilter.codex,
       _AssetFilter.all,
       _AssetFilter.character,
       _AssetFilter.artistChain,
@@ -3188,16 +3374,43 @@ class _AssetLibraryControls extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final category in StudioLegacyCodexCategories.filters)
-                  if (category.key != StudioLegacyCodexCategories.allKey)
-                    KeyedSubtree(
-                      key: ValueKey('asset-codex-category-${category.key}'),
-                      child: StudioChip(
-                        label: category.label,
-                        selected: selectedCodexCategoryKey == category.key,
-                        onTap: () => onCodexCategoryChanged(category.key),
-                      ),
+                for (final sourceScope in const [
+                  (
+                    StudioLegacyCodexCategories.sourceRegularKey,
+                    '普通法典',
+                    'asset-codex-source-regular',
+                  ),
+                  (
+                    StudioLegacyCodexCategories.sourceAdultKey,
+                    '涩涩法典',
+                    'asset-codex-source-adult',
+                  ),
+                ])
+                  KeyedSubtree(
+                    key: ValueKey(sourceScope.$3),
+                    child: StudioChip(
+                      label: sourceScope.$2,
+                      icon: Icons.library_books_outlined,
+                      selected: selectedCodexSourceScopeKey == sourceScope.$1,
+                      onTap: () => onCodexSourceScopeChanged(sourceScope.$1),
                     ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final category in _codexCategories())
+                  KeyedSubtree(
+                    key: ValueKey('asset-codex-category-${category.key}'),
+                    child: StudioChip(
+                      label: category.label,
+                      selected: selectedCodexCategoryKey == category.key,
+                      onTap: () => onCodexCategoryChanged(category.key),
+                    ),
+                  ),
               ],
             ),
             if (codexTotalCount > codexLoadedCount) ...[
@@ -3516,8 +3729,10 @@ class _WaterfallAssetCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _AssetCardPreview(item: item),
-              const SizedBox(height: 10),
+              if (item.hasCardPreviewArea) ...[
+                _AssetCardPreview(item: item),
+                const SizedBox(height: 10),
+              ],
               Text(
                 item.title,
                 key: ValueKey('asset-card-title-${item.key}'),
@@ -3711,30 +3926,6 @@ class _PreviewCountBadge extends StatelessWidget {
   }
 }
 
-class _PromptPreviewTag extends StatelessWidget {
-  final String label;
-
-  const _PromptPreviewTag({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: StudioTokens.surface3,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: StudioTokens.cardOutline),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-      ),
-    );
-  }
-}
-
 int _nextPreviewIndex(int currentIndex, int count, double scrollDeltaY) {
   if (count <= 1 || scrollDeltaY == 0) return currentIndex;
   final next = currentIndex + (scrollDeltaY > 0 ? 1 : -1);
@@ -3904,6 +4095,181 @@ class _PreviewGenerationDecision {
     required this.keep,
     required this.previewPath,
   });
+}
+
+class _PreviewGenerationOptionsDialog extends StatefulWidget {
+  final String assetTitle;
+  final bool showArtistSelector;
+  final bool showCustomPrompt;
+  final List<ArtistChain> artistChains;
+
+  const _PreviewGenerationOptionsDialog({
+    required this.assetTitle,
+    required this.showArtistSelector,
+    required this.showCustomPrompt,
+    required this.artistChains,
+  });
+
+  @override
+  State<_PreviewGenerationOptionsDialog> createState() =>
+      _PreviewGenerationOptionsDialogState();
+}
+
+class _PreviewGenerationOptionsDialogState
+    extends State<_PreviewGenerationOptionsDialog> {
+  String _artistChainId = '';
+  String _customPrompt = '';
+  StudioPreviewCustomPromptMode _mode = StudioPreviewCustomPromptMode.append;
+  GenerationSize? _selectedSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('asset-preview-options-dialog'),
+      title: const Text('生成预览'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.assetTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textMuted,
+                    ),
+              ),
+              if (widget.showArtistSelector) ...[
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('asset-preview-options-artist-chain'),
+                  initialValue: _artistChainId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: '画师串',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('随机画师串'),
+                    ),
+                    for (final chain in widget.artistChains)
+                      DropdownMenuItem<String>(
+                        value: chain.id,
+                        child: Text(
+                          chain.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    setState(() => _artistChainId = value ?? '');
+                  },
+                ),
+              ],
+              const SizedBox(height: 14),
+              DropdownButtonFormField<GenerationSize?>(
+                key: const ValueKey('asset-preview-options-size'),
+                initialValue: _selectedSize,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: '分辨率',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<GenerationSize?>(
+                    value: null,
+                    child: Text('随机分辨率'),
+                  ),
+                  for (final size in defaultSizes)
+                    DropdownMenuItem<GenerationSize?>(
+                      value: size,
+                      child: Text(_sizeLabel(size)),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() => _selectedSize = value);
+                },
+              ),
+              if (widget.showCustomPrompt) ...[
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      key: const ValueKey('asset-preview-options-mode-append'),
+                      label: const Text('追加'),
+                      selected: _mode == StudioPreviewCustomPromptMode.append,
+                      onSelected: (_) {
+                        setState(
+                          () => _mode = StudioPreviewCustomPromptMode.append,
+                        );
+                      },
+                    ),
+                    ChoiceChip(
+                      key: const ValueKey('asset-preview-options-mode-replace'),
+                      label: const Text('替换'),
+                      selected: _mode == StudioPreviewCustomPromptMode.replace,
+                      onSelected: (_) {
+                        setState(
+                          () => _mode = StudioPreviewCustomPromptMode.replace,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                KeyedSubtree(
+                  key: const ValueKey(
+                    'asset-preview-options-custom-prompt-tags',
+                  ),
+                  child: PromptTagEditor(
+                    value: _customPrompt,
+                    label: '自填提示词',
+                    dense: true,
+                    initialGroupedLayout: false,
+                    preferTranslatedLabels: true,
+                    emptyText: '可添加标签或输入提示词',
+                    onChanged: (nextValue) {
+                      setState(() => _customPrompt = nextValue);
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('asset-preview-options-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('asset-preview-options-start'),
+          onPressed: () => Navigator.of(context).pop(
+            StudioAssetPreviewGenerationOptions(
+              artistChainId:
+                  _artistChainId.trim().isEmpty ? null : _artistChainId,
+              customPrompt: _customPrompt,
+              customPromptMode: _mode,
+              size: _selectedSize,
+            ),
+          ),
+          child: const Text('开始生成'),
+        ),
+      ],
+    );
+  }
+
+  static String _sizeLabel(GenerationSize size) {
+    return '${size.width} x ${size.height}';
+  }
 }
 
 class _PreviewGenerationDialog extends StatefulWidget {
@@ -4183,6 +4549,7 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
     }
     final previewPane = _buildPreviewPane(item);
     final editorPane = _buildEditorPane(item);
+    final compactNoPreview = item.hasCompactNoPreview;
 
     return StudioPanel(
       key: const ValueKey('asset-library-detail-content'),
@@ -4206,7 +4573,7 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
             children: [
               _buildHeader(item),
               const SizedBox(height: 18),
-              if (wide)
+              if (wide && !compactNoPreview)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -4216,8 +4583,10 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
                   ],
                 )
               else ...[
-                previewPane,
-                const SizedBox(height: 16),
+                if (!compactNoPreview) ...[
+                  previewPane,
+                  const SizedBox(height: 16),
+                ],
                 editorPane,
               ],
             ],
@@ -4371,12 +4740,14 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
     final selectedOutfit = _selectedOutfitFor(item);
     final selectedOutfitPreviewPaths = selectedOutfit == null
         ? null
-        : _outfitPreviewPathsFor(
-            item.character!,
-            selectedOutfit.index,
-            selectedOutfit.outfit,
-            item.outfitPreviewPathsById,
-          );
+        : item.character == null
+            ? item.previewPaths
+            : _outfitPreviewPathsFor(
+                item.character!,
+                selectedOutfit.index,
+                selectedOutfit.outfit,
+                item.outfitPreviewPathsById,
+              );
     return KeyedSubtree(
       key: ValueKey('asset-detail-editor-pane-${item.key}'),
       child: Column(
@@ -4398,7 +4769,7 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
           const SizedBox(height: 12),
           if (item.character != null)
             ..._buildCharacterPromptEditors(item, selectedOutfit)
-          else if (item.summary.isNotEmpty)
+          else if (item.summary.isNotEmpty && item.kind != _AssetKind.outfit)
             if (promptEditableSurface)
               _AssetDetailPromptEditor(
                 item: item,
@@ -4415,6 +4786,13 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
                   _showTranslatedTags = !_showTranslatedTags;
                 }),
               ),
+          if ((item.inspiration?.variants ?? const []).isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _AssetCodexVariantSection(
+              variants: item.inspiration!.variants,
+              translated: _showTranslatedTags,
+            ),
+          ],
           if (selectedOutfit != null && item.character == null) ...[
             const SizedBox(height: 12),
             _AssetDetailPromptEditor(
@@ -4607,6 +4985,9 @@ class _AssetDetailContentState extends State<_AssetDetailContent> {
   ({int index, WorkspaceOutfit outfit})? _selectedOutfitFor(
     _AssetDisplayItem item,
   ) {
+    if (item.outfit != null && item.outfitIndex != null) {
+      return (index: item.outfitIndex!, outfit: item.outfit!);
+    }
     final character = item.character;
     if (character == null || character.outfits.isEmpty) return null;
     return _outfitAtSelection(character, _selectedOutfitIndex);
@@ -5329,6 +5710,59 @@ class _AssetCompactInfo extends StatelessWidget {
   }
 }
 
+class _AssetCodexVariantSection extends StatelessWidget {
+  final List<InspirationEntry> variants;
+  final bool translated;
+
+  const _AssetCodexVariantSection({
+    required this.variants,
+    required this.translated,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (variants.isEmpty) return const SizedBox.shrink();
+    return StudioPanel(
+      key: const ValueKey('asset-detail-codex-variants'),
+      padding: const EdgeInsets.all(12),
+      color: StudioTokens.surface1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '其他版本',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 10),
+          for (final variant in variants) ...[
+            Text(
+              variant.sourceVariantLabel?.trim().isNotEmpty == true
+                  ? variant.sourceVariantLabel!
+                  : variant.name,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            if (variant.prompt.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              KeyedSubtree(
+                key: ValueKey('asset-detail-codex-variant-${variant.id}'),
+                child: _DetailPromptTagPreview(
+                  text: variant.prompt,
+                  translated: translated,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailPromptTagPreview extends StatelessWidget {
   final String text;
   final bool translated;
@@ -5340,23 +5774,26 @@ class _DetailPromptTagPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cache = GetIt.I.isRegistered<TranslationCache>()
+    final translationCache = GetIt.I.isRegistered<TranslationCache>()
         ? GetIt.I<TranslationCache>()
         : null;
-    final tags = text
-        .split(',')
-        .map((tag) => tag.trim())
-        .where((tag) => tag.isNotEmpty)
-        .toList(growable: false);
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        for (final tag in tags)
-          _PromptPreviewTag(
-            label: translated ? cache?.getCached(tag) ?? tag : tag,
-          ),
-      ],
+    final classificationCache =
+        GetIt.I.isRegistered<PromptTagClassificationCache>()
+            ? GetIt.I<PromptTagClassificationCache>()
+            : null;
+    return PromptTagDisplay(
+      key: const ValueKey('asset-detail-prompt-tag-display'),
+      text: text,
+      defaultTranslated: translated,
+      dense: true,
+      enableHoverShortcut: true,
+      enableTagActions: true,
+      translationCache: translationCache,
+      classificationCache: classificationCache,
+      initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+      respectInitialLayoutMode: true,
+      showSelectionToolbar: false,
+      emptyText: '暂无标签',
     );
   }
 }
@@ -5544,6 +5981,22 @@ class _OutfitIconTileState extends State<_OutfitIconTile> {
 
 String _outfitSlotKey(String characterId, int index, WorkspaceOutfit outfit) {
   return '$characterId:$index:${outfit.id}';
+}
+
+String _outfitPreviewCacheKey(
+  String characterId,
+  int index,
+  WorkspaceOutfit outfit,
+) {
+  return 'outfit-$characterId-$index-${outfit.id}';
+}
+
+String _outfitDisplayKey(
+  CharacterEntry character,
+  int index,
+  WorkspaceOutfit outfit,
+) {
+  return 'outfit-${character.id}-${_outfitWidgetKey(character, index, outfit)}';
 }
 
 List<String> _outfitPreviewPathsFor(
@@ -5938,7 +6391,11 @@ class _AssetDisplayItem {
   final Future<void> Function(int, _OutfitPromptField, String)?
       onOutfitPromptFieldChanged;
   final CharacterEntry? character;
+  final CharacterEntry? outfitCharacter;
+  final WorkspaceOutfit? outfit;
+  final int? outfitIndex;
   final ArtistChain? artistChain;
+  final InspirationEntry? inspiration;
   final TagEntry? tag;
   final StudioScriptAssetFocus? scriptFocus;
 
@@ -5977,7 +6434,11 @@ class _AssetDisplayItem {
     this.onOutfitPromptChanged,
     this.onOutfitPromptFieldChanged,
     this.character,
+    this.outfitCharacter,
+    this.outfit,
+    this.outfitIndex,
     this.artistChain,
+    this.inspiration,
     this.tag,
     this.scriptFocus,
     this.block,
@@ -5989,8 +6450,16 @@ class _AssetDisplayItem {
     return true;
   }
 
+  bool get hasCardPreviewArea => previewPath != null;
+
+  bool get hasCompactNoPreview => previewPath == null && isLegacyCodex;
+
   bool get canGeneratePreview {
-    return kind == _AssetKind.character || kind == _AssetKind.artistChain;
+    return kind == _AssetKind.character ||
+        kind == _AssetKind.artistChain ||
+        (kind == _AssetKind.outfit &&
+            outfitCharacter != null &&
+            outfit != null);
   }
 
   String get previewKind {
@@ -6033,6 +6502,7 @@ class _AssetDisplayItem {
   }
 
   String get assetId {
+    if (outfit != null) return outfit!.id;
     if (assetIdOverride != null) return assetIdOverride!;
     if (character != null) return character!.id;
     if (artistChain != null) return artistChain!.id;
@@ -6061,6 +6531,12 @@ class _AssetDisplayItem {
   }
 
   String get favoriteKey {
+    if (outfitCharacter != null && outfit != null) {
+      return StudioAssetFavoriteKeys.outfit(
+        outfitCharacter!.id,
+        outfit!.id,
+      );
+    }
     if (character != null) {
       return StudioAssetFavoriteKeys.character(character!.id);
     }
@@ -6118,6 +6594,17 @@ class _AssetDisplayItem {
           outfit.tags.frontUpper,
           outfit.tags.frontLower,
         ],
+      if (outfitCharacter != null) ...[
+        outfitCharacter!.id,
+        outfitCharacter!.name,
+      ],
+      if (outfit != null) ...[
+        outfit!.id,
+        outfit!.name,
+        outfit!.tags.frontFull,
+        outfit!.tags.frontUpper,
+        outfit!.tags.frontLower,
+      ],
       for (final detail in details) detail.value,
       ...referencePaths,
     ].join('\n').toLowerCase();

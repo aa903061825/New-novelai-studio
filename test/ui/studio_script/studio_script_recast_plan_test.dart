@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_recast_plan.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_recast_plan.dart';
 
 void main() {
   group('StudioScriptRecastPlan', () {

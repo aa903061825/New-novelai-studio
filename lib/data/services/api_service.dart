@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/io_client.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
+import 'package:novel_studio/data/models/api_request.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {

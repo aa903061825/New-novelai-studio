@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/workbench_document.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/workbench_document.dart';
 
 class WorkbenchTransferService {
   String exportText(PayloadConfig config) {

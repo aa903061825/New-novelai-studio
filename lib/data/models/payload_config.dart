@@ -1,14 +1,14 @@
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/models/global_generation_params.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/models/vibe_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/models/global_generation_params.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/models/vibe_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
 
 class PayloadResult {
   final String comment;

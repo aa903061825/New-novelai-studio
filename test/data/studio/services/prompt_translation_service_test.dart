@@ -3,12 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 void main() {
   TranslationCache buildCache() => TranslationCache(clock: () => 1710000000);

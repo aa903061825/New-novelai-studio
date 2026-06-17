@@ -5,16 +5,17 @@ import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/core/constants/parameters.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/ui/studio_batch/view_models/production_queue_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_generated_image_gallery.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 
 class StudioBatchPage extends StatefulWidget {
   final ProductionQueueViewModel viewModel;
@@ -2451,32 +2452,24 @@ class _PromptTagBlock extends StatelessWidget {
 }
 
 String _positivePrompt(Map<String, dynamic> payload) {
-  final parameters = _mapValue(payload['parameters']);
-  return _captionPrompt(_mapValue(parameters['v4_prompt'])) ??
-      _stringValue(payload['input']) ??
-      _stringValue(payload['Description']) ??
-      '';
+  return GenerationPayloadDocument.fromMap(payload).positivePrompt;
 }
 
 List<PromptTagDisplayGroup> _positivePromptGroups(
     Map<String, dynamic> payload) {
-  final parameters = _mapValue(payload['parameters']);
-  return promptTagGroupsFromV4Prompt(_mapValue(parameters['v4_prompt']));
+  return promptTagGroupsFromV4Prompt(
+    GenerationPayloadDocument.fromMap(payload).positiveV4Prompt,
+  );
 }
 
 String _negativePrompt(Map<String, dynamic> payload) {
-  final parameters = _mapValue(payload['parameters']);
-  return _captionPrompt(_mapValue(parameters['v4_negative_prompt'])) ??
-      _stringValue(parameters['negative_prompt']) ??
-      _stringValue(parameters['uc']) ??
-      '';
+  return GenerationPayloadDocument.fromMap(payload).negativePrompt;
 }
 
 List<PromptTagDisplayGroup> _negativePromptGroups(
     Map<String, dynamic> payload) {
-  final parameters = _mapValue(payload['parameters']);
   return promptTagGroupsFromV4Prompt(
-    _mapValue(parameters['v4_negative_prompt']),
+    GenerationPayloadDocument.fromMap(payload).negativeV4Prompt,
     negative: true,
   );
 }
@@ -2484,96 +2477,33 @@ List<PromptTagDisplayGroup> _negativePromptGroups(
 List<_VisibleParameterGroup> _visibleParameterGroups(
   Map<String, dynamic> payload,
 ) {
-  final byKey = <String, _VisibleParameter>{};
-  void add(String key, Object? value) {
-    if (_hiddenNaiParams.contains(key)) return;
-    if (_isLargeOrNestedParameter(value)) return;
-    byKey.putIfAbsent(key, () => _visibleParameter(key, value));
-  }
-
-  final model = _stringValue(payload['model']);
-  if (model != null) add('model', model);
-  final parameters = payload['parameters'];
-  if (parameters is Map) {
-    for (final entry in parameters.entries) {
-      final key = entry.key.toString();
-      add(key, entry.value);
-    }
-  }
-
-  final parametersByGroup = <String, List<_VisibleParameter>>{};
-  for (final parameter in byKey.values) {
-    parametersByGroup.putIfAbsent(parameter.groupId, () => []).add(parameter);
-  }
-
   return [
-    for (final spec in _parameterGroupSpecs)
-      if (parametersByGroup[spec.id] case final parameters?)
-        _VisibleParameterGroup(
-          id: spec.id,
-          title: spec.title,
-          icon: spec.icon,
-          parameters: List.unmodifiable(
-            parameters..sort(_compareVisibleParameters),
-          ),
-        ),
+    for (final group
+        in GenerationPayloadDocument.fromMap(payload).visibleParameterGroups)
+      _VisibleParameterGroup(
+        id: group.id,
+        title: _parameterGroupSpecFor(group.id).title,
+        icon: _parameterGroupSpecFor(group.id).icon,
+        parameters: [
+          for (final parameter in group.parameters)
+            _visibleParameterFromDocument(parameter),
+        ],
+      ),
   ];
 }
 
-_VisibleParameter _visibleParameter(String key, Object? value) {
-  final groupId = _parameterGroupForKey(key);
-  final rawValue = _formatParameterValue(value);
+_VisibleParameter _visibleParameterFromDocument(GenerationParameter parameter) {
+  final value = _formatParameterValue(parameter.rawValue);
   return _VisibleParameter(
-    key: key,
-    label: _parameterLabels[key] ?? key,
-    value: rawValue,
-    displayValue: _compactParameterValue(rawValue),
-    groupId: groupId,
-    icon: _parameterIconForKey(key, value),
-    highlight: _highlightParameterKeys.contains(key),
-    monospace: _isTechnicalParameter(key, rawValue),
+    key: parameter.key,
+    label: _parameterLabelFor(parameter.key),
+    value: value,
+    displayValue: _compactParameterValue(value),
+    groupId: parameter.groupId,
+    icon: _parameterIconForKey(parameter.key, parameter.rawValue),
+    highlight: parameter.highlight,
+    monospace: parameter.monospace,
   );
-}
-
-int _compareVisibleParameters(_VisibleParameter a, _VisibleParameter b) {
-  final aIndex = _parameterOrder.indexOf(a.key);
-  final bIndex = _parameterOrder.indexOf(b.key);
-  if (aIndex != bIndex) {
-    if (aIndex == -1) return 1;
-    if (bIndex == -1) return -1;
-    return aIndex.compareTo(bIndex);
-  }
-  return a.key.compareTo(b.key);
-}
-
-String _parameterGroupForKey(String key) {
-  if (_coreParameterKeys.contains(key)) return 'core';
-  if (_qualityParameterKeys.contains(key) ||
-      key.contains('cfg') ||
-      key.contains('sigma') ||
-      key.contains('threshold')) {
-    return 'quality';
-  }
-  if (_requestParameterKeys.contains(key) || key.contains('hash')) {
-    return 'request';
-  }
-  return 'other';
-}
-
-String _formatParameterValue(Object? value) {
-  return switch (value) {
-    null => '-',
-    bool() => value ? '是' : '否',
-    num() => value.toString(),
-    _ => value.toString(),
-  };
-}
-
-String _compactParameterValue(String value) {
-  final singleLine = value.replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (singleLine.length <= 72) return singleLine;
-  return '${singleLine.substring(0, 40)}...'
-      '${singleLine.substring(singleLine.length - 18)}';
 }
 
 IconData _parameterIconForKey(String key, Object? value) {
@@ -2592,11 +2522,22 @@ IconData _parameterIconForKey(String key, Object? value) {
   return Icons.label_outline;
 }
 
-bool _isTechnicalParameter(String key, String value) {
-  return key.contains('hash') ||
-      key.contains('fingerprint') ||
-      key.contains('request') ||
-      value.length > 32;
+String _parameterLabelFor(String key) => _parameterLabels[key] ?? key;
+
+String _formatParameterValue(Object? value) {
+  return switch (value) {
+    null => '-',
+    bool() => value ? '是' : '否',
+    num() => value.toString(),
+    _ => value.toString(),
+  };
+}
+
+String _compactParameterValue(String value) {
+  final singleLine = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (singleLine.length <= 72) return singleLine;
+  return '${singleLine.substring(0, 40)}...'
+      '${singleLine.substring(singleLine.length - 18)}';
 }
 
 double _parameterTileWidth(double maxWidth) {
@@ -2709,54 +2650,6 @@ List<String> _samplerOptionsForModel(String model) {
   return samplers;
 }
 
-String? _captionPrompt(Map<String, dynamic> prompt) {
-  final caption = _mapValue(prompt['caption']);
-  final parts = <String>[];
-  final base = _firstStringValue([
-    caption['base_caption'],
-    caption['baseCaption'],
-    caption['prompt'],
-    caption['caption'],
-  ]);
-  if (base != null) parts.add(base);
-
-  final charCaptions = caption['char_captions'] ?? prompt['char_captions'];
-  if (charCaptions is Iterable) {
-    for (final entry in charCaptions) {
-      final value = entry is Map
-          ? _firstStringValue([
-              entry['char_caption'],
-              entry['caption'],
-              entry['base_caption'],
-              entry['baseCaption'],
-              entry['prompt'],
-            ])
-          : _stringValue(entry);
-      if (value != null) parts.add(value);
-    }
-  }
-
-  if (parts.isEmpty) return null;
-  return parts.map((part) => part.trim()).where((part) => part.isNotEmpty).join(
-        ', ',
-      );
-}
-
-String? _firstStringValue(Iterable<Object?> values) {
-  for (final value in values) {
-    final string = _stringValue(value);
-    if (string != null) return string;
-  }
-  return null;
-}
-
-bool _isLargeOrNestedParameter(Object? value) {
-  if (value is Map) return true;
-  if (value is List) return true;
-  if (value is String && value.length > 240) return true;
-  return false;
-}
-
 String _shortFingerprint(String fingerprint) {
   if (fingerprint.length <= 8) return fingerprint;
   return fingerprint.substring(0, 8);
@@ -2853,76 +2746,6 @@ const _parameterGroupSpecs = [
   ),
 ];
 
-const _coreParameterKeys = {
-  'model',
-  'width',
-  'height',
-  'steps',
-  'scale',
-  'sampler',
-  'seed',
-};
-
-const _qualityParameterKeys = {
-  'cfg_schedule_eligibility',
-  'controlnet_strength',
-  'deliberate_euler_ancestral_bug',
-  'dynamic_thresholding_mimic_scale',
-  'dynamic_thresholding_percentile',
-  'eplike_fine_detail',
-  'minimize_sigma_inf',
-  'prefer_brownian',
-  'skip_cfg_above_sigma',
-  'skip_cfg_below_sigma',
-  'uncond_per_vibe',
-  'wonky_vibe_correlation',
-};
-
-const _requestParameterKeys = {
-  'n_samples',
-  'params_version',
-  'request_type',
-  'signed_hash',
-  'version',
-};
-
-const _highlightParameterKeys = {
-  'model',
-  'width',
-  'height',
-  'steps',
-  'scale',
-  'sampler',
-  'seed',
-};
-
-const _parameterOrder = [
-  'model',
-  'width',
-  'height',
-  'steps',
-  'scale',
-  'sampler',
-  'seed',
-  'cfg_schedule_eligibility',
-  'controlnet_strength',
-  'deliberate_euler_ancestral_bug',
-  'dynamic_thresholding_mimic_scale',
-  'dynamic_thresholding_percentile',
-  'eplike_fine_detail',
-  'minimize_sigma_inf',
-  'prefer_brownian',
-  'skip_cfg_above_sigma',
-  'skip_cfg_below_sigma',
-  'uncond_per_vibe',
-  'wonky_vibe_correlation',
-  'request_type',
-  'n_samples',
-  'params_version',
-  'version',
-  'signed_hash',
-];
-
 const _parameterLabels = {
   'cfg_schedule_eligibility': 'CFG 调度',
   'controlnet_strength': 'ControlNet 强度',
@@ -2950,27 +2773,9 @@ const _parameterLabels = {
   'wonky_vibe_correlation': 'Vibe 相关性修正',
 };
 
-const _hiddenNaiParams = {
-  'sm',
-  'sm_dyn',
-  'cfg_rescale',
-  'noise_schedule',
-  'uncond_scale',
-  'dynamic_thresholding',
-  'eta',
-  'negative_momentum',
-  'legacy_v3_extend',
-  'negative_prompt',
-  'uc',
-  'v4_prompt',
-  'v4_negative_prompt',
-  'characterPrompts',
-  'reference_image_multiple',
-  'reference_strength_multiple',
-  'reference_information_extracted_multiple',
-  'director_reference_images',
-  'director_reference_strength_values',
-  'director_reference_secondary_strength_values',
-  'director_reference_information_extracted',
-  'director_reference_descriptions',
-};
+_ParameterGroupSpec _parameterGroupSpecFor(String id) {
+  return _parameterGroupSpecs.firstWhere(
+    (spec) => spec.id == id,
+    orElse: () => _parameterGroupSpecs.last,
+  );
+}

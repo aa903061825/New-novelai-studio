@@ -1,18 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/models/vibe_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/models/vibe_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 PayloadConfig _payload({String prompt = ''}) {
   return PayloadConfig(
@@ -389,6 +389,7 @@ void main() {
 
   test('appendArtistChain carries default paired V4 vibes into workbench', () {
     final payload = _payload();
+    payload.generationRuntimeState.vibeEnabled = false;
     final service = StudioWorkbenchAssetService(payloadConfig: payload);
 
     service.appendArtistChain(
@@ -412,6 +413,7 @@ void main() {
     expect(payload.vibeConfigListV4.single.fileName, 'Painter Vibe');
     expect(payload.vibeConfigListV4.single.vibeB64, 'encoded-painter-vibe');
     expect(payload.vibeConfigListV4.single.referenceStrength, 0.37);
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
   });
 
   test('saveBack preserves ArtistChain structured Recast fields', () async {

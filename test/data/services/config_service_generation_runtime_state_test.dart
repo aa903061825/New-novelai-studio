@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/services/config_service.dart';
 
 void main() {
   late Directory tempDir;
@@ -12,7 +12,7 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp(
-      'nai-casrand-config-service-test-',
+      'novel-studio-config-service-test-',
     );
     Hive.init(tempDir.path);
     testBox = await Hive.openBox('savedBox-test-runtime-state');

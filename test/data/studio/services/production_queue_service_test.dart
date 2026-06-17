@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 void main() {
   late Directory tempDir;
@@ -281,6 +281,77 @@ void main() {
       1,
     );
     expect(rewrittenJson.length, lessThan(legacyJson.length));
+  });
+
+  test('read-only load does not rewrite legacy deterministic plans', () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final sharedVibe = 'encoded-shared-vibe-${List.filled(4096, 'x').join()}';
+    final task1 = ProductionTask.scriptRecastFrame(
+      id: 'task-1',
+      planId: 'plan-refs',
+      title: 'Frame 1',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 1,
+      sourceFileName: 'nai_1.json',
+      payload: {
+        'input': 'first prompt',
+        'parameters': {
+          'seed': 1,
+          'reference_image_multiple': [sharedVibe],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final task2 = ProductionTask.scriptRecastFrame(
+      id: 'task-2',
+      planId: 'plan-refs',
+      title: 'Frame 2',
+      scriptId: 'script-1',
+      recastRunId: 'run-1',
+      frameIndex: 2,
+      sourceFileName: 'nai_2.json',
+      payload: {
+        'input': 'second prompt',
+        'parameters': {
+          'seed': 2,
+          'reference_image_multiple': [sharedVibe],
+          'reference_strength_multiple': [0.45],
+          'reference_information_extracted_multiple': [1.0],
+        },
+      },
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final legacyPlan = ProductionPlan(
+      id: 'plan-refs',
+      name: 'Reference Plan',
+      tasks: [task1, task2],
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final file = File(
+      _workspacePath(
+        tempDir,
+        WorkspacePaths.productionPlanFile('plan-refs'),
+      ),
+    );
+    await file.parent.create(recursive: true);
+    final legacyJson = jsonEncode(legacyPlan.toJson());
+    await file.writeAsString(legacyJson);
+
+    final loaded = await service.loadPlansReadOnly();
+    final rewrittenJson = await file.readAsString();
+
+    expect(loaded.single.id, 'plan-refs');
+    expect(rewrittenJson, legacyJson);
+    expect(
+      RegExp(RegExp.escape(sharedVibe)).allMatches(rewrittenJson).length,
+      2,
+    );
   });
 
   test('saves and loads last-used production execution settings', () async {

@@ -882,6 +882,11 @@ class InspirationEntry {
   final List<String> imageRefs;
   final SourceRef source;
   final String note;
+  final List<String> sourceCategoryPath;
+  final String? sourceParentId;
+  final String? sourceParentName;
+  final String? sourceVariantLabel;
+  final List<InspirationEntry> variants;
 
   const InspirationEntry({
     required this.id,
@@ -892,6 +897,11 @@ class InspirationEntry {
     this.imageRefs = const [],
     this.source = const SourceRef(type: 'manual'),
     this.note = '',
+    this.sourceCategoryPath = const [],
+    this.sourceParentId,
+    this.sourceParentName,
+    this.sourceVariantLabel,
+    this.variants = const [],
   });
 
   factory InspirationEntry.fromJson(dynamic json) {
@@ -910,6 +920,25 @@ class InspirationEntry {
           ? const SourceRef(type: 'manual')
           : SourceRef.fromJson(map['source']),
       note: _stringValue(map['note'], 'inspiration.note'),
+      sourceCategoryPath: _stringList(
+        map['sourceCategoryPath'],
+        'inspiration.sourceCategoryPath',
+      ),
+      sourceParentId: _optionalStringValue(
+        map['sourceParentId'],
+        'inspiration.sourceParentId',
+      ),
+      sourceParentName: _optionalStringValue(
+        map['sourceParentName'],
+        'inspiration.sourceParentName',
+      ),
+      sourceVariantLabel: _optionalStringValue(
+        map['sourceVariantLabel'],
+        'inspiration.sourceVariantLabel',
+      ),
+      variants: _asList(map['variants'], 'inspiration.variants')
+          .map(InspirationEntry.fromJson)
+          .toList(growable: false),
     );
   }
 
@@ -928,6 +957,20 @@ class InspirationEntry {
         'source': source.toJson(),
         if (note.isNotEmpty && _sanitizeWorkspaceString(note) != null)
           'note': note,
+        if (_sanitizeWorkspaceStringList(sourceCategoryPath).isNotEmpty)
+          'sourceCategoryPath':
+              _sanitizeWorkspaceStringList(sourceCategoryPath),
+        if (sourceParentId != null &&
+            _sanitizeWorkspaceString(sourceParentId!) != null)
+          'sourceParentId': sourceParentId,
+        if (sourceParentName != null &&
+            _sanitizeWorkspaceString(sourceParentName!) != null)
+          'sourceParentName': sourceParentName,
+        if (sourceVariantLabel != null &&
+            _sanitizeWorkspaceString(sourceVariantLabel!) != null)
+          'sourceVariantLabel': sourceVariantLabel,
+        if (variants.isNotEmpty)
+          'variants': variants.map((entry) => entry.toJson()).toList(),
       };
 }
 

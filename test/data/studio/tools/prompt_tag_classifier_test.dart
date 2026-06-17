@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 void main() {
   group('PromptTagClassifier', () {
@@ -85,6 +85,17 @@ void main() {
         PromptTagCategory.other,
       );
       expect(cache.entryFor('blue silver hair')?.source, 'rules');
+    });
+
+    test('round trips globally valid compound tags', () {
+      final cache = PromptTagClassificationCache(clock: () => 1710000000)
+        ..confirmValidCompoundTag('Male   Smile');
+
+      final restored = PromptTagClassificationCache.fromJson(cache.toJson());
+
+      expect(restored.isValidCompoundTag('male smile'), isTrue);
+      expect(restored.toJson()['__validCompoundTags'], ['male smile']);
+      expect(restored.entries, isEmpty);
     });
 
     test('ignores legacy negative cache entries in positive prompts', () {

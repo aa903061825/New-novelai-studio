@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
 
 void main() {
   test('batch resolution parser keeps duplicate valid rows', () {

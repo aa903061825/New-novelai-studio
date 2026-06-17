@@ -2,15 +2,17 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:hive/hive.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
-import 'package:nai_casrand/data/studio/tools/stable_id.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/tools/stable_id.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+
+import 'script_recast_ai_cache_mapping_sync.dart';
 
 Future<void> main(List<String> args) => runRegenerateScriptRecastAiCache(args);
 
@@ -142,7 +144,10 @@ Future<void> runRegenerateScriptRecastAiCache(List<String> args) async {
       sourceRootPath: plan.script.rootPath,
       sourceFingerprint: _sourceFingerprint(plan.script),
       updatedAt: DateTime.now().toUtc(),
-      mapping: plan.cache.mapping,
+      mapping: mappingWithAppliedAiRoleExtraction(
+        mapping: plan.cache.mapping,
+        extraction: extraction,
+      ),
       aiRoleExtraction: extraction,
       aiRoleExtractionChunks: const [],
       aiRoleExtractionDraftCollapsed: false,
@@ -364,8 +369,8 @@ class _Options {
     final workspaceRoot = values['workspace'] ??
         [
           appData,
-          'org.exception0x0194',
-          'nai3_autodraw',
+          'Novel Studio',
+          'Novel Studio',
           'novel_studio',
         ].join(Platform.pathSeparator);
     final hiveDir = values['hive-dir'] ??

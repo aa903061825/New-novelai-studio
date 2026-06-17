@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
 
 class I2iTabViewmodel extends ChangeNotifier {
   PayloadConfig get payloadConfig => GetIt.I<PayloadConfig>();

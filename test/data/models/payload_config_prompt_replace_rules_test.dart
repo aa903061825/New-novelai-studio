@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/settings.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/settings.dart';
 
 PayloadConfig _buildPayloadConfig() {
   return PayloadConfig(
@@ -99,7 +99,8 @@ void main() {
     final json = payload.toJson();
 
     expect(json.containsKey('global_generation_params'), isFalse);
-    expect((json['param_config'] as Map<String, dynamic>)['steps'], expectedSteps);
+    expect(
+        (json['param_config'] as Map<String, dynamic>)['steps'], expectedSteps);
     expect(
       (json['param_config'] as Map<String, dynamic>)['negative_prompt'],
       isNot('global uc'),

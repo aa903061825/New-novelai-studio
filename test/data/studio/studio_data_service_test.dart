@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/studio_data_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/studio_data_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 void main() {
   late Directory tempDir;
@@ -58,6 +58,129 @@ void main() {
 
     final characters = await workspaceService.loadCharacters();
     expect(characters.single.name, 'Bundled Character');
+  });
+
+  test(
+      'initializeAt restores richer legacy workspace and clears stale catalog cache',
+      () async {
+    final target = Directory('${tempDir.path}/current');
+    final legacy = Directory('${tempDir.path}/legacy');
+    const previewRef = 'assets/references/characters/peipei.png';
+    final legacyWorkspace = WorkspaceService();
+    await legacyWorkspace.createWorkspace(legacy.path);
+    final previewFile = File(
+      '${legacy.path}${Platform.pathSeparator}'
+      '${previewRef.replaceAll('/', Platform.pathSeparator)}',
+    );
+    await previewFile.parent.create(recursive: true);
+    await previewFile.writeAsBytes([1, 2, 3, 4]);
+    await legacyWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r14',
+        name: '佩佩',
+        traits: ViewVariantTexts(frontFull: 'peipei'),
+        imageRefs: [previewRef],
+        outfits: [
+          WorkspaceOutfit(
+            id: 'default-outfit',
+            name: '默认服装',
+            tags: ViewVariantTexts(frontFull: 'default outfit'),
+            imageRefs: [previewRef],
+          ),
+          WorkspaceOutfit(
+            id: 'default-outfit-copy',
+            name: '默认服装 Copy',
+            tags: ViewVariantTexts(frontFull: 'default outfit copy'),
+            imageRefs: [previewRef],
+          ),
+        ],
+      ),
+    ]);
+
+    final currentWorkspace = WorkspaceService();
+    await currentWorkspace.createWorkspace(target.path);
+    await currentWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character-sheet-r14',
+        name: '佩佩',
+        traits: ViewVariantTexts(frontFull: 'peipei'),
+        outfits: [
+          WorkspaceOutfit(
+            id: 'default-outfit',
+            name: '默认服装',
+            tags: ViewVariantTexts(frontFull: 'default outfit'),
+          ),
+        ],
+      ),
+    ]);
+    final staleCache = File(
+      '${target.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache}',
+    );
+    await staleCache.parent.create(recursive: true);
+    await staleCache.writeAsString('{"schemaVersion":5,"entries":{}}');
+
+    final workspaceService = WorkspaceService();
+    final service = StudioDataService(workspaceService: workspaceService);
+
+    await service.initializeAt(
+      target,
+      legacyWorkspaceRoots: [legacy],
+    );
+
+    final characters = await workspaceService.loadCharacters();
+    final peipei = characters.single;
+    expect(peipei.imageRefs, [previewRef]);
+    expect(
+      peipei.outfits.map((outfit) => outfit.id),
+      contains('default-outfit-copy'),
+    );
+    expect(
+      await File(
+        '${target.path}${Platform.pathSeparator}'
+        '${previewRef.replaceAll('/', Platform.pathSeparator)}',
+      ).exists(),
+      isTrue,
+    );
+    expect(await staleCache.exists(), isFalse);
+  });
+
+  test('initializeAt keeps current workspace when it already has previews',
+      () async {
+    final target = Directory('${tempDir.path}/current');
+    final legacy = Directory('${tempDir.path}/legacy');
+    final legacyWorkspace = WorkspaceService();
+    await legacyWorkspace.createWorkspace(legacy.path);
+    await legacyWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character',
+        name: 'Legacy',
+        traits: ViewVariantTexts(frontFull: 'legacy'),
+        imageRefs: ['assets/references/legacy.png'],
+      ),
+    ]);
+
+    final currentWorkspace = WorkspaceService();
+    await currentWorkspace.createWorkspace(target.path);
+    await currentWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'current-character',
+        name: 'Current',
+        traits: ViewVariantTexts(frontFull: 'current'),
+        imageRefs: ['assets/references/current.png'],
+      ),
+    ]);
+
+    final workspaceService = WorkspaceService();
+    final service = StudioDataService(workspaceService: workspaceService);
+
+    await service.initializeAt(
+      target,
+      legacyWorkspaceRoots: [legacy],
+    );
+
+    final characters = await workspaceService.loadCharacters();
+    expect(characters.single.id, 'current-character');
   });
 
   test('initializeAt opens existing studio data without clearing characters',

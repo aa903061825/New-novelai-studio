@@ -1,13 +1,13 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
 
 CharacterConfig _buildCharacterConfig({
   required List<String> prompts,

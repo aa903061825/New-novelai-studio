@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 typedef PromptTagDragRemover = void Function(Set<int> indexes);
 typedef PromptTagSelectionSnapshotProvider = List<PromptTagSelectionItem>
@@ -143,6 +143,7 @@ class PromptTagSelectionController extends ChangeNotifier {
       <String, PromptTagSelectionField>{};
   final Set<PromptTagSelectionKey> _selected = <PromptTagSelectionKey>{};
   final Set<PromptTagSelectionKey> _previewed = <PromptTagSelectionKey>{};
+  List<_PromptTagSelectionHit>? _selectionSnapshotCache;
   late final String dragOriginId =
       'prompt-tag-shared-${identityHashCode(this)}';
 
@@ -155,10 +156,12 @@ class PromptTagSelectionController extends ChangeNotifier {
 
   void registerField(PromptTagSelectionField field) {
     _fields[field.fieldId] = field;
+    _selectionSnapshotCache = null;
   }
 
   void unregisterField(String fieldId) {
     _fields.remove(fieldId);
+    _selectionSnapshotCache = null;
     final removedSelected = _selected
         .where((entry) => entry.fieldId == fieldId)
         .toList(growable: false);
@@ -183,6 +186,14 @@ class PromptTagSelectionController extends ChangeNotifier {
     return _previewed.contains(
       PromptTagSelectionKey(fieldId: fieldId, index: index),
     );
+  }
+
+  void beginSelectionSnapshot() {
+    _selectionSnapshotCache = _snapshotHits();
+  }
+
+  void endSelectionSnapshot() {
+    _selectionSnapshotCache = null;
   }
 
   Set<int> selectedIndexesFor(String fieldId) {
@@ -424,12 +435,21 @@ class PromptTagSelectionController extends ChangeNotifier {
   }
 
   List<_PromptTagSelectionHit> _intersectingHits(Rect globalRect) {
+    final candidates = _selectionSnapshotCache ?? _snapshotHits();
+    final hits = <_PromptTagSelectionHit>[];
+    for (final hit in candidates) {
+      if (globalRect.overlaps(hit.item.globalRect)) {
+        hits.add(hit);
+      }
+    }
+    return hits;
+  }
+
+  List<_PromptTagSelectionHit> _snapshotHits() {
     final hits = <_PromptTagSelectionHit>[];
     for (final field in _fields.values) {
       for (final item in field.snapshots()) {
-        if (globalRect.overlaps(item.globalRect)) {
-          hits.add(_PromptTagSelectionHit(field: field, item: item));
-        }
+        hits.add(_PromptTagSelectionHit(field: field, item: item));
       }
     }
     return hits;

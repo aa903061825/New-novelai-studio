@@ -3,10 +3,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
-import 'package:nai_casrand/data/studio/tools/stable_id.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/tools/stable_id.dart';
 
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
@@ -2436,8 +2436,8 @@ String _defaultCacheDir() {
   }
   return _joinPath([
     appData,
-    'org.exception0x0194',
-    'nai3_autodraw',
+    'Novel Studio',
+    'Novel Studio',
     'novel_studio',
     'script_recast',
     'cache',

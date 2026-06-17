@@ -1,7 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 
 class WorkbenchTransferActions extends StatelessWidget {
   final WorkbenchTransferViewModel viewModel;

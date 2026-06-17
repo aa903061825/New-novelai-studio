@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/widgets/compact_image_config_card.dart';
-import 'package:nai_casrand/ui/vibe_config/view_models/vibe_config_list_viewmodel.dart';
+import 'package:novel_studio/ui/core/widgets/compact_image_config_card.dart';
+import 'package:novel_studio/ui/vibe_config/view_models/vibe_config_list_viewmodel.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../view_models/vibe_config_viewmodel.dart';

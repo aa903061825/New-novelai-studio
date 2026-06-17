@@ -7,23 +7,24 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_command/flutter_command.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/info_card_content.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/services/studio_director_tool_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_image_operation_service.dart';
-import 'package:nai_casrand/ui/generation_page/models/generation_payload_cache.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/services/file_service.dart';
-import 'package:nai_casrand/data/services/image_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/info_card_content.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
+import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/services/studio_director_tool_service.dart';
+import 'package:novel_studio/data/studio/services/studio_image_operation_service.dart';
+import 'package:novel_studio/ui/generation_page/models/generation_payload_cache.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/services/file_service.dart';
+import 'package:novel_studio/data/services/image_service.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
 
 const infoCardContentListLength = 200;
 
@@ -89,14 +90,20 @@ class GenerationPageViewmodel extends ChangeNotifier {
   int _generatedBatchResolutionCount = 0;
   bool _hasPendingCachedPayloadRetry = false;
   bool _pendingFastRetry429 = false;
+  bool _stopBatchOnGenerationFailure = false;
+  bool _currentCommandFailed = false;
+  bool _useGlobalGenerationParamsForBatch = true;
+  bool _useBatchResolutionForBatch = true;
 
   final GenerationPayloadCache<PayloadGenerationResult> _payloadResultCache =
       GenerationPayloadCache<PayloadGenerationResult>();
 
   bool get _isBatchResolutionEnabled =>
+      _useBatchResolutionForBatch &&
       payloadConfig.paramConfig.enableBatchResolution;
 
   bool get _isStopAtEndBatchResolution =>
+      _isBatchResolutionEnabled &&
       payloadConfig.paramConfig.batchResolutionMode == 'stop_at_end';
 
   bool get _shouldStopAtEndBatchResolution =>
@@ -114,7 +121,11 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
   @protected
   PayloadGenerationResult generatePayloadResult() {
-    return GeneratePayloadUseCase(payloadConfig: payloadConfig)();
+    return GeneratePayloadUseCase(
+      payloadConfig: payloadConfig,
+      useGlobalGenerationParams: _useGlobalGenerationParamsForBatch,
+      useBatchResolution: _useBatchResolutionForBatch,
+    )();
   }
 
   @protected
@@ -598,23 +609,25 @@ class GenerationPageViewmodel extends ChangeNotifier {
     // Generate, postprocess and save image
     commandFunc() async {
       final endpoint = payloadConfig.settings.imageGenerationEndpoint;
+      _currentCommandFailed = false;
 
-      var generatedNewPayload = false;
-      final payloadResult = _payloadResultCache.takeOrGenerate(() {
-        generatedNewPayload = true;
-        return _generateBatchPayloadResult();
-      });
-      if (generatedNewPayload && _isStopAtEndBatchResolution) {
-        _generatedBatchResolutionCount++;
-      }
-
-      final request = ApiRequest(
-        endpoint: endpoint,
-        proxy: payloadConfig.settings.proxy,
-        headers: payloadConfig.getHeaders(),
-        payload: payloadResult.payload,
-      );
+      PayloadGenerationResult? payloadResult;
       try {
+        var generatedNewPayload = false;
+        payloadResult = _payloadResultCache.takeOrGenerate(() {
+          generatedNewPayload = true;
+          return _generateBatchPayloadResult();
+        });
+        if (generatedNewPayload && _isStopAtEndBatchResolution) {
+          _generatedBatchResolutionCount++;
+        }
+
+        final request = ApiRequest(
+          endpoint: endpoint,
+          proxy: payloadConfig.settings.proxy,
+          headers: payloadConfig.getHeaders(),
+          payload: payloadResult.payload,
+        );
         final response = await fetchData(request);
         final statusCode = int.tryParse(response.status) ?? 0;
         if (statusCode < 200 || statusCode >= 300) {
@@ -665,15 +678,18 @@ class GenerationPageViewmodel extends ChangeNotifier {
           imageBytes: imageBytes,
         );
       } catch (e) {
-        _hasPendingCachedPayloadRetry = true;
+        _currentCommandFailed = true;
+        _hasPendingCachedPayloadRetry = payloadResult != null;
         _pendingFastRetry429 = e is ApiStatusException &&
             e.statusCode == 429 &&
             payloadConfig.settings.retryOn429Enabled;
         return InfoCardContent(
-          title: 'Error occurred in generation process.',
+          title: '生成失败',
           info: e.toString(),
-          additionalInfo: digestPayloadResult(payloadResult),
-          contentOrderText: payloadResult.contentOrderText,
+          additionalInfo: payloadResult == null
+              ? const {}
+              : digestPayloadResult(payloadResult),
+          contentOrderText: payloadResult?.contentOrderText,
         );
       }
     }
@@ -688,6 +704,11 @@ class GenerationPageViewmodel extends ChangeNotifier {
       // Only update after execution
       if (command.isExecuting.value) return;
       if (!commandStatus.isBatchActive.value) return;
+
+      if (_currentCommandFailed && _stopBatchOnGenerationFailure) {
+        stopBatch(clearPendingResume: true);
+        return;
+      }
 
       commandStatus.currentBatchCount++;
       if (commandStatus.currentTotalCount >=
@@ -728,13 +749,25 @@ class GenerationPageViewmodel extends ChangeNotifier {
     startBatchFromScratch();
   }
 
-  void startSingleImageGeneration() {
-    payloadConfig.settings.numberOfRequests = 1;
-    payloadConfig.settings.batchCount = 1;
-    startBatchFromScratch();
+  void startSingleImageGeneration({int count = 1}) {
+    final requestCount = max(1, count);
+    payloadConfig.settings.numberOfRequests = requestCount;
+    payloadConfig.settings.batchCount = requestCount;
+    startBatchFromScratch(
+      stopOnFailure: true,
+      useGlobalGenerationParams: false,
+      useBatchResolution: false,
+    );
   }
 
-  void startBatchFromScratch() {
+  void startBatchFromScratch({
+    bool stopOnFailure = false,
+    bool useGlobalGenerationParams = true,
+    bool useBatchResolution = true,
+  }) {
+    _stopBatchOnGenerationFailure = stopOnFailure;
+    _useGlobalGenerationParamsForBatch = useGlobalGenerationParams;
+    _useBatchResolutionForBatch = useBatchResolution;
     unawaited(_startBatchWithCurrentConfig(initialTotalCount: 0));
   }
 
@@ -752,6 +785,9 @@ class GenerationPageViewmodel extends ChangeNotifier {
     if (finiteTarget != 0 && startNumber > finiteTarget) {
       return;
     }
+    _stopBatchOnGenerationFailure = false;
+    _useGlobalGenerationParamsForBatch = true;
+    _useBatchResolutionForBatch = true;
     unawaited(
       _startBatchWithCurrentConfig(
         initialTotalCount: max(0, startNumber - 1),
@@ -844,6 +880,10 @@ class GenerationPageViewmodel extends ChangeNotifier {
     _generatedBatchResolutionCount = 0;
     _hasPendingCachedPayloadRetry = false;
     _pendingFastRetry429 = false;
+    _stopBatchOnGenerationFailure = false;
+    _currentCommandFailed = false;
+    _useGlobalGenerationParamsForBatch = true;
+    _useBatchResolutionForBatch = true;
     if (clearPendingResume) {
       _clearPendingBatchResumeState();
     } else if (_shouldPersistPendingBatchResume) {
@@ -968,15 +1008,12 @@ class GenerationPageViewmodel extends ChangeNotifier {
   /// Make PayloadResult readable for better visualization.
   Map<String, dynamic> digestPayloadResult(
       PayloadGenerationResult payloadResult) {
-    // 明确将 payload 转换为可空动态类型
     final additionalInfo = Map<String, dynamic>.from(payloadResult.payload);
-
-    // 使用 Map.from 确保 parameters 的类型为 Map<String, dynamic>
+    final document = GenerationPayloadDocument.fromMap(additionalInfo);
     final additionalInfoParam = Map<String, dynamic>.from(
-      additionalInfo['parameters']! as Map,
+      document.parameters,
     );
 
-    // 移除不需要的键
     for (final key in [
       'reference_image_multiple',
       'reference_information_extracted_multiple',
@@ -992,9 +1029,9 @@ class GenerationPageViewmodel extends ChangeNotifier {
       additionalInfoParam.remove(key);
     }
 
+    additionalInfo['input'] = document.positivePrompt;
+    additionalInfo['negativePrompt'] = document.negativePrompt;
     additionalInfo.remove('parameters');
-
-    // 合并时使用显式类型转换
     additionalInfo.addAll(additionalInfoParam.cast<String, dynamic>());
 
     return additionalInfo;

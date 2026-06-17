@@ -1,13 +1,14 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
 
 PayloadConfig _buildPayloadConfig({
   required List<PromptReplaceRule> rules,
@@ -130,6 +131,62 @@ void main() {
           as Map<String, dynamic>)['base_caption'],
       'config only uc',
     );
+  });
+
+  test('can explicitly ignore global generation params', () {
+    final payloadConfig = _buildPayloadConfig(rules: const []);
+    payloadConfig.paramConfig.steps = 21;
+    payloadConfig.paramConfig.scale = 7.3;
+    payloadConfig.paramConfig.cfgRescale = 0.2;
+    payloadConfig.paramConfig.sampler = 'k_dpmpp_2m';
+    payloadConfig.paramConfig.negativePrompt = 'config only uc';
+
+    payloadConfig.globalGenerationParams
+      ..useGlobalSteps = true
+      ..useGlobalScale = true
+      ..useGlobalCfgRescale = true
+      ..useGlobalSampler = true
+      ..useGlobalNegativePrompt = true
+      ..steps = 15
+      ..scale = 8.2
+      ..cfgRescale = 0.45
+      ..sampler = 'k_euler'
+      ..negativePrompt = 'global uc';
+
+    final result = GeneratePayloadUseCase(
+      payloadConfig: payloadConfig,
+      useGlobalGenerationParams: false,
+    )();
+    final params = result.payload['parameters'] as Map<String, dynamic>;
+
+    expect(params['steps'], 21);
+    expect(params['scale'], 7.3);
+    expect(params['cfg_rescale'], 0.2);
+    expect(params['sampler'], 'k_dpmpp_2m');
+    expect(params['negative_prompt'], 'config only uc');
+    expect(
+      ((params['v4_negative_prompt'] as Map<String, dynamic>)['caption']
+          as Map<String, dynamic>)['base_caption'],
+      'config only uc',
+    );
+  });
+
+  test('can explicitly ignore batch resolution params', () {
+    final payloadConfig = _buildPayloadConfig(rules: const []);
+    payloadConfig.paramConfig
+      ..sizes = const [GenerationSize(width: 1472, height: 704)]
+      ..enableBatchResolution = true
+      ..batchResolutionMode = 'loop'
+      ..batchResolutionText = '704x1472';
+
+    final result = GeneratePayloadUseCase(
+      payloadConfig: payloadConfig,
+      useBatchResolution: false,
+    )();
+    final params = result.payload['parameters'] as Map<String, dynamic>;
+
+    expect(params['width'], 1472);
+    expect(params['height'], 704);
   });
 
   test('replaces base/character/override prompts but keeps UC unchanged', () {

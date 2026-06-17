@@ -1,0 +1,1581 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>脚本替换 UI 原型：源词组合 + 角色独立目标词库</title>
+    <style>
+      :root {
+        --bg: #090c10;
+        --surface-1: #10151c;
+        --surface-2: #151b23;
+        --surface-3: #1c2430;
+        --surface-4: #263343;
+        --line: #2d3847;
+        --line-strong: #46576c;
+        --text: #f4f7fb;
+        --soft: #c6d1de;
+        --muted: #8391a4;
+        --primary: #7ce4c8;
+        --primary-soft: rgb(124 228 200 / 13%);
+        --info: #7fb7ff;
+        --accent: #c7a6ff;
+        --warning: #ffca66;
+        --danger: #ff7b72;
+        --active: #9fd16f;
+        --shadow: 0 18px 52px rgb(0 0 0 / 32%);
+        font-family:
+          "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui,
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1240px;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 18% 0, rgb(124 228 200 / 9%), transparent 26%),
+          linear-gradient(180deg, #0c1118 0, var(--bg) 58%, #07090d 100%);
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      .shell {
+        display: grid;
+        gap: 12px;
+        padding: 18px 22px 28px;
+      }
+
+      .panel,
+      .note,
+      .material-card,
+      .source-card,
+      .pool-card,
+      .status-card {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .note {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px;
+      }
+
+      .eyebrow {
+        margin-bottom: 4px;
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .note h1 {
+        font-size: 21px;
+      }
+
+      .muted,
+      .hint,
+      .meta,
+      .zh {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .topbar,
+      .tabs,
+      .row,
+      .chip-row,
+      .card-actions,
+      .source-meta,
+      .pool-head,
+      .footer-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .topbar {
+        justify-content: space-between;
+        padding: 12px 14px;
+      }
+
+      .tabs {
+        flex-wrap: wrap;
+      }
+
+      .tab,
+      .button,
+      .icon-button,
+      .select-like {
+        min-height: 32px;
+        padding: 0 11px;
+        color: var(--soft);
+        background: var(--surface-3);
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .tab.active,
+      .button.primary {
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-color: var(--primary);
+        font-weight: 850;
+      }
+
+      .button.danger {
+        color: var(--danger);
+        border-color: rgb(255 123 114 / 62%);
+      }
+
+      .icon-button {
+        width: 32px;
+        padding: 0;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr) 360px;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .material-drawer,
+      .source-layer,
+      .target-layer {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+
+      .material-drawer {
+        position: sticky;
+        top: 12px;
+      }
+
+      .section-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .section-title h2 {
+        font-size: 15px;
+      }
+
+      .material-card {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 10px;
+        box-shadow: none;
+      }
+
+      .material-card.dragging {
+        opacity: 0.58;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        color: #061814;
+        background: var(--primary);
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .source-group,
+      .pool-group {
+        overflow: hidden;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .group-head,
+      .pool-head {
+        justify-content: space-between;
+        padding: 10px 11px;
+        background: var(--surface-1);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .group-title {
+        display: grid;
+        gap: 2px;
+      }
+
+      .group-title strong {
+        font-size: 14px;
+      }
+
+      .source-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        padding: 10px;
+      }
+
+      .source-card {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        max-width: 100%;
+        min-height: 40px;
+        padding: 6px 8px;
+        box-shadow: none;
+      }
+
+      .source-card.active {
+        border-color: var(--primary);
+        background: rgb(124 228 200 / 5%);
+        box-shadow: 0 0 0 2px rgb(124 228 200 / 20%);
+      }
+
+      .source-card.marquee-hit {
+        border-color: var(--primary);
+        background: rgb(124 228 200 / 8%);
+      }
+
+      .source-card.mapped {
+        border-color: var(--accent);
+      }
+
+      .source-card.deleted {
+        border-color: rgb(255 123 114 / 56%);
+      }
+
+      .source-card.excluded {
+        opacity: 0.55;
+      }
+
+      .source-card.drag-over,
+      .pool-card.drag-over,
+      .drop-zone.drag-over {
+        border-color: var(--primary);
+        background: var(--primary-soft);
+      }
+
+      .source-slot,
+      .target-slot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        min-width: 0;
+      }
+
+      .target-slot {
+        max-width: 360px;
+      }
+
+      .target-slot.empty {
+        min-width: 0;
+        min-height: 30px;
+        padding: 0;
+        color: var(--muted);
+        background: transparent;
+        border: 0;
+        font-size: 12px;
+      }
+
+      .arrow {
+        color: var(--primary);
+        font-weight: 900;
+      }
+
+      .tag {
+        --cat: var(--primary);
+        display: inline-grid;
+        grid-template-columns: 3px minmax(0, auto);
+        gap: 7px;
+        max-width: 240px;
+        min-height: 30px;
+        padding: 5px 8px 5px 6px;
+        color: var(--soft);
+        background: var(--surface-3);
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        font-size: 12px;
+        vertical-align: middle;
+      }
+
+      .tag::before {
+        content: "";
+        width: 3px;
+        min-height: 18px;
+        align-self: stretch;
+        border-radius: 999px;
+        background: var(--cat);
+      }
+
+      .tag-body {
+        display: grid;
+        min-width: 0;
+      }
+
+      .tag-text,
+      .tag-zh {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tag-zh {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .target-tag {
+        border-color: var(--accent);
+      }
+
+      .source-card .source-token {
+        max-width: 210px;
+        min-height: 30px;
+        padding: 4px 7px 4px 5px;
+        background: var(--surface-3);
+        border-color: var(--line-strong);
+      }
+
+      .source-card .source-token::before {
+        min-height: 20px;
+      }
+
+      .source-card.active .source-token {
+        background: var(--surface-2);
+        border-color: rgb(124 228 200 / 46%);
+      }
+
+      .source-card .source-token + .source-token {
+        margin-left: 2px;
+      }
+
+      .deleted-label {
+        color: var(--danger);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        padding: 2px 7px;
+        color: var(--muted);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 11px;
+      }
+
+      .frame-icon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        color: rgb(124 228 200 / 84%);
+        background: var(--surface-1);
+        border: 1px solid rgb(124 228 200 / 42%);
+        border-radius: 6px;
+        opacity: 0.82;
+      }
+
+      .frame-icon::before,
+      .frame-icon::after {
+        content: "";
+        position: absolute;
+      }
+
+      .frame-icon::before {
+        width: 9px;
+        height: 7px;
+        border: 1.5px solid currentColor;
+        border-radius: 2px;
+      }
+
+      .frame-icon::after {
+        width: 12px;
+        height: 2px;
+        border-top: 2px dotted currentColor;
+        border-bottom: 2px dotted currentColor;
+      }
+
+      .frame-icon:hover {
+        color: var(--primary);
+        opacity: 1;
+      }
+
+      .source-card:not(.mapped):not(.deleted):not(.excluded) {
+        gap: 4px;
+      }
+
+      .source-card:not(.mapped):not(.deleted):not(.excluded) .frame-icon {
+        margin-left: -2px;
+      }
+
+      .source-card:not(:hover):not(.active) .delete-x {
+        display: none;
+      }
+
+      .pool-card {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+      }
+
+      .compact-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .tiny-button {
+        min-width: 24px;
+        height: 24px;
+        padding: 0 6px;
+        color: var(--muted);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-size: 11px;
+      }
+
+      .delete-x {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        color: var(--muted);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+
+      .source-card .delete-x {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        z-index: 2;
+      }
+
+      .delete-x:hover {
+        color: var(--danger);
+        border-color: var(--danger);
+      }
+
+      .pool-drop {
+        min-height: 42px;
+        padding: 10px;
+        color: var(--muted);
+        background: var(--surface-1);
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .target-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .tag-add-button {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        color: #061814;
+        background: var(--primary);
+        border: 1px solid var(--primary);
+        border-radius: 7px;
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .tag-add-button:hover {
+        filter: brightness(1.08);
+      }
+
+      .tag-add-input {
+        display: inline-grid;
+        grid-template-columns: 170px 30px;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .tag-add-submit {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        color: var(--primary);
+        background: var(--primary-soft);
+        border: 1px solid var(--primary);
+        border-radius: 7px;
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      .tag-add-input input,
+      .search input {
+        min-height: 32px;
+        color: var(--text);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 0 9px;
+        outline: 0;
+      }
+
+      .tag-add-input input:focus,
+      .search input:focus {
+        border-color: var(--primary);
+      }
+
+      .drop-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+
+      .drop-zone {
+        min-height: 70px;
+        padding: 10px;
+        background: var(--surface-1);
+        border: 1px dashed var(--line-strong);
+        border-radius: 8px;
+      }
+
+      .drop-zone.danger.drag-over {
+        border-color: var(--danger);
+        background: rgb(255 123 114 / 9%);
+      }
+
+      .status-card {
+        display: grid;
+        gap: 7px;
+        padding: 11px;
+        box-shadow: none;
+      }
+
+      .search {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .search input {
+        width: 280px;
+      }
+
+      .footer-actions {
+        justify-content: flex-end;
+      }
+
+      .selection-marquee {
+        position: fixed;
+        z-index: 9999;
+        pointer-events: none;
+        border: 1px solid var(--primary);
+        border-radius: 6px;
+        background: rgb(124 228 200 / 12%);
+        box-shadow: 0 0 0 1px rgb(124 228 200 / 16%) inset;
+      }
+
+      body.is-marquee-selecting {
+        cursor: crosshair;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="note">
+        <div>
+          <p class="eyebrow">Throwaway Prototype</p>
+          <h1>源词组合 + 当前角色待替换词库</h1>
+          <p class="muted">
+            目标：验证“每个角色独立词库、右侧拖入目标词、左侧源词可多选和组合、源词显示 xxx → xxx”的交互。
+          </p>
+        </div>
+        <div class="footer-actions">
+          <button class="button" id="resetButton" type="button">重置样本</button>
+          <button class="button primary" id="combineSelectedButton" type="button">组合选中源词</button>
+        </div>
+      </section>
+
+      <section class="panel topbar">
+        <div class="tabs" id="roleTabs"></div>
+        <label class="search">
+          <span class="muted">搜索源词</span>
+          <input id="searchInput" type="search" placeholder="源词 / 目标词 / 翻译 / 分类" />
+        </label>
+      </section>
+
+      <section class="workspace">
+        <aside class="material-drawer">
+          <div class="section-title">
+            <h2>素材抽屉</h2>
+            <span class="badge">拖到右侧词库</span>
+          </div>
+          <div id="materialCards"></div>
+          <section class="status-card">
+            <strong>拖拽规则</strong>
+            <p class="muted">拖角色卡：把角色卡所有词按分类加入当前角色右侧词库。</p>
+            <p class="muted">拖 Outfit：加入上装、下装、状态、饰品。</p>
+            <p class="muted">拖右侧目标词到左侧源词：建立替换映射。</p>
+            <p class="muted">拖左侧源词到另一个源词：组合为一条来源规则。</p>
+          </section>
+        </aside>
+
+        <section class="source-layer">
+          <div class="section-title">
+            <div>
+              <h2>左侧源词层</h2>
+              <p class="muted">源词可以多选、互相拖拽组合；已映射时直接显示“源词 → 目标词”。</p>
+            </div>
+            <span class="badge" id="sourceSummary">0 个源词</span>
+          </div>
+          <div id="sourceGroups"></div>
+          <div class="drop-row">
+          <section class="drop-zone danger" data-source-drop="delete">
+            <strong>拖到这里删除</strong>
+              <p class="hint">也可以点卡片尾部 x。</p>
+            </section>
+            <section class="drop-zone" data-source-drop="exclude">
+              <strong>拖到这里不替换</strong>
+              <p class="hint">保留原词，但不生成替换规则。</p>
+            </section>
+            <section class="drop-zone" data-source-drop="clear">
+              <strong>拖到这里清空目标</strong>
+              <p class="hint">保留源词，取消 xxx → xxx。</p>
+            </section>
+          </div>
+        </section>
+
+        <aside class="target-layer">
+          <div class="section-title">
+            <div>
+              <h2>右侧待替换区</h2>
+              <p class="muted">这是当前角色自己的目标词库，不和其它角色共用。</p>
+            </div>
+            <span class="badge" id="targetSummary">0 个目标词</span>
+          </div>
+          <div id="targetPools"></div>
+          <section class="status-card">
+            <strong>当前状态</strong>
+            <div id="statePreview" class="muted"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const categories = {
+        identity: ["身份", "#7ce4c8"],
+        upperBody: ["上身", "#7fb7ff"],
+        lowerBody: ["下身", "#8aa6ff"],
+        upperClothing: ["上装", "#c7a6ff"],
+        lowerClothing: ["下装", "#f59bd3"],
+        state: ["服装状态", "#ffca66"],
+        accessory: ["饰品/装饰", "#9fd16f"],
+        scene: ["场景", "#d6a1ff"],
+      };
+
+      const zh = {
+        "wakamo (blue_archive)": "若藻",
+        girl: "女孩",
+        "fox ears": "狐耳",
+        "red halo": "红色光环",
+        "white tanktop": "白色背心",
+        "black shorts": "黑色短裤",
+        "black kimono": "黑色和服",
+        "red kimono": "红色和服",
+        "string bikini": "细带比基尼",
+        "bead bracelet": "珠串手链",
+        "black choker": "黑色颈圈",
+        "muscular male": "肌肉男",
+        "dark-skinned male": "深色皮肤男性",
+        "male grey shirt": "男性灰衬衫",
+        "male black pants": "男性黑裤子",
+        "male black swimsuit": "男性黑泳装",
+        lily: "莉莉",
+        "silver hair": "银发",
+        "blue eyes": "蓝眼睛",
+        "small horns": "小角",
+        "white dress": "白色连衣裙",
+        "lace trim": "蕾丝边",
+        "pleated skirt": "百褶裙",
+        "blue kimono": "蓝色和服",
+        "white bikini": "白色比基尼",
+        "school uniform": "校服",
+        "wet clothes": "湿衣服",
+        "rainy city street": "雨夜城市街道",
+        daytime: "白天",
+      };
+
+      const materialCards = [
+        {
+          id: "char-lily",
+          kind: "角色",
+          title: "莉莉",
+          description: "拖入后加入身份、外观、服装词",
+          terms: [
+            token("lily", "identity"),
+            token("silver hair", "upperBody"),
+            token("blue eyes", "upperBody"),
+            token("small horns", "upperBody"),
+            token("white dress", "upperClothing"),
+            token("pleated skirt", "lowerClothing"),
+          ],
+        },
+        {
+          id: "outfit-dress",
+          kind: "衣",
+          title: "白礼服套装",
+          description: "拖入后加入上装、下装、状态、饰品",
+          terms: [
+            token("white dress", "upperClothing"),
+            token("lace trim", "accessory"),
+            token("pleated skirt", "lowerClothing"),
+          ],
+        },
+        {
+          id: "outfit-swim",
+          kind: "衣",
+          title: "泳装",
+          description: "拖入后加入泳装状态",
+          terms: [
+            token("white bikini", "upperClothing"),
+            token("wet clothes", "state"),
+            token("black choker", "accessory"),
+          ],
+        },
+      ];
+
+      const seedRoles = [
+        {
+          id: "role-1",
+          name: "角色 1 · wakamo",
+          sources: [
+            source("wakamo (blue_archive)", "identity", "1,2,3,4,5,6,+184"),
+            source("girl", "identity", "1-6,+184"),
+            source("fox ears", "upperBody", "1-6,+184"),
+            source("red halo", "upperBody", "1-6,+184"),
+            source("white tanktop", "upperClothing", "1-4"),
+            source("black shorts", "lowerClothing", "1-4"),
+            source("black kimono", "upperClothing", "7-9"),
+            source("red kimono", "upperClothing", "7-9"),
+            source("string bikini", "upperClothing", "10-14"),
+            source("bead bracelet", "accessory", "1-9"),
+            source("black choker", "accessory", "10-14"),
+          ],
+          targets: [
+            token("lily", "identity"),
+            token("silver hair", "upperBody"),
+            token("white dress", "upperClothing"),
+            token("pleated skirt", "lowerClothing"),
+            token("lace trim", "accessory"),
+          ],
+        },
+        {
+          id: "role-2",
+          name: "角色 2 · muscular male",
+          sources: [
+            source("muscular male", "identity", "9,10,11,12,13,14,+136"),
+            source("dark-skinned male", "upperBody", "9-14,+136"),
+            source("male grey shirt", "upperClothing", "9-12"),
+            source("male black pants", "lowerClothing", "9-12"),
+            source("male black swimsuit", "upperClothing", "13-14"),
+          ],
+          targets: [
+            token("lily", "identity"),
+            token("school uniform", "upperClothing"),
+            token("pleated skirt", "lowerClothing"),
+          ],
+        },
+      ];
+
+      function source(text, category, frames) {
+        return {
+          id: `src-${text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+          text,
+          category,
+          frames,
+          targetIds: [],
+          status: "",
+          members: null,
+        };
+      }
+
+      function token(text, category) {
+        return {
+          id: `tar-${category}-${text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+          text,
+          category,
+        };
+      }
+
+      let state = {
+        activeRoleId: seedRoles[0].id,
+        selectedSourceIds: new Set(),
+        editingTargetCategory: "",
+        search: "",
+        roles: structuredClone(seedRoles),
+      };
+      let dragPayload = null;
+      let marqueeState = null;
+      let suppressNextClick = false;
+
+      const roleTabs = document.querySelector("#roleTabs");
+      const materialHost = document.querySelector("#materialCards");
+      const sourceGroups = document.querySelector("#sourceGroups");
+      const targetPools = document.querySelector("#targetPools");
+      const sourceSummary = document.querySelector("#sourceSummary");
+      const targetSummary = document.querySelector("#targetSummary");
+      const statePreview = document.querySelector("#statePreview");
+      const searchInput = document.querySelector("#searchInput");
+
+      function activeRole() {
+        return state.roles.find((role) => role.id === state.activeRoleId) || state.roles[0];
+      }
+
+      function render() {
+        renderRoleTabs();
+        renderMaterials();
+        renderSources();
+        renderTargets();
+        renderState();
+      }
+
+      function renderRoleTabs() {
+        roleTabs.innerHTML = state.roles
+          .map((role) => `
+            <button class="tab ${role.id === state.activeRoleId ? "active" : ""}" data-role="${role.id}" type="button">
+              ${escapeHtml(role.name)}
+            </button>
+          `)
+          .join("");
+      }
+
+      function renderMaterials() {
+        materialHost.innerHTML = materialCards
+          .map((card) => `
+            <article class="material-card" draggable="true" data-material="${card.id}">
+              <div class="mark">${escapeHtml(card.kind)}</div>
+              <div>
+                <strong>${escapeHtml(card.title)}</strong>
+                <p class="muted">${escapeHtml(card.description)}</p>
+                <div class="chip-row">${card.terms.slice(0, 3).map(renderTargetTag).join("")}</div>
+              </div>
+            </article>
+          `)
+          .join("");
+      }
+
+      function renderSources() {
+        const role = activeRole();
+        const q = state.search.trim().toLowerCase();
+        const visible = role.sources.filter((item) => {
+          if (item.status === "combined") return false;
+          if (!q) return true;
+          const targetText = item.targetIds.map((id) => targetById(role, id)?.text || "").join(" ");
+          return [item.text, item.members?.join(" "), item.frames, targetText, zh[item.text] || ""]
+            .join(" ")
+            .toLowerCase()
+            .includes(q);
+        });
+        const grouped = groupBy(visible, (item) => item.category);
+        sourceSummary.textContent = `${visible.length} 个源词 · ${state.selectedSourceIds.size} 个已选`;
+        sourceGroups.innerHTML = Object.entries(grouped)
+          .map(([category, items]) => renderSourceGroup(category, items))
+          .join("") || emptyBlock("没有匹配的源词");
+      }
+
+      function renderSourceGroup(category, items) {
+        const [label] = categories[category] || [category];
+        return `
+          <section class="source-group">
+            <header class="group-head row">
+              <div class="group-title">
+                <strong>${escapeHtml(label)}</strong>
+                <span class="muted">${items.length} 个 · ${items.filter((item) => item.targetIds.length).length} 个已映射</span>
+              </div>
+              <button class="button" data-select-category="${category}" type="button">选择本组</button>
+            </header>
+            <div class="source-list">${items.map(renderSourceCard).join("")}</div>
+          </section>
+        `;
+      }
+
+      function renderSourceCard(item) {
+        const role = activeRole();
+        const selected = state.selectedSourceIds.has(item.id);
+        const targetItems = item.targetIds.map((id) => targetById(role, id)).filter(Boolean);
+        const statusHtml =
+          item.status === "deleted"
+            ? `<span class="deleted-label">删除</span>`
+            : item.status === "excluded"
+              ? `<span class="badge">不替换</span>`
+              : "";
+        const targetHtml = statusHtml || targetItems.map(renderTargetTag).join("");
+        const hasResult = Boolean(targetHtml);
+        const classes = ["source-card"];
+        if (selected) classes.push("active");
+        if (targetItems.length && !statusHtml) classes.push("mapped");
+        if (item.status === "deleted") classes.push("deleted");
+        if (item.status === "excluded") classes.push("excluded");
+        return `
+          <article class="${classes.join(" ")}" draggable="true" data-source="${item.id}">
+            <div class="source-slot">
+              ${renderSourceTokens(item)}
+              <span class="frame-icon" title="出现帧：${escapeHtml(item.frames)}" aria-label="出现帧：${escapeHtml(item.frames)}"></span>
+            </div>
+            ${hasResult ? `
+              <span class="arrow">→</span>
+              <div class="target-slot">${targetHtml}</div>
+            ` : ""}
+            <button class="delete-x" data-delete-source="${item.id}" type="button">×</button>
+          </article>
+        `;
+      }
+
+      function renderTargets() {
+        const role = activeRole();
+        const grouped = groupBy(role.targets, (item) => item.category);
+        targetSummary.textContent = `${role.targets.length} 个目标词`;
+        targetPools.innerHTML = Object.keys(categories)
+          .filter((category) => category !== "scene")
+          .map((category) => renderTargetPool(category, grouped[category] || []))
+          .join("");
+      }
+
+      function renderTargetPool(category, items) {
+        const [label] = categories[category] || [category];
+        const addControl = state.editingTargetCategory === category
+          ? `
+            <span class="tag-add-input">
+              <input data-add-input="${category}" placeholder="输入标签，逗号可批量分割" />
+              <button class="tag-add-submit" data-add-target="${category}" type="button" title="添加标签">✓</button>
+            </span>
+          `
+          : `<button class="tag-add-button" data-open-add="${category}" type="button" title="添加标签">+</button>`;
+        return `
+          <section class="pool-card" data-target-pool="${category}">
+            <header class="pool-head">
+              <div>
+                <strong>${escapeHtml(label)}</strong>
+                <span class="muted">${items.length} 个</span>
+              </div>
+            </header>
+            <div class="target-tags">
+              ${items.map(renderTargetTag).join("") || `<span class="hint">把素材拖到这里，或手动添加</span>`}
+              ${addControl}
+            </div>
+          </section>
+        `;
+      }
+
+      function renderSourceTokens(item) {
+        const parts = item.members || [item.text];
+        return parts
+          .map((text, index) =>
+            renderTagLike({
+              text,
+              category: item.category,
+              className: "source-token",
+              draggable: true,
+              attr: `data-source-token="${item.id}" data-token-index="${index}"`,
+            }),
+          )
+          .join("");
+      }
+
+      function renderTargetTag(item) {
+        return renderTagLike({
+          text: item.text,
+          category: item.category,
+          className: "target-tag",
+          draggable: true,
+          attr: `data-target="${item.id}"`,
+        });
+      }
+
+      function renderTagLike({ text, category, className = "", draggable = false, attr = "" }) {
+        const [, color] = categories[category] || ["", "#7ce4c8"];
+        return `
+          <span class="tag ${className}" style="--cat:${color}" ${draggable ? 'draggable="true"' : ""} ${attr}>
+            <span class="tag-body">
+              <span class="tag-text">${escapeHtml(text)}</span>
+              <span class="tag-zh">${escapeHtml(translationForText(text))}</span>
+            </span>
+          </span>
+        `;
+      }
+
+      function renderState() {
+        const role = activeRole();
+        const mapped = role.sources.filter((item) => item.targetIds.length && !item.status).length;
+        const deleted = role.sources.filter((item) => item.status === "deleted").length;
+        const excluded = role.sources.filter((item) => item.status === "excluded").length;
+        const groups = role.sources.filter((item) => item.members && item.status !== "combined").length;
+        statePreview.innerHTML = `
+          <p>当前角色：${escapeHtml(role.name)}</p>
+          <p>已映射 ${mapped} 条；组合 ${groups} 条；删除 ${deleted} 条；不替换 ${excluded} 条。</p>
+          <p>右侧词库不会影响其它角色。切换顶部角色可以验证。</p>
+        `;
+      }
+
+      function translationForText(text) {
+        if (zh[text]) return zh[text];
+        return text
+          .split(" + ")
+          .map((part) => zh[part] || part)
+          .join(" + ");
+      }
+
+      document.addEventListener("click", (event) => {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
+
+        const roleButton = event.target.closest("[data-role]");
+        if (roleButton) {
+          state.activeRoleId = roleButton.dataset.role;
+          state.selectedSourceIds.clear();
+          state.editingTargetCategory = "";
+          render();
+          return;
+        }
+
+        const sourceCard = event.target.closest("[data-source]");
+        if (sourceCard && !event.target.closest("button") && !event.target.closest("input")) {
+          toggleSourceSelection(sourceCard.dataset.source, event);
+          render();
+          return;
+        }
+
+        const selectCategory = event.target.closest("[data-select-category]");
+        if (selectCategory) {
+          const ids = activeRole().sources
+            .filter((item) => item.category === selectCategory.dataset.selectCategory && item.status !== "combined")
+            .map((item) => item.id);
+          state.selectedSourceIds = new Set(ids);
+          render();
+          return;
+        }
+
+        const openAdd = event.target.closest("[data-open-add]");
+        if (openAdd) {
+          state.editingTargetCategory = openAdd.dataset.openAdd;
+          renderTargets();
+          focusTargetAddInput(state.editingTargetCategory);
+          return;
+        }
+
+        const add = event.target.closest("[data-add-target]");
+        if (add) {
+          submitTargetAddInput(add.dataset.addTarget);
+          return;
+        }
+
+        const clear = event.target.closest("[data-clear-source]");
+        if (clear) {
+          updateSource(clear.dataset.clearSource, (item) => {
+            item.targetIds = [];
+            item.status = "";
+          });
+          render();
+          return;
+        }
+
+        const deleteSource = event.target.closest("[data-delete-source]");
+        if (deleteSource) {
+          updateSource(deleteSource.dataset.deleteSource, (item) => {
+            const shouldDelete = item.status !== "deleted";
+            item.status = shouldDelete ? "deleted" : "";
+            if (shouldDelete) item.targetIds = [];
+          });
+          render();
+        }
+      });
+
+      document.querySelector("#combineSelectedButton").addEventListener("click", () => {
+        combineSources([...state.selectedSourceIds]);
+        render();
+      });
+
+      document.querySelector("#resetButton").addEventListener("click", () => {
+        state = {
+          activeRoleId: seedRoles[0].id,
+          selectedSourceIds: new Set(),
+          editingTargetCategory: "",
+          search: "",
+          roles: structuredClone(seedRoles),
+        };
+        searchInput.value = "";
+        render();
+      });
+
+      searchInput.addEventListener("input", () => {
+        state.search = searchInput.value;
+        renderSources();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const input = event.target.closest("[data-add-input]");
+        if (!input) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submitTargetAddInput(input.dataset.addInput);
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          state.editingTargetCategory = "";
+          renderTargets();
+        }
+      });
+
+      document.addEventListener("pointerdown", (event) => {
+        if (!canStartMarquee(event)) return;
+        const sourceRoot = event.target.closest(".source-layer");
+        const marquee = document.createElement("div");
+        marquee.className = "selection-marquee";
+        document.body.append(marquee);
+        marqueeState = {
+          startX: event.clientX,
+          startY: event.clientY,
+          currentIds: new Set(),
+          baseIds: event.ctrlKey || event.metaKey || event.shiftKey ? new Set(state.selectedSourceIds) : new Set(),
+          additive: event.ctrlKey || event.metaKey || event.shiftKey,
+          started: false,
+          marquee,
+          sourceRoot,
+        };
+        document.body.classList.add("is-marquee-selecting");
+        event.preventDefault();
+      });
+
+      document.addEventListener("pointermove", (event) => {
+        if (!marqueeState) return;
+        const rect = rectFromPoints(marqueeState.startX, marqueeState.startY, event.clientX, event.clientY);
+        marqueeState.marquee.style.left = `${rect.left}px`;
+        marqueeState.marquee.style.top = `${rect.top}px`;
+        marqueeState.marquee.style.width = `${rect.width}px`;
+        marqueeState.marquee.style.height = `${rect.height}px`;
+        if (rect.width < 4 && rect.height < 4) return;
+        marqueeState.started = true;
+        suppressNextClick = true;
+        updateMarqueeSelection(rect);
+      });
+
+      document.addEventListener("pointerup", () => {
+        if (!marqueeState) return;
+        if (marqueeState.started) {
+          state.selectedSourceIds = new Set(marqueeState.currentIds);
+          cleanupMarquee();
+          renderSources();
+          return;
+        }
+        if (!marqueeState.additive) {
+          state.selectedSourceIds.clear();
+          cleanupMarquee();
+          renderSources();
+          return;
+        }
+        cleanupMarquee();
+      });
+
+      document.addEventListener("pointercancel", cleanupMarquee);
+
+      function canStartMarquee(event) {
+        if (event.button !== 0) return false;
+        if (!event.target.closest(".source-list")) return false;
+        if (event.target.closest("[data-source]")) return false;
+        if (event.target.closest("button, input, textarea, select, a")) return false;
+        return true;
+      }
+
+      function updateMarqueeSelection(rect) {
+        const nextIds = new Set(marqueeState.baseIds);
+        const cards = [...marqueeState.sourceRoot.querySelectorAll(".source-card[data-source]")];
+        for (const card of cards) {
+          const hit = intersects(rect, card.getBoundingClientRect());
+          card.classList.toggle("marquee-hit", hit);
+          card.classList.toggle("active", marqueeState.baseIds.has(card.dataset.source) || hit);
+          if (hit) nextIds.add(card.dataset.source);
+        }
+        marqueeState.currentIds = nextIds;
+        const visibleCount = document.querySelectorAll(".source-card[data-source]").length;
+        sourceSummary.textContent = `${visibleCount} 个源词 · ${nextIds.size} 个已选`;
+      }
+
+      function cleanupMarquee() {
+        if (!marqueeState) return;
+        marqueeState.marquee.remove();
+        document.body.classList.remove("is-marquee-selecting");
+        document.querySelectorAll(".marquee-hit").forEach((node) => node.classList.remove("marquee-hit"));
+        marqueeState = null;
+      }
+
+      function rectFromPoints(x1, y1, x2, y2) {
+        const left = Math.min(x1, x2);
+        const top = Math.min(y1, y2);
+        return {
+          left,
+          top,
+          right: Math.max(x1, x2),
+          bottom: Math.max(y1, y2),
+          width: Math.abs(x2 - x1),
+          height: Math.abs(y2 - y1),
+        };
+      }
+
+      function intersects(a, b) {
+        return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+      }
+
+      document.addEventListener("dragstart", (event) => {
+        const material = event.target.closest("[data-material]");
+        if (material) {
+          setDrag(event, { type: "material", id: material.dataset.material });
+          material.classList.add("dragging");
+          return;
+        }
+
+        const target = event.target.closest("[data-target]");
+        if (target) {
+          setDrag(event, { type: "target", id: target.dataset.target });
+          return;
+        }
+
+        const sourceToken = event.target.closest("[data-source-token]");
+        if (sourceToken) {
+          setDrag(event, {
+            type: "source-token",
+            sourceId: sourceToken.dataset.sourceToken,
+            tokenIndex: Number(sourceToken.dataset.tokenIndex || 0),
+          });
+          return;
+        }
+
+        const source = event.target.closest("[data-source]");
+        if (source) {
+          setDrag(event, { type: "source", ids: sourceIdsForDrag(source.dataset.source) });
+        }
+      });
+
+      document.addEventListener("dragend", () => {
+        dragPayload = null;
+        document.querySelectorAll(".dragging, .drag-over").forEach((node) => {
+          node.classList.remove("dragging", "drag-over");
+        });
+      });
+
+      document.addEventListener("dragover", (event) => {
+        const payload = readDrag(event);
+        const sourceTarget = event.target.closest("[data-source]");
+        const targetPool = event.target.closest("[data-target-pool]");
+        const sourceDrop = event.target.closest("[data-source-drop]");
+        if (
+          (payload?.type === "target" && sourceTarget) ||
+          (payload?.type === "source" && sourceTarget) ||
+          (payload?.type === "source-token" && sourceTarget) ||
+          (payload?.type === "source" && sourceDrop) ||
+          (payload?.type === "source-token" && sourceDrop) ||
+          (payload?.type === "material" && targetPool)
+        ) {
+          event.preventDefault();
+          (sourceTarget || targetPool || sourceDrop)?.classList.add("drag-over");
+        }
+      });
+
+      document.addEventListener("dragleave", (event) => {
+        event.target.closest(".drag-over")?.classList.remove("drag-over");
+      });
+
+      document.addEventListener("drop", (event) => {
+        const payload = readDrag(event);
+        document.querySelectorAll(".drag-over").forEach((node) => node.classList.remove("drag-over"));
+        if (!payload) return;
+
+        const sourceTarget = event.target.closest("[data-source]");
+        if (payload.type === "target" && sourceTarget) {
+          event.preventDefault();
+          mapTargetToSources(payload.id, sourceIdsForDrop(sourceTarget.dataset.source));
+          render();
+          return;
+        }
+
+        if (payload.type === "source" && sourceTarget) {
+          event.preventDefault();
+          const ids = [...new Set([...(payload.ids || []), sourceTarget.dataset.source])];
+          combineSources(ids);
+          render();
+          return;
+        }
+
+        if (payload.type === "source-token" && sourceTarget) {
+          event.preventDefault();
+          const detached = detachSourceToken(payload.sourceId, payload.tokenIndex);
+          if (detached) {
+            combineSources([detached.id, sourceTarget.dataset.source]);
+          }
+          render();
+          return;
+        }
+
+        const sourceDrop = event.target.closest("[data-source-drop]");
+        if (payload.type === "source" && sourceDrop) {
+          event.preventDefault();
+          applySourceDrop(payload.ids || [], sourceDrop.dataset.sourceDrop);
+          render();
+          return;
+        }
+
+        if (payload.type === "source-token" && sourceDrop) {
+          event.preventDefault();
+          const detached = detachSourceToken(payload.sourceId, payload.tokenIndex);
+          if (detached) {
+            applySourceDrop([detached.id], sourceDrop.dataset.sourceDrop);
+          }
+          render();
+          return;
+        }
+
+        const targetPool = event.target.closest("[data-target-pool]");
+        if (payload.type === "material" && targetPool) {
+          event.preventDefault();
+          importMaterial(payload.id);
+          render();
+        }
+      });
+
+      function toggleSourceSelection(id, event) {
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          state.selectedSourceIds.has(id)
+            ? state.selectedSourceIds.delete(id)
+            : state.selectedSourceIds.add(id);
+          return;
+        }
+        state.selectedSourceIds = new Set([id]);
+      }
+
+      function sourceIdsForDrag(id) {
+        return state.selectedSourceIds.has(id) && state.selectedSourceIds.size > 1
+          ? [...state.selectedSourceIds]
+          : [id];
+      }
+
+      function sourceIdsForDrop(id) {
+        return state.selectedSourceIds.has(id) && state.selectedSourceIds.size > 1
+          ? [...state.selectedSourceIds]
+          : [id];
+      }
+
+      function mapTargetToSources(targetId, sourceIds) {
+        for (const sourceId of sourceIds) {
+          updateSource(sourceId, (item) => {
+            item.targetIds = [targetId];
+            if (item.status === "deleted" || item.status === "excluded") item.status = "";
+          });
+        }
+        state.selectedSourceIds = new Set(sourceIds);
+      }
+
+      function combineSources(ids) {
+        const role = activeRole();
+        const items = ids
+          .map((id) => role.sources.find((item) => item.id === id))
+          .filter((item) => item && item.status !== "combined");
+        if (items.length < 2) return;
+        const category = items[0].category;
+        const combinedText = items.map((item) => item.members || [item.text]).flat();
+        const frames = [...new Set(items.flatMap((item) => item.frames.split(",")))].join(",");
+        for (const item of items) item.status = "combined";
+        const group = {
+          id: `src-group-${Date.now()}`,
+          text: combinedText.join(" + "),
+          category,
+          frames,
+          targetIds: [],
+          status: "",
+          members: combinedText,
+        };
+        role.sources.push(group);
+        state.selectedSourceIds = new Set([group.id]);
+      }
+
+      function detachSourceToken(sourceId, tokenIndex) {
+        const role = activeRole();
+        const sourceItem = role.sources.find((item) => item.id === sourceId);
+        if (!sourceItem?.members || sourceItem.members.length <= 1) {
+          return sourceItem || null;
+        }
+        const index = Math.max(0, Math.min(tokenIndex, sourceItem.members.length - 1));
+        const [text] = sourceItem.members.splice(index, 1);
+        sourceItem.text = sourceItem.members.join(" + ");
+        if (sourceItem.members.length === 1) {
+          sourceItem.text = sourceItem.members[0];
+          sourceItem.members = null;
+        }
+        const detached = {
+          id: `src-detached-${Date.now()}-${index}`,
+          text,
+          category: sourceItem.category,
+          frames: sourceItem.frames,
+          targetIds: [],
+          status: "",
+          members: null,
+        };
+        role.sources.push(detached);
+        state.selectedSourceIds = new Set([detached.id]);
+        return detached;
+      }
+
+      function applySourceDrop(ids, action) {
+        for (const id of ids) {
+          updateSource(id, (item) => {
+            if (action === "delete") {
+              item.status = "deleted";
+              item.targetIds = [];
+            }
+            if (action === "exclude") {
+              item.status = "excluded";
+              item.targetIds = [];
+            }
+            if (action === "clear") {
+              item.targetIds = [];
+              item.status = "";
+            }
+          });
+        }
+      }
+
+      function importMaterial(materialId) {
+        const material = materialCards.find((item) => item.id === materialId);
+        if (!material) return;
+        for (const item of material.terms) {
+          addTargetToken(item.text, item.category);
+        }
+      }
+
+      function focusTargetAddInput(category) {
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-add-input="${category}"]`)?.focus();
+        });
+      }
+
+      function submitTargetAddInput(category) {
+        const input = document.querySelector(`[data-add-input="${category}"]`);
+        addTargetTokens(input?.value || "", category);
+        state.editingTargetCategory = "";
+        renderTargets();
+      }
+
+      function addTargetTokens(value, category) {
+        for (const part of value.split(",")) {
+          addTargetToken(part, category);
+        }
+      }
+
+      function addTargetToken(text, category) {
+        const clean = text.trim();
+        if (!clean) return;
+        const role = activeRole();
+        const existing = role.targets.find(
+          (item) => item.text.toLowerCase() === clean.toLowerCase() && item.category === category,
+        );
+        if (!existing) role.targets.push(token(clean, category));
+      }
+
+      function updateSource(id, mutate) {
+        const item = activeRole().sources.find((sourceItem) => sourceItem.id === id);
+        if (item) mutate(item);
+      }
+
+      function targetById(role, id) {
+        return role.targets.find((item) => item.id === id);
+      }
+
+      function setDrag(event, payload) {
+        dragPayload = payload;
+        event.dataTransfer.effectAllowed = "copyMove";
+        event.dataTransfer.setData("application/json", JSON.stringify(payload));
+      }
+
+      function readDrag(event) {
+        const raw = event.dataTransfer?.getData("application/json");
+        if (!raw) return dragPayload;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return dragPayload;
+        }
+      }
+
+      function groupBy(items, selector) {
+        return items.reduce((groups, item) => {
+          const key = selector(item);
+          (groups[key] ||= []).push(item);
+          return groups;
+        }, {});
+      }
+
+      function emptyBlock(text) {
+        return `<section class="panel" style="padding:14px"><span class="hint">${escapeHtml(text)}</span></section>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      render();
+    </script>
+  </body>
+</html>

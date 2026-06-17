@@ -1,16 +1,16 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/character_config/widgets/character_config_view.dart';
-import 'package:nai_casrand/ui/character_config/view_models/character_config_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_config/widgets/prompt_config_view.dart';
-import 'package:nai_casrand/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_tab/widgets/prompt_dashboard_card.dart';
-import 'package:nai_casrand/ui/prompt_tab/widgets/prompt_replace_rules_editor.dart';
-import 'package:nai_casrand/ui/saved_config_list/view_models/saved_config_list_viewmodel.dart';
-import 'package:nai_casrand/ui/saved_config_list/widgets/saved_config_list_view.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/character_config/widgets/character_config_view.dart';
+import 'package:novel_studio/ui/character_config/view_models/character_config_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_config/widgets/prompt_config_view.dart';
+import 'package:novel_studio/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_tab/widgets/prompt_dashboard_card.dart';
+import 'package:novel_studio/ui/prompt_tab/widgets/prompt_replace_rules_editor.dart';
+import 'package:novel_studio/ui/saved_config_list/view_models/saved_config_list_viewmodel.dart';
+import 'package:novel_studio/ui/saved_config_list/widgets/saved_config_list_view.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 import 'package:provider/provider.dart';
 
 class PromptTabView extends StatelessWidget {

@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/services/api_service.dart';
 
 void main() {
   test('fetchData applies request timeout', () async {

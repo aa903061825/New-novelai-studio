@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nai_casrand/data/workspace/models/workspace_manifest.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_validation.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_manifest.dart';
+import 'package:novel_studio/data/workspace/models/workspace_validation.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class WorkspaceValidator {
   final WorkspaceService service;

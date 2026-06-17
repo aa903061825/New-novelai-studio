@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/ui/generation_page/models/generation_payload_cache.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/ui/generation_page/models/generation_payload_cache.dart';
 
 PromptConfig _buildSequentialPromptConfig() {
   return PromptConfig(
@@ -85,7 +85,8 @@ void main() {
     expect(generated, 1);
   });
 
-  test('clears the cached payload after success so the next call regenerates', () {
+  test('clears the cached payload after success so the next call regenerates',
+      () {
     final cache = GenerationPayloadCache<String>();
     var generated = 0;
 
@@ -141,7 +142,8 @@ void main() {
     expect(generator.generatedCount(), 1);
   });
 
-  test('success advances a single sequential prompt on the next generation', () {
+  test('success advances a single sequential prompt on the next generation',
+      () {
     final cache = GenerationPayloadCache<String>();
     final generator = _buildSequentialGenerator();
 

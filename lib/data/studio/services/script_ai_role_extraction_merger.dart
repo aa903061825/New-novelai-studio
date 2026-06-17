@@ -1,5 +1,5 @@
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 class ScriptAiRoleExtractionMerger {
   const ScriptAiRoleExtractionMerger();

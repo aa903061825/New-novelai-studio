@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/config_service.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../../../core/constants/image_formats.dart';

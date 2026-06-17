@@ -2,8 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/services/vibe_source_image_store.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/services/vibe_source_image_store.dart';
 
 void main() {
   test('VibeSourceImageStore saves imported PNG bytes as an explicit file',

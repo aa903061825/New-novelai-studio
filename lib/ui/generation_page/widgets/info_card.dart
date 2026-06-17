@@ -4,14 +4,14 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/info_card_content.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/info_card_content.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:flutter_command/flutter_command.dart';
 
 class InfoCard extends StatelessWidget {
@@ -193,38 +193,12 @@ class InfoDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> contents = [
-      buildInfoTile(tr('title'), content.title, context),
-      buildInfoTile(
-        tr('info'),
-        content.info,
-        context,
-        asPrompt: true,
-        groups: _contentPromptGroups(content),
-      ),
-    ];
-    for (final item in content.additionalInfo.entries) {
-      contents.add(
-        buildInfoTile(
-          item.key,
-          item.value.toString(),
-          context,
-          asPrompt: _isPromptLikeKey(item.key),
-          groups: _promptGroupsForInfoEntry(item.key, item.value),
-        ),
-      );
-    }
-
     final body = Scaffold(
       appBar: AppBar(title: Text(content.title)),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            if (content.imageBytes != null)
-              Image.memory(content.imageBytes!, fit: BoxFit.contain),
-            ...contents,
-          ],
-        ),
+      body: InfoCardDetailPanel(
+        content: content,
+        includeImage: true,
+        scrollable: true,
       ),
     );
 
@@ -232,6 +206,67 @@ class InfoDetailPage extends StatelessWidget {
       onTap: () => Navigator.of(context).pop(),
       child: body,
     );
+  }
+}
+
+class InfoCardDetailPanel extends StatelessWidget {
+  final InfoCardContent content;
+  final bool includeImage;
+  final bool scrollable;
+  final bool dense;
+  final bool showCopyActions;
+  final bool popOnCopy;
+  final EdgeInsetsGeometry padding;
+
+  const InfoCardDetailPanel({
+    super.key,
+    required this.content,
+    this.includeImage = false,
+    this.scrollable = false,
+    this.dense = false,
+    this.showCopyActions = true,
+    this.popOnCopy = true,
+    this.padding = EdgeInsets.zero,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Padding(
+      padding: padding,
+      child: Column(
+        key: const ValueKey('info-card-detail-panel'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (includeImage && content.imageBytes != null)
+            Image.memory(content.imageBytes!, fit: BoxFit.contain),
+          buildInfoTile(tr('title'), content.title, context),
+          buildInfoTile(
+            tr('info'),
+            content.info,
+            context,
+            asPrompt: true,
+            groups: _contentPromptGroups(content),
+          ),
+          for (final item in content.additionalInfo.entries)
+            buildInfoTile(
+              item.key,
+              item.value.toString(),
+              context,
+              asPrompt: _isPromptLikeKey(item.key),
+              groups: _promptGroupsForInfoEntry(item.key, item.value),
+            ),
+        ],
+      ),
+    );
+    return scrollable ? SingleChildScrollView(child: body) : body;
+  }
+
+  bool _isPromptLikeKey(String key) {
+    final normalized = key.toLowerCase();
+    return normalized.contains('prompt') ||
+        normalized.contains('tag') ||
+        normalized == 'input';
   }
 
   Widget buildInfoTile(
@@ -243,28 +278,25 @@ class InfoDetailPage extends StatelessWidget {
   }) {
     return Column(children: [
       ListTile(
+        dense: dense,
         titleAlignment: ListTileTitleAlignment.top,
         title: Text(title),
         subtitle: asPrompt
-            ? _PromptInfoDisplay(text: content, groups: groups)
+            ? _PromptInfoDisplay(text: content, groups: groups, dense: dense)
             : SelectableText(content),
-        trailing: IconButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _copyContent(content, context);
-            },
-            tooltip: tr('copy_to_clipboard'),
-            icon: const Icon(Icons.copy)),
+        trailing: showCopyActions
+            ? IconButton(
+                onPressed: () {
+                  if (popOnCopy) Navigator.of(context).pop();
+                  _copyContent(content, context);
+                },
+                tooltip: tr('copy_to_clipboard'),
+                icon: const Icon(Icons.copy),
+              )
+            : null,
       ),
       const Divider(),
     ]);
-  }
-
-  bool _isPromptLikeKey(String key) {
-    final normalized = key.toLowerCase();
-    return normalized.contains('prompt') ||
-        normalized.contains('tag') ||
-        normalized == 'input';
   }
 
   void _copyContent(String content, BuildContext context) async {

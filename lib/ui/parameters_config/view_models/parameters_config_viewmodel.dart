@@ -1,18 +1,19 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/global_generation_params.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/data/models/global_generation_params.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
 
 class ParametersConfigViewmodel extends ChangeNotifier {
   PayloadConfig get payloadConfig => GetIt.I();
   ConfigService get configService => GetIt.I();
   ParamConfig get config => payloadConfig.paramConfig;
-  GlobalGenerationParams get globalParams => payloadConfig.globalGenerationParams;
+  GlobalGenerationParams get globalParams =>
+      payloadConfig.globalGenerationParams;
 
   bool get useGlobalSteps => globalParams.useGlobalSteps;
   bool get useGlobalScale => globalParams.useGlobalScale;
@@ -24,7 +25,8 @@ class ParametersConfigViewmodel extends ChangeNotifier {
   double get displayedScale => globalParams.resolveScale(config);
   double get displayedCfgRescale => globalParams.resolveCfgRescale(config);
   String get displayedSampler => globalParams.resolveSampler(config);
-  String get displayedNegativePrompt => globalParams.resolveNegativePrompt(config);
+  String get displayedNegativePrompt =>
+      globalParams.resolveNegativePrompt(config);
 
   ParametersConfigViewmodel();
 
@@ -226,7 +228,8 @@ class ParametersConfigViewmodel extends ChangeNotifier {
     }) {
       if (!remaining.containsKey(key)) return 0;
       final rawValue = remaining.remove(key);
-      final parsedValue = rawValue is int ? rawValue : int.tryParse('$rawValue');
+      final parsedValue =
+          rawValue is int ? rawValue : int.tryParse('$rawValue');
       if (parsedValue == null) return 0;
       if (useGlobal) {
         applyGlobal(parsedValue);

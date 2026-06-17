@@ -1,5 +1,5 @@
 import 'package:adaptive_theme/adaptive_theme.dart';
-import 'package:nai_casrand/core/constants/settings.dart';
+import 'package:novel_studio/core/constants/settings.dart';
 
 import '../../core/constants/defaults.dart';
 

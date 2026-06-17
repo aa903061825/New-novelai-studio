@@ -1,4 +1,4 @@
-"""
+﻿"""
 fix_unprocessed_codex_entries.py
 ---------------------------------
 诊断并修复 inspirations.json 中 source.type == "novalai_codex_adult_docx_unprocessed"
@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any
 
 LIBRARY_DIR = Path(
-    r"C:\Users\admin\AppData\Roaming\org.exception0x0194"
-    r"\nai3_autodraw\novel_studio\library"
+    r"C:\Users\admin\AppData\Roaming\Novel Studio"
+    r"\Novel Studio\novel_studio\library"
 )
 INSPIRATIONS_PATH = LIBRARY_DIR / "inspirations.json"
 REPORT_PATH = LIBRARY_DIR / "adult_codex_unprocessed_placeholders_report.json"

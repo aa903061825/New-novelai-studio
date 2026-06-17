@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
 
 class PreciseReferenceItemViewmodel extends ChangeNotifier {
   final PreciseReferenceConfig config;

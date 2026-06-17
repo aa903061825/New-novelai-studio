@@ -1,25 +1,39 @@
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   static const maxCharacterCount = 6;
+  static const minGenerationCount = 1;
+  static const maxGenerationCount = 20;
 
   final PayloadConfig payloadConfig;
   final Map<int, List<String>> _characterPromptTagifiedBackups = {};
   final Set<int> _tagifiedCharacterIndexes = {};
+  int _generationCount = minGenerationCount;
+  late String _draftWidthText;
+  late String _draftHeightText;
 
-  WorkbenchSingleImageParametersViewmodel(this.payloadConfig);
+  WorkbenchSingleImageParametersViewmodel(this.payloadConfig) {
+    _syncDraftSizeFromConfig();
+  }
 
   ParamConfig get config => payloadConfig.paramConfig;
 
+  int get generationCount => _generationCount;
+
   bool get isV4 => config.model.contains('-4-');
 
-  GenerationSize get selectedSize => config.sizes.first;
+  GenerationSize get selectedSize =>
+      config.sizes.isEmpty ? ParamConfig().sizes.first : config.sizes.first;
+
+  String get draftWidthText => _draftWidthText;
+
+  String get draftHeightText => _draftHeightText;
 
   int get referenceCount =>
       payloadConfig.vibeConfigList.length +
@@ -27,12 +41,26 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
       payloadConfig.preciseReferenceList.length +
       (payloadConfig.i2iConfig.imageB64 == null ? 0 : 1);
 
+  int get vibeReferenceCount =>
+      payloadConfig.vibeConfigList.length +
+      payloadConfig.vibeConfigListV4.length;
+
+  bool get vibeEnabled => payloadConfig.generationRuntimeState.vibeEnabled;
+
+  bool get hasVibeReferences => vibeReferenceCount > 0;
+
   bool get hasI2iImage => payloadConfig.i2iConfig.imageB64 != null;
 
   void disableI2iInputs() {
     payloadConfig.i2iConfig.clearImage();
-    payloadConfig.generationRuntimeState.vibeEnabled = false;
-    payloadConfig.usePreciseReference = false;
+    notifyListeners();
+  }
+
+  void setVibeEnabled(bool value) {
+    payloadConfig.generationRuntimeState.vibeEnabled = value;
+    if (value) {
+      payloadConfig.usePreciseReference = false;
+    }
     notifyListeners();
   }
 
@@ -44,6 +72,16 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   void refreshFromPayload() {
     _characterPromptTagifiedBackups.clear();
     _tagifiedCharacterIndexes.clear();
+    _syncDraftSizeFromConfig();
+    notifyListeners();
+  }
+
+  void setGenerationCount(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return;
+    final next = parsed.clamp(minGenerationCount, maxGenerationCount).toInt();
+    if (next == _generationCount) return;
+    _generationCount = next;
     notifyListeners();
   }
 
@@ -56,23 +94,39 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
     required String width,
     required String height,
   }) {
-    final parsedWidth = int.tryParse(width);
-    final parsedHeight = int.tryParse(height);
-    if (parsedWidth == null || parsedHeight == null) return;
-    if (parsedWidth <= 0 || parsedHeight <= 0) return;
+    _draftWidthText = width.trim();
+    _draftHeightText = height.trim();
+    commitDraftSize();
+  }
 
-    config.sizes = [
-      GenerationSize(
-        width: _roundToGenerationMultiple(parsedWidth),
-        height: _roundToGenerationMultiple(parsedHeight),
-      ),
-    ];
-    notifyListeners();
+  void setDraftWidthText(String value) {
+    _draftWidthText = value;
+  }
+
+  void setDraftHeightText(String value) {
+    _draftHeightText = value;
+  }
+
+  void commitPendingInputs() {
+    commitDraftSize();
+  }
+
+  bool commitDraftSize() {
+    final parsedWidth = int.tryParse(_draftWidthText);
+    final parsedHeight = int.tryParse(_draftHeightText);
+    if (parsedWidth == null || parsedHeight == null) return false;
+    if (parsedWidth <= 0 || parsedHeight <= 0) return false;
+
+    final nextSize = GenerationSize(
+      width: _roundToGenerationMultiple(parsedWidth),
+      height: _roundToGenerationMultiple(parsedHeight),
+    );
+    _setSelectedSize(nextSize);
+    return true;
   }
 
   void setSize(GenerationSize size) {
-    config.sizes = [size];
-    notifyListeners();
+    _setSelectedSize(size);
   }
 
   void setSteps(int value) {
@@ -304,6 +358,19 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   int _roundToGenerationMultiple(int value) {
     return (value / 64).ceil() * 64;
+  }
+
+  void _setSelectedSize(GenerationSize size) {
+    config.sizes = [size];
+    _draftWidthText = size.width.toString();
+    _draftHeightText = size.height.toString();
+    notifyListeners();
+  }
+
+  void _syncDraftSizeFromConfig() {
+    final size = selectedSize;
+    _draftWidthText = size.width.toString();
+    _draftHeightText = size.height.toString();
   }
 
   bool _hasCharacter(int index) {

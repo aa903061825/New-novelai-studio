@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_merger.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_merger.dart';
 
 void main() {
   group('ScriptAiRoleExtractionMerger', () {

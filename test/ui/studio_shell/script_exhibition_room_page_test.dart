@@ -3,19 +3,19 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
-import 'package:nai_casrand/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/script_exhibition_room_page.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/script_exhibition_room_page.dart';
 
 class _PreviewCaptureService extends StudioAssetCaptureService {
   _PreviewCaptureService() : super(workspaceService: WorkspaceService());
@@ -1039,6 +1039,92 @@ void main() {
     expect(find.text('精选收纳 1'), findsOneWidget);
   });
 
+  testWidgets(
+      'deletes a version chip from its context menu without deleting the script',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [_script()];
+    var plans = [_plan()];
+    var deletedScriptCount = 0;
+    final deletedVersions = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
+        deletedScriptCount += 1;
+        scripts = const [];
+        plans = const [];
+      },
+      deleteVersionRecord: (script, version) async {
+        deletedVersions.add('${script.scriptId}:${version.id}');
+        plans = [
+          for (final plan in plans)
+            if (version.id == 'production-${plan.id}')
+              plan.copyWith(tasks: const [])
+            else
+              plan,
+        ].where((plan) => plan.tasks.isNotEmpty).toList(growable: false);
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final productionVersion = find.byKey(
+      const ValueKey('script-exhibition-version-production-plan-1'),
+    );
+    await tester.tapAt(
+      tester.getCenter(productionVersion),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除版本'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('不会删除整条剧本展览记录'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-confirm-delete-version')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedScriptCount, 0);
+    expect(deletedVersions, ['script-1:production-plan-1']);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-detail-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-version-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-version-production-plan-1'),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('assigns one script to a custom category from the shelf menu', (
     tester,
   ) async {
@@ -1280,6 +1366,147 @@ void main() {
     expect(find.text('雨夜档案'), findsWidgets);
     expect(find.text('旁支档案'), findsOneWidget);
     expect(find.text('收藏馆区'), findsNothing);
+  });
+
+  testWidgets('delete script button removes only the current category entry', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [
+      _script().copyWith(categoryNames: const ['收藏馆区', '备选馆区']),
+      _script().copyWith(
+        scriptId: 'script-2',
+        name: '旁支档案',
+        sourceFolder: r'C:\stories\branch',
+        categoryNames: const ['收藏馆区'],
+      ),
+    ];
+    final removedCategories = <String>[];
+    var wholeScriptDeleteCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
+        wholeScriptDeleteCount += 1;
+        scripts = [
+          for (final existing in scripts)
+            if (existing.scriptId != script.scriptId) existing,
+        ];
+      },
+      removeScriptCategory: (script, categoryName) async {
+        removedCategories.add('${script.scriptId}:$categoryName');
+        scripts = [
+          for (final existing in scripts)
+            existing.scriptId == script.scriptId
+                ? existing.copyWith(
+                    categoryNames: existing.categoryNames
+                        .where(
+                          (name) =>
+                              name.trim().toLowerCase() !=
+                              categoryName.trim().toLowerCase(),
+                        )
+                        .toList(growable: false),
+                  )
+                : existing,
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-category-custom:收藏馆区')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-delete-script-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('从当前分类移除'), findsOneWidget);
+    expect(find.textContaining('不会删除剧本、图片、批量结果或原始目录'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-confirm-remove-script-category'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(wholeScriptDeleteCount, 0);
+    expect(removedCategories, ['script-1:收藏馆区']);
+    expect(find.text('雨夜档案'), findsNothing);
+    expect(find.text('旁支档案'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-category-custom:备选馆区')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('雨夜档案'), findsWidgets);
+    expect(find.text('旁支档案'), findsNothing);
+  });
+
+  testWidgets(
+      'custom category script delete never falls back to deleting the whole record',
+      (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var wholeScriptDeleteCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script().copyWith(categoryNames: const ['收藏馆区']),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
+        wholeScriptDeleteCount += 1;
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-category-custom:收藏馆区')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-delete-script-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(wholeScriptDeleteCount, 0);
+    expect(find.text('删除剧本展览记录'), findsNothing);
   });
 
   testWidgets('deletes an entire script exhibition record', (tester) async {

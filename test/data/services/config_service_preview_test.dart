@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
+import 'package:novel_studio/data/services/config_service.dart';
 
 void main() {
   test('SavedConfigInfo preserves preview images and selected cover in JSON',
@@ -45,7 +45,7 @@ void main() {
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp(
-        'nai-casrand-config-preview-test-',
+        'novel-studio-config-preview-test-',
       );
       Hive.init(tempDir.path);
       testBox = await Hive.openBox('savedBox-test-config-preview');

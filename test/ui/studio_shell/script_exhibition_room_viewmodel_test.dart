@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
 
 void main() {
   test('loads original exhibition frames from recast script caches', () async {
@@ -1310,6 +1310,65 @@ void main() {
         ScriptExhibitionRoomViewModel.allCategoryId);
   });
 
+  test('removes one script from the selected custom category', () async {
+    var scripts = [
+      _script().copyWith(categoryNames: const ['收藏馆区', '备选馆区']),
+      _script().copyWith(
+        scriptId: 'script-2',
+        name: '旁支档案',
+        sourceFolder: r'C:\stories\branch',
+        categoryNames: const ['收藏馆区'],
+      ),
+    ];
+    final removed = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      removeScriptCategory: (script, categoryName) async {
+        removed.add('${script.scriptId}:$categoryName');
+        scripts = [
+          for (final existing in scripts)
+            existing.scriptId == script.scriptId
+                ? existing.copyWith(
+                    categoryNames: existing.categoryNames
+                        .where(
+                          (name) =>
+                              name.trim().toLowerCase() !=
+                              categoryName.trim().toLowerCase(),
+                        )
+                        .toList(growable: false),
+                  )
+                : existing,
+        ];
+      },
+    );
+
+    await viewModel.load();
+    viewModel.selectCategory('custom:收藏馆区');
+    await viewModel.removeScriptFromSelectedCategory(
+      viewModel.visibleScripts.firstWhere(
+        (script) => script.scriptId == 'script-1',
+      ),
+    );
+
+    expect(removed, ['script-1:收藏馆区']);
+    expect(viewModel.selectedCategoryId, 'custom:收藏馆区');
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-2',
+    ]);
+    expect(viewModel.snapshot.scripts.map((script) => script.scriptId), [
+      'script-1',
+      'script-2',
+    ]);
+    expect(
+      viewModel.snapshot.scripts
+          .singleWhere((script) => script.scriptId == 'script-1')
+          .categoryNames,
+      ['备选馆区'],
+    );
+  });
+
   test('sorts visible scripts by the selected shelf order', () async {
     final scripts = [
       _script().copyWith(
@@ -1452,6 +1511,80 @@ void main() {
       'production-plan-hero-a-task-generated-1',
       'production-plan-hero-a-task-failed-2',
     ]);
+  });
+
+  test('deletes only the selected production version for the current script',
+      () async {
+    var plans = [_plan()];
+    final deletedVersions = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteVersionRecord: (script, version) async {
+        deletedVersions.add('${script.scriptId}:${version.id}');
+        plans = [
+          for (final plan in plans)
+            if (version.id == 'production-${plan.id}')
+              plan.copyWith(tasks: const [])
+            else
+              plan,
+        ].where((plan) => plan.tasks.isNotEmpty).toList(growable: false);
+      },
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-1');
+    viewModel.selectVersion('production-plan-hero-a');
+
+    final script = viewModel.selectedScript!;
+    final productionVersion = script.versions.singleWhere(
+      (version) => version.id == 'production-plan-hero-a',
+    );
+    expect(viewModel.canDeleteVersion(script, productionVersion), isTrue);
+
+    await viewModel.deleteVersion(script, productionVersion);
+
+    expect(deletedVersions, ['script-1:production-plan-hero-a']);
+    expect(viewModel.selectedScript?.scriptId, 'script-1');
+    expect(
+      viewModel.selectedScript!.versions.map((version) => version.id),
+      contains(ScriptExhibitionVersion.originalId),
+    );
+    expect(
+      viewModel.selectedScript!.versions.map((version) => version.id),
+      isNot(contains('production-plan-hero-a')),
+    );
+    expect(viewModel.selectedVersion?.id, ScriptExhibitionVersion.originalId);
+  });
+
+  test('does not delete the original source version', () async {
+    var deleteCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      deleteVersionRecord: (script, version) async {
+        deleteCount += 1;
+      },
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-1');
+
+    final script = viewModel.selectedScript!;
+    final originalVersion = script.versions.singleWhere(
+      (version) => version.id == ScriptExhibitionVersion.originalId,
+    );
+    expect(viewModel.canDeleteVersion(script, originalVersion), isFalse);
+
+    await viewModel.deleteVersion(script, originalVersion);
+
+    expect(deleteCount, 0);
+    expect(
+      viewModel.selectedScript!.versions.map((version) => version.id),
+      contains(ScriptExhibitionVersion.originalId),
+    );
   });
 
   test('jumps to the first production item that needs action', () async {

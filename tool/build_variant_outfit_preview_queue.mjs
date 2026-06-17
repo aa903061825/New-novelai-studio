@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
 const workspaceRoot =
   process.argv.find((arg) => arg.startsWith('--workspace='))?.slice(12) ||
-  'C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio';
+  'C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio';
 const libraryRoot = path.join(workspaceRoot, 'library');
 const charactersPath = path.join(libraryRoot, 'characters.json');
 const options = parseArgs(process.argv.slice(2));

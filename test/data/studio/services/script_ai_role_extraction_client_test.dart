@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
 
 void main() {
   test('openai-compatible role extraction client posts JSON mode request',
@@ -70,7 +70,31 @@ void main() {
     expect(systemPrompt, contains('strong_filter_keywords'));
     expect(systemPrompt, contains('official art'));
     expect(systemPrompt, contains('Output every stage label in Chinese'));
+    expect(systemPrompt, contains('replacement table contract'));
+    expect(systemPrompt, contains('replace, merge, delete, or leave empty'));
+    expect(systemPrompt, contains('replacement-relevant clothing_state'));
+    expect(systemPrompt, contains('no panties'));
+    expect(systemPrompt, contains('bottomless'));
+    expect(systemPrompt, contains('bikini aside'));
+    expect(systemPrompt, contains('1girl, 2girls, 1boy, solo'));
+    expect(systemPrompt, contains('girl is not the same source term as 1girl'));
+    expect(systemPrompt, contains('natural-language source phrases'));
+    expect(systemPrompt, contains('Do not force state variants'));
+    expect(
+        systemPrompt,
+        contains(
+            'keep state-specific source terms in prompt_terms as clothing_state'));
     expect(systemPrompt, isNot(contains('role-local uncertain candidate')));
+    expect(
+      systemPrompt,
+      isNot(
+        contains('Do not split separate outfit slots for state variants'),
+      ),
+    );
+    expect(
+      systemPrompt,
+      isNot(contains('combine their terms into the same five fields')),
+    );
     expect(systemPrompt, isNot(contains('"non_role"')));
     expect(systemPrompt, contains('appearance_group_id'));
     expect(systemPrompt, contains('merge_with_stage_ids'));

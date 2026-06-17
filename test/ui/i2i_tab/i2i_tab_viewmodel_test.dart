@@ -1,13 +1,13 @@
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
 
 class _FakeConfigService extends ConfigService {
   int saveGenerationRuntimeStateCallCount = 0;

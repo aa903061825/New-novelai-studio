@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
+import 'package:novel_studio/data/models/api_request.dart';
 
 const _defaultQueuePath = r'tool\asset-library-image-queue.json';
 const _defaultEndpoint = 'https://image.novelai.net/ai/generate-image';

@@ -1,4 +1,4 @@
-import 'package:nai_casrand/core/constants/parameters.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
 
 enum GenerationMode {
   textToImage,

@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const MODEL = process.env.REFINE_MODEL || 'gpt-5.4-mini';
@@ -12,8 +12,7 @@ const ARTIST_CHAIN_PATHS = [
   process.env.REFINE_ARTIST_CHAINS_PATH,
   path.join(
     process.env.APPDATA || '',
-    'org.exception0x0194',
-    'nai3_autodraw',
+    'Novel Studio',\n  'Novel Studio',
     'novel_studio',
     'library',
     'artist_chains.json',

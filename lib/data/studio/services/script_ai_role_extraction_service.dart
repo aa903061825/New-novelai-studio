@@ -1,12 +1,12 @@
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_evidence_builder.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_merger.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_parser.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_evidence_builder.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_merger.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_parser.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
-export 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart'
+export 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart'
     show ScriptAiRoleExtractionStreamDelta;
 
 const _maxEvidenceRequestGroupsPerChunk = 3;
@@ -518,6 +518,7 @@ class DefaultScriptAiRoleExtractionService
       attentionItems: extraction.attentionItems,
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -655,7 +656,7 @@ class DefaultScriptAiRoleExtractionService
     ScriptAiRoleExtraction extraction,
     _PromptWeightIndex promptWeightIndex,
   ) {
-    if (!extraction.isReady || extraction.roles.isEmpty) {
+    if (!extraction.isReady) {
       return extraction;
     }
     return ScriptAiRoleExtraction(
@@ -670,8 +671,19 @@ class DefaultScriptAiRoleExtractionService
       artistChains: extraction.artistChains,
       strongFilterKeywords: extraction.strongFilterKeywords,
       attentionItems: extraction.attentionItems,
-      unassignedTerms: extraction.unassignedTerms,
+      unassignedTerms: _unassignedTermsWithRestoredPromptWeights(
+        extraction.unassignedTerms,
+        promptWeightIndex,
+        sourceRoleId: '',
+        sourceKind: 'global',
+      ),
       evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: _promptTermsWithRestoredPromptWeights(
+        extraction.sceneTerms,
+        promptWeightIndex,
+        sourceRoleId: '',
+        sourceKind: 'global',
+      ),
       rawResponse: extraction.rawResponse,
     );
   }
@@ -680,9 +692,6 @@ class DefaultScriptAiRoleExtractionService
     ScriptAiExtractedRole role,
     _PromptWeightIndex promptWeightIndex,
   ) {
-    if (role.stages.isEmpty) {
-      return role;
-    }
     return ScriptAiExtractedRole(
       sourceRoleId: role.sourceRoleId,
       sourceKind: role.sourceKind,
@@ -708,8 +717,115 @@ class DefaultScriptAiRoleExtractionService
             sourceIds: _appearanceSourceIdsForStage(role, stage),
           ),
       ]),
-      unassignedTerms: role.unassignedTerms,
+      unassignedTerms: _unassignedTermsWithRestoredPromptWeights(
+        role.unassignedTerms,
+        promptWeightIndex,
+        sourceRoleId: role.sourceRoleId,
+        sourceKind: role.sourceKind,
+      ),
+      promptTerms: _promptTermsWithRestoredPromptWeights(
+        role.promptTerms,
+        promptWeightIndex,
+        sourceRoleId: role.sourceRoleId,
+        sourceKind: role.sourceKind,
+      ),
     );
+  }
+
+  List<ScriptAiExtractedPromptTerm> _promptTermsWithRestoredPromptWeights(
+    List<ScriptAiExtractedPromptTerm> terms,
+    _PromptWeightIndex promptWeightIndex, {
+    required String sourceRoleId,
+    required String sourceKind,
+  }) {
+    return List.unmodifiable([
+      for (final term in terms)
+        _promptTermWithRestoredPromptWeight(
+          term,
+          promptWeightIndex,
+          sourceRoleId: sourceRoleId,
+          sourceKind: sourceKind,
+        ),
+    ]);
+  }
+
+  ScriptAiExtractedPromptTerm _promptTermWithRestoredPromptWeight(
+    ScriptAiExtractedPromptTerm term,
+    _PromptWeightIndex promptWeightIndex, {
+    required String sourceRoleId,
+    required String sourceKind,
+  }) {
+    return term.copyWith(
+      text: promptWeightIndex.restoreField(
+        term.text,
+        sourceRoleId: sourceRoleId,
+        sourceKind: sourceKind,
+        frameIndexes: term.frameIndexes,
+        sourceIds: _sourceIdsForPromptTerm(term),
+      ),
+    );
+  }
+
+  List<ScriptAiUnassignedTerm> _unassignedTermsWithRestoredPromptWeights(
+    List<ScriptAiUnassignedTerm> terms,
+    _PromptWeightIndex promptWeightIndex, {
+    required String sourceRoleId,
+    required String sourceKind,
+  }) {
+    return List.unmodifiable([
+      for (final term in terms)
+        ScriptAiUnassignedTerm(
+          term: promptWeightIndex.restoreField(
+            term.term,
+            sourceRoleId: sourceRoleId,
+            sourceKind: sourceKind,
+            frameIndexes: term.frameIndexes,
+          ),
+          frameIndexes: term.frameIndexes,
+          reason: term.reason,
+        ),
+    ]);
+  }
+
+  List<String> _sourceIdsForPromptTerm(ScriptAiExtractedPromptTerm term) {
+    return _sourceIdsFromPromptTermText(
+      '${term.sourceLocation} ${term.sourcePhrase}',
+    );
+  }
+
+  List<String> _sourceIdsFromPromptTermText(String text) {
+    final normalized = text.toLowerCase().replaceAll('_', '-');
+    final result = <String>[];
+    final seen = <String>{};
+
+    void add(String value) {
+      if (value.trim().isNotEmpty && seen.add(value)) {
+        result.add(value);
+      }
+    }
+
+    if (RegExp(r'(^|[^a-z0-9])negative[-\s:]*base([^a-z0-9]|$)')
+        .hasMatch(normalized)) {
+      add('negative-base');
+    }
+    if (RegExp(r'(^|[^a-z0-9])base([-\s:]*(caption|prompt))?([^a-z0-9]|$)')
+        .hasMatch(normalized)) {
+      add('base');
+    }
+    for (final match
+        in RegExp(r'negative[-\s:]*slot[-\s:]*(\d+)').allMatches(normalized)) {
+      add('negative-slot-${match.group(1)}');
+    }
+    for (final match
+        in RegExp(r'(^|[^a-z0-9])slot[-\s:]*(\d+)').allMatches(normalized)) {
+      final prefixStart = match.start - 12 < 0 ? 0 : match.start - 12;
+      final prefix = normalized.substring(prefixStart, match.start);
+      if (prefix.contains('negative')) {
+        continue;
+      }
+      add('slot-${match.group(2)}');
+    }
+    return List.unmodifiable(result);
   }
 
   ScriptAiExtractedStage _stageWithRestoredPromptWeights(
@@ -822,6 +938,7 @@ class DefaultScriptAiRoleExtractionService
       attentionItems: extraction.attentionItems,
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
       rawResponse: extraction.rawResponse,
     );
   }

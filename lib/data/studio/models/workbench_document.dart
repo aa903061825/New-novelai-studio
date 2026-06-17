@@ -1,4 +1,4 @@
-import 'package:nai_casrand/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
 
 class WorkbenchDocument {
   static const kind = 'novel-studio-workbench';

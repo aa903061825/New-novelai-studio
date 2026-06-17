@@ -1,11 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_evidence_builder.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_evidence_builder.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
 
 void main() {
   group('DefaultScriptAiRoleExtractionService', () {
@@ -1043,6 +1043,108 @@ void main() {
       expect(stage.identity, '1.1:: plana (blue archive) ::, girl');
       expect(stage.upperBody, '1.25:: blue eyes ::');
       expect(stage.upperClothing, '0.75:: white dress ::');
+    });
+
+    test('restores prompt replacement term weights from source frames',
+        () async {
+      final fakeClient = _FakeRoleExtractionClient(
+        (_) async => ScriptAiRoleExtractionClientResult(
+          rawJson: jsonEncode({
+            'schema_version': 1,
+            'confidence': 0.9,
+            'roles': [
+              {
+                'source_role_id': 'slot-0',
+                'source_kind': 'slot',
+                'display_name': 'slot-0',
+                'confidence': 0.9,
+                'frame_indexes': [1],
+                'evidence_terms': ['red halo'],
+                'warnings': [],
+                'stages': [
+                  {
+                    'stage_id': 'default',
+                    'label': 'default',
+                    'confidence': 0.9,
+                    'frame_indexes': [1],
+                    'identity': 'alice_(series)',
+                    'upper_body': 'red halo',
+                    'lower_body': '',
+                    'upper_clothing': '',
+                    'lower_clothing': '',
+                    'evidence_terms': ['red halo'],
+                    'missing_fields': [],
+                    'warnings': [],
+                  }
+                ],
+                'prompt_terms': [
+                  {
+                    'id': 'red-halo',
+                    'text': 'red halo',
+                    'category': 'upper_body',
+                    'source_location': 'slot-0',
+                    'frame_indexes': [1],
+                  }
+                ],
+                'unassigned_terms': [
+                  {
+                    'term': 'red halo',
+                    'frame_indexes': [1],
+                    'reason': 'pending',
+                  }
+                ],
+              }
+            ],
+            'scene_terms': [
+              {
+                'id': 'classroom',
+                'text': 'classroom',
+                'category': 'scene',
+                'source_location': 'base_caption',
+                'frame_indexes': [1],
+              }
+            ],
+            'artist_chains': [],
+            'strong_filter_keywords': [],
+            'attention_items': [],
+            'unassigned_terms': [
+              {
+                'term': 'classroom',
+                'frame_indexes': [1],
+                'reason': 'pending',
+              }
+            ],
+          }),
+        ),
+      );
+      final service = DefaultScriptAiRoleExtractionService(
+        client: fakeClient,
+        retryDelays: const [Duration.zero, Duration.zero],
+      );
+
+      final result = await service.extractRoles(
+        request: _request(
+          script: _script(
+            frames: [
+              _frame(
+                1,
+                baseCaption: '1.4:: classroom ::',
+                charCaptions: const [
+                  'alice_(series), 1.25:: red halo ::',
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final role = result.extraction.roles.single;
+      expect(role.stages.single.upperBody, '1.25:: red halo ::');
+      expect(role.promptTerms.single.text, '1.25:: red halo ::');
+      expect(role.unassignedTerms.single.term, '1.25:: red halo ::');
+      expect(result.extraction.sceneTerms.single.text, '1.4:: classroom ::');
+      expect(
+          result.extraction.unassignedTerms.single.term, '1.4:: classroom ::');
     });
 
     test('restores grouped source weights after AI sorts normalized tags',

@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 import '../../tool/import_script_recast_image_set_caches.dart';
 
@@ -122,6 +124,74 @@ void main() {
         report.rows.singleWhere((row) => row.scriptName == 'container').status,
         'skipped_no_frames',
       );
+    });
+
+    test('does not carry stale mapping from related cache after source changes',
+        () async {
+      final script =
+          Directory('${sourceRoot.path}${Platform.pathSeparator}wakamo');
+      await script.create();
+      final promptFile = File('${script.path}${Platform.pathSeparator}p1.json');
+      await promptFile.writeAsString(
+        jsonEncode({'Description': 'wakamo_(blue_archive), black kimono'}),
+      );
+
+      final service = WorkspaceService();
+      await service.createWorkspace(workspaceRoot.path);
+      await importScriptRecastImageSetCaches(
+        sourceRoot: sourceRoot.path,
+        workspaceRoot: workspaceRoot.path,
+        recursive: true,
+      );
+
+      final seedCache = (await service.loadRecastScriptCaches()).single;
+      await service.saveRecastScriptCache(
+        RecastScriptCache(
+          scriptId: seedCache.scriptId,
+          scriptName: seedCache.scriptName,
+          sourceRootPath: seedCache.sourceRootPath,
+          sourceFingerprint: seedCache.sourceFingerprint,
+          updatedAt: DateTime.now().toUtc(),
+          scriptBlockWords: 'keep low-risk import state',
+          mapping: RecastMapping(
+            id: 'mapping-${seedCache.scriptId}',
+            scriptId: seedCache.scriptId,
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-wakamo',
+                displayLabel: 'Wakamo',
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'stage-old',
+                    label: '旧映射',
+                    targetCharacterId: 'stale-target-character',
+                    manualParts: RecastPromptParts(
+                      identity: 'stale replacement identity',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: seedCache.scriptSnapshot,
+        ),
+      );
+
+      await promptFile.writeAsString(
+        jsonEncode({'Description': 'wakamo_(blue_archive), white bikini'}),
+      );
+
+      final report = await importScriptRecastImageSetCaches(
+        sourceRoot: sourceRoot.path,
+        workspaceRoot: workspaceRoot.path,
+        recursive: true,
+      );
+      final imported = (await service.loadRecastScriptCaches()).single;
+
+      expect(report.written, 1);
+      expect(report.rows.single.preservedAiDraft, isFalse);
+      expect(imported.scriptBlockWords, 'keep low-risk import state');
+      expect(imported.mapping.roleAssemblies, isEmpty);
     });
   });
 }

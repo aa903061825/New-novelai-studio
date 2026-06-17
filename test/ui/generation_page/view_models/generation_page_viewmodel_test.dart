@@ -8,18 +8,19 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
 
 PayloadConfig _buildPayloadConfig() {
   return PayloadConfig(
@@ -919,6 +920,174 @@ void main() {
       expect(viewmodel.commandStatus.currentBatchCount, 0);
       expect(viewmodel.commandStatus.isCoolingDown.value, isFalse);
       expect(viewmodel.lastScheduledCooldown, isNull);
+    },
+  );
+
+  test('startSingleImageGeneration uses the requested workbench count',
+      () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      onNextCommand: () {},
+    );
+
+    viewmodel.startSingleImageGeneration(count: 3);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(viewmodel.payloadConfig.settings.numberOfRequests, 3);
+    expect(viewmodel.payloadConfig.settings.batchCount, 3);
+    expect(viewmodel.commandStatus.isBatchActive.value, isTrue);
+    expect(viewmodel.nextCommandCallCount, 1);
+  });
+
+  test(
+    'single image generation stops after failure instead of cooling down',
+    () async {
+      final viewmodel = _TestGenerationPageViewmodel(
+        payloadResults: [_buildPayloadResult('prompt-1')],
+        responses: [Exception('request failed')],
+      );
+
+      viewmodel.startSingleImageGeneration(count: 2);
+      await _waitForBatchToStop(viewmodel);
+
+      expect(viewmodel.requestPayloads, hasLength(1));
+      expect(viewmodel.generatedPayloadCount, 1);
+      expect(viewmodel.savedFileNames, isEmpty);
+      expect(viewmodel.commandStatus.isBatchActive.value, isFalse);
+      expect(viewmodel.commandStatus.isCoolingDown.value, isFalse);
+      expect(viewmodel.lastScheduledCooldown, isNull);
+    },
+  );
+
+  test('single image generation omits empty reference arrays by default',
+      () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+
+    viewmodel.startSingleImageGeneration();
+    await _waitForBatchToStop(viewmodel);
+
+    final params =
+        viewmodel.requestPayloads.single['parameters'] as Map<String, dynamic>;
+    expect(params.containsKey('reference_image_multiple'), isFalse);
+    expect(params.containsKey('reference_strength_multiple'), isFalse);
+    expect(
+      params.containsKey('reference_information_extracted_multiple'),
+      isFalse,
+    );
+  });
+
+  test('single image generation sends the current configured size', () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+    viewmodel.payloadConfig.paramConfig.sizes = const [
+      GenerationSize(width: 704, height: 1472),
+    ];
+
+    viewmodel.startSingleImageGeneration();
+    await _waitForBatchToStop(viewmodel);
+
+    final params =
+        viewmodel.requestPayloads.single['parameters'] as Map<String, dynamic>;
+    expect(params['width'], 704);
+    expect(params['height'], 1472);
+  });
+
+  test('single image generation ignores hidden batch resolution settings',
+      () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+    viewmodel.payloadConfig.paramConfig
+      ..sizes = const [
+        GenerationSize(width: 1472, height: 704),
+      ]
+      ..enableBatchResolution = true
+      ..batchResolutionMode = 'stop_at_end'
+      ..batchResolutionText = [
+        '704x1472',
+        '832x1216',
+      ].join('\n');
+
+    viewmodel.startSingleImageGeneration();
+    await _waitForBatchToStop(viewmodel);
+
+    final params =
+        viewmodel.requestPayloads.single['parameters'] as Map<String, dynamic>;
+    expect(params['width'], 1472);
+    expect(params['height'], 704);
+  });
+
+  test('single image generation ignores hidden global generation overrides',
+      () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+    viewmodel.payloadConfig.paramConfig
+      ..steps = 17
+      ..scale = 4.4
+      ..cfgRescale = 0.35
+      ..sampler = 'k_euler'
+      ..noiseSchedule = 'exponential'
+      ..negativePrompt = 'workbench uc'
+      ..randomSeed = false
+      ..seed = 123456;
+    viewmodel.payloadConfig.globalGenerationParams
+      ..useGlobalSteps = true
+      ..useGlobalScale = true
+      ..useGlobalCfgRescale = true
+      ..useGlobalSampler = true
+      ..useGlobalNegativePrompt = true
+      ..steps = 28
+      ..scale = 9.9
+      ..cfgRescale = 0.9
+      ..sampler = 'k_dpmpp_2m'
+      ..negativePrompt = 'global uc';
+
+    viewmodel.startSingleImageGeneration();
+    await _waitForBatchToStop(viewmodel);
+
+    final params =
+        viewmodel.requestPayloads.single['parameters'] as Map<String, dynamic>;
+    expect(params['steps'], 17);
+    expect(params['scale'], 4.4);
+    expect(params['cfg_rescale'], 0.35);
+    expect(params['sampler'], 'k_euler');
+    expect(params['noise_schedule'], 'exponential');
+    expect(params['negative_prompt'], 'workbench uc');
+    expect(params['seed'], 123456);
+    expect(
+      ((params['v4_negative_prompt'] as Map<String, dynamic>)['caption']
+          as Map<String, dynamic>)['base_caption'],
+      'workbench uc',
+    );
+  });
+
+  test(
+    'single image generation reports payload errors instead of command errors',
+    () async {
+      final viewmodel = _TestGenerationPageViewmodel();
+      viewmodel.payloadConfig.paramConfig.sizes = [];
+
+      viewmodel.startSingleImageGeneration();
+      await _waitForBatchToStop(viewmodel);
+
+      final card = viewmodel.commandList.last.value;
+      expect(card.title, '生成失败');
+      expect(card.info, contains('RangeError'));
+      expect(card.additionalInfo, isEmpty);
+      expect(viewmodel.requestPayloads, isEmpty);
+      expect(viewmodel.commandStatus.isBatchActive.value, isFalse);
     },
   );
 

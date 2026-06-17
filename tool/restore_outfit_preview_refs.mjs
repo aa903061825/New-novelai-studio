@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const args = new Set(process.argv.slice(2));
 const apply = args.has('--apply');
 const workspaceRoot =
-  'C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio';
+  'C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio';
 const libraryRoot = path.join(workspaceRoot, 'library');
 const charactersPath = path.join(libraryRoot, 'characters.json');
 const reportPath = path.join(libraryRoot, 'asset_outfit_preview_ref_restore_report.json');

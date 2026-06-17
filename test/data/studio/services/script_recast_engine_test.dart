@@ -1,11 +1,12 @@
 import 'dart:io';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 void main() {
   group('ScriptRecastEngine', () {
@@ -13,8 +14,8 @@ void main() {
       'role swap replaces character identity while preserving seed and scene',
       () async {
         final script = await _parseFixture();
-        final originalSource = script.frames.first.parsed.sourcePayload
-            .toString();
+        final originalSource =
+            script.frames.first.parsed.sourcePayload.toString();
         final result = ScriptRecastEngine().resolvePayloads(
           script: script,
           mapping: RecastMapping.defaults(script.id).copyWith(
@@ -235,6 +236,479 @@ void main() {
       expect(baseCaption, isNot(contains('masterpiece')));
       expect(baseCaption, isNot(contains('best quality')));
     });
+
+    test(
+      'role prompt replacements mutate only matching character captions',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['masterpiece', 'masterpiece'],
+          charCaptions: const [
+            ['alice, red jacket, black skirt'],
+            ['alice, blue coat'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Alice',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-red-jacket',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final frame1Caption =
+            _resolvedCharCaptions(result.frames.first.payload).single;
+        final frame2Caption =
+            _resolvedCharCaptions(result.frames.last.payload).single;
+        expect(frame1Caption, contains('white dress'));
+        expect(frame1Caption, isNot(contains('red jacket')));
+        expect(frame2Caption, contains('blue coat'));
+        expect(frame2Caption, isNot(contains('white dress')));
+      },
+    );
+
+    test(
+      'role prompt replacements follow assembly source appearances',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['bedroom', 'bedroom'],
+          charCaptions: const [
+            ['wakamo_(blue_archive), white tanktop', 'boy, black shirt'],
+            ['boy, black shirt', 'wakamo_(blue_archive), white tanktop'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-wakamo-blue-archive',
+                displayLabel: 'Wakamo',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1],
+                  ),
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-1',
+                    sourceKind: 'slot',
+                    frameIndexes: [2],
+                  ),
+                ],
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'wakamo-stage',
+                    label: 'Default',
+                    frameIndexes: [1, 2],
+                    sourceParts: RecastPromptParts(
+                      identity: 'wakamo_(blue_archive)',
+                      upperClothing: 'white tanktop',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-wakamo-blue-archive',
+                displayLabel: 'Wakamo',
+                targetIdentityPrompt: 'pepe_(arknights)',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-wakamo',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-wakamo',
+                        text: 'wakamo_(blue_archive)',
+                        category: PromptTagCategory.character,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-tanktop',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-tanktop',
+                        text: 'white tanktop',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    targetPrompt: 'black jacket',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final frame1Captions =
+            _resolvedCharCaptions(result.frames.first.payload);
+        final frame2Captions =
+            _resolvedCharCaptions(result.frames.last.payload);
+        expect(frame1Captions.first, contains('pepe_(arknights)'));
+        expect(frame1Captions.first, contains('black jacket'));
+        expect(frame1Captions.first, isNot(contains('wakamo_(blue_archive)')));
+        expect(frame1Captions.first, isNot(contains('white tanktop')));
+        expect(frame1Captions.last, 'boy, black shirt');
+        expect(frame2Captions.first, 'boy, black shirt');
+        expect(frame2Captions.last, contains('pepe_(arknights)'));
+        expect(frame2Captions.last, contains('black jacket'));
+        expect(frame2Captions.last, isNot(contains('wakamo_(blue_archive)')));
+        expect(frame2Captions.last, isNot(contains('white tanktop')));
+      },
+    );
+
+    test('scene prompt replacements mutate base caption separately', () {
+      final script = _scriptWithFramePrompts(
+        baseCaptions: const [
+          'rainy city street, night',
+          'warm indoor light',
+        ],
+      );
+      final result = ScriptRecastEngine().resolvePayloads(
+        script: script,
+        mapping: RecastMapping.defaults(script.id).copyWith(
+          scenePromptReplacements: const [
+            ScriptScenePromptReplacement(
+              id: 'scene-main',
+              label: 'Scene',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'rule-night',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'term-night',
+                      text: 'night',
+                      category: PromptTagCategory.scene,
+                      frameIndexes: [1],
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.delete,
+                ),
+              ],
+            ),
+          ],
+        ),
+        characters: const [],
+        artistChains: const [],
+      );
+
+      expect(
+        _resolvedBaseCaption(_resultForFrame(result, result.frames.first)),
+        'rainy city street',
+      );
+      expect(
+        _resolvedBaseCaption(_resultForFrame(result, result.frames.last)),
+        'warm indoor light',
+      );
+    });
+
+    test(
+      'targetIdentityPrompt applies to role captions without local inference',
+      () {
+        final script = _scriptWithCharacterCaption(
+          'alice, red jacket, 1girl, solo',
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Alice',
+                targetIdentityPrompt: 'lily, silver hair',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-alice',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-alice',
+                        text: 'alice',
+                        category: PromptTagCategory.character,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-red-jacket',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final charCaption = _resolvedCharCaption(result);
+        expect(charCaption, contains('lily'));
+        expect(charCaption, contains('silver hair'));
+        expect(charCaption, contains('white dress'));
+        expect(charCaption, contains('1girl'));
+        expect(charCaption, contains('solo'));
+        expect(charCaption, isNot(contains('alice')));
+        expect(charCaption, isNot(contains('red jacket')));
+      },
+    );
+
+    test(
+      'targetIdentityPrompt is applied after ordinary rules',
+      () {
+        final script = _scriptWithCharacterCaption('alice, red jacket');
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Alice',
+                targetIdentityPrompt: 'lily, red jacket',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-alice',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-alice',
+                        text: 'alice',
+                        category: PromptTagCategory.character,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-red-jacket',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final charCaption = _resolvedCharCaption(result);
+        expect(charCaption, contains('lily'));
+        expect(charCaption, contains('red jacket'));
+        expect(charCaption, contains('white dress'));
+        expect(charCaption, isNot(contains('alice')));
+      },
+    );
+
+    test(
+      'targetIdentityPrompt appends after all-mode rule removes identity source',
+      () {
+        final script = _scriptWithCharacterCaption('alice, red jacket');
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Alice',
+                targetIdentityPrompt: 'lily',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-all',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-alice',
+                        text: 'alice',
+                        category: PromptTagCategory.character,
+                      ),
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    matchMode: ScriptPromptReplacementMatchMode.all,
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final charCaption = _resolvedCharCaption(result);
+        expect(charCaption, contains('lily'));
+        expect(charCaption, contains('white dress'));
+        expect(charCaption, isNot(contains('alice')));
+        expect(charCaption, isNot(contains('red jacket')));
+      },
+    );
+
+    test('new rolePromptReplacements suppress legacy roleAssemblies path', () {
+      final script = _scriptWithCharacterCaption(
+        'alice, red jacket, standing',
+      );
+      final result = ScriptRecastEngine().resolvePayloads(
+        script: script,
+        mapping: RecastMapping.defaults(script.id).copyWith(
+          rolePromptReplacements: const [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Alice',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'rule-red-jacket',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'term-red-jacket',
+                      text: 'red jacket',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'white dress',
+                ),
+              ],
+            ),
+          ],
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Legacy Alice',
+              stages: [
+                RoleAssemblyStage(
+                  id: 'legacy-stage',
+                  label: 'Legacy',
+                  frameIndexes: [1],
+                  sourceParts: RecastPromptParts(
+                    identity: 'alice',
+                    upperClothing: 'red jacket',
+                  ),
+                  manualParts: RecastPromptParts(
+                    identity: 'legacy_alice',
+                    upperClothing: 'legacy outfit',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        characters: const [],
+        artistChains: const [],
+      );
+
+      final charCaption = _resolvedCharCaption(result);
+      expect(charCaption, contains('alice'));
+      expect(charCaption, contains('white dress'));
+      expect(charCaption, contains('standing'));
+      expect(charCaption, isNot(contains('red jacket')));
+      expect(charCaption, isNot(contains('legacy_alice')));
+      expect(charCaption, isNot(contains('legacy outfit')));
+    });
+
+    test(
+      'rolePromptReplacements skip roleAssemblies but preserve other roleSwaps',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['masterpiece'],
+          charCaptions: const [
+            ['alice, red jacket', 'beth, black coat'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Alice',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-red-jacket',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Legacy Alice',
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'legacy-stage',
+                    label: 'Legacy',
+                    frameIndexes: [1],
+                    sourceParts: RecastPromptParts(
+                      identity: 'alice',
+                      upperClothing: 'red jacket',
+                    ),
+                    manualParts: RecastPromptParts(
+                      identity: 'legacy_alice',
+                      upperClothing: 'legacy outfit',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            roleSwaps: const [
+              RoleSwap(sourceRoleId: 'slot-1', targetCharacterId: 'char-x'),
+            ],
+          ),
+          characters: [_newHeroine],
+          artistChains: const [],
+        );
+
+        final charCaptions =
+            _resolvedCharCaptions(result.frames.single.payload);
+        expect(charCaptions.first, contains('alice'));
+        expect(charCaptions.first, contains('white dress'));
+        expect(charCaptions.first, isNot(contains('legacy_alice')));
+        expect(charCaptions.first, isNot(contains('legacy outfit')));
+        expect(charCaptions.last, contains('new_heroine'));
+        expect(charCaptions.last, contains('green eyes'));
+        expect(charCaptions.last, isNot(contains('beth')));
+        expect(charCaptions.last, isNot(contains('black coat')));
+      },
+    );
 
     test(
       'artist swap keeps bound vibe references as source-only candidates',
@@ -1512,12 +1986,10 @@ const _duplicatedEyja = CharacterEntry(
       name: 'Summer',
       tags: ViewVariantTexts(
         frontFull: 'eyjafjalla_(summer_flower)_(arknights)',
-        frontUpper:
-            'eyjafjalla_(summer_flower)_(arknights), bikini, '
+        frontUpper: 'eyjafjalla_(summer_flower)_(arknights), bikini, '
             'pink_bikini, plaid_bikini, plaid_clothes, swimsuit, '
             'swimsuit_cover-up',
-        frontLower:
-            'bikini, pink_bikini, plaid_bikini, swimsuit, '
+        frontLower: 'bikini, pink_bikini, plaid_bikini, swimsuit, '
             'swimsuit_cover-up',
       ),
       partTags: WorkspaceOutfitPartTags(
@@ -1545,8 +2017,7 @@ const _splitPepe = CharacterEntry(
   id: 'split-pepe',
   name: 'Pepe',
   traits: ViewVariantTexts(
-    frontFull:
-        'girl, 2::loli::, pepe_(arknights), cat ears, long hair, '
+    frontFull: 'girl, 2::loli::, pepe_(arknights), cat ears, long hair, '
         'cat tail, animal ear hood, black jacket, black shorts',
     frontUpper: 'cat ears, long hair',
     frontLower: 'cat tail',
@@ -1586,8 +2057,7 @@ const _skinPepe = CharacterEntry(
   id: 'skin-pepe',
   name: 'Pepe',
   traits: ViewVariantTexts(
-    frontFull:
-        'girl, pepe_(arknights), cat ears, long hair, cat tail, '
+    frontFull: 'girl, pepe_(arknights), cat ears, long hair, cat tail, '
         'animal ear hood, black jacket',
     frontUpper: 'cat ears, long hair',
     frontLower: 'cat tail',
@@ -1609,8 +2079,7 @@ const _skinPepe = CharacterEntry(
       id: 'nuit',
       name: 'Nuit of the Nightsky',
       tags: ViewVariantTexts(
-        frontFull:
-            'pepe_(arknights), '
+        frontFull: 'pepe_(arknights), '
             'pepe_(nuit_of_the_nightsky)_(arknights), white dress, purple skirt',
       ),
       partTags: WorkspaceOutfitPartTags(
@@ -1626,8 +2095,7 @@ const _contaminatedSkinPepe = CharacterEntry(
   id: 'contaminated-skin-pepe',
   name: 'Pepe',
   traits: ViewVariantTexts(
-    frontFull:
-        'pepe_(arknights), '
+    frontFull: 'pepe_(arknights), '
         'pepe_(nuit_of_the_nightsky)_(arknights), cat ears, cat tail',
     frontUpper: 'cat ears',
     frontLower: 'cat tail',
@@ -1664,8 +2132,7 @@ const _skinPepeFrontFullOnly = CharacterEntry(
       id: 'nuit-frontfull-only',
       name: 'Nuit of the Nightsky',
       tags: ViewVariantTexts(
-        frontFull:
-            'pepe_(arknights), '
+        frontFull: 'pepe_(arknights), '
             'pepe_(nuit_of_the_nightsky)_(arknights), white dress, purple skirt',
       ),
     ),
@@ -1676,8 +2143,7 @@ const _splitPapyrus = CharacterEntry(
   id: 'split-papyrus',
   name: '莎草',
   traits: ViewVariantTexts(
-    frontFull:
-        'girl, papyrus_(arknights), animal ears, cat ears, '
+    frontFull: 'girl, papyrus_(arknights), animal ears, cat ears, '
         'green eyes, orange hair, long hair, tail ornament',
     frontUpper: 'animal ears, cat ears, green eyes, orange hair, long hair',
     frontLower: 'tail ornament, fluffy tail',
@@ -1739,17 +2205,17 @@ Future<Script> _parseFixture() {
 
 Script _scriptWithMovingSlots() {
   Map<String, dynamic> sourcePayload(List<String> captions) => {
-    'Comment': {
-      'v4_prompt': {
-        'caption': {
-          'base_caption': 'masterpiece',
-          'char_captions': [
-            for (final caption in captions) {'char_caption': caption},
-          ],
+        'Comment': {
+          'v4_prompt': {
+            'caption': {
+              'base_caption': 'masterpiece',
+              'char_captions': [
+                for (final caption in captions) {'char_caption': caption},
+              ],
+            },
+          },
         },
-      },
-    },
-  };
+      };
 
   ScriptFrame frame(int index, List<String> captions) {
     return ScriptFrame(
@@ -1780,6 +2246,57 @@ Script _scriptWithMovingSlots() {
         'beth_(series), black dress',
         'alice_(series), white shirt',
       ]),
+    ],
+    detectedSchema: ScriptSchema.v4Slotted,
+    parseWarnings: const [],
+    meta: const {},
+  );
+}
+
+Script _scriptWithFramePrompts({
+  required List<String> baseCaptions,
+  List<List<String>> charCaptions = const [],
+}) {
+  ScriptFrame frame(int index, String baseCaption, List<String> captions) {
+    final sourcePayload = {
+      'Comment': {
+        'v4_prompt': {
+          'caption': {
+            'base_caption': baseCaption,
+            'char_captions': [
+              for (final caption in captions) {'char_caption': caption},
+            ],
+          },
+        },
+      },
+    };
+    return ScriptFrame(
+      index: index,
+      fileName: 'nai_$index.json',
+      sourcePath: 'C:\\scripts\\replacement-rules\\nai_$index.json',
+      rawJson: '{}',
+      parsed: ParsedFrame(
+        baseCaption: baseCaption,
+        charCaptions: captions,
+        generationParams: const {'seed': 123},
+        sourcePayload: sourcePayload,
+      ),
+      detectedSchema: ScriptSchema.v4Slotted,
+      parseStatus: ScriptFrameParseStatus.parsed,
+    );
+  }
+
+  return Script(
+    id: 'script-replacement-rules',
+    name: 'Replacement Rules',
+    rootPath: 'C:\\scripts\\replacement-rules',
+    frames: [
+      for (var index = 0; index < baseCaptions.length; index += 1)
+        frame(
+          index + 1,
+          baseCaptions[index],
+          index < charCaptions.length ? charCaptions[index] : const [],
+        ),
     ],
     detectedSchema: ScriptSchema.v4Slotted,
     parseWarnings: const [],
@@ -1884,6 +2401,18 @@ String _resolvedBaseCaption(ScriptRecastResult result) {
   final prompt = comment['v4_prompt'] as Map;
   final caption = prompt['caption'] as Map;
   return caption['base_caption'] as String;
+}
+
+ScriptRecastResult _resultForFrame(
+  ScriptRecastResult result,
+  ScriptRecastFramePayload frame,
+) {
+  return ScriptRecastResult(
+    scriptId: result.scriptId,
+    mappingId: result.mappingId,
+    frames: [frame],
+    configFingerprint: result.configFingerprint,
+  );
 }
 
 int _tagOccurrences(String caption, String tag) {

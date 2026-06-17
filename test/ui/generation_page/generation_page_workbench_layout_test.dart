@@ -5,29 +5,32 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_command/flutter_command.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/models/vibe_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/services/workbench_transfer_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/generation_page/widgets/generation_page_view.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/prompt_composer_panel.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/info_card_content.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/models/vibe_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/ui/generation_page/widgets/generation_page_view.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/prompt_composer_panel.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 
 class _EnglishGenerationAssetLoader extends AssetLoader {
   const _EnglishGenerationAssetLoader();
@@ -59,6 +62,11 @@ class _EnglishGenerationAssetLoader extends AssetLoader {
       'confirm': 'Confirm',
       'cancel': 'Cancel',
       'colon': ': ',
+      'title': 'Title',
+      'info': 'Info',
+      'copy_to_clipboard': 'Copy',
+      'info_export_to_clipboard': 'Copied ',
+      'succeed': 'success',
     };
   }
 }
@@ -96,7 +104,14 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   }
 }
 
-class _WorkbenchLayoutViewmodel extends GenerationPageViewmodel {}
+class _WorkbenchLayoutViewmodel extends GenerationPageViewmodel {
+  int? lastSingleImageGenerationCount;
+
+  @override
+  void startSingleImageGeneration({int count = 1}) {
+    lastSingleImageGenerationCount = count;
+  }
+}
 
 const _sharedPreferencesChannel = MethodChannel(
   'plugins.flutter.io/shared_preferences',
@@ -267,10 +282,15 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('workbench-reference-editor')),
-      findsNothing,
+      find.byKey(const ValueKey('workbench-vibe-section-toggle')),
+      findsOneWidget,
     );
-    expect(find.text('图生图（可选）'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workbench-i2i-section-toggle')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsNothing);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
     expect(
       find.byKey(const ValueKey('workbench-prompt-control-section')),
       findsOneWidget,
@@ -285,7 +305,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
-  testWidgets('workbench reference editor exposes i2i and reference controls',
+  testWidgets('workbench vibe and i2i sections activate independently',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
     tester.view.devicePixelRatio = 1;
@@ -294,26 +314,35 @@ void main() {
 
     final payload = GetIt.I<PayloadConfig>();
     payload.paramConfig = ParamConfig(model: 'nai-diffusion-4-5-full');
+    payload.generationRuntimeState.vibeEnabled = false;
 
     await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
 
     expect(
-      find.byKey(const ValueKey('workbench-reference-editor')),
-      findsNothing,
-    );
-    expect(find.text('图生图（可选）'), findsOneWidget);
-
-    final i2iToggle =
-        find.byKey(const ValueKey('workbench-i2i-section-toggle'));
-    await tester.ensureVisible(i2iToggle);
-    await tester.pumpAndSettle();
-    await tester.tap(i2iToggle);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('workbench-reference-editor')),
+      find.byKey(const ValueKey('workbench-vibe-section-toggle')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('workbench-i2i-section-toggle')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsNothing);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-vibe-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-i2i-section-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('workbench-i2i-config-view')),
       findsOneWidget,
@@ -331,25 +360,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('Redraw presets'), findsNothing);
-    expect(find.text('参考图（可选）'), findsOneWidget);
     expect(find.text('Enable Vibe Transfer'), findsNothing);
     expect(find.text('Enable Precise Reference'), findsNothing);
-
-    final referenceExpansion =
-        find.byKey(const ValueKey('workbench-reference-options-expansion'));
-    await tester.ensureVisible(referenceExpansion);
-    await tester.pumpAndSettle();
-    await tester.tap(referenceExpansion);
-    await tester.pumpAndSettle();
-
-    expect(find.text('风格参考'), findsOneWidget);
-    expect(find.text('精确参考'), findsOneWidget);
-    expect(find.text('Enable Vibe Transfer'), findsNothing);
-    expect(find.text('Enable Precise Reference'), findsNothing);
-    expect(find.descendant(
-      of: find.byKey(const ValueKey('workbench-reference-editor')),
-      matching: find.text('关闭'),
-    ), findsNothing);
 
     payload.i2iConfig.setImage(base64Decode(_tinyPngBase64));
     await tester.pump();
@@ -373,6 +385,10 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('workbench-generation-count-field')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('workbench-import-action')),
       findsOneWidget,
     );
@@ -387,6 +403,117 @@ void main() {
     expect(find.text('output_folder'), findsNothing);
     expect(find.text('proxy'), findsNothing);
     expect(find.text('metadata_erase'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('workbench generation count is passed to single image start',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewmodel = _WorkbenchLayoutViewmodel();
+
+    await _pumpGenerationPage(tester, viewmodel);
+
+    final countField =
+        find.byKey(const ValueKey('workbench-generation-count-field'));
+    await tester.ensureVisible(countField);
+    await tester.enterText(countField, '4');
+    await tester.pump();
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-start-generation-button')));
+    await tester.pump();
+
+    expect(viewmodel.lastSingleImageGenerationCount, 4);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('workbench generated image preview includes synced detail panel',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final content = InfoCardContent(
+      title: 'generated.png',
+      info: 'soft light, blue eyes',
+      additionalInfo: const {
+        'input': 'soft light, blue eyes',
+      },
+      contentOrderText: '#1',
+      imageBytes: base64Decode(_tinyPngBase64),
+    );
+    GetIt.I<CommandStatus>().commandList.add(
+          Command.createAsyncNoParam<InfoCardContent>(
+            () async => content,
+            initialValue: content,
+          ),
+        );
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    final card = find.byKey(
+      const ValueKey('studio-generated-image-card-workbench-1'),
+    );
+    await tester.ensureVisible(card);
+    await tester.tap(card);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.byKey(const ValueKey('studio-generated-image-viewer-dialog')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('workbench-generated-image-detail-preview')),
+      findsOneWidget,
+    );
+    expect(find.text('generated.png'), findsWidgets);
+    expect(find.text('soft light'), findsWidgets);
+    expect(find.text('blue eyes'), findsWidgets);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('workbench commits typed size before starting generation',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    final viewmodel = _WorkbenchLayoutViewmodel();
+
+    await _pumpGenerationPage(tester, viewmodel);
+
+    final widthField = find.byKey(const ValueKey('workbench-width-field'));
+    final heightField = find.byKey(const ValueKey('workbench-height-field'));
+    await tester.ensureVisible(widthField);
+    await tester.enterText(widthField, '704');
+    await tester.enterText(heightField, '1472');
+    await tester.pump();
+
+    expect(
+      payload.paramConfig.sizes,
+      const [GenerationSize(width: 832, height: 1216)],
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-start-generation-button')));
+    await tester.pump();
+
+    expect(
+      payload.paramConfig.sizes,
+      const [GenerationSize(width: 704, height: 1472)],
+    );
+    expect(viewmodel.lastSingleImageGenerationCount, 1);
 
     await tester.pump(const Duration(milliseconds: 1));
   });

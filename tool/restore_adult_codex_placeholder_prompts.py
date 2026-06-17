@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -10,8 +10,8 @@ from typing import Any
 
 
 DEFAULT_LIBRARY_DIR = Path(
-    r"C:\Users\admin\AppData\Roaming\org.exception0x0194"
-    r"\nai3_autodraw\novel_studio\library"
+    r"C:\Users\admin\AppData\Roaming\Novel Studio"
+    r"\Novel Studio\novel_studio\library"
 )
 DEFAULT_INSPIRATIONS_PATH = DEFAULT_LIBRARY_DIR / "inspirations.json"
 DEFAULT_PLACEHOLDER_MAP_PATH = (

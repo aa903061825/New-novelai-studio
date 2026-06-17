@@ -1,3 +1,6 @@
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+
 enum ScriptAiRoleExtractionStatus { idle, ready, failed, needsMoreEvidence }
 
 class ScriptAiEvidenceRequest {
@@ -45,6 +48,7 @@ class ScriptAiRoleExtraction {
   final List<ScriptAiExtractionAttentionItem> attentionItems;
   final List<ScriptAiUnassignedTerm> unassignedTerms;
   final List<ScriptAiEvidenceRequest> evidenceRequests;
+  final List<ScriptAiExtractedPromptTerm> sceneTerms;
   final String rawResponse;
 
   const ScriptAiRoleExtraction({
@@ -58,6 +62,7 @@ class ScriptAiRoleExtraction {
     this.attentionItems = const [],
     this.unassignedTerms = const [],
     this.evidenceRequests = const [],
+    this.sceneTerms = const [],
     this.rawResponse = '',
   });
 
@@ -102,6 +107,14 @@ class ScriptAiRoleExtraction {
           .toList(growable: false),
       evidenceRequests: _mapList(json['evidence_requests'])
           .map(ScriptAiEvidenceRequest.fromJson)
+          .toList(growable: false),
+      sceneTerms: _mapList(json['scene_terms'] ?? json['sceneTerms'])
+          .map(
+            (term) => ScriptAiExtractedPromptTerm.fromJson(
+              term,
+              defaultCategory: PromptTagCategory.scene,
+            ),
+          )
           .toList(growable: false),
       rawResponse: _stringValue(json['raw_response']),
     );
@@ -156,6 +169,7 @@ class ScriptAiRoleExtraction {
       attentionItems: attentionItems,
       unassignedTerms: unassignedTerms,
       evidenceRequests: evidenceRequests,
+      sceneTerms: sceneTerms,
       rawResponse: rawResponse,
     );
   }
@@ -175,7 +189,72 @@ class ScriptAiRoleExtraction {
         if (evidenceRequests.isNotEmpty)
           'evidence_requests':
               evidenceRequests.map((request) => request.toJson()).toList(),
+        if (sceneTerms.isNotEmpty)
+          'scene_terms': sceneTerms.map((term) => term.toJson()).toList(),
         if (rawResponse.trim().isNotEmpty) 'raw_response': rawResponse,
+      };
+}
+
+class ScriptAiExtractedPromptTerm {
+  final String id;
+  final String text;
+  final PromptTagCategory category;
+  final String sourcePhrase;
+  final String sourceLocation;
+  final List<int> frameIndexes;
+
+  const ScriptAiExtractedPromptTerm({
+    this.id = '',
+    this.text = '',
+    this.category = PromptTagCategory.character,
+    this.sourcePhrase = '',
+    this.sourceLocation = '',
+    this.frameIndexes = const [],
+  });
+
+  factory ScriptAiExtractedPromptTerm.fromJson(
+    Map<String, dynamic> json, {
+    PromptTagCategory defaultCategory = PromptTagCategory.character,
+  }) {
+    return ScriptAiExtractedPromptTerm(
+      id: _stringValue(json['id']),
+      text: _stringValue(json['text']),
+      category: _promptReplacementCategoryValue(
+        json['category'],
+        fallback: defaultCategory,
+      ),
+      sourcePhrase: _stringValue(json['source_phrase'] ?? json['sourcePhrase']),
+      sourceLocation:
+          _stringValue(json['source_location'] ?? json['sourceLocation']),
+      frameIndexes: _intList(json['frame_indexes'] ?? json['frameIndexes']),
+    );
+  }
+
+  ScriptAiExtractedPromptTerm copyWith({
+    String? id,
+    String? text,
+    PromptTagCategory? category,
+    String? sourcePhrase,
+    String? sourceLocation,
+    List<int>? frameIndexes,
+  }) {
+    return ScriptAiExtractedPromptTerm(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      category: category ?? this.category,
+      sourcePhrase: sourcePhrase ?? this.sourcePhrase,
+      sourceLocation: sourceLocation ?? this.sourceLocation,
+      frameIndexes: frameIndexes ?? this.frameIndexes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'category': _promptReplacementCategoryJsonValue(category),
+        if (sourcePhrase.trim().isNotEmpty) 'source_phrase': sourcePhrase,
+        if (sourceLocation.trim().isNotEmpty) 'source_location': sourceLocation,
+        if (frameIndexes.isNotEmpty) 'frame_indexes': frameIndexes,
       };
 }
 
@@ -222,6 +301,7 @@ class ScriptAiExtractedRole {
   final List<String> warnings;
   final List<ScriptAiExtractedStage> stages;
   final List<ScriptAiUnassignedTerm> unassignedTerms;
+  final List<ScriptAiExtractedPromptTerm> promptTerms;
 
   const ScriptAiExtractedRole({
     this.sourceRoleId = '',
@@ -240,6 +320,7 @@ class ScriptAiExtractedRole {
     this.warnings = const [],
     this.stages = const [],
     this.unassignedTerms = const [],
+    this.promptTerms = const [],
   });
 
   factory ScriptAiExtractedRole.fromJson(Map<String, dynamic> json) {
@@ -276,6 +357,9 @@ class ScriptAiExtractedRole {
       unassignedTerms: _mapList(json['unassigned_terms'])
           .map(ScriptAiUnassignedTerm.fromJson)
           .toList(growable: false),
+      promptTerms: _mapList(json['prompt_terms'] ?? json['promptTerms'])
+          .map(ScriptAiExtractedPromptTerm.fromJson)
+          .toList(growable: false),
     );
   }
 
@@ -298,6 +382,8 @@ class ScriptAiExtractedRole {
         'stages': stages.map((stage) => stage.toJson()).toList(),
         'unassigned_terms':
             unassignedTerms.map((term) => term.toJson()).toList(),
+        if (promptTerms.isNotEmpty)
+          'prompt_terms': promptTerms.map((term) => term.toJson()).toList(),
       };
 
   ScriptAiExtractedRole _collapseEquivalentStages({
@@ -375,6 +461,7 @@ class ScriptAiExtractedRole {
       warnings: warnings,
       stages: List.unmodifiable(uniqueStages),
       unassignedTerms: unassignedTerms,
+      promptTerms: promptTerms,
     );
   }
 }
@@ -563,6 +650,11 @@ List<ScriptAiExtractedRole> _splitGenericMultiSourceRoles(
           ),
           stages: _stagesForSourceAppearance(role, appearance),
           unassignedTerms: role.unassignedTerms,
+          promptTerms: _promptTermsForSourceAppearance(
+            role.promptTerms,
+            appearance,
+            role.appearances,
+          ),
         ),
       );
     }
@@ -696,6 +788,7 @@ ScriptAiExtractedRole _roleWithStagesCoveringAppearances(
     ),
     stages: List.unmodifiable(stages),
     unassignedTerms: role.unassignedTerms,
+    promptTerms: role.promptTerms,
   );
 }
 
@@ -734,6 +827,7 @@ ScriptAiExtractedRole _roleWithCanonicalIdentityFields(
     warnings: role.warnings,
     stages: role.stages,
     unassignedTerms: role.unassignedTerms,
+    promptTerms: role.promptTerms,
   );
 }
 
@@ -835,6 +929,7 @@ ScriptAiExtractedRole _mergeEquivalentRoles(
       ...left.unassignedTerms,
       ...right.unassignedTerms,
     ]),
+    promptTerms: _mergedPromptTerms(left.promptTerms, right.promptTerms),
   );
 }
 
@@ -888,11 +983,10 @@ ScriptAiExtractedStage _stageWithTransientTermsDemoted(
 }) {
   final stableFields = _normalizedStageStableFields(stage);
   final stableEvidenceTerms = _stableEvidenceTerms(stage.evidenceTerms);
-  final clearsNonRole =
-      stage.nonRole.trim().isNotEmpty || stage.nonRoleMaterialized;
   if (!stableFields.changed &&
       _stringListsEqual(stableEvidenceTerms, stage.evidenceTerms) &&
-      !clearsNonRole) {
+      stage.nonRole.trim().isEmpty &&
+      !stage.nonRoleMaterialized) {
     return stage;
   }
   onChanged();
@@ -1408,11 +1502,8 @@ ScriptAiExtractedStage _mergeEquivalentStages(
         _preferredStablePromptText(left.upperClothing, right.upperClothing),
     lowerClothing:
         _preferredStablePromptText(left.lowerClothing, right.lowerClothing),
-    nonRole: _mergedStrings(
-      _commaTerms(left.nonRole),
-      _commaTerms(right.nonRole),
-    ).join(', '),
-    nonRoleMaterialized: left.nonRoleMaterialized || right.nonRoleMaterialized,
+    nonRole: '',
+    nonRoleMaterialized: false,
     evidenceTerms: _stableEvidenceTerms(
       _mergedStrings(left.evidenceTerms, right.evidenceTerms),
     ),
@@ -1558,6 +1649,153 @@ bool _isLowerClothingFieldTerm(String term) {
 
 List<int> _mergedInts(List<int> left, List<int> right) {
   return List.unmodifiable(({...left, ...right}.toList()..sort()));
+}
+
+List<ScriptAiExtractedPromptTerm> _mergedPromptTerms(
+  List<ScriptAiExtractedPromptTerm> left,
+  List<ScriptAiExtractedPromptTerm> right,
+) {
+  final byKey = <String, ScriptAiExtractedPromptTerm>{};
+  final result = <ScriptAiExtractedPromptTerm>[];
+  for (final term in [...left, ...right]) {
+    final key = _promptTermMergeKey(term);
+    if (key.isEmpty) {
+      continue;
+    }
+    final existing = byKey[key];
+    if (existing == null) {
+      byKey[key] = term;
+      result.add(term);
+      continue;
+    }
+    final merged = _mergePromptTerm(existing, term);
+    byKey[key] = merged;
+    result[result.indexOf(existing)] = merged;
+  }
+  return List.unmodifiable(result);
+}
+
+List<ScriptAiExtractedPromptTerm> _promptTermsForSourceAppearance(
+  List<ScriptAiExtractedPromptTerm> terms,
+  ScriptAiRoleAppearance appearance,
+  List<ScriptAiRoleAppearance> appearances,
+) {
+  final appearanceFrames = appearance.frameIndexes.toSet();
+  final hasDeterministicScopingEvidence = appearanceFrames.isNotEmpty &&
+          terms.any((term) => term.frameIndexes.isNotEmpty) ||
+      _hasPromptTermSourceReference(terms, appearances);
+  return List.unmodifiable([
+    for (final term in terms)
+      if (_promptTermForSourceAppearance(
+        term,
+        appearance,
+        hasDeterministicScopingEvidence: hasDeterministicScopingEvidence,
+      )
+          case final scoped?)
+        scoped,
+  ]);
+}
+
+ScriptAiExtractedPromptTerm? _promptTermForSourceAppearance(
+  ScriptAiExtractedPromptTerm term,
+  ScriptAiRoleAppearance appearance, {
+  required bool hasDeterministicScopingEvidence,
+}) {
+  final appearanceFrames = appearance.frameIndexes.toSet();
+  if (appearanceFrames.isNotEmpty && term.frameIndexes.isNotEmpty) {
+    final frames = term.frameIndexes
+        .where(appearanceFrames.contains)
+        .toList(growable: false)
+      ..sort();
+    if (frames.isEmpty) {
+      return null;
+    }
+    return term.copyWith(frameIndexes: List.unmodifiable(frames));
+  }
+  if (_promptTermReferencesAppearance(term, appearance)) {
+    return term;
+  }
+  if (!hasDeterministicScopingEvidence) {
+    return term;
+  }
+  return null;
+}
+
+bool _hasPromptTermSourceReference(
+  List<ScriptAiExtractedPromptTerm> terms,
+  List<ScriptAiRoleAppearance> appearances,
+) {
+  return terms.any(
+    (term) => appearances.any(
+      (appearance) => _promptTermReferencesAppearance(term, appearance),
+    ),
+  );
+}
+
+bool _promptTermReferencesAppearance(
+  ScriptAiExtractedPromptTerm term,
+  ScriptAiRoleAppearance appearance,
+) {
+  final sourceId = appearance.sourceId.trim().toLowerCase();
+  final sourceKind = appearance.sourceKind.trim().toLowerCase();
+  final sourceText = [
+    term.sourcePhrase,
+    term.sourceLocation,
+  ].join(' ').trim().toLowerCase();
+  if (sourceText.isEmpty) {
+    return false;
+  }
+  if (sourceId.isNotEmpty && _sourceTextHasSegment(sourceText, sourceId)) {
+    return true;
+  }
+  return sourceId.isEmpty &&
+      sourceKind.isNotEmpty &&
+      _sourceTextHasSegment(sourceText, sourceKind);
+}
+
+bool _sourceTextHasSegment(String sourceText, String source) {
+  final normalizedSource =
+      source.trim().toLowerCase().replaceAll(RegExp(r'[-_\s:]+'), '[-_\\s:]+');
+  if (normalizedSource.isEmpty) {
+    return false;
+  }
+  return RegExp('(^|[^a-z0-9])$normalizedSource([^a-z0-9]|\$)')
+      .hasMatch(sourceText);
+}
+
+ScriptAiExtractedPromptTerm _mergePromptTerm(
+  ScriptAiExtractedPromptTerm left,
+  ScriptAiExtractedPromptTerm right,
+) {
+  return ScriptAiExtractedPromptTerm(
+    id: left.id.trim().isNotEmpty ? left.id : right.id,
+    text: left.text.trim().isNotEmpty ? left.text : right.text,
+    category: left.category,
+    sourcePhrase: left.sourcePhrase.trim().isNotEmpty
+        ? left.sourcePhrase
+        : right.sourcePhrase,
+    sourceLocation: left.sourceLocation.trim().isNotEmpty
+        ? left.sourceLocation
+        : right.sourceLocation,
+    frameIndexes: _mergedInts(left.frameIndexes, right.frameIndexes),
+  );
+}
+
+String _promptTermMergeKey(ScriptAiExtractedPromptTerm term) {
+  final id = term.id.trim();
+  if (id.isNotEmpty) {
+    return 'id\u001f$id';
+  }
+  final text = term.text.trim();
+  if (text.isEmpty) {
+    return '';
+  }
+  return [
+    text,
+    term.category.name,
+    term.sourcePhrase.trim(),
+    term.sourceLocation.trim(),
+  ].join('\u001f');
 }
 
 List<String> _mergedStrings(List<String> left, List<String> right) {
@@ -1792,6 +2030,19 @@ int? _intOrNull(Object? value) {
   if (value is num) return value.toInt();
   if (value is String) return num.tryParse(value)?.toInt();
   return null;
+}
+
+PromptTagCategory _promptReplacementCategoryValue(
+  Object? value, {
+  required PromptTagCategory fallback,
+}) {
+  return promptTagCategoryFromReplacementValue(value, fallback: fallback);
+}
+
+String _promptReplacementCategoryJsonValue(
+  PromptTagCategory category,
+) {
+  return category.name;
 }
 
 ScriptAiRoleExtractionStatus _statusValue(Object? value) {

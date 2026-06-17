@@ -1,11 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 import '../../tool/regenerate_script_recast_ai_snapshot_caches.dart';
 
@@ -73,6 +74,18 @@ void main() {
       expect(
           updated!.aiRoleExtraction.status, ScriptAiRoleExtractionStatus.ready);
       expect(updated.aiRoleExtraction.roles.single.displayName, '测试角色');
+      expect(updated.mapping.rolePromptReplacements, hasLength(1));
+      expect(
+        updated.mapping.rolePromptReplacements.single.rules.single.sourceTerms
+            .single.text,
+        'test girl',
+      );
+      expect(updated.mapping.scenePromptReplacements, hasLength(1));
+      expect(
+        updated.mapping.scenePromptReplacements.single.rules.single.sourceTerms
+            .single.text,
+        'garden',
+      );
     });
   });
 }
@@ -108,6 +121,26 @@ class _ReadyRoleExtractionService implements ScriptAiRoleExtractionService {
                 identity: 'girl',
               ),
             ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'identity-test-girl',
+                text: 'test girl',
+                category: PromptTagCategory.character,
+                sourcePhrase: 'test girl',
+                sourceLocation: 'base prompt',
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'scene-garden',
+            text: 'garden',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'garden',
+            sourceLocation: 'base prompt',
+            frameIndexes: [1],
           ),
         ],
       ),

@@ -4,20 +4,22 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_presentation.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_selection_toolbar.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_list_utils.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_presentation.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_drag.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_layout_mode.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_selection_toolbar.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_context_menu.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 typedef PromptTagEditorAiRetranslate = Future<String?> Function(String tag);
@@ -60,6 +62,7 @@ class PromptTagEditor extends StatefulWidget {
   final PromptTagEditorHighlightResolver? highlightForTag;
   final int? autoTranslateTagLimit;
   final bool initialGroupedLayout;
+  final PromptTagLayoutMode? initialLayoutMode;
   final bool preferTranslatedLabels;
 
   const PromptTagEditor({
@@ -88,6 +91,7 @@ class PromptTagEditor extends StatefulWidget {
     this.highlightForTag,
     this.autoTranslateTagLimit,
     this.initialGroupedLayout = false,
+    this.initialLayoutMode,
     this.preferTranslatedLabels = false,
   });
 
@@ -118,10 +122,12 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   int? _doubleTapDragSuppressedIndex;
   Offset? _selectionStart;
   Offset? _selectionCurrent;
+  Map<int, Rect>? _selectionChipRectCache;
   bool _selectionMoved = false;
   bool _selectionAdditive = false;
+  bool _selectionStartedOnDraggableTag = false;
   bool _showTranslations = true;
-  late bool _groupedLayout = widget.initialGroupedLayout;
+  late PromptTagLayoutMode _layoutMode = _initialLayoutMode();
   bool _submittingInput = false;
   PromptTagSelectionController? _registeredSelectionController;
   String? _registeredSelectionFieldId;
@@ -145,11 +151,15 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       _syncSelectionController();
     }
     if (oldWidget.value != widget.value && widget.value != _value) {
-      _value = widget.value;
+      _replaceLocalValue(widget.value);
       _translationOverrides.clear();
       _autoTranslationPending.clear();
       _autoTranslationMisses.clear();
       _clearSelection();
+    }
+    if (oldWidget.initialLayoutMode != widget.initialLayoutMode ||
+        oldWidget.initialGroupedLayout != widget.initialGroupedLayout) {
+      _layoutMode = _initialLayoutMode();
     }
   }
 
@@ -202,6 +212,24 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
   }
 
+  void _replaceLocalValue(String value) {
+    _value = value;
+    _parsedTagItemsValue = null;
+    _parsedTagItems = null;
+    _rawTagsCache = null;
+    _displayTagsCache = null;
+  }
+
+  PromptTagLayoutMode _initialLayoutMode() {
+    final explicit = widget.initialLayoutMode;
+    if (explicit != null) {
+      return explicit;
+    }
+    return widget.initialGroupedLayout
+        ? PromptTagLayoutMode.grouped
+        : PromptTagLayoutMode.sourceOrder;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tags = _tagItems;
@@ -227,9 +255,14 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
         : const EdgeInsets.symmetric(horizontal: 12, vertical: 10);
 
     final tagContent = _buildSelectionArea(
-      _groupedLayout
-          ? _buildGroupedTags(context, tags, translationCache)
-          : _buildSourceOrderTags(context, tags, translationCache),
+      switch (_layoutMode) {
+        PromptTagLayoutMode.sourceOrder =>
+          _buildSourceOrderTags(context, tags, translationCache),
+        PromptTagLayoutMode.grouped =>
+          _buildGroupedTags(context, tags, translationCache),
+        PromptTagLayoutMode.layered =>
+          _buildLayeredTags(context, tags, translationCache),
+      },
     );
 
     return Container(
@@ -311,16 +344,16 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     return _PromptTagEditorControls(
       dense: widget.dense,
       showTranslations: _showTranslations,
-      groupedLayout: _groupedLayout,
+      layoutMode: _layoutMode,
       canClearTags: widget.enabled && _tagItems.isNotEmpty,
       onToggleTranslations: () {
         setState(() {
           _showTranslations = !_showTranslations;
         });
       },
-      onToggleLayout: () {
+      onLayoutChanged: (mode) {
         setState(() {
-          _groupedLayout = !_groupedLayout;
+          _layoutMode = mode;
         });
       },
       onClearTags: _clearAllTags,
@@ -469,24 +502,44 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     List<_PromptTagEditorItem> tags,
     TranslationCache? translationCache,
   ) {
+    return _buildGroupedTagBlocks(
+      context,
+      tags,
+      translationCache,
+      groups: PromptTagClassifier.groups,
+    );
+  }
+
+  Widget _buildLayeredTags(
+    BuildContext context,
+    List<_PromptTagEditorItem> tags,
+    TranslationCache? translationCache,
+  ) {
+    return _buildGroupedTagBlocks(
+      context,
+      tags,
+      translationCache,
+      groups: PromptTagClassifier.layeredGroups,
+    );
+  }
+
+  Widget _buildGroupedTagBlocks(
+    BuildContext context,
+    List<_PromptTagEditorItem> tags,
+    TranslationCache? translationCache, {
+    required List<PromptTagGroup> groups,
+  }) {
     final cache = _classificationCacheOrNull();
     final items = [
-      for (final item in tags)
-        item.copyWith(
-          group: classifyPromptTagForPresentation(
-            item.displayLabel,
-            negative: widget.negative,
-            cache: cache,
-          ).group,
-        ),
+      for (final item in tags) _itemWithClassification(item, cache),
     ];
 
     final blocks = [
-      for (final group in PromptTagClassifier.groups)
+      for (final group in groups)
         (
           group: group,
           items: items
-              .where((item) => item.group!.id == group.id)
+              .where((item) => group.categories.contains(item.category))
               .toList(growable: false),
         ),
     ].where((block) => block.items.isNotEmpty).toList(growable: false);
@@ -536,6 +589,21 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           child: _inputOrAddButton(),
         ),
       ],
+    );
+  }
+
+  _PromptTagEditorItem _itemWithClassification(
+    _PromptTagEditorItem item,
+    PromptTagClassificationCache? cache,
+  ) {
+    final classification = classifyPromptTagForPresentation(
+      item.displayLabel,
+      negative: widget.negative,
+      cache: cache,
+    );
+    return item.copyWith(
+      category: classification.category,
+      group: classification.group,
     );
   }
 
@@ -865,7 +933,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     final next = joinPromptTags([..._tags, ...normalizedAdded]);
     setState(() {
-      _value = next;
+      _replaceLocalValue(next);
       _editing = false;
       _submittingInput = false;
       _controller.clear();
@@ -934,7 +1002,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     final value = joinPromptTags(next);
     _clearSharedSelection();
     setState(() {
-      _value = value;
+      _replaceLocalValue(value);
       _clearSelectionStateOnly();
     });
     widget.onChanged(value);
@@ -967,7 +1035,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     final value = joinPromptTags(next);
     _clearSharedSelection();
     setState(() {
-      _value = value;
+      _replaceLocalValue(value);
       _clearSelectionStateOnly();
     });
     widget.onChanged(value);
@@ -979,7 +1047,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     _clearSharedSelection();
     setState(() {
-      _value = '';
+      _replaceLocalValue('');
       _editing = false;
       _controller.clear();
       _clearSelectionStateOnly();
@@ -1110,7 +1178,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       for (var offset = 0; offset < incoming.length; offset++) target + offset,
     };
     setState(() {
-      _value = value;
+      _replaceLocalValue(value);
       if (widget.selectionController == null) {
         _selectedIndexes
           ..clear()
@@ -1163,7 +1231,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       for (var offset = 0; offset < moving.length; offset++) target + offset,
     };
     setState(() {
-      _value = value;
+      _replaceLocalValue(value);
       if (widget.selectionController == null) {
         _selectedIndexes
           ..clear()
@@ -1199,10 +1267,13 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     final pressedIndex = _indexAt(local);
     if (_canDragTags && pressedIndex != null && _isSelected(pressedIndex)) {
+      _selectionStartedOnDraggableTag = true;
       return;
     }
+    _selectionStartedOnDraggableTag = _canDragTags && pressedIndex != null;
     _selectionStart = local;
     _selectionCurrent = local;
+    _selectionChipRectCache = _currentChipRects();
     _selectionMoved = false;
     _selectionAdditive = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
@@ -1219,6 +1290,11 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       return;
     }
     final moved = (local - start).distance > 4;
+    if (_selectionStartedOnDraggableTag && moved) {
+      _selectionCurrent = local;
+      _selectionMoved = true;
+      return;
+    }
     final preview =
         moved ? _indexesIntersecting(_rectFrom(start, local)) : <int>{};
     if (!moved && !_selectionMoved && _selectionPreviewIndexes.isEmpty) {
@@ -1248,6 +1324,10 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     final rect = _rectFrom(start, current);
     final tappedIndex = _indexAt(_selectionLocalPosition(event.position));
+    if (!_selectionMoved && tappedIndex == null && _selectedCount > 0) {
+      _clearSelection();
+      return;
+    }
     if (_selectionMoved || tappedIndex != null) {
       _selectionFocusNode.requestFocus();
     }
@@ -1296,6 +1376,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       _selectionPreviewIndexes.clear();
       _selectionStart = null;
       _selectionCurrent = null;
+      _selectionChipRectCache = null;
       _selectionMoved = false;
       _selectionAdditive = false;
     });
@@ -1340,9 +1421,10 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
 
   Set<int> _indexesIntersecting(Rect selectionRect) {
     final result = <int>{};
-    for (final entry in _chipKeys.entries) {
-      final rect = _chipRect(entry.value);
-      if (rect != null && selectionRect.overlaps(rect)) {
+    for (final entry
+        in (_selectionChipRectCache ?? _currentChipRects()).entries) {
+      final rect = entry.value;
+      if (selectionRect.overlaps(rect)) {
         result.add(entry.key);
       }
     }
@@ -1353,13 +1435,25 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     if (localPosition == null) {
       return null;
     }
-    for (final entry in _chipKeys.entries) {
-      final rect = _chipRect(entry.value);
-      if (rect != null && rect.contains(localPosition)) {
+    for (final entry
+        in (_selectionChipRectCache ?? _currentChipRects()).entries) {
+      final rect = entry.value;
+      if (rect.contains(localPosition)) {
         return entry.key;
       }
     }
     return null;
+  }
+
+  Map<int, Rect> _currentChipRects() {
+    final rects = <int, Rect>{};
+    for (final entry in _chipKeys.entries) {
+      final rect = _chipRect(entry.value);
+      if (rect != null) {
+        rects[entry.key] = rect;
+      }
+    }
+    return rects;
   }
 
   Rect? _chipRect(GlobalKey key) {
@@ -1433,8 +1527,10 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     _selectionPreviewIndexes.clear();
     _selectionStart = null;
     _selectionCurrent = null;
+    _selectionChipRectCache = null;
     _selectionMoved = false;
     _selectionAdditive = false;
+    _selectionStartedOnDraggableTag = false;
   }
 
   void _beginDraggingIndexes(Set<int> indexes) {
@@ -1505,48 +1601,57 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     );
     final clickedDisplayTag = _displayTags[index];
     final addToFilterRules = _filterRuleAdder();
-    final choice = await showMenu<_PromptTagEditorMenuAction>(
+    final choice = await StudioContextMenu.show<_PromptTagEditorMenuAction>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        globalPosition.dx,
-        globalPosition.dy,
-        globalPosition.dx,
-        globalPosition.dy,
-      ),
+      position: globalPosition,
+      targetLabel: clickedDisplayTag,
       items: [
-        PopupMenuItem(
-          key: selectedCount > 1
-              ? const ValueKey('prompt-tag-editor-delete-selected')
-              : const ValueKey('prompt-tag-editor-delete-current'),
-          value: _PromptTagEditorMenuAction.delete,
-          child: Text(selectedCount > 1 ? '删除选中' : '删除标签'),
-        ),
-        const PopupMenuItem(
+        const StudioContextMenuItem(
           value: _PromptTagEditorMenuAction.openDanbooru,
-          child: Text('打开 Danbooru Wiki'),
+          icon: Icons.open_in_new_outlined,
+          label: '打开 Danbooru Wiki',
+          tone: StudioContextMenuItemTone.highlight,
         ),
-        PopupMenuItem(
+        StudioContextMenuItem(
           key: const ValueKey('prompt-tag-editor-ai-retranslate'),
           value: _PromptTagEditorMenuAction.aiRetranslate,
-          child: Text(_retranslateMenuLabel()),
+          icon: Icons.translate_outlined,
+          label: _retranslateMenuLabel(),
         ),
-        const PopupMenuItem(
+        const StudioContextMenuItem(
+          key: ValueKey('prompt-tag-editor-edit-weight'),
           value: _PromptTagEditorMenuAction.editTag,
-          child: Text('编辑标签'),
+          icon: Icons.edit_outlined,
+          label: '编辑标签',
+          shortcut: 'Enter',
         ),
-        PopupMenuItem(
+        StudioContextMenuItem(
           key: selectedCount > 1
               ? const ValueKey('prompt-tag-editor-copy-selected')
               : const ValueKey('prompt-tag-editor-copy-current'),
           value: _PromptTagEditorMenuAction.copy,
-          child: Text(selectedCount > 1 ? '复制选中' : '复制标签'),
+          icon: Icons.content_copy_outlined,
+          label: selectedCount > 1 ? '复制选中' : '复制标签',
+          shortcut: 'Ctrl C',
         ),
         if (addToFilterRules != null)
-          const PopupMenuItem(
+          const StudioContextMenuItem(
             key: ValueKey('prompt-tag-editor-add-to-filter-rules'),
             value: _PromptTagEditorMenuAction.addToFilterRules,
-            child: Text('加入屏蔽库'),
+            icon: Icons.filter_alt_outlined,
+            label: '加入屏蔽库',
           ),
+        const StudioContextMenuDivider(),
+        StudioContextMenuItem(
+          key: selectedCount > 1
+              ? const ValueKey('prompt-tag-editor-delete-selected')
+              : const ValueKey('prompt-tag-editor-delete-current'),
+          value: _PromptTagEditorMenuAction.delete,
+          icon: Icons.close,
+          label: selectedCount > 1 ? '删除选中' : '删除标签',
+          shortcut: 'Del',
+          tone: StudioContextMenuItemTone.destructive,
+        ),
       ],
     );
     if (!mounted || !context.mounted || choice == null) {
@@ -1669,13 +1774,15 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   }
 
   Future<void> _editTag(BuildContext context, int index) async {
-    final tags = _tags;
-    final items = _tagItems;
-    if (index < 0 || index >= tags.length || index >= items.length) {
+    final initialTags = _tags;
+    final initialItems = _tagItems;
+    if (index < 0 ||
+        index >= initialTags.length ||
+        index >= initialItems.length) {
       return;
     }
-    final item = items[index];
-    final targetIndexes = _weightEditTargetIndexes(index, tags.length);
+    final item = initialItems[index];
+    final targetIndexes = _weightEditTargetIndexes(index, initialTags.length);
     final tagController = TextEditingController(text: item.displayLabel);
     final weightController = TextEditingController(
       text: item.weight == null ? '' : formatPromptTagWeightText(item.weight!),
@@ -1731,11 +1838,14 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('取消'),
             ),
-            FilledButton(
-              key: const ValueKey('prompt-tag-editor-edit-tag-save'),
-              onPressed: () =>
-                  Navigator.of(context).pop(resultFromControllers()),
-              child: const Text('保存'),
+            KeyedSubtree(
+              key: const ValueKey('prompt-tag-editor-edit-weight-save'),
+              child: FilledButton(
+                key: const ValueKey('prompt-tag-editor-edit-tag-save'),
+                onPressed: () =>
+                    Navigator.of(context).pop(resultFromControllers()),
+                child: const Text('保存'),
+              ),
             ),
           ],
         );
@@ -1767,25 +1877,38 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           : formatPromptTagWeightedValue(clean, weight);
     }
 
-    final updated = [...tags];
-    if (targetIndexes.length > 1) {
-      for (final targetIndex in targetIndexes) {
-        if (targetIndex < 0 ||
-            targetIndex >= updated.length ||
-            targetIndex >= items.length) {
-          continue;
-        }
+    final currentTags = _tags;
+    final currentItems = _tagItems;
+    final validTargetIndexes = targetIndexes
+        .where(
+          (targetIndex) =>
+              targetIndex >= 0 &&
+              targetIndex < currentTags.length &&
+              targetIndex < currentItems.length,
+        )
+        .toSet();
+    if (validTargetIndexes.isEmpty) {
+      return;
+    }
+    final updated = [...currentTags];
+    if (validTargetIndexes.length > 1) {
+      for (final targetIndex in validTargetIndexes) {
         final tag = targetIndex == index
             ? normalized.first
-            : items[targetIndex].displayLabel;
+            : currentItems[targetIndex].displayLabel;
         updated[targetIndex] = weightedValue(tag);
       }
     } else {
-      updated[index] = weightedValue(normalized.first);
+      final targetIndex = validTargetIndexes.first;
+      updated[targetIndex] = weightedValue(
+        targetIndex == index
+            ? normalized.first
+            : currentItems[targetIndex].displayLabel,
+      );
     }
     final value = joinPromptTags(updated);
     setState(() {
-      _value = value;
+      _replaceLocalValue(value);
       _clearSelectionStateOnly();
     });
     widget.onChanged(value);
@@ -1924,6 +2047,7 @@ class _PromptTagEditorItem {
   final String displayLabel;
   final double? weight;
   final String? weightLabel;
+  final PromptTagCategory? category;
   final PromptTagGroup? group;
 
   const _PromptTagEditorItem({
@@ -1932,10 +2056,12 @@ class _PromptTagEditorItem {
     required this.displayLabel,
     this.weight,
     this.weightLabel,
+    this.category,
     this.group,
   });
 
   _PromptTagEditorItem copyWith({
+    PromptTagCategory? category,
     PromptTagGroup? group,
   }) {
     return _PromptTagEditorItem(
@@ -1944,6 +2070,7 @@ class _PromptTagEditorItem {
       displayLabel: displayLabel,
       weight: weight,
       weightLabel: weightLabel,
+      category: category ?? this.category,
       group: group ?? this.group,
     );
   }
@@ -2041,19 +2168,19 @@ class _PromptTagEditorFilterTargetOptionState
 class _PromptTagEditorControls extends StatelessWidget {
   final bool dense;
   final bool showTranslations;
-  final bool groupedLayout;
+  final PromptTagLayoutMode layoutMode;
   final bool canClearTags;
   final VoidCallback onToggleTranslations;
-  final VoidCallback onToggleLayout;
+  final ValueChanged<PromptTagLayoutMode> onLayoutChanged;
   final VoidCallback onClearTags;
 
   const _PromptTagEditorControls({
     required this.dense,
     required this.showTranslations,
-    required this.groupedLayout,
+    required this.layoutMode,
     required this.canClearTags,
     required this.onToggleTranslations,
-    required this.onToggleLayout,
+    required this.onLayoutChanged,
     required this.onClearTags,
   });
 
@@ -2075,15 +2202,31 @@ class _PromptTagEditorControls extends StatelessWidget {
           onPressed: onToggleTranslations,
         ),
         _PromptTagEditorControlButton(
-          key: const ValueKey('prompt-tag-editor-layout-toggle'),
-          icon: groupedLayout
-              ? Icons.account_tree_outlined
-              : Icons.format_align_left_outlined,
-          label: groupedLayout ? '分块' : '原序',
-          tooltip: groupedLayout ? '切换为原始顺序' : '切换为分块显示',
+          key: const ValueKey('prompt-tag-editor-layout-sourceOrder'),
+          icon: Icons.format_align_left_outlined,
+          label: '原序',
+          tooltip: '按原始顺序显示',
           dense: dense,
-          selected: groupedLayout,
-          onPressed: onToggleLayout,
+          selected: layoutMode == PromptTagLayoutMode.sourceOrder,
+          onPressed: () => onLayoutChanged(PromptTagLayoutMode.sourceOrder),
+        ),
+        _PromptTagEditorControlButton(
+          key: const ValueKey('prompt-tag-editor-layout-toggle'),
+          icon: Icons.account_tree_outlined,
+          label: '分块',
+          tooltip: '按标签分类分块显示',
+          dense: dense,
+          selected: layoutMode == PromptTagLayoutMode.grouped,
+          onPressed: () => onLayoutChanged(PromptTagLayoutMode.grouped),
+        ),
+        _PromptTagEditorControlButton(
+          key: const ValueKey('prompt-tag-editor-layout-layered'),
+          icon: Icons.view_week_outlined,
+          label: '分组',
+          tooltip: '按角色卡字段分组显示',
+          dense: dense,
+          selected: layoutMode == PromptTagLayoutMode.layered,
+          onPressed: () => onLayoutChanged(PromptTagLayoutMode.layered),
         ),
         _PromptTagEditorControlButton(
           key: const ValueKey('prompt-tag-editor-clear-all'),

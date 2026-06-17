@@ -1,12 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/config_page/view_models/config_page_viewmodel.dart';
-import 'package:nai_casrand/ui/i2i_tab/widgets/i2i_tab_view.dart';
-import 'package:nai_casrand/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
-import 'package:nai_casrand/ui/parameters_config/widgets/parameters_conifg_view.dart';
-import 'package:nai_casrand/ui/parameters_config/view_models/parameters_config_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_tab/widgets/prompt_tab_view.dart';
-import 'package:nai_casrand/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
+import 'package:novel_studio/ui/config_page/view_models/config_page_viewmodel.dart';
+import 'package:novel_studio/ui/i2i_tab/widgets/i2i_tab_view.dart';
+import 'package:novel_studio/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
+import 'package:novel_studio/ui/parameters_config/widgets/parameters_conifg_view.dart';
+import 'package:novel_studio/ui/parameters_config/view_models/parameters_config_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_tab/widgets/prompt_tab_view.dart';
+import 'package:novel_studio/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
 
 class ConfigPageView extends StatelessWidget {
   final ConfigPageViewmodel viewmodel;

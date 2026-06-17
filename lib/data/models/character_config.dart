@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:nai_casrand/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
 
 class CharacterPromptResult {
   Point<int> center;

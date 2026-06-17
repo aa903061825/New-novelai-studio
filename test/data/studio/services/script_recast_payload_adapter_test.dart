@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_payload_adapter.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_payload_adapter.dart';
 
 void main() {
   group('ScriptRecastPayloadAdapter', () {

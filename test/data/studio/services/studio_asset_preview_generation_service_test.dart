@@ -2,10 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/core/constants/defaults.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 void main() {
   group('StudioAssetPreviewGenerationService', () {
@@ -30,8 +30,7 @@ void main() {
       }
     });
 
-    test(
-        'generates an artist-chain preview with fixed Suzuran character anchor',
+    test('generates an artist-chain preview with saved character anchor',
         () async {
       await workspaceService.saveArtistChains([
         _artistChain(
@@ -92,16 +91,15 @@ void main() {
       expect(prompt, contains('artist:foo'));
       expect(prompt, contains('delicate brushwork'));
       expect(prompt, contains('watercolor'));
-      expect(prompt, contains('suzuran_(arknights)'));
+      expect(prompt, contains('Mira'));
+      expect(prompt, contains('silver hair'));
+      expect(prompt, contains('mira_(test)'));
+      expect(prompt, contains('random-character-anchor'));
       expect(prompt, contains('1girl'));
       expect(prompt, contains('solo'));
-      expect(prompt, contains('single character'));
-      expect(prompt, contains('upper body'));
-      expect(prompt, contains('close-up character portrait'));
-      expect(prompt, contains('character fills most of the frame'));
-      expect(prompt, isNot(contains('silver hair')));
-      expect(prompt, isNot(contains('mira_(test)')));
-      expect(prompt, isNot(contains('random-character-anchor')));
+      expect(prompt, contains('simple soft background'));
+      expect(prompt, isNot(contains('single character')));
+      expect(prompt, isNot(contains('suzuran_(arknights)')));
       expect(prompt, isNot(contains('scenic background')));
       expect(prompt, isNot(contains('full composition')));
       expect(prompt, isNot(contains('pure white background')));
@@ -114,6 +112,129 @@ void main() {
       expect(_v4Prompt(parameters, 'v4_prompt')['use_coords'], isFalse);
       expect(_v4Prompt(parameters, 'v4_prompt')['use_order'], isTrue);
       expect(prompt, payload['input']);
+    });
+
+    test('artist-chain preview uses random character and scene codex prompt',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-1',
+          name: 'Painter Chain',
+          tags: ['artist:foo'],
+          prompt: 'delicate brushwork',
+          styleTags: ['watercolor'],
+        ),
+      ]);
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-a',
+          name: 'Asha',
+          traits: 'blue hair',
+          identityTags: ['asha_(test)'],
+        ),
+        _character(
+          id: 'char-b',
+          name: 'Bela',
+          traits: 'red hair',
+          identityTags: ['bela_(test)'],
+        ),
+      ]);
+      await workspaceService.saveInspirations([
+        _inspiration(
+          id: 'scene-1',
+          name: 'Moonlit Room',
+          prompt: 'moonlit room, window, night',
+          source: const SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+        _inspiration(
+          id: 'clothing-1',
+          name: 'Red Dress',
+          prompt: 'red dress, ribbon',
+          source: const SourceRef(type: 'novalai_codex_adult_docx'),
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 1, 0, 777],
+      );
+
+      await service.generateArtistChainPreview(
+        'chain-1',
+        options: const StudioAssetPreviewGenerationOptions(
+          customPrompt: 'extra glow',
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('artist:foo'));
+      expect(prompt, contains('delicate brushwork'));
+      expect(prompt, contains('watercolor'));
+      expect(prompt, contains('Bela'));
+      expect(prompt, contains('red hair'));
+      expect(prompt, contains('bela_(test)'));
+      expect(prompt, contains('moonlit room'));
+      expect(prompt, contains('window'));
+      expect(prompt, contains('night'));
+      expect(prompt, contains('1girl'));
+      expect(prompt, contains('solo'));
+      expect(prompt, contains('extra glow'));
+      expect(prompt, isNot(contains('red dress')));
+      expect(prompt, isNot(contains('single character')));
+    });
+
+    test('artist-chain preview preserves structured weighted prompt terms',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-1',
+          name: 'Weighted Chain',
+          tags: ['artist:legacy_plain'],
+          prompt: 'delicate brushwork',
+          styleTags: ['line art'],
+          artists: const [
+            ArtistEntry(name: 'foo_artist', weight: 1.5),
+            ArtistEntry(name: 'bar_artist', weight: 0.75),
+          ],
+          styleHintsWeighted: const [
+            WorkspaceWeightedTag(tag: 'soft shading', weight: 1.2),
+          ],
+          globalNegatives: const [
+            WorkspaceWeightedTag(tag: 'flat color', weight: -6),
+          ],
+        ),
+      ]);
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair',
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 123],
+      );
+
+      await service.generateArtistChainPreview('chain-1');
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('1.5:: artist:foo_artist ::'));
+      expect(prompt, contains('0.75:: artist:bar_artist ::'));
+      expect(prompt, contains('1.2:: soft shading ::'));
+      expect(prompt, contains('delicate brushwork'));
+      expect(prompt, contains('line art'));
+      expect(prompt, isNot(contains('artist:legacy_plain')));
+      final negativePrompt = _baseCaption(parameters, 'v4_negative_prompt');
+      expect(negativePrompt, contains(defaultUC));
+      expect(negativePrompt, contains('-6:: flat color ::'));
     });
 
     test('generates a character preview on pure white without scene terms',
@@ -158,6 +279,166 @@ void main() {
       expect(prompt, contains('pure white background'));
       expect(prompt, isNot(contains('scenic background')));
       expect(prompt, isNot(contains('environment')));
+    });
+
+    test('character preview uses selected artist chain and count terms',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-1',
+          name: 'Soft Chain',
+          tags: ['artist:soft_foo'],
+          prompt: 'delicate watercolor',
+          styleTags: ['soft shading'],
+          vibeRefs: const [
+            WorkspaceVibeReference(
+              id: 'soft-vibe',
+              name: 'Soft Vibe',
+              vibeB64: 'encoded-soft-vibe',
+              referenceStrength: 0.44,
+              infoExtracted: 0.66,
+            ),
+          ],
+        ),
+      ]);
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair, green eyes',
+          identityTags: ['mira_(test)'],
+          anchorTags: ['fox ears'],
+          imageRefs: ['existing.png'],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 123456],
+      );
+
+      await service.generateCharacterPreview(
+        'char-1',
+        options: const StudioAssetPreviewGenerationOptions(
+          artistChainId: 'chain-1',
+          customPrompt: 'sparkling dust',
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('artist:soft_foo'));
+      expect(prompt, contains('delicate watercolor'));
+      expect(prompt, contains('soft shading'));
+      expect(prompt, contains('silver hair'));
+      expect(prompt, contains('mira_(test)'));
+      expect(prompt, contains('1girl'));
+      expect(prompt, contains('solo'));
+      expect(prompt, contains('solid color background'));
+      expect(prompt, contains('sparkling dust'));
+      expect(prompt, isNot(contains('single character')));
+      expect(parameters['reference_image_multiple'], ['encoded-soft-vibe']);
+      expect(parameters['reference_strength_multiple'], [0.44]);
+      expect(parameters['reference_information_extracted_multiple'], [0.66]);
+      final characters = await workspaceService.loadCharacters();
+      expect(characters.single.imageRefs,
+          ['existing.png', 'generated/preview.png']);
+    });
+
+    test('custom replacement prompt replaces the generated template', () async {
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair, green eyes',
+          identityTags: ['mira_(test)'],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 321],
+      );
+
+      await service.generateCharacterPreview(
+        'char-1',
+        options: const StudioAssetPreviewGenerationOptions(
+          customPrompt: 'only custom prompt',
+          customPromptMode: StudioPreviewCustomPromptMode.replace,
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, 'only custom prompt');
+      expect(prompt, isNot(contains('silver hair')));
+      expect(prompt, isNot(contains('masterpiece')));
+    });
+
+    test('custom append prompt preserves weighted groups', () async {
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair',
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 321],
+      );
+
+      await service.generateCharacterPreview(
+        'char-1',
+        options: const StudioAssetPreviewGenerationOptions(
+          customPrompt: '1.5:: blue eyes, long hair ::',
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('1.5:: blue eyes ::'));
+      expect(prompt, contains('1.5:: long hair ::'));
+      expect(prompt, isNot(contains('1.5:: blue eyes, long hair ::')));
+      expect(prompt, isNot(contains('1.5:: blue eyes, long hair')));
+      expect(prompt, isNot(contains('blue eyes, long hair ::')));
+    });
+
+    test('character preview uses explicit selected size', () async {
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair, green eyes',
+          identityTags: ['mira_(test)'],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [98765],
+      );
+
+      await service.generateCharacterPreview(
+        'char-1',
+        options: StudioAssetPreviewGenerationOptions(
+          size: defaultSizes[4],
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      expect(parameters['width'], 1472);
+      expect(parameters['height'], 704);
+      expect(parameters['seed'], 98765);
     });
 
     test('character preview uses base identity for legacy outfit skins',
@@ -268,6 +549,43 @@ void main() {
       final negativePrompt = _baseCaption(parameters, 'v4_negative_prompt');
       expect(negativePrompt, contains(defaultUC));
       expect(negativePrompt, contains('hood'));
+    });
+
+    test('outfit preview uses explicit selected size', () async {
+      await workspaceService.saveCharacters([
+        _character(
+          id: 'char-1',
+          name: 'Mira',
+          traits: 'silver hair',
+          outfits: [
+            _outfit(
+              id: 'outfit-1',
+              name: 'Rainwear',
+              full: 'yellow raincoat',
+            ),
+          ],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [2468],
+      );
+
+      await service.generateOutfitPreview(
+        'char-1',
+        'outfit-1',
+        options: StudioAssetPreviewGenerationOptions(
+          size: defaultSizes.first,
+        ),
+      );
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      expect(parameters['width'], 704);
+      expect(parameters['height'], 1472);
+      expect(parameters['seed'], 2468);
     });
 
     test('outfit preview includes selected skin identity from outfit frontFull',
@@ -724,6 +1042,9 @@ ArtistChain _artistChain({
   List<String> styleTags = const [],
   List<String> imageRefs = const [],
   List<WorkspaceVibeReference> vibeRefs = const [],
+  List<ArtistEntry> artists = const [],
+  List<WorkspaceWeightedTag> globalNegatives = const [],
+  List<WorkspaceWeightedTag> styleHintsWeighted = const [],
 }) {
   return ArtistChain(
     id: id,
@@ -733,6 +1054,27 @@ ArtistChain _artistChain({
     styleTags: styleTags,
     imageRefs: imageRefs,
     vibeRefs: vibeRefs,
+    artists: artists,
+    globalNegatives: globalNegatives,
+    styleHintsWeighted: styleHintsWeighted,
+  );
+}
+
+InspirationEntry _inspiration({
+  required String id,
+  required String name,
+  String prompt = '',
+  String negativePrompt = '',
+  List<String> tags = const [],
+  SourceRef source = const SourceRef(type: 'manual'),
+}) {
+  return InspirationEntry(
+    id: id,
+    name: name,
+    prompt: prompt,
+    negativePrompt: negativePrompt,
+    tags: tags,
+    source: source,
   );
 }
 

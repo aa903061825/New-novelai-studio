@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 
 class PromptDashboardCard extends StatelessWidget {
   final IconData icon;

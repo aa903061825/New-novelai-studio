@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>角色映射动态替换行原型</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="prototype-shell">
+      <section class="prototype-note">
+        <div>
+          <p class="eyebrow">Embedded Prototype</p>
+          <h1>角色映射卡片里的动态源/替换行</h1>
+          <p>
+            这版只模拟当前剧本工作台“角色映射”卡片内部。交互参考现有源提示词/替换输出对照行：左侧源标签，右侧替换编辑区。
+          </p>
+        </div>
+        <button class="mini-button" id="resetButton" type="button">重置样本</button>
+      </section>
+
+      <div class="embedded-layout">
+        <aside class="asset-strip" aria-label="素材抽屉简化示意">
+          <h2>素材抽屉</h2>
+          <p>真实页面已有素材抽屉；这里只模拟角色卡拖入。</p>
+          <article class="asset-card role-card" draggable="true" data-card-id="lily">
+            <span class="asset-mark">角</span>
+            <div>
+              <strong>莉莉</strong>
+              <p>lily, silver hair, blue eyes, small horns</p>
+            </div>
+          </article>
+          <article class="asset-card quick-fill" data-fill="white dress, lace trim">
+            <span class="asset-mark">衣</span>
+            <div>
+              <strong>白礼服</strong>
+              <p>点一下填入当前激活替换行</p>
+            </div>
+          </article>
+        </aside>
+
+        <section class="role-card-shell" aria-label="角色映射卡片">
+          <header class="role-header">
+            <div class="role-avatar">1</div>
+            <div>
+              <h2>角色 1 · slot-0</h2>
+              <p>源角色：alice (wonder story), brown hair, red jacket, black skirt</p>
+            </div>
+            <div class="role-actions">
+              <button class="mini-button" type="button">查看 AI 明细</button>
+              <button class="mini-button primary-lite" id="simulateButton" type="button">应用模拟</button>
+            </div>
+          </header>
+
+          <section class="identity-drop" id="identityDrop" tabindex="0">
+            <div>
+              <strong>目标身份</strong>
+              <span>拖入角色卡后，身份标签全部进入这里；不再分上身/下身/上下装。</span>
+            </div>
+            <div id="identityTags" class="chip-row muted-row">
+              <span class="hint">未选择目标角色</span>
+            </div>
+          </section>
+
+          <section class="dynamic-compare-panel">
+            <div class="panel-head">
+              <div>
+                <h3>AI 抽取源词</h3>
+                <p>每一行就是一个来源片段或标签块。默认保持源词；右侧填入目标才替换，点删除才删除。</p>
+              </div>
+              <div class="head-actions">
+                <div class="filter-row" role="tablist" aria-label="范围筛选">
+                  <button class="filter-tab is-active" data-scope="all" type="button">全部</button>
+                  <button class="filter-tab" data-scope="character" type="button">角色</button>
+                  <button class="filter-tab" data-scope="scene" type="button">场景</button>
+                </div>
+                <label class="search-box">
+                  <span>搜索</span>
+                  <input id="searchInput" type="search" placeholder="源词 / 片段 / 分类" />
+                </label>
+              </div>
+            </div>
+
+            <div class="bulk-toolbar">
+              <span id="bulkSummary">没有选中行</span>
+              <button class="mini-button" id="mergeRowsButton" type="button">合并选中行</button>
+              <button class="mini-button" id="clearSelectionButton" type="button">清空选择</button>
+            </div>
+
+            <div id="compareRows" class="compare-rows"></div>
+          </section>
+
+          <section class="state-panel">
+            <h3>当前执行状态</h3>
+            <div id="simulationLog" class="simulation-log">
+              <p>默认没有任何输出变化。填目标、删除、或合并后再点“应用模拟”。</p>
+            </div>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
 import 'package:uuid/uuid.dart';
 
 class VibeSourceImageStore {

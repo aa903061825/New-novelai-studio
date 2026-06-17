@@ -5,11 +5,11 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_tab/widgets/prompt_tab_view.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_tab/widgets/prompt_tab_view.dart';
 
 const _promptReplaceRulesHintEn =
     'Applied in order before generation. A comma-separated source acts as a grouped tag rule: the earliest matched tag becomes the target and other matched tags are removed.';

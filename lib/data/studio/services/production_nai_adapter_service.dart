@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/services/file_service.dart';
-import 'package:nai_casrand/data/services/image_service.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/services/file_service.dart';
+import 'package:novel_studio/data/services/image_service.dart';
 
 typedef ProductionNaiFetch = Future<ApiResponse> Function(ApiRequest request);
 typedef ProductionNaiProcessResponse = Uint8List Function(Uint8List bytes);

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/services/tokenizer_script_service.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_tokenizer_script/widgets/tokenizer_script_page.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/services/tokenizer_script_service.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_tokenizer_script/widgets/tokenizer_script_page.dart';
 
 class _FakeTokenizerScriptService extends TokenizerScriptService {
   _FakeTokenizerScriptService(this.scripts)

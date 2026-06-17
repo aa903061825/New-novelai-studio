@@ -33,6 +33,8 @@ const genericIdentityMap = {
   'fat man': { tag: 'fat man', zh: '胖男人' },
   'big man': { tag: 'big man', zh: '\u9ad8\u5927\u7537\u4eba' },
   'old man': { tag: 'old man', zh: '\u8001\u7537\u4eba' },
+  'mature man': { tag: 'mature man', zh: '\u6210\u719f\u7537\u6027' },
+  'rugged man': { tag: 'rugged man', zh: '\u7c97\u72b7\u7537\u6027' },
   'bald man': { tag: 'bald man', zh: '\u5149\u5934\u7537\u4eba' },
   'bald head': { tag: 'bald head', zh: '\u5149\u5934' },
   african: { tag: 'african', zh: '\u975e\u6d32\u4eba' },
@@ -441,6 +443,7 @@ function buildExtraction(cache) {
 
   const roles = [];
   const usedRoleIds = new Set();
+  const baseFrameGroupCount = countBaseFrameGroupMemberships(groups);
   for (const group of [...groups.values()].sort(compareGroups)) {
     const fields = fieldsForGroup(group);
     const display = displayNameForGroup(group, fields.identityTerms);
@@ -459,9 +462,10 @@ function buildExtraction(cache) {
         source_kind: sourceId === 'base' ? 'base' : 'slot',
         frame_indexes: sortedInts(sourceFrames),
       }));
+    const stageSourceGroups = stageGroupsForGroup(group);
     const stages = disambiguateDuplicateStageLabels(
       mergeStagesByLabel(
-        stageGroupsForGroup(group).map((stageGroup, index) => {
+        stageSourceGroups.map((stageGroup, index) => {
         const stageFields = fieldsForGroup(stageGroup);
         const label = stageLabelForGroup(stageGroup, stageFields);
         if (label.fallback) stageLabelFallbackCount += 1;
@@ -486,6 +490,13 @@ function buildExtraction(cache) {
         }),
       ),
     );
+    const rawIdentityTags = unique([
+      ...(group.identity.concrete ?? []),
+      ...(group.identity.rawGeneric ?? []),
+    ]);
+    const promptTerms = promptTermsForRoleGroup(roleId, group, {
+      baseFrameGroupCount,
+    });
     roles.push({
       source_role_id: roleId,
       source_kind:
@@ -499,10 +510,7 @@ function buildExtraction(cache) {
         'Offline Codex rebuild from scriptSnapshot frame tag evidence; no user API used.',
       canonical_name: group.identity.canonicalName,
       franchise: group.identity.franchise,
-      raw_identity_tags: unique([
-        ...(group.identity.concrete ?? []),
-        ...(group.identity.rawGeneric ?? []),
-      ]),
+      raw_identity_tags: rawIdentityTags,
       variant_tags: group.identity.variantTags,
       merge_with_role_id: '',
       confidence: fields.evidenceTerms.length > 0 ? 0.72 : 0.58,
@@ -512,6 +520,7 @@ function buildExtraction(cache) {
       warnings: display.fallback ? ['display_name_needs_manual_review'] : [],
       stages,
       unassigned_terms: [],
+      prompt_terms: promptTerms,
     });
   }
 
@@ -536,6 +545,7 @@ function buildExtraction(cache) {
       confidence: roles.length > 0 ? 0.7 : 0,
       roles,
       artist_chains: artistChainsForFrames(frames),
+      scene_terms: scenePromptTermsForFrames(frames),
       strong_filter_keywords: strongFilterKeywordsForFrames(frames),
       attention_items: warnings.map((message, index) => ({
         id: `offline-warning-${index + 1}`,
@@ -611,7 +621,78 @@ function mappingWithRoleAssemblies(cache, extraction) {
         }),
       };
     }),
+    rolePromptReplacements: rolePromptReplacementsForExtraction(extraction),
+    scenePromptReplacements: scenePromptReplacementsForExtraction(extraction),
   };
+}
+
+function rolePromptReplacementsForExtraction(extraction) {
+  return (extraction.roles ?? [])
+    .map((role) => {
+      const sourceRoleId = stringValue(role.source_role_id).trim();
+      const terms = nonEmptyPromptTerms(role.prompt_terms);
+      if (!sourceRoleId || terms.length === 0) return null;
+      return {
+        sourceRoleId,
+        displayLabel: stringValue(role.display_name).trim() || sourceRoleId,
+        sourcePreview: terms.map((term) => term.text).join(', '),
+        rules: terms.map((term) => ({
+          id: rolePromptReplacementRuleId(sourceRoleId, term),
+          sourceTerms: [promptReplacementTermFromAi(term)],
+        })),
+      };
+    })
+    .filter(Boolean);
+}
+
+function scenePromptReplacementsForExtraction(extraction) {
+  const terms = nonEmptyPromptTerms(extraction.scene_terms);
+  if (terms.length === 0) return [];
+  return [
+    {
+      id: 'scene-ai',
+      label: 'Scene',
+      rules: terms.map((term) => ({
+        id: scenePromptReplacementRuleId(term),
+        sourceTerms: [promptReplacementTermFromAi(term)],
+      })),
+    },
+  ];
+}
+
+function nonEmptyPromptTerms(terms) {
+  return (Array.isArray(terms) ? terms : []).filter((term) =>
+    stringValue(term?.text).trim(),
+  );
+}
+
+function promptReplacementTermFromAi(term) {
+  return {
+    id: stringValue(term.id).trim() || `term-${safeId(term.text)}`,
+    text: stringValue(term.text).trim(),
+    category: stringValue(term.category).trim() || 'identity',
+    ...(stringValue(term.source_phrase).trim()
+      ? { sourcePhrase: stringValue(term.source_phrase).trim() }
+      : {}),
+    ...(stringValue(term.source_location).trim()
+      ? { sourceLocation: stringValue(term.source_location).trim() }
+      : {}),
+    ...(Array.isArray(term.frame_indexes) && term.frame_indexes.length > 0
+      ? { frameIndexes: term.frame_indexes }
+      : {}),
+  };
+}
+
+function rolePromptReplacementRuleId(sourceRoleId, term) {
+  const termId = stringValue(term.id).trim();
+  return termId
+    ? `role-${sourceRoleId}-${termId}`
+    : `role-${sourceRoleId}-term-${safeId(term.text)}`;
+}
+
+function scenePromptReplacementRuleId(term) {
+  const termId = stringValue(term.id).trim();
+  return termId ? `scene-${termId}` : `scene-term-${safeId(term.text)}`;
 }
 
 function previousAssemblyForRole(previousAssemblies, role) {
@@ -693,6 +774,402 @@ function promptPartsToCamel(stage) {
   return parts;
 }
 
+function countBaseFrameGroupMemberships(groups) {
+  const counts = new Map();
+  for (const group of groups.values()) {
+    const baseFrames = group.sourceIds?.get('base') ?? new Set();
+    for (const frameIndex of baseFrames) {
+      counts.set(frameIndex, (counts.get(frameIndex) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function promptTermsForRoleGroup(roleId, group, context = {}) {
+  const terms = new Map();
+  for (const entry of group.frameTags ?? []) {
+    const frameIndex = Number(entry.frameIndex);
+    if (!Number.isInteger(frameIndex)) continue;
+    const normalizedEntryTags = (entry.tags ?? [])
+      .map(normalizedTagKey)
+      .filter(Boolean);
+    for (const tag of entry.tags ?? []) {
+      const normalized = normalizedTagKey(tag);
+      if (!normalized) continue;
+      const clothingPrompt = clothingPromptTermForTag(tag);
+      if (clothingPrompt) {
+        if (shouldSkipBaseClothingPromptTerm(entry, context)) {
+          continue;
+        }
+        const clothingCategory = clothingPromptTermCategoryForTag(tag);
+        addPromptTerm(terms, {
+          category: clothingCategory,
+          text: clothingPrompt,
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+        continue;
+      }
+      if (
+        (isVisualDisplacementTermForStageKey(normalized) &&
+          !hasTornReplacementEvidence(normalized)) ||
+        isHeldOrUnwornClothingTag(normalized, normalizedEntryTags) ||
+        isHeldTowelTag(normalized, normalizedEntryTags)
+      ) {
+        continue;
+      }
+
+      const routed = categoryForTag(tag);
+      if (routed === 'identity') {
+        if (!isIdentityTermAllowedForGroup(group, tag)) continue;
+        const text = identityFieldTermForTag(tag);
+        if (isGenericPromptIdentityTerm(text)) continue;
+        if (shouldSkipPromptReplacementTerm(text, 'identity')) continue;
+        addPromptTerm(terms, {
+          category: 'identity',
+          text,
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+      } else if (routed === 'upperBody' || routed === 'lowerBody') {
+        addPromptTerm(terms, {
+          category: 'body',
+          text: roleFieldTermForCategory(tag, routed),
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+      } else if (routed === 'upperClothing' || routed === 'lowerClothing') {
+        addPromptTerm(terms, {
+          category: 'clothing',
+          text: roleFieldTermForCategory(tag, routed),
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+      }
+    }
+  }
+  const identityFrames = sortedInts(group.frames);
+  for (const tag of uniqueExact([
+    ...(group.identity?.concrete ?? []),
+    ...(group.identity?.generic ?? []),
+    ...(group.identity?.rawGeneric ?? []),
+  ])) {
+    const text = identityFieldTermForTag(tag);
+    if (isGenericPromptIdentityTerm(text)) continue;
+    if (shouldSkipPromptReplacementTerm(text, 'identity')) continue;
+    for (const frameIndex of identityFrames) {
+      addPromptTerm(terms, {
+        category: 'identity',
+        text,
+        frameIndex,
+        sourcePhrase: cleanTag(tag),
+        sourceLocation: 'role identity evidence',
+      });
+    }
+  }
+  return promptTermRowsFromMap(terms, `role-${safeId(roleId)}`);
+}
+
+function shouldSkipBaseClothingPromptTerm(entry, context) {
+  if (entry?.sourceId !== 'base') return false;
+  const frameIndex = Number(entry.frameIndex);
+  if (!Number.isInteger(frameIndex)) return true;
+  const count = context?.baseFrameGroupCount?.get(frameIndex) ?? 0;
+  return count !== 1;
+}
+
+function promptTermsWithIdentityAnchors(promptTerms, rawIdentityTags, frameIndexes, roleId) {
+  const terms = new Map();
+  for (const term of promptTerms) {
+    const key = `${term.category}\u001f${normalizedTagKey(term.text)}`;
+    terms.set(key, {
+      category: term.category,
+      text: term.text,
+      sourcePhrase: term.source_phrase,
+      sourceLocation: term.source_location,
+      frames: new Set(term.frame_indexes ?? []),
+    });
+  }
+  for (const tag of rawIdentityTags ?? []) {
+    const text = identityFieldTermForTag(tag);
+    if (isGenericPromptIdentityTerm(text)) continue;
+    if (shouldSkipPromptReplacementTerm(text, 'identity')) continue;
+    for (const frameIndex of frameIndexes ?? []) {
+      addPromptTerm(terms, {
+        category: 'identity',
+        text,
+        frameIndex,
+        sourcePhrase: cleanTag(tag),
+        sourceLocation: 'role identity evidence',
+      });
+    }
+  }
+  return promptTermRowsFromMap(terms, `role-${safeId(roleId)}`);
+}
+
+function scenePromptTermsForFrames(frames) {
+  const terms = new Map();
+  for (const frame of frames) {
+    const frameIndex = Number(frame.index);
+    if (!Number.isInteger(frameIndex)) continue;
+    for (const tag of parseTags(frame.parsed?.baseCaption)) {
+      if (!isScenePromptReplacementTerm(tag)) continue;
+      addPromptTerm(terms, {
+        category: 'scene',
+        text: cleanTag(tag),
+        frameIndex,
+        sourcePhrase: cleanTag(tag),
+        sourceLocation: 'base prompt',
+      });
+    }
+    const captions = Array.isArray(frame.parsed?.charCaptions)
+      ? frame.parsed.charCaptions
+      : [];
+    captions.forEach((caption, slot) => {
+      for (const tag of parseTags(caption)) {
+        if (!isScenePromptReplacementTerm(tag)) continue;
+        addPromptTerm(terms, {
+          category: 'scene',
+          text: cleanTag(tag),
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `slot-${slot} prompt`,
+        });
+      }
+    });
+  }
+  return promptTermRowsFromMap(terms, 'scene');
+}
+
+function isScenePromptReplacementTerm(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return false;
+  if (containsGarmentOrClothingToken(normalized)) return false;
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return false;
+  }
+  if (
+    /\b(princess connect|blue archive|azur lane|genshin impact|honkai|star rail|arknights|granblue fantasy|zenless zone zero|re zero|date a live|hololive|idolmaster|touhou|pokemon|fate)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fangs?|skin|face|hat|cap|ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|ponytail|pigtails?|braids?|bangs|hairclip|hairband|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|chest|breasts?|bust|midriff|abs|thighs?|legs?|feet|toes?|hips?|waist|navel|stomach)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /\b(bathroom|bath|bathtub|shower|onsen|hot spring|workshop|factory|garage|mechanic|school|classroom|train|subway|station|street|city|bedroom|bed|indoors|outdoors)\b/.test(
+    normalized,
+  );
+}
+
+function addPromptTerm(terms, item) {
+  const text = cleanTag(item.text);
+  if (!text) return;
+  const category = item.category || 'identity';
+  if (shouldSkipPromptReplacementTerm(text, category)) return;
+  const key = `${category}\u001f${normalizedTagKey(text)}`;
+  const existing = terms.get(key) ?? {
+    category,
+    text,
+    sourcePhrase: cleanTag(item.sourcePhrase),
+    sourceLocation: stringValue(item.sourceLocation).trim(),
+    frames: new Set(),
+  };
+  if (Number.isInteger(item.frameIndex)) {
+    existing.frames.add(item.frameIndex);
+  }
+  if (!existing.sourcePhrase && cleanTag(item.sourcePhrase)) {
+    existing.sourcePhrase = cleanTag(item.sourcePhrase);
+  }
+  if (!existing.sourceLocation && stringValue(item.sourceLocation).trim()) {
+    existing.sourceLocation = stringValue(item.sourceLocation).trim();
+  }
+  terms.set(key, existing);
+}
+
+function promptTermRowsFromMap(terms, idPrefix) {
+  const order = new Map([
+    ['identity', 0],
+    ['body', 1],
+    ['clothing', 2],
+    ['clothingState', 3],
+    ['scene', 4],
+  ]);
+  return [...terms.values()]
+    .sort(
+      (left, right) =>
+        (order.get(left.category) ?? 99) - (order.get(right.category) ?? 99) ||
+        left.text.localeCompare(right.text),
+    )
+    .map((term) => ({
+      id: `${idPrefix}-${term.category}-${safeId(term.text)}`,
+      text: term.text,
+      category: term.category,
+      source_phrase: term.sourcePhrase || term.text,
+      source_location: term.sourceLocation,
+      frame_indexes: sortedInts(term.frames),
+    }));
+}
+
+function clothingPromptTermForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return '';
+  }
+  if (isOtherCharacterClothingActionTag(normalized)) return '';
+  if (isNonClothingPhraseWithClothingToken(normalized)) return '';
+  if (!isAllowedClothingStatePromptTerm(normalized) && !containsGarmentOrClothingToken(normalized)) {
+    return '';
+  }
+  const text = cleanPromptReplacementStateTag(tag);
+  return text || cleanTag(tag);
+}
+
+function clothingPromptTermCategoryForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return 'clothing';
+  return isAllowedClothingStatePromptTerm(normalized) ? 'clothingState' : 'clothing';
+}
+
+function clothingStatePromptTermForTag(tag) {
+  const text = clothingPromptTermForTag(tag);
+  if (!text) return '';
+  return clothingPromptTermCategoryForTag(tag) === 'clothingState' ? text : '';
+}
+
+function cleanPromptReplacementStateTag(tag) {
+  let text = cleanTag(tag);
+  if (!text) return '';
+  let previous = '';
+  while (previous !== text) {
+    previous = text;
+    text = text.replace(/^[{}\[\]\s]+|[{}\[\]\s]+$/g, '').trim();
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function isAllowedClothingStatePromptTerm(normalized) {
+  if (!normalized) return false;
+  if (isCrossSubjectClothingCompositionTerm(normalized)) return false;
+  if (/^(?:top down bottom up|top-down bottom-up)$/.test(normalized)) return false;
+  if (/^(?:no panties|no underwear|no bra|no clothes)$/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:no shirt|no pants|no skirt|no socks|no shoes|no footwear)$/.test(normalized)) {
+    return true;
+  }
+  if (
+    /^(?:bottomless|bottomless female|topless|topless female|male topless|nude|naked|fully nude|fully naked|completely nude|completely naked|com pletely nude|compeltely nude)$/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (/^(?:partially undressed|undressing|undressed|forced exposure)$/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:clothed|fully clothed|partially clothed)$/.test(normalized)) {
+    return true;
+  }
+  return isClothingRelatedActionOrStateTerm(normalized);
+}
+
+function isClothingRelatedActionOrStateTerm(normalized) {
+  if (!containsGarmentOrClothingToken(normalized)) return false;
+  return (
+    /\b(aside|pulled aside|pull aside|pull(?:ed|ing)?|lift(?:ed|ing)?|tug(?:ged|ging)?|open(?:ed|ing)?|unbutton(?:ed|ing)?|take off|taking off|remov(?:e|ed|ing)|tear(?:ing)?|torn|ripped|damaged|shredded|burn(?:ed|t)|burning|dirt|wet|soaked|stained|dirty|muddy|bloodstained|transparent|see through|see-through|yank(?:ed|ing)?(?: down)?|down|off|slip(?:ped|ping)?|flip(?:ped|ping)?|around one leg|on floor|on the floor|at floor|around waist|discarded|unworn|dropped|scattered|holding|in hand)\b/.test(
+      normalized,
+    ) ||
+    /\b(?:through|under|over|inside)\s+clothes?\b/.test(normalized) ||
+    /\b(?:fire|dirt|mud|blood)\s+on\s+clothes?\b/.test(normalized) ||
+    /\b(breasts? out|one breast out|open clothes|open shirt|open jacket|open kimono|open towel|partially undressed)\b/.test(
+      normalized,
+    ) ||
+    /(脱衣|脱ぎ|脱い|脱げ|脱が|破れ|破損|破损|裂け|撕裂|濡れ|湿|濕|汚れ|污|ずらし|ずらされ|めく|捲|開き|開け|はだけ|半脱ぎ|拉开|拉開|掀起|脱下|未穿|拿着)/.test(
+      normalized,
+    )
+  );
+}
+
+function containsGarmentOrClothingToken(normalized) {
+  if (normalized === 'top') return true;
+  if (
+    /\b(clothes?|clothing|outfits?|costumes?|attire|apparel|garb|shirt|blouse|halter top|crop top|tank top|bikini top|bra|bikini(?: bottom)?|swimsuits?|swimwear|one piece swimsuit|leotard|bodysuit|dress|skirt|kimono|yukata|uniform|serafuku|jacket|coat|hoodie|hood|bunny suit|bunny outfit|maid outfit|suit|pant(?:y|ies)|underwear|underclothes|lingerie|pants|shorts|stockings?|pantyhose|thighhighs?|socks?|shoes?|footwear|boots?|sneakers?|sandals?|heels?|legwear|towel|strap|sleeves?|garter|robe|apron|armor|vest|cloak|blazer|sweater)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return /(服饰|服飾|服装|服裝|衣服|衣装|衣裝|衣裳|衣類|衣类|制服|校服|水着|泳装|泳裝|浴衣|和服|着物|メイド服|メイド衣装|下着|パンツ|ブラジャー|靴下|靴|ブーツ|スカート|シャツ|ブラウス|ワンピース|コスチューム|衣裳)/.test(
+    normalized,
+  );
+}
+
+function isCrossSubjectClothingCompositionTerm(normalized) {
+  return /\bclothed (?:female|girl|woman|male|boy|man) nude (?:female|girl|woman|male|boy|man)\b/.test(
+    normalized,
+  );
+}
+
+function isNonClothingPhraseWithClothingToken(normalized) {
+  if (/^(?:top down bottom up|top-down bottom-up)$/.test(normalized)) return true;
+  if (/\b(?:girl|boy|woman|man|female|male)\s+on\s+top\b/.test(normalized)) {
+    return true;
+  }
+  if (/\bdry(?:ing)?\s+with\s+(?:a\s+)?towel\b/.test(normalized)) return true;
+  return false;
+}
+
+function shouldSkipPromptReplacementTerm(term, category) {
+  const normalized = normalizedTagKey(term);
+  if (!normalized) return true;
+  if (category === 'scene') return false;
+  if (category === 'clothingState') {
+    return !isAllowedClothingStatePromptTerm(normalized);
+  }
+  if (category === 'clothing') {
+    if (isCrossSubjectClothingCompositionTerm(normalized)) return true;
+    if (isOtherCharacterClothingActionTag(normalized)) return true;
+    if (isNonClothingPhraseWithClothingToken(normalized)) return true;
+    return !containsGarmentOrClothingToken(normalized);
+  }
+  if (isHardNonRoleTerm(normalized)) return true;
+  if (
+    /\b(averting eyes?|looking|watching|staring|closed eyes?|open mouth|blush|crying|smile|pain|panic|dazed|motion blur|sound effects?)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(spread|sperad|spraed|apart|standing|sitting|lying|kneeling|punch|kick|grab|hold|holding|lift|lifting|pull|pushed|bouncing|hanging breasts?|heaving|squeezed|outstretched)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isGenericPromptIdentityTerm(term) {
+  const normalized = normalizedTagKey(term);
+  if (!normalized) return true;
+  if (isBasicGenericIdentity(normalized)) return true;
+  return /^(?:solo|1girl|2girls|girls?|1boy|2boys|boys?|female|male|woman|man|women|men)$/.test(
+    normalized,
+  );
+}
+
 function identityForTags(tags) {
   const concrete = [];
   const generic = [];
@@ -742,6 +1219,12 @@ function inferredGenericIdentityFromEvidence(tags) {
     )
   ) {
     return genericIdentityMap.girl;
+  }
+  if (
+    /\b(?:pov hands?|pov|muscular|tan skin|brown skin)\b/.test(normalized) &&
+    /\b(?:nude|naked|muscular)\b/.test(normalized)
+  ) {
+    return genericIdentityMap.male;
   }
   if (/\b(huge penis|pov penis|male black|male white|male shirt|male swimsuit)\b/.test(normalized)) {
     return genericIdentityMap.male;
@@ -867,7 +1350,7 @@ function genderForIdentityTerm(term) {
   const normalized = normalizedTagKey(term);
   if (/\b(1girl|2girls|girl|female|woman|loli)\b/.test(normalized)) return 'female';
   if (
-    /\b(1boy|boy|male|man|men|guy|guys|shota|faceless male|fat man|dark skinned male|dark-skinned male|black man|black skinned male|muscular male|musclar male|bald man|old man|big man|bandit|homeless man|homless man)\b/.test(
+    /\b(1boy|boy|male|man|men|guy|guys|shota|faceless male|fat man|dark skinned male|dark-skinned male|black man|black skinned male|muscular male|musclar male|bald man|old man|mature man|rugged man|big man|bandit|homeless man|homless man)\b/.test(
       normalized,
     )
   ) {
@@ -889,6 +1372,12 @@ function genericIdentityForNormalized(normalized) {
   }
   if (/\b(?:homeless|homless)\s+man\b/.test(normalized)) {
     return genericIdentityMap['homeless man'];
+  }
+  if (/\brugged\s+man\b/.test(normalized)) {
+    return genericIdentityMap['rugged man'];
+  }
+  if (/\bmature\s+(?:man|male)\b/.test(normalized)) {
+    return genericIdentityMap['mature man'];
   }
   if (
     /\bdirty\s+fat\s+ugly\s+(?:homeless|homless)\s+man\b/.test(normalized) ||
@@ -993,6 +1482,7 @@ function shouldSkipCaptionAsRole(tags, identity) {
     identity.concreteKey.length === 0 &&
     !hasExplicitBasic &&
     !hasSpecificGeneric &&
+    !hasWholeCharacterPresenceEvidence(tags) &&
     normalized.some((tag) => /\b(pov hands?|only hands?|disembodied hands?)\b/.test(tag))
   ) {
     return true;
@@ -1006,6 +1496,7 @@ function shouldSkipCaptionAsRole(tags, identity) {
   if (
     hasOnlyPartialHumanEvidence(tags) &&
     !hasSpecificGeneric &&
+    !hasWholeCharacterPresenceEvidence(tags) &&
     !hasDurablePartialRoleEvidence(tags)
   ) {
     return true;
@@ -3450,7 +3941,7 @@ function isWeightedBodyNoiseTag(tag) {
 
 function isHardNonRoleTerm(normalized) {
   if (
-    /\b(dull eyes?|wide eyes?|vacant eyes?|dead eyes?|shaded face|face turned sideways|showing flushed face|eyes? rolled back|ahegao|unfocused|dutch angle|dynamic angle|pov hands?|unworn|liquid on skin|face smushed|squished face|legs? wrapped around waist|relaxed shoulder movement|exposed breasts?|nude breasts?|exposed nipples?|deep cleavage (?:fully exposed|spilling out)|bare shoulders and thighs|exposing hips|heaving chest|flushed heaving chest|deeply flushed heaving chest)\b/.test(
+    /\b(dull eyes?|wide eyes?|vacant eyes?|dead eyes?|averting eyes?|shaded face|face turned sideways|showing flushed face|eyes? rolled back|ahegao|unfocused|dutch angle|dynamic angle|pov hands?|unworn|liquid on skin|face smushed|squished face|legs? wrapped around waist|relaxed shoulder movement|navel|thighs?|exposed breasts?|nude breasts?|exposed nipples?|deep cleavage (?:fully exposed|spilling out)|bare shoulders and thighs|exposing hips|heaving chest|flushed heaving chest|deeply flushed heaving chest)\b/.test(
       normalized,
     )
   ) {

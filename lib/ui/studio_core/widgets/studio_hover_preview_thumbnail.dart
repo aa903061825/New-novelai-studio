@@ -4,7 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 const double kStudioHoverPreviewWidth = 704;
 const double kStudioHoverPreviewHeight = 960;

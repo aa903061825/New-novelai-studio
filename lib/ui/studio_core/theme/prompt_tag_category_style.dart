@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 Color promptTagCategoryColor(PromptTagCategory category) {
   return switch (category) {

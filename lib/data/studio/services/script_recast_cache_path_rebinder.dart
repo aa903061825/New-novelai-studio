@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 
 Script rebindCachedScriptToImportDirectory(
   Script cachedScript,

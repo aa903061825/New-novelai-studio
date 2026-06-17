@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/workspace/importers/artist_studio_importer.dart';
+import 'package:novel_studio/data/workspace/importers/artist_studio_importer.dart';
 
 void main() {
   late Directory root;

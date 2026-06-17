@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 class WorkspaceVibeImportService {
   final PayloadConfig payloadConfig;

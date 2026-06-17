@@ -1,7 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/widgets/editable_list_tile.dart';
-import 'package:nai_casrand/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
+import 'package:novel_studio/ui/core/widgets/editable_list_tile.dart';
+import 'package:novel_studio/ui/prompt_tab/view_models/prompt_tab_viewmodel.dart';
 
 class PromptReplaceRulesEditor extends StatefulWidget {
   final PromptTabViewmodel viewmodel;
@@ -143,8 +143,7 @@ class _PromptReplaceRulesEditorState extends State<PromptReplaceRulesEditor> {
               final rule = viewmodel.promptReplaceRules[index];
               return Card(
                 key: ValueKey(rule.id),
-                margin:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 child: Column(
                   children: [
                     Padding(
@@ -206,7 +205,8 @@ class _PromptReplaceRulesEditorState extends State<PromptReplaceRulesEditor> {
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           TextButton.icon(
-                            onPressed: () => viewmodel.duplicateReplaceRule(index),
+                            onPressed: () =>
+                                viewmodel.duplicateReplaceRule(index),
                             icon: const Icon(Icons.copy),
                             label: Text(tr('prompt_replace_duplicate')),
                           ),

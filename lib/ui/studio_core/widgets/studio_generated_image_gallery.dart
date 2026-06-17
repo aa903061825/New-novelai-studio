@@ -7,11 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_size_getter/file_input.dart' as image_size;
 import 'package:image_size_getter/image_size_getter.dart' as image_size;
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 import 'package:waterfall_flow/waterfall_flow.dart';
 
-const _windowChannel = MethodChannel('nai_casrand/window');
+const _windowChannel = MethodChannel('novel_studio/window');
 
 class _NativeImagePreviewFullscreen {
   static Future<void> enter() {

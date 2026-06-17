@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_openai_chat_client.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/studio/services/script_ai_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_openai_chat_client.dart';
 
 const _scriptAiReasoningEffortOptions = ['low', 'medium', 'high', 'xhigh'];
 
@@ -241,6 +241,7 @@ You also extract:
 2. artist-chain evidence terms
 3. mosaic/censor terms for strong filter keywords
 4. warnings and unassigned terms
+5. role prompt_terms and top-level scene_terms as the primary point-to-point prompt replacement table
 
 You do not manage action, pose, expression, camera, background, lighting, composition, quality tags, vibe references, or local asset matching.
 
@@ -278,6 +279,18 @@ Role inference rules:
 - For slot-* roles, stage fields must come only from that same slot source evidence. For global-* roles, stage fields must come only from the global/base evidence used for that role.
 - For cross_slot roles, stage fields must come only from the slot/frame evidence listed in that role's appearances.
 
+Prompt replacement term rules:
+- prompt_terms and scene_terms are the replacement table contract. They decide what the UI can show, select, replace, merge, delete, or leave empty. Do not hide replacement-relevant terms by only returning stages or unassigned_terms.
+- For each role, return prompt_terms only for character replacement source terms: character identity, stable body/appearance, worn clothing, accessories, and replacement-relevant clothing_state.
+- Include clothing_state when the prompt describes a clothing or body-exposure state the user may replace or delete independently, such as no panties, bottomless, topless, completely nude, nude, bikini aside, panties aside, panties around one leg, shirt lift, clothes lift, open clothes, clothes pull, dress tug, or partially undressed.
+- Keep identity terms role-specific. Do not treat subject count or composition terms as role identity. Excluded examples include 1girl, 2girls, 1boy, solo, and multiple girls. If a generic role identity is needed, use bounded terms such as girl, boy, woman, man, loli, or child; girl is not the same source term as 1girl.
+- Put scene/environment prompt source terms in top-level scene_terms, never inside role prompt_terms.
+- scene_terms cover environment, place, time, lighting, weather, background objects, and reusable scene descriptions from both tag prompts and natural-language source phrases.
+- Subject count, composition, action, pose, expression, camera, quality terms, artist/style chains, and censor/filter keywords must not be returned in prompt_terms or scene_terms. Excluded examples include 1girl, solo, looking at viewer, masterpiece, official art, and mosaic censoring.
+- For natural-language sources, split only meaningful minimal replacement terms, keep the exact surrounding source_phrase, and preserve the frame_indexes where the phrase appears.
+- Every prompt term and scene term must include id, text, category, source_phrase, source_location, and frame_indexes when that evidence is available.
+- Valid category strings are identity, body, clothing, clothing_state, accessory, and scene.
+
 Five-field classification rules:
 - The five fields are reusable replacement fields for character identity,
   stable non-explicit body/accessory traits, and worn garments. They are not
@@ -297,7 +310,7 @@ Five-field classification rules:
 - If a stage has no lower_clothing, add missing_lower_clothing to missing_fields.
 - If a full outfit cannot be split into upper/lower fields, put it in the most appropriate field and add warning full_outfit_unsplit.
 - Stable upper-body traits such as small breasts or large breasts belong in upper_body.
-- Never put sexualized body-state, fetish, residue, genitals, or body-only exposure terms in any of identity, upper_body, lower_body, upper_clothing, or lower_clothing. Put them in unassigned_terms with reason "not_a_replacement_field".
+- Never put sexualized body-state, fetish, residue, genitals, or body-only exposure terms in any of identity, upper_body, lower_body, upper_clothing, or lower_clothing. If the term is a role clothing/body-exposure state relevant to prompt replacement, return it in prompt_terms with category clothing_state; otherwise put it in unassigned_terms with reason "not_a_replacement_field".
 - Never put body-only, anatomy, expression, pose, action, sexual act, or residue tags in upper_clothing or lower_clothing.
 - Examples of terms forbidden from all five fields include nipples, areola, stomach bulge, big belly, navel, thighs, ass, butt, pussy, cleft of venus, blush, nose blush, tongue out, open mouth, heavy breathing, breast press, spread legs, cum on body, cum on breast, cum string, orgasm, nervous, shy, and sideways glance.
 - Accessories such as choker/collar/necklace/halo/animal ears/tail belong in upper_body or lower_body, not upper_clothing or lower_clothing, and accessory-only differences must not create separate outfit stages.
@@ -309,12 +322,13 @@ Outfit stage rules:
 - For every stage, include field_reasons explaining why each stable term belongs to identity, upper_body, lower_body, upper_clothing, or lower_clothing. The reasons should make clear that action/pose/expression/transient terms are not replacement fields and must not be output as stage terms.
 - Output every stage label in Chinese. Use concise Chinese outfit names such as "校服", "和服", "休闲服", "比基尼泳装", "裸体", or "裸体（项圈）"; do not output English labels such as "Casual Outfit" or "Completely nude with choker".
 - When source frames provide stable scene, location, or work context, prefer context-aware Chinese stage labels such as "浴室裸体" or "车间工装". Use context only in the label; do not copy scene/action context into identity, body, or clothing fields unless the original tag is valid five-field role evidence.
-- Create separate stages only when the character's core worn garment set changes into a different outfit category, such as school uniform vs nightgown vs towel wrap vs china dress, or when the evidence changes from wearing garments to no garments at all.
+- Stages are a compatibility summary for stable role fields. prompt_terms and scene_terms carry the fine-grained replacement table. A term can and should appear in prompt_terms even when it is not safe to put into the five stage fields.
+- Create separate stages when the character's replacement-relevant stable role appearance changes: core worn garment category, wearing garments vs no garments, stable accessory/body appearance set, or a clothing/body-exposure state that changes what the user would replace or delete as a distinct source. When uncertain, preserve the precise term in prompt_terms instead of inventing a stage.
 - A variant tag alone must not invent outfit fields or an outfit stage. If "ceremonial" appears only inside the character identity tag and there is no concrete stable clothing evidence, keep it as variant/stage evidence or an attention item, and do not create a ceremonial clothing field.
-- Do not split separate outfit slots for state variants of the same outfit. Merge them into the same stage.
-- Same-outfit state variants include barefoot vs socks/shoes/no shoes, gloves vs no gloves, choker/accessory present vs absent, coat/jacket on vs no coat, clothes pulled/lifted, wetness, stains, partial undressing, body exposure, action, pose, expression, camera, lighting, background, or temporary quality noise.
-- Nude/body-only variants such as completely nude, completely nude with choker, oiled body, beach/oiled, stomach bulge, thighs, ass, pussy, spread legs, cum on body, or heavy breathing are one no-core-clothing stage unless real garments change.
-- When state variants share the same core outfit, combine their terms into the same five fields and add warning outfit_state_variant_merged when useful.
+- Do not split stages solely by action, pose, expression, camera, lighting, background, story beat, wetness, stains, residue, or temporary quality noise.
+- Do not force state variants into the same stage when their source terms are replacement targets. Terms such as no panties, topless, bottomless, completely nude, bikini aside, panties aside, shirt lift, clothes pull/lift, open clothes, or partially undressed must be available in prompt_terms with their own frame_indexes; they may form a distinct stage only when they change the visible outfit/body-exposure state.
+- Nude/no-core-clothing can be separate from dressed, towel, nightgown, swimsuit, or uniform stages. Do not create extra nude stages solely for pose, expression, residue, anatomy, camera, lighting, or background differences.
+- When state variants share the same core outfit and do not need separate stages, keep the shared stable worn garments in the five fields and keep state-specific source terms in prompt_terms as clothing_state. Do not combine clothing_state terms into upper_clothing or lower_clothing.
 - If a term is only action/pose/camera/background/expression, keep it out of the five fields and do not output it as a stage candidate. Put only genuinely unresolved role assignment conflicts in unassigned_terms when needed.
 - Stable identity and body fields can repeat across stages.
 - Stage frame_indexes must describe where the stage appears according to evidence.
@@ -387,6 +401,16 @@ Output JSON shape:
         }
       ],
       "evidence_terms": ["raw evidence terms"],
+      "prompt_terms": [
+        {
+          "id": "stable term id",
+          "text": "raw or normalized role source term",
+          "category": "identity, body, clothing, clothing_state, or accessory",
+          "source_phrase": "exact surrounding source phrase",
+          "source_location": "slot/base/frame source location",
+          "frame_indexes": [1, 2]
+        }
+      ],
       "warnings": [],
       "stages": [
         {
@@ -454,6 +478,16 @@ Output JSON shape:
       "term": "raw term",
       "frame_indexes": [1],
       "reason": "why not assigned"
+    }
+  ],
+  "scene_terms": [
+    {
+      "id": "stable scene term id",
+      "text": "raw or normalized scene source term",
+      "category": "scene",
+      "source_phrase": "exact surrounding source phrase",
+      "source_location": "base prompt or frame source location",
+      "frame_indexes": [1, 2]
     }
   ]
 }

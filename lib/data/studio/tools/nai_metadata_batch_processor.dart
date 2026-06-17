@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
 
 typedef NaiMetadataParserFn = NaiMetadataParseResult Function(dynamic payload);
 

@@ -82,7 +82,7 @@ void FlutterWindow::SetupWindowMethodChannel() {
   }
   window_method_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          flutter_controller_->engine()->messenger(), "nai_casrand/window",
+          flutter_controller_->engine()->messenger(), "novel_studio/window",
           &flutter::StandardMethodCodec::GetInstance());
   window_method_channel_->SetMethodCallHandler(
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,

@@ -2,12 +2,14 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/core/constants/defaults.dart';
-import 'package:nai_casrand/data/models/generation_size.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/studio/tools/outfit_identity_prompt.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/tools/outfit_identity_prompt.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 typedef StudioPreviewImageRequest = Future<Uint8List> Function(
   Map<String, dynamic> payload,
@@ -26,6 +28,24 @@ class StudioAssetPreviewGenerationException implements Exception {
 
   @override
   String toString() => 'StudioAssetPreviewGenerationException: $message';
+}
+
+enum StudioPreviewCustomPromptMode { append, replace }
+
+class StudioAssetPreviewGenerationOptions {
+  final String? artistChainId;
+  final String customPrompt;
+  final StudioPreviewCustomPromptMode customPromptMode;
+  final GenerationSize? size;
+
+  const StudioAssetPreviewGenerationOptions({
+    this.artistChainId,
+    this.customPrompt = '',
+    this.customPromptMode = StudioPreviewCustomPromptMode.append,
+    this.size,
+  });
+
+  String get trimmedCustomPrompt => customPrompt.trim();
 }
 
 class StudioAssetPreviewGenerationService {
@@ -52,7 +72,11 @@ class StudioAssetPreviewGenerationService {
   })  : randomInt = randomInt ?? Random().nextInt,
         now = now ?? DateTime.now;
 
-  Future<String> generateArtistChainPreview(String id) async {
+  Future<String> generateArtistChainPreview(
+    String id, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
     final chains = await workspaceService.loadArtistChains();
     final chainIndex = _indexById(chains, id);
     if (chainIndex < 0) {
@@ -61,12 +85,20 @@ class StudioAssetPreviewGenerationService {
       );
     }
 
-    final size = _randomSize();
+    final size = _sizeFromOptions(options);
     final chain = chains[chainIndex];
-    final prompt = _artistChainPrompt(chain);
+    final character = _randomCharacter(await workspaceService.loadCharacters());
+    final scenePrompt = await _randomScenePrompt();
+    final prompt = _artistChainPrompt(
+      chain,
+      character: character,
+      scenePrompt: scenePrompt,
+      options: options,
+    );
     final outputPath = await _generateAndSave(
       prompt: prompt,
       size: size,
+      negativePrompt: _artistChainNegativePrompt(chain),
       vibeRefs: chain.vibeRefs,
       fileNamePrefix:
           'asset-preview-artist-chain-${_safeFileSegment(chains[chainIndex].id)}',
@@ -91,7 +123,11 @@ class StudioAssetPreviewGenerationService {
     return outputPath;
   }
 
-  Future<String> generateCharacterPreview(String id) async {
+  Future<String> generateCharacterPreview(
+    String id, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
     final characters = await workspaceService.loadCharacters();
     final characterIndex = _indexById(characters, id);
     if (characterIndex < 0) {
@@ -101,11 +137,20 @@ class StudioAssetPreviewGenerationService {
     }
 
     final character = characters[characterIndex];
-    final size = _randomSize();
-    final prompt = _characterPrompt(character);
+    final size = _sizeFromOptions(options);
+    final artistChain = await _artistChainForCharacterPreview(options);
+    final prompt = _characterPrompt(
+      character,
+      artistChain: artistChain,
+      options: options,
+    );
     final outputPath = await _generateAndSave(
       prompt: prompt,
       size: size,
+      negativePrompt: artistChain == null
+          ? defaultUC
+          : _artistChainNegativePrompt(artistChain),
+      vibeRefs: artistChain?.vibeRefs ?? const [],
       fileNamePrefix:
           'asset-preview-character-${_safeFileSegment(character.id)}',
     );
@@ -130,7 +175,11 @@ class StudioAssetPreviewGenerationService {
   }
 
   Future<String> generateOutfitPreview(
-      String characterId, String outfitId) async {
+    String characterId,
+    String outfitId, {
+    StudioAssetPreviewGenerationOptions options =
+        const StudioAssetPreviewGenerationOptions(),
+  }) async {
     final characters = await workspaceService.loadCharacters();
     final characterIndex = _indexById(characters, characterId);
     if (characterIndex < 0) {
@@ -147,7 +196,7 @@ class StudioAssetPreviewGenerationService {
     }
 
     final outfit = character.outfits[outfitIndex];
-    final size = _randomSize();
+    final size = _sizeFromOptions(options);
     final prompt = _outfitPrompt(character, outfit);
     final outputPath = await _generateAndSave(
       prompt: prompt,
@@ -263,6 +312,52 @@ class StudioAssetPreviewGenerationService {
     return _previewSizes[index];
   }
 
+  GenerationSize _sizeFromOptions(StudioAssetPreviewGenerationOptions options) {
+    return options.size ?? _randomSize();
+  }
+
+  Future<ArtistChain?> _artistChainForCharacterPreview(
+    StudioAssetPreviewGenerationOptions options,
+  ) async {
+    final chains = await workspaceService.loadArtistChains();
+    final selectedId = options.artistChainId?.trim();
+    if (selectedId != null && selectedId.isNotEmpty) {
+      final selectedIndex = _indexById(chains, selectedId);
+      if (selectedIndex < 0) {
+        throw StudioAssetPreviewGenerationException(
+          'Artist chain "$selectedId" was not found.',
+        );
+      }
+      return chains[selectedIndex];
+    }
+    if (chains.isEmpty) return null;
+    return chains[_boundedRandomInt(chains.length)];
+  }
+
+  CharacterEntry? _randomCharacter(List<CharacterEntry> characters) {
+    if (characters.isEmpty) return null;
+    return characters[_boundedRandomInt(characters.length)];
+  }
+
+  Future<String> _randomScenePrompt() async {
+    final inspirations = await workspaceService.loadInspirations();
+    final sceneEntries = inspirations
+        .where(
+          (entry) =>
+              StudioAssetCatalogService.isCodexSourceType(entry.source.type) &&
+              StudioLegacyCodexCategories.matches(
+                entry,
+                StudioLegacyCodexCategories.scene.key,
+              ),
+        )
+        .toList(growable: false);
+    if (sceneEntries.isEmpty) return _fallbackScenePrompt;
+    final entry = sceneEntries[_boundedRandomInt(sceneEntries.length)];
+    final prompt = entry.prompt.trim();
+    if (prompt.isNotEmpty) return prompt;
+    return entry.name.trim();
+  }
+
   Future<String> _generateAndSave({
     required String prompt,
     required GenerationSize size,
@@ -330,31 +425,95 @@ class StudioAssetPreviewGenerationService {
     };
   }
 
-  String _artistChainPrompt(ArtistChain chain) {
+  String _applyCustomPrompt(
+    String template,
+    StudioAssetPreviewGenerationOptions options,
+  ) {
+    final custom = options.trimmedCustomPrompt;
+    if (custom.isEmpty) return template;
+    if (options.customPromptMode == StudioPreviewCustomPromptMode.replace) {
+      return custom;
+    }
+    return _joinPromptParts([template, custom]);
+  }
+
+  Iterable<String> _artistChainTerms(ArtistChain chain) sync* {
+    if (chain.artists.isNotEmpty) {
+      for (final artist in chain.artists) {
+        yield _artistEntryTag(artist);
+      }
+    } else {
+      yield* chain.tags;
+    }
+    yield chain.prompt;
+    yield* chain.styleTags;
+    for (final tag in chain.styleHintsWeighted) {
+      yield _weightedTag(tag);
+    }
+  }
+
+  String _artistChainNegativePrompt(ArtistChain chain) {
     return _joinPromptParts([
-      _qualityTerms,
-      chain.prompt,
-      ...chain.tags,
-      ...chain.styleTags,
-      ..._artistChainPreviewCharacterTerms,
-      'upper body',
-      'waist-up portrait',
-      'close-up character portrait',
-      'character fills most of the frame',
-      'character focus',
-      'simple soft background',
+      defaultUC,
+      for (final tag in chain.globalNegatives) _weightedTag(tag),
     ]);
   }
 
-  String _characterPrompt(CharacterEntry character) {
-    return _joinPromptParts([
+  String _artistEntryTag(ArtistEntry artist) {
+    final tag = '${artist.prefix}${artist.name}';
+    return artist.weight == 1
+        ? tag
+        : PromptTagProcessor.formatInlineWeightTag(tag, artist.weight);
+  }
+
+  String _weightedTag(WorkspaceWeightedTag tag) {
+    return tag.weight == 1
+        ? tag.tag
+        : PromptTagProcessor.formatInlineWeightTag(tag.tag, tag.weight);
+  }
+
+  String _artistChainPrompt(
+    ArtistChain chain, {
+    required CharacterEntry? character,
+    required String scenePrompt,
+    required StudioAssetPreviewGenerationOptions options,
+  }) {
+    final template = _joinPromptParts([
+      ..._artistChainTerms(chain),
+      _qualityTerms,
+      if (character != null) character.name,
+      if (character != null) ..._characterTerms(character),
+      if (character == null) ..._fallbackArtistChainPreviewCharacterTerms,
+      '1girl',
+      'solo',
+      scenePrompt.trim().isEmpty ? _fallbackScenePrompt : scenePrompt,
+      'character focus',
+      'clean readable pose',
+      'appealing character preview',
+      'no text',
+      'no watermark',
+    ]);
+    return _applyCustomPrompt(template, options);
+  }
+
+  String _characterPrompt(
+    CharacterEntry character, {
+    required ArtistChain? artistChain,
+    required StudioAssetPreviewGenerationOptions options,
+  }) {
+    final template = _joinPromptParts([
+      if (artistChain != null) ..._artistChainTerms(artistChain),
       _qualityTerms,
       character.name,
       ..._characterTerms(character),
+      '1girl',
+      'solo',
+      'solid color background',
+      'simple plain background',
       'pure white background',
-      'simple white backdrop',
       'clean character reference sheet',
     ]);
+    return _applyCustomPrompt(template, options);
   }
 
   String _outfitPrompt(CharacterEntry character, WorkspaceOutfit outfit) {
@@ -439,7 +598,8 @@ class StudioAssetPreviewGenerationService {
   }
 
   String _baseCharacterIdentityForSkinVariant(String tag) {
-    final value = tag.trim();
+    final descriptor = PromptTagProcessor.describeWorkshopTag(tag);
+    final value = descriptor.displayText.trim();
     if (value.isEmpty || value.contains(':')) return tag;
     final match = RegExp(r'^(.+?)([_\s])(?:\([^()]+\)[_\s])+\(([^()]+)\)$')
         .firstMatch(value);
@@ -453,7 +613,11 @@ class StudioAssetPreviewGenerationService {
       return tag;
     }
     final separator = match.group(2) == '_' ? '_' : ' ';
-    return '$baseName$separator($series)';
+    final baseTag = '$baseName$separator($series)';
+    final weight = descriptor.weight;
+    return weight == null
+        ? baseTag
+        : PromptTagProcessor.formatInlineWeightTag(baseTag, weight);
   }
 
   Iterable<String> _outfitTerms(WorkspaceOutfit outfit) sync* {
@@ -536,10 +700,7 @@ class StudioAssetPreviewGenerationService {
   }
 
   Iterable<String> _splitPrompt(String value) {
-    return value
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n')
-        .split(RegExp(r'[,\n]'))
+    return PromptTagProcessor.splitWorkshopTags(value)
         .map((tag) => tag.trim())
         .where((tag) => tag.isNotEmpty);
   }
@@ -582,12 +743,13 @@ class StudioAssetPreviewGenerationService {
 
 const _qualityTerms = 'masterpiece, best quality, very aesthetic, highres';
 
-const _artistChainPreviewCharacterTerms = [
+const _fallbackScenePrompt =
+    'simple soft background, plain light background, no props';
+
+const _fallbackArtistChainPreviewCharacterTerms = [
   'suzuran_(arknights)',
   '1girl',
   'solo',
-  'single character',
-  'one person only',
   'fox girl',
   'fox ears',
   'fox tail',

@@ -1,5 +1,5 @@
-import 'package:nai_casrand/core/constants/parameters.dart';
-import 'package:nai_casrand/data/studio/tools/generation_prompt_sanitizer.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/studio/tools/generation_prompt_sanitizer.dart';
 
 class ScriptRecastPayloadAdapter {
   const ScriptRecastPayloadAdapter();

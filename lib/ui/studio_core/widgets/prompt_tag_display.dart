@@ -4,26 +4,29 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_presentation.dart';
-import 'package:nai_casrand/ui/studio_core/theme/prompt_tag_category_style.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_selection_toolbar.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_list_utils.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_presentation.dart';
+import 'package:novel_studio/ui/studio_core/theme/prompt_tag_category_style.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_drag.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_layout_mode.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_selection_toolbar.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_context_menu.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-export 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart'
+export 'package:novel_studio/ui/studio_core/widgets/prompt_tag_layout_mode.dart';
+export 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart'
     show
         PromptTagFilterRuleAdder,
         PromptTagFilterRuleTarget,
@@ -46,6 +49,7 @@ typedef PromptTagGroupDiffResolver = PromptTagChipDiffState Function(
   String groupId,
   String tag,
 );
+typedef PromptTagWarningScopeSuppressor = FutureOr<void> Function(String tag);
 
 const defaultPromptTagFilterRuleTargets = [
   PromptTagFilterRuleTarget.deleteKeywords,
@@ -84,8 +88,6 @@ class PromptTagGroupActionTag {
     this.weight,
   });
 }
-
-enum PromptTagLayoutMode { sourceOrder, grouped, layered }
 
 class PromptTagDisplayGroup {
   final String id;
@@ -145,6 +147,9 @@ class PromptTagGroupDisplay extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final PromptTagGroupActionBuilder? groupActionBuilder;
   final PromptTagGroupDiffResolver? diffStateForTag;
+  final bool showTagWarnings;
+  final Set<String> suppressedTagWarningKeys;
+  final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
   final String groupKeyPrefix;
   final String tagKeyPrefix;
 
@@ -174,6 +179,9 @@ class PromptTagGroupDisplay extends StatelessWidget {
     this.onChanged,
     this.groupActionBuilder,
     this.diffStateForTag,
+    this.showTagWarnings = true,
+    this.suppressedTagWarningKeys = const {},
+    this.onSuppressTagWarningForScope,
     this.groupKeyPrefix = 'prompt-tag-display-layer',
     this.tagKeyPrefix = 'prompt-tag-display-layer-tags',
   });
@@ -245,6 +253,9 @@ class PromptTagGroupDisplay extends StatelessWidget {
                   diffStateForTag: diffStateForTag == null
                       ? null
                       : (tag) => diffStateForTag!(group.id, tag),
+                  showTagWarnings: showTagWarnings,
+                  suppressedTagWarningKeys: suppressedTagWarningKeys,
+                  onSuppressTagWarningForScope: onSuppressTagWarningForScope,
                 ),
               ],
             ),
@@ -470,6 +481,8 @@ class PromptTagDisplay extends StatefulWidget {
   final PromptTagLayoutMode initialLayoutMode;
   final bool respectInitialLayoutMode;
   final bool showLayoutControls;
+  final double? sourceOrderCollapsedTagMaxWidth;
+  final double? sourceOrderHoveredTagMaxWidth;
   final bool negative;
   final ValueChanged<String>? onTagTap;
   final ValueChanged<String>? onChanged;
@@ -479,6 +492,9 @@ class PromptTagDisplay extends StatefulWidget {
   final bool showSelectionToolbar;
   final PromptTagGroupActionBuilder? groupActionBuilder;
   final PromptTagDisplayDiffResolver? diffStateForTag;
+  final bool showTagWarnings;
+  final Set<String> suppressedTagWarningKeys;
+  final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
 
   const PromptTagDisplay({
     super.key,
@@ -502,6 +518,8 @@ class PromptTagDisplay extends StatefulWidget {
     this.initialLayoutMode = PromptTagLayoutMode.grouped,
     this.respectInitialLayoutMode = false,
     this.showLayoutControls = false,
+    this.sourceOrderCollapsedTagMaxWidth,
+    this.sourceOrderHoveredTagMaxWidth,
     this.negative = false,
     this.onTagTap,
     this.onChanged,
@@ -511,6 +529,9 @@ class PromptTagDisplay extends StatefulWidget {
     this.showSelectionToolbar = true,
     this.groupActionBuilder,
     this.diffStateForTag,
+    this.showTagWarnings = true,
+    this.suppressedTagWarningKeys = const {},
+    this.onSuppressTagWarningForScope,
   });
 
   @override
@@ -536,8 +557,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   );
   Offset? _selectionStart;
   Offset? _selectionCurrent;
+  Map<int, Rect>? _selectionChipRectCache;
   bool _selectionMoved = false;
   bool _selectionAdditive = false;
+  bool _selectionStartedOnDraggableTag = false;
   late PromptTagLayoutMode _layoutMode = _normalizedLayoutMode(
     widget.initialLayoutMode,
   );
@@ -577,7 +600,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       _selectionPreviewIndexes.clear();
       _selectionStart = null;
       _selectionCurrent = null;
+      _selectionChipRectCache = null;
       _selectionMoved = false;
+      _selectionStartedOnDraggableTag = false;
       _translationOverrides.clear();
     }
   }
@@ -635,9 +660,8 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   @override
   Widget build(BuildContext context) {
     final trimmed = widget.text.trim();
-    final body = trimmed.isEmpty
-        ? _EmptyPromptText(text: widget.emptyText)
-        : _buildTags(context, trimmed);
+    final body =
+        trimmed.isEmpty ? _buildEmptyState() : _buildTags(context, trimmed);
 
     if (!widget.enableHoverShortcut) {
       return body;
@@ -649,6 +673,14 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       onExit: (_) => AppDisplaySettings.clearHoveredPromptTarget(_hoverId),
       child: body,
     );
+  }
+
+  Widget _buildEmptyState() {
+    final body = _EmptyPromptText(text: widget.emptyText);
+    if (!widget.enableTagActions) {
+      return body;
+    }
+    return _buildSelectionArea(body);
   }
 
   Widget _buildTags(BuildContext context, String text) {
@@ -676,7 +708,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             overrides: widget.classificationOverrides,
             cacheRuleClassification: true,
           ),
-          warning: tag.warning != WorkshopTagWarning.none,
+          warning: _shouldShowTagWarning(tag),
         ),
     ];
 
@@ -748,9 +780,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   }
 
   PromptTagLayoutMode _normalizedLayoutMode(PromptTagLayoutMode mode) {
-    return mode == PromptTagLayoutMode.layered
-        ? PromptTagLayoutMode.grouped
-        : mode;
+    return mode;
   }
 
   Widget _buildSelectionArea(Widget content) {
@@ -875,17 +905,18 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     final pressedIndex = _indexAt(local);
     if (_canDragTags && pressedIndex != null && _isSelected(pressedIndex)) {
+      _selectionStartedOnDraggableTag = true;
       return;
     }
+    _selectionStartedOnDraggableTag = _canDragTags && pressedIndex != null;
     _selectionFocusNode.requestFocus();
-    setState(() {
-      _selectionStart = local;
-      _selectionCurrent = local;
-      _selectionMoved = false;
-      _selectionAdditive = HardwareKeyboard.instance.isControlPressed ||
-          HardwareKeyboard.instance.isMetaPressed;
-      _selectionPreviewIndexes.clear();
-    });
+    _selectionStart = local;
+    _selectionCurrent = local;
+    _selectionChipRectCache = _currentChipRects();
+    _selectionMoved = false;
+    _selectionAdditive = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    _selectionPreviewIndexes.clear();
   }
 
   void _handleSelectionPointerMove(PointerMoveEvent event) {
@@ -898,6 +929,11 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       return;
     }
     final moved = (local - start).distance > 4;
+    if (_selectionStartedOnDraggableTag && moved) {
+      _selectionCurrent = local;
+      _selectionMoved = true;
+      return;
+    }
     final preview =
         moved ? _indexesIntersecting(_rectFrom(start, local)) : <int>{};
     setState(() {
@@ -917,6 +953,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     final rect = _rectFrom(start, current);
     final tappedIndex = _indexAt(_selectionLocalPosition(event.position));
+    if (!_selectionMoved && tappedIndex == null && _selectedCount > 0) {
+      _clearSelection();
+      return;
+    }
     setState(() {
       if (_selectionMoved) {
         final hits = _indexesIntersecting(rect);
@@ -959,6 +999,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       _selectionPreviewIndexes.clear();
       _selectionStart = null;
       _selectionCurrent = null;
+      _selectionChipRectCache = null;
       _selectionMoved = false;
       _selectionAdditive = false;
     });
@@ -969,6 +1010,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       _selectionPreviewIndexes.clear();
       _selectionStart = null;
       _selectionCurrent = null;
+      _selectionChipRectCache = null;
       _selectionMoved = false;
       _selectionAdditive = false;
     });
@@ -1006,9 +1048,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
 
   Set<int> _indexesIntersecting(Rect selectionRect) {
     final result = <int>{};
-    for (final entry in _chipKeys.entries) {
-      final rect = _chipRect(entry.value);
-      if (rect != null && selectionRect.overlaps(rect)) {
+    for (final entry
+        in (_selectionChipRectCache ?? _currentChipRects()).entries) {
+      final rect = entry.value;
+      if (selectionRect.overlaps(rect)) {
         result.add(entry.key);
       }
     }
@@ -1019,13 +1062,25 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     if (localPosition == null) {
       return null;
     }
-    for (final entry in _chipKeys.entries) {
-      final rect = _chipRect(entry.value);
-      if (rect != null && rect.contains(localPosition)) {
+    for (final entry
+        in (_selectionChipRectCache ?? _currentChipRects()).entries) {
+      final rect = entry.value;
+      if (rect.contains(localPosition)) {
         return entry.key;
       }
     }
     return null;
+  }
+
+  Map<int, Rect> _currentChipRects() {
+    final rects = <int, Rect>{};
+    for (final entry in _chipKeys.entries) {
+      final rect = _chipRect(entry.value);
+      if (rect != null) {
+        rects[entry.key] = rect;
+      }
+    }
+    return rects;
   }
 
   Rect? _chipRect(GlobalKey key) {
@@ -1099,8 +1154,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     _selectionPreviewIndexes.clear();
     _selectionStart = null;
     _selectionCurrent = null;
+    _selectionChipRectCache = null;
     _selectionMoved = false;
     _selectionAdditive = false;
+    _selectionStartedOnDraggableTag = false;
   }
 
   void _deleteSelectedTags() {
@@ -1137,7 +1194,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       return cached;
     }
     return _tagTextCache = _analysesFor(widget.text)
-        .map((tag) => PromptTagProcessor.cleanTagDisplay(tag.text))
+        .map(promptTagRawValueForAnalysis)
         .where((tag) => tag.trim().isNotEmpty)
         .toList(growable: false);
   }
@@ -1153,6 +1210,37 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     _analysisCache = analyses;
     _tagTextCache = null;
     return analyses;
+  }
+
+  bool _shouldShowTagWarning(WorkshopTagAnalysis tag) {
+    if (!widget.showTagWarnings ||
+        tag.warning == WorkshopTagWarning.none ||
+        tag.displayText.trim().isEmpty) {
+      return false;
+    }
+    return !_isTagWarningSuppressed(tag.displayText);
+  }
+
+  bool _shouldShowTagWarningForIndex(int index) {
+    final analyses = _analysesFor(widget.text);
+    if (index < 0 || index >= analyses.length) {
+      return false;
+    }
+    return _shouldShowTagWarning(analyses[index]);
+  }
+
+  bool _isTagWarningSuppressed(String tag) {
+    final key = PromptTagProcessor.normalizeMatchKey(tag);
+    if (key.isEmpty) {
+      return false;
+    }
+    final locallySuppressed = widget.suppressedTagWarningKeys.any(
+      (suppressed) => PromptTagProcessor.normalizeMatchKey(suppressed) == key,
+    );
+    if (locallySuppressed) {
+      return true;
+    }
+    return _classificationCache().isValidCompoundTag(tag);
   }
 
   void _clearParsedTagCache() {
@@ -1303,7 +1391,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     final current = _tags;
     final incoming = data.tags
-        .map(PromptTagProcessor.cleanTagDisplay)
+        .expand(PromptTagProcessor.splitWorkshopTags)
+        .map((tag) =>
+            PromptTagProcessor.cleanTagDisplay(tag, removeWeights: false))
         .where((tag) => tag.trim().isNotEmpty)
         .toList(growable: false);
     if (incoming.isEmpty) {
@@ -1413,34 +1503,37 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     required bool canOpenTagMenu,
   }) {
     if (_effectiveLayoutMode == PromptTagLayoutMode.sourceOrder) {
-      return Wrap(
-        spacing: widget.dense ? 4 : 7,
-        runSpacing: widget.dense ? 4 : 7,
-        children: _chipsForItems(
+      return _buildSourceOrderTagFlow(
+        _chipsForItems(
           context,
           items,
           cache,
           translate,
           canOpenTagMenu: canOpenTagMenu,
+          compactSourceOrder: true,
         ),
       );
     }
 
+    final layoutGroups = _effectiveLayoutMode == PromptTagLayoutMode.layered
+        ? PromptTagClassifier.layeredGroups
+        : PromptTagClassifier.groups;
     final visibleGroups = [
-      for (final group in PromptTagClassifier.groups)
-        if (items.any((item) => item.classification.group.id == group.id))
+      for (final group in layoutGroups)
+        if (items.any((item) => group.categories.contains(
+              item.classification.category,
+            )))
           group,
     ];
     if (visibleGroups.length <= 1 && widget.groupActionBuilder == null) {
-      return Wrap(
-        spacing: widget.dense ? 4 : 7,
-        runSpacing: widget.dense ? 4 : 7,
-        children: _chipsForItems(
+      return _buildSourceOrderTagFlow(
+        _chipsForItems(
           context,
           items,
           cache,
           translate,
           canOpenTagMenu: canOpenTagMenu,
+          compactSourceOrder: true,
         ),
       );
     }
@@ -1453,7 +1546,11 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             dropCategory: _dropCategoryForGroup(group),
             builder: (active) {
               final groupItems = items
-                  .where((item) => item.classification.group.id == group.id)
+                  .where(
+                    (item) => group.categories.contains(
+                      item.classification.category,
+                    ),
+                  )
                   .toList(growable: false);
               return _PromptTagGroupBlock(
                 label: group.label,
@@ -1489,6 +1586,26 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     );
   }
 
+  Widget _buildSourceOrderTagFlow(List<Widget> children) {
+    final spacing = widget.dense ? 4.0 : 7.0;
+    return Wrap(
+      spacing: spacing,
+      runSpacing: spacing,
+      children: children,
+    );
+  }
+
+  double? _sourceOrderTagMaxWidth(int index) {
+    final collapsed = widget.sourceOrderCollapsedTagMaxWidth;
+    if (collapsed == null) {
+      return null;
+    }
+    if (_hoveredIndex == index) {
+      return widget.sourceOrderHoveredTagMaxWidth ?? 360;
+    }
+    return collapsed;
+  }
+
   List<Widget> _chipsForItems(
     BuildContext context,
     List<_PromptTagItem> items,
@@ -1496,6 +1613,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     bool translate, {
     required bool canOpenTagMenu,
     PromptTagCategory? dropCategory,
+    bool compactSourceOrder = false,
   }) {
     return [
       for (final item in items)
@@ -1513,10 +1631,13 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             final selected = _isSelected(item.index);
             final diffState = widget.diffStateForTag?.call(item.text) ??
                 PromptTagChipDiffState.unchanged;
+            final tagMaxWidth =
+                compactSourceOrder ? _sourceOrderTagMaxWidth(item.index) : null;
             final chip = PromptTagChip(
               label: item.text,
               weightLabel: item.weightLabel,
               weight: item.weight,
+              maxWidth: tagMaxWidth,
               translation: translate
                   ? _translationFor(cache, item.text)
                   : _translationOverrides[item.text] ?? '',
@@ -1576,6 +1697,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
                         item.text,
                       )
                   : null,
+              onDoubleTap: widget.onChanged == null
+                  ? null
+                  : () => unawaited(_editTag(context, item.index)),
               onTap: widget.onTagTap == null
                   ? null
                   : () => widget.onTagTap?.call(item.text),
@@ -1814,53 +1938,83 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       }
     }
     final addToFilterRules = _filterRuleAdder();
-    final choice = await showMenu<_PromptTagMenuChoice>(
+    final warningActive = _shouldShowTagWarningForIndex(index);
+    final choice = await StudioContextMenu.show<_PromptTagMenuChoice>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        position.dx,
-        position.dy,
-      ),
+      position: position,
+      targetLabel: tag,
       items: [
-        const PopupMenuItem(
+        const StudioContextMenuItem(
           value: _PromptTagMenuChoice(_PromptTagMenuAction.openDanbooru),
-          child: Text('打开 Danbooru Wiki'),
+          icon: Icons.open_in_new_outlined,
+          label: '打开 Danbooru Wiki',
+          tone: StudioContextMenuItemTone.highlight,
         ),
-        PopupMenuItem(
+        StudioContextMenuItem(
           value: const _PromptTagMenuChoice(_PromptTagMenuAction.aiRetranslate),
-          child: Text(_retranslateMenuLabel()),
-        ),
-        const PopupMenuItem(
-          value: _PromptTagMenuChoice(_PromptTagMenuAction.manualEdit),
-          child: Text('手动编辑'),
+          icon: Icons.translate_outlined,
+          label: _retranslateMenuLabel(),
         ),
         if (widget.onChanged != null)
-          const PopupMenuItem(
+          const StudioContextMenuItem(
             key: ValueKey('prompt-tag-edit-weight'),
-            value: _PromptTagMenuChoice(_PromptTagMenuAction.editWeight),
-            child: Text('编辑权重'),
+            value: _PromptTagMenuChoice(_PromptTagMenuAction.editTag),
+            icon: Icons.edit_outlined,
+            label: '编辑提示词',
+            shortcut: 'Enter',
           ),
-        const PopupMenuItem(
+        const StudioContextMenuItem(
+          key: ValueKey('prompt-tag-manual-translation'),
+          value: _PromptTagMenuChoice(_PromptTagMenuAction.manualEdit),
+          icon: Icons.edit_note_outlined,
+          label: '编辑翻译',
+        ),
+        const StudioContextMenuItem(
           key: ValueKey('prompt-tag-change-category'),
           value: _PromptTagMenuChoice(_PromptTagMenuAction.changeCategory),
-          child: Text('改分类...'),
+          icon: Icons.category_outlined,
+          label: '改分类...',
         ),
-        const PopupMenuItem(
+        const StudioContextMenuItem(
           key: ValueKey('prompt-tag-clear-category'),
           value: _PromptTagMenuChoice(_PromptTagMenuAction.clearCategory),
-          child: Text('恢复自动分类'),
+          icon: Icons.auto_fix_normal_outlined,
+          label: '恢复自动分类',
         ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
+        if (warningActive) ...[
+          const StudioContextMenuDivider(),
+          const StudioContextMenuItem(
+            key: ValueKey('prompt-tag-confirm-valid-compound'),
+            value: _PromptTagMenuChoice(
+              _PromptTagMenuAction.confirmValidCompound,
+            ),
+            icon: Icons.verified_outlined,
+            label: '确认合法，不再提示',
+            tone: StudioContextMenuItemTone.highlight,
+          ),
+          if (widget.onSuppressTagWarningForScope != null)
+            const StudioContextMenuItem(
+              key: ValueKey('prompt-tag-suppress-warning-scope'),
+              value: _PromptTagMenuChoice(
+                _PromptTagMenuAction.suppressWarningForScope,
+              ),
+              icon: Icons.visibility_off_outlined,
+              label: '仅此剧本不再提示',
+            ),
+        ],
+        const StudioContextMenuDivider(),
+        const StudioContextMenuItem(
           value: _PromptTagMenuChoice(_PromptTagMenuAction.copy),
-          child: Text('复制标签'),
+          icon: Icons.content_copy_outlined,
+          label: '复制标签',
+          shortcut: 'Ctrl C',
         ),
         if (addToFilterRules != null)
-          const PopupMenuItem(
+          const StudioContextMenuItem(
             key: ValueKey('prompt-tag-add-to-filter-rules'),
             value: _PromptTagMenuChoice(_PromptTagMenuAction.addToFilterRules),
-            child: Text('加入屏蔽库'),
+            icon: Icons.filter_alt_outlined,
+            label: '加入屏蔽库',
           ),
       ],
     );
@@ -1873,10 +2027,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         await _openDanbooruWiki(context, tag);
       case _PromptTagMenuAction.aiRetranslate:
         await _aiRetranslateTag(context, tag);
+      case _PromptTagMenuAction.editTag:
+        await _editTag(context, index);
       case _PromptTagMenuAction.manualEdit:
         await _editTranslation(context, tag);
-      case _PromptTagMenuAction.editWeight:
-        await _editWeight(context, index);
       case _PromptTagMenuAction.changeCategory:
         final category = await _pickTagCategory(context);
         if (category == null) {
@@ -1888,6 +2042,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         await _setTagCategory(context, tag, category);
       case _PromptTagMenuAction.clearCategory:
         await _clearTagCategory(context, tag);
+      case _PromptTagMenuAction.confirmValidCompound:
+        await _confirmTagWarningGlobally(context, tag);
+      case _PromptTagMenuAction.suppressWarningForScope:
+        await _suppressTagWarningForScope(context, tag);
       case _PromptTagMenuAction.copy:
         await _copyTags(context, fallbackTag: tag);
       case _PromptTagMenuAction.addToFilterRules:
@@ -1923,6 +2081,41 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     setState(() {});
     if (context.mounted) {
       _showSnack(context, '已改分类为：${_categoryLabel(category)}');
+    }
+  }
+
+  Future<void> _confirmTagWarningGlobally(
+    BuildContext context,
+    String tag,
+  ) async {
+    final cache = _classificationCache();
+    cache.confirmValidCompoundTag(tag);
+    widget.onClassificationChanged?.call();
+    unawaited(_saveClassificationCacheBestEffort(cache));
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+    if (context.mounted) {
+      _showSnack(context, '已确认合法，以后不再提示');
+    }
+  }
+
+  Future<void> _suppressTagWarningForScope(
+    BuildContext context,
+    String tag,
+  ) async {
+    final suppressor = widget.onSuppressTagWarningForScope;
+    if (suppressor == null) {
+      return;
+    }
+    await suppressor(tag);
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+    if (context.mounted) {
+      _showSnack(context, '已在当前剧本隐藏提示');
     }
   }
 
@@ -2127,39 +2320,61 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     _showSnack(context, '已保存翻译');
   }
 
-  Future<void> _editWeight(BuildContext context, int index) async {
+  Future<void> _editTag(BuildContext context, int index) async {
     final analyses = _analysesFor(widget.text);
     if (index < 0 || index >= analyses.length || widget.onChanged == null) {
       return;
     }
     final item = analyses[index];
     final targetIndexes = _weightEditTargetIndexes(index, analyses.length);
-    final controller = TextEditingController(
+    final tagController = TextEditingController(text: item.displayText);
+    final weightController = TextEditingController(
       text: item.weight == null ? '' : formatPromptTagWeightText(item.weight!),
     );
-    final nextWeight = await showDialog<String>(
+    ({String tag, String weight}) resultFromControllers() {
+      return (tag: tagController.text, weight: weightController.text);
+    }
+
+    final nextEdit = await showDialog<({String tag, String weight})>(
       context: context,
       builder: (context) {
         return AlertDialog(
           key: const ValueKey('prompt-tag-edit-weight-dialog'),
           backgroundColor: StudioTokens.surface2,
-          title: const Text('编辑权重'),
+          title: const Text('编辑提示词'),
           content: SizedBox(
-            width: 320,
-            child: TextField(
-              key: const ValueKey('prompt-tag-edit-weight-field'),
-              controller: controller,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-                signed: true,
-              ),
-              decoration: InputDecoration(
-                labelText: item.displayText,
-                hintText: '1.2',
-                border: const OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => Navigator.of(context).pop(controller.text),
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  key: const ValueKey('prompt-tag-edit-tag-field'),
+                  controller: tagController,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: '提示词原文',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) =>
+                      Navigator.of(context).pop(resultFromControllers()),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('prompt-tag-edit-weight-field'),
+                  controller: weightController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: '权重',
+                    hintText: '留空或 1 表示普通权重',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) =>
+                      Navigator.of(context).pop(resultFromControllers()),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -2171,35 +2386,46 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             FilledButton(
               key: const ValueKey('prompt-tag-edit-weight-save'),
               style: _promptTagDialogPrimaryButtonStyle(),
-              onPressed: () => Navigator.of(context).pop(controller.text),
+              onPressed: () =>
+                  Navigator.of(context).pop(resultFromControllers()),
               child: const Text('保存'),
             ),
           ],
         );
       },
     );
-    if (!mounted || nextWeight == null) {
+    if (!mounted || nextEdit == null) {
       return;
     }
-    final trimmed = nextWeight.trim();
-    final parsed = trimmed.isEmpty ? 1.0 : double.tryParse(trimmed);
-    if (parsed == null || !parsed.isFinite) {
+    final parsedTags = promptTagPresentationItems(nextEdit.tag);
+    if (parsedTags.isEmpty) {
+      return;
+    }
+    final editedTag = parsedTags.first.displayLabel.trim();
+    if (editedTag.isEmpty) {
+      return;
+    }
+    final weightText = nextEdit.weight.trim();
+    final parsedWeight = weightText.isEmpty
+        ? (parsedTags.first.weight ?? 1.0)
+        : double.tryParse(weightText);
+    if (parsedWeight == null || !parsedWeight.isFinite) {
       if (context.mounted) {
         _showSnack(context, '请输入数字权重');
       }
       return;
     }
-    String weightedValue(WorkshopTagAnalysis tag) {
-      final clean = tag.displayText.trim();
-      return parsed == 1.0
+    String weightedValue(String tag) {
+      final clean = tag.trim();
+      return parsedWeight == 1.0
           ? clean
-          : formatPromptTagWeightedValue(clean, parsed);
+          : formatPromptTagWeightedValue(clean, parsedWeight);
     }
 
     final nextTags = [
       for (final (tagIndex, tag) in analyses.indexed)
         targetIndexes.contains(tagIndex)
-            ? weightedValue(tag)
+            ? weightedValue(tagIndex == index ? editedTag : tag.displayText)
             : promptTagRawValueForAnalysis(tag),
     ];
     widget.onChanged?.call(joinPromptTags(nextTags));
@@ -2332,7 +2558,6 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     );
   }
 
-  // ignore: unused_element
   String _filterRuleTargetLabel(PromptTagFilterRuleTarget target) {
     return switch (target) {
       PromptTagFilterRuleTarget.scriptScopedBlockWords =>
@@ -2459,6 +2684,15 @@ class _PromptTagDisplayLayoutControls extends StatelessWidget {
           dense: dense,
           selected: layoutMode == PromptTagLayoutMode.grouped,
           onPressed: () => onChanged(PromptTagLayoutMode.grouped),
+        ),
+        _PromptTagDisplayControlButton(
+          key: const ValueKey('prompt-tag-layout-layered'),
+          icon: Icons.view_week_outlined,
+          label: '分组',
+          tooltip: '按角色卡字段分组显示',
+          dense: dense,
+          selected: layoutMode == PromptTagLayoutMode.layered,
+          onPressed: () => onChanged(PromptTagLayoutMode.layered),
         ),
       ],
     );
@@ -2657,10 +2891,12 @@ class _PromptTagGroupBlock extends StatelessWidget {
 enum _PromptTagMenuAction {
   openDanbooru,
   aiRetranslate,
+  editTag,
   manualEdit,
-  editWeight,
   changeCategory,
   clearCategory,
+  confirmValidCompound,
+  suppressWarningForScope,
   copy,
   addToFilterRules,
 }

@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/tools/generation_prompt_sanitizer.dart';
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/studio/tools/stable_id.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/tools/generation_prompt_sanitizer.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/stable_id.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class TokenizerScriptDraftSource {
   final String fileName;

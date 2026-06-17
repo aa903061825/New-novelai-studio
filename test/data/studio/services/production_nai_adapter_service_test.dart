@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/studio/services/production_nai_adapter_service.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
 
 void main() {
   test('requestImage posts complete payload and processes response bytes',

@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
+import 'package:novel_studio/data/models/character_config.dart';
 
 class CharacterConfigViewmodel extends ChangeNotifier {
   CharacterConfig config;

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 void main() {
   group('PromptTagProcessor', () {

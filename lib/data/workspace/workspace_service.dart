@@ -1,15 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nai_casrand/data/workspace/importers/artist_studio_importer.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/tools/stable_id.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_manifest.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/importers/artist_studio_importer.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/tools/stable_id.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/models/workspace_manifest.dart';
+import 'package:novel_studio/data/workspace/workspace_json_codecs.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
 
 class WorkspaceService {
   Directory? _root;
@@ -169,7 +170,7 @@ class WorkspaceService {
   Future<void> saveFilterRules(Map<String, dynamic> filterRules) {
     return _writeJsonFile(
       WorkspacePaths.filterRules,
-      _sanitizeFilterRules(filterRules),
+      WorkspaceSanitizer.sanitizeMap(filterRules),
     );
   }
 
@@ -338,7 +339,7 @@ class WorkspaceService {
     try {
       final decodedSource = _decodeWorkspaceEntityJson(source);
       final decoded = _jsonMap(decodedSource.value);
-      final compacted = _compactRecastScriptCacheJson(decoded);
+      final compacted = RecastCacheJsonCodec.compact(decoded);
       if (decodedSource.repaired || compacted.changed) {
         await _writeJsonFile(
             _scriptRecastCacheRelativePath(scriptId), compacted.value);
@@ -356,7 +357,7 @@ class WorkspaceService {
   Future<void> saveRecastScriptCache(RecastScriptCache cache) {
     return _writeJsonFile(
       _scriptRecastCacheRelativePath(cache.scriptId),
-      _compactRecastScriptCacheJson(cache.toJson()).value,
+      RecastCacheJsonCodec.compact(cache.toJson()).value,
     );
   }
 
@@ -365,7 +366,7 @@ class WorkspaceService {
       WorkspacePaths.scriptRecastCacheDir,
       caches,
       (entry) => safeWorkspaceEntityId(prefix: 'script', id: entry.scriptId),
-      (entry) => _compactRecastScriptCacheJson(entry.toJson()).value,
+      (entry) => RecastCacheJsonCodec.compact(entry.toJson()).value,
     );
   }
 
@@ -395,7 +396,7 @@ class WorkspaceService {
       try {
         final decodedSource = _decodeWorkspaceEntityJson(source);
         final decoded = _jsonMap(decodedSource.value);
-        final compacted = _compactRecastScriptCacheJson(decoded);
+        final compacted = RecastCacheJsonCodec.compact(decoded);
         if (decodedSource.repaired || compacted.changed) {
           await _writeJsonFile(
             '${WorkspacePaths.scriptRecastCacheDir}/${_fileNameFromWorkspacePath(file.path)}',
@@ -744,7 +745,7 @@ class WorkspaceService {
   Future<void> saveRecastKnowledgeBase(Map<String, dynamic> knowledgeBase) {
     return _writeJsonFile(
       WorkspacePaths.scriptRecastKnowledge,
-      _sanitizeKnowledgeMap(knowledgeBase),
+      WorkspaceSanitizer.sanitizeMap(knowledgeBase),
     );
   }
 
@@ -1137,320 +1138,4 @@ Map<String, dynamic> _jsonMap(dynamic json) {
     }
     return MapEntry(key, value);
   });
-}
-
-const _recastHeavyPayloadKeys = <String>{
-  'director_reference_descriptions',
-  'director_reference_images',
-  'director_reference_information_extracted',
-  'director_reference_secondary_strength_values',
-  'director_reference_strength_values',
-  'reference_image',
-  'reference_image_multiple',
-  'reference_images',
-  'reference_information_extracted',
-  'reference_information_extracted_multiple',
-  'reference_strength',
-  'reference_strength_multiple',
-};
-
-const _recastHeavyPayloadKeyNames = <String>{
-  'directorreferencedescriptions',
-  'directorreferenceimages',
-  'directorreferenceinformationextracted',
-  'directorreferencesecondarystrengthvalues',
-  'directorreferencestrengthvalues',
-  'referenceimage',
-  'referenceimagemultiple',
-  'referenceimages',
-  'referenceinformationextracted',
-  'referenceinformationextractedmultiple',
-  'referencestrength',
-  'referencestrengthmultiple',
-};
-
-class _CompactedJsonMap {
-  final Map<String, dynamic> value;
-  final bool changed;
-
-  const _CompactedJsonMap(this.value, this.changed);
-}
-
-class _CompactedJsonValue {
-  final dynamic value;
-  final bool changed;
-
-  const _CompactedJsonValue(this.value, this.changed);
-}
-
-_CompactedJsonMap _compactRecastScriptCacheJson(Map<String, dynamic> json) {
-  var changed = false;
-  final result = Map<String, dynamic>.from(json);
-  final scriptSnapshot = result['scriptSnapshot'];
-  if (scriptSnapshot is Map) {
-    final compacted = _compactRecastScriptSnapshot(_jsonMap(scriptSnapshot));
-    if (compacted.changed) {
-      result['scriptSnapshot'] = compacted.value;
-      changed = true;
-    }
-  }
-  return _CompactedJsonMap(result, changed);
-}
-
-_CompactedJsonMap _compactRecastScriptSnapshot(Map<String, dynamic> json) {
-  var changed = false;
-  final result = Map<String, dynamic>.from(json);
-  final frames = result['frames'];
-  if (frames is List) {
-    var framesChanged = false;
-    final nextFrames = <dynamic>[];
-    for (final frame in frames) {
-      if (frame is Map) {
-        final compacted = _compactRecastFrameJson(_jsonMap(frame));
-        nextFrames.add(compacted.value);
-        framesChanged = framesChanged || compacted.changed;
-      } else {
-        nextFrames.add(frame);
-      }
-    }
-    if (framesChanged) {
-      result['frames'] = nextFrames;
-      changed = true;
-    }
-  }
-
-  final meta = result['meta'];
-  if (meta is Map) {
-    final compacted = _compactRecastPayloadMap(_jsonMap(meta));
-    if (compacted.changed) {
-      result['meta'] = compacted.value;
-      changed = true;
-    }
-  }
-
-  return _CompactedJsonMap(result, changed);
-}
-
-_CompactedJsonMap _compactRecastFrameJson(Map<String, dynamic> json) {
-  var changed = false;
-  final result = Map<String, dynamic>.from(json);
-
-  final rawJson = _compactRecastRawJson(result['rawJson']);
-  if (rawJson.changed) {
-    result['rawJson'] = rawJson.value;
-    changed = true;
-  }
-
-  final parsed = result['parsed'];
-  if (parsed is Map) {
-    final compacted = _compactRecastParsedFrameJson(_jsonMap(parsed));
-    if (compacted.changed) {
-      result['parsed'] = compacted.value;
-      changed = true;
-    }
-  }
-
-  return _CompactedJsonMap(result, changed);
-}
-
-_CompactedJsonMap _compactRecastParsedFrameJson(Map<String, dynamic> json) {
-  var changed = false;
-  final result = Map<String, dynamic>.from(json);
-
-  for (final key in const ['generationParams', 'sourcePayload']) {
-    final compacted = _compactRecastPayloadValue(result[key]);
-    if (compacted.changed) {
-      result[key] = compacted.value;
-      changed = true;
-    }
-  }
-
-  return _CompactedJsonMap(result, changed);
-}
-
-_CompactedJsonMap _compactRecastPayloadMap(Map<String, dynamic> json) {
-  final compacted = _compactRecastPayloadValue(json);
-  return _CompactedJsonMap(
-    Map<String, dynamic>.from(compacted.value as Map),
-    compacted.changed,
-  );
-}
-
-_CompactedJsonValue _compactRecastPayloadValue(dynamic value) {
-  if (value is Map) {
-    var changed = false;
-    final result = <String, dynamic>{};
-    for (final entry in value.entries) {
-      final rawKey = entry.key;
-      final key = rawKey is String ? rawKey : rawKey.toString();
-      if (rawKey is! String) {
-        changed = true;
-      }
-      if (_isHeavyRecastPayloadKey(key)) {
-        changed = true;
-        continue;
-      }
-
-      final compacted = key == 'Comment'
-          ? _compactRecastCommentValue(entry.value)
-          : _compactRecastPayloadValue(entry.value);
-      result[key] = compacted.value;
-      changed = changed || compacted.changed;
-    }
-    return _CompactedJsonValue(result, changed);
-  }
-
-  if (value is List) {
-    var changed = false;
-    final result = <dynamic>[];
-    for (final item in value) {
-      final compacted = _compactRecastPayloadValue(item);
-      result.add(compacted.value);
-      changed = changed || compacted.changed;
-    }
-    return _CompactedJsonValue(changed ? result : value, changed);
-  }
-
-  return _CompactedJsonValue(value, false);
-}
-
-_CompactedJsonValue _compactRecastCommentValue(dynamic value) {
-  if (value is! String) {
-    return _compactRecastPayloadValue(value);
-  }
-  if (!_containsHeavyRecastPayloadKey(value)) {
-    return _CompactedJsonValue(value, false);
-  }
-
-  try {
-    final decoded = jsonDecode(value);
-    final compacted = _compactRecastPayloadValue(decoded);
-    if (compacted.changed) {
-      return _CompactedJsonValue(jsonEncode(compacted.value), true);
-    }
-  } on FormatException {
-    if (value.length > 32768) {
-      return const _CompactedJsonValue('', true);
-    }
-  }
-
-  return _CompactedJsonValue(value, false);
-}
-
-_CompactedJsonValue _compactRecastRawJson(dynamic value) {
-  if (value is! String || !_containsHeavyRecastPayloadKey(value)) {
-    return _CompactedJsonValue(value, false);
-  }
-
-  try {
-    final decoded = jsonDecode(value);
-    final compacted = _compactRecastPayloadValue(decoded);
-    if (compacted.changed) {
-      return _CompactedJsonValue(jsonEncode(compacted.value), true);
-    }
-  } on FormatException {
-    if (value.length > 32768) {
-      return const _CompactedJsonValue('', true);
-    }
-  }
-
-  return _CompactedJsonValue(value, false);
-}
-
-bool _containsHeavyRecastPayloadKey(String value) {
-  for (final key in _recastHeavyPayloadKeys) {
-    if (value.contains(key)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool _isHeavyRecastPayloadKey(String key) {
-  final normalized = key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-  return _recastHeavyPayloadKeys.contains(key) ||
-      _recastHeavyPayloadKeyNames.contains(normalized);
-}
-
-Map<String, dynamic> _sanitizeFilterRules(Map<String, dynamic> value) {
-  final result = <String, dynamic>{};
-  for (final entry in value.entries) {
-    if (_isSensitiveKey(entry.key)) {
-      continue;
-    }
-    final sanitized = _sanitizeFilterValue(entry.value);
-    if (sanitized != null) {
-      result[entry.key] = sanitized;
-    }
-  }
-  return result;
-}
-
-Map<String, dynamic> _sanitizeKnowledgeMap(Map<String, dynamic> value) {
-  final result = <String, dynamic>{};
-  for (final entry in value.entries) {
-    if (_isSensitiveKey(entry.key)) {
-      continue;
-    }
-    final sanitized = _sanitizeFilterValue(entry.value);
-    if (sanitized != null) {
-      result[entry.key] = sanitized;
-    }
-  }
-  return result;
-}
-
-dynamic _sanitizeFilterValue(dynamic value) {
-  if (value == null) {
-    return null;
-  }
-  if (value is String) {
-    return _isSensitiveString(value) ? null : value;
-  }
-  if (value is Map) {
-    final result = <String, dynamic>{};
-    for (final entry in value.entries) {
-      final key = entry.key;
-      if (key is! String || _isSensitiveKey(key)) {
-        continue;
-      }
-      final sanitized = _sanitizeFilterValue(entry.value);
-      if (sanitized != null) {
-        result[key] = sanitized;
-      }
-    }
-    return result;
-  }
-  if (value is List) {
-    final result = <dynamic>[];
-    for (final item in value) {
-      final sanitized = _sanitizeFilterValue(item);
-      if (sanitized != null) {
-        result.add(sanitized);
-      }
-    }
-    return result;
-  }
-  if (value is num || value is bool) {
-    return value;
-  }
-  return value.toString();
-}
-
-bool _isSensitiveKey(String key) {
-  final normalized = key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-  return normalized.contains('apikey') ||
-      normalized.contains('token') ||
-      normalized.contains('authorization') ||
-      normalized.contains('bearer') ||
-      normalized.contains('password') ||
-      normalized.contains('secret') ||
-      normalized.contains('private') ||
-      normalized.contains('proxy') ||
-      normalized.contains('url');
-}
-
-bool _isSensitiveString(String value) {
-  final normalized = value.trim().toLowerCase();
-  return normalized.startsWith('bearer ') || normalized.contains('pst-');
 }

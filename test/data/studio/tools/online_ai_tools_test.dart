@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
 
 void main() {
   group('OnlineAiToolSettings', () {

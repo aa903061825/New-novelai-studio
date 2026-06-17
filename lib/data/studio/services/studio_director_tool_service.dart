@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/studio/models/studio_director_tool.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
 
 class StudioDirectorToolService {
   static const augmentImageEndpoint =

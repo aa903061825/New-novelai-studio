@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 enum StudioWorkbenchAssetKind {
   character,
@@ -486,9 +486,14 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
       }
     }
     if (!changed) {
+      if (!payloadConfig.generationRuntimeState.vibeEnabled) {
+        payloadConfig.generationRuntimeState.vibeEnabled = true;
+        notifyListeners();
+      }
       return;
     }
     payloadConfig.setScriptVibeConfigV4List(next);
+    payloadConfig.generationRuntimeState.vibeEnabled = true;
     notifyListeners();
   }
 

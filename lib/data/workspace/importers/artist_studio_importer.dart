@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 class ArtistStudioImportResult {
   final List<ArtistChain> artistChains;

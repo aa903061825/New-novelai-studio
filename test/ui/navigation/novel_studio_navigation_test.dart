@@ -6,35 +6,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/services/production_executor_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/studio/services/tokenizer_script_service.dart';
-import 'package:nai_casrand/data/studio/services/workbench_transfer_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/navigation/view_models/navigation_view_model.dart';
-import 'package:nai_casrand/ui/navigation/widgets/navigation_view.dart';
-import 'package:nai_casrand/ui/studio_batch/view_models/production_queue_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_script/view_models/studio_script_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/tokenizer_script_service.dart';
+import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dart';
+import 'package:novel_studio/ui/navigation/widgets/navigation_view.dart';
+import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 const _sharedPreferencesChannel = MethodChannel(
@@ -211,6 +211,14 @@ class _FakeProductionQueueService extends ProductionQueueService {
   @override
   Future<List<ProductionPlan>> loadPlans() async {
     loadCount += 1;
+    return plans;
+  }
+
+  int readOnlyLoadCount = 0;
+
+  @override
+  Future<List<ProductionPlan>> loadPlansReadOnly() async {
+    readOnlyLoadCount += 1;
     return plans;
   }
 
@@ -576,6 +584,43 @@ void main() {
     );
   });
 
+  testWidgets('script exhibition navigation does not refresh batch display',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: [_productionPlan()],
+      queueService: productionService,
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(productionService.loadCount, 0);
+    expect(productionService.readOnlyLoadCount, 1);
+    expect(batchViewModel.selectedPlan?.id, 'injected-plan');
+    expect(batchViewModel.selectedTask?.id, 'injected-task-1');
+  });
+
   testWidgets('script exhibition detail sends script to script workbench',
       (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -809,6 +854,62 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(loadCount, 1);
+    expect(
+      find.byKey(const ValueKey('script-asset-character-library-char')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'asset library send refreshes already loaded script drawer assets',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var loadCount = 0;
+    final scriptViewModel = StudioScriptViewModel(
+      loadCharacters: () async {
+        loadCount += 1;
+        return const [
+          CharacterEntry(
+            id: 'library-char',
+            name: 'Library Character',
+            traits: ViewVariantTexts(frontFull: 'silver hair'),
+            outfits: [
+              WorkspaceOutfit(
+                id: 'library-outfit',
+                name: 'Library Outfit',
+                tags: ViewVariantTexts(frontFull: 'white jacket'),
+              ),
+            ],
+          ),
+        ];
+      },
+      loadArtistChains: () async => const [],
+    );
+    await scriptViewModel.ensureAssetsLoaded();
+    expect(loadCount, 1);
+
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(
+      _AssetNavigationCatalogService(),
+    );
+    await GetIt.I.unregister<StudioScriptViewModel>();
+    GetIt.I.registerSingleton<StudioScriptViewModel>(scriptViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('asset-card-character-library-char')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-detail-send-script')));
+    await tester.pumpAndSettle();
+
+    expect(loadCount, 2);
     expect(
       find.byKey(const ValueKey('script-asset-character-library-char')),
       findsOneWidget,

@@ -1,8 +1,8 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
-import 'package:nai_casrand/ui/core/widgets/editable_list_tile.dart';
-import 'package:nai_casrand/ui/core/widgets/slider_list_tile.dart';
+import 'package:novel_studio/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
+import 'package:novel_studio/ui/core/widgets/editable_list_tile.dart';
+import 'package:novel_studio/ui/core/widgets/slider_list_tile.dart';
 
 class PromptConfigEditView extends StatelessWidget {
   final PromptConfigViewModel viewModel;

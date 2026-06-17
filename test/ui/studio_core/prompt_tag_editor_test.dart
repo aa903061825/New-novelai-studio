@@ -5,25 +5,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_filter_rules.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_drag.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart'
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_drag.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart'
     hide
         PromptTagFilterRuleAdder,
         PromptTagFilterRuleTarget,
         PromptTagFilterRulesController;
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
 
 Widget _host(Widget child) {
   return MaterialApp(
@@ -91,6 +91,12 @@ Future<void> _dragSelectionAround(
   if (additive) {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
   }
+}
+
+Future<void> _tapEditorBlankSpace(WidgetTester tester, Finder chip) async {
+  final rect = _dropAreaRectContaining(tester, chip);
+  await tester.tapAt(rect.bottomRight - const Offset(8, 8));
+  await tester.pump();
 }
 
 void main() {
@@ -766,6 +772,66 @@ void main() {
     );
   });
 
+  testWidgets('layout controls can switch into role field groups',
+      (tester) async {
+    await tester.pumpWidget(
+      _host(
+        SingleChildScrollView(
+          child: PromptTagEditor(
+            value:
+                'girl, collarbone, white shirt, black shorts, dress, fox tail',
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-upperBody')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-layout-layered')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-character')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-upperBody')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-upperClothing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-lowerClothing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-clothing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-lowerBody')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-layout-sourceOrder')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-group-upperBody')),
+      findsNothing,
+    );
+  });
+
   testWidgets('shows tags and hides the inline input until plus is pressed',
       (tester) async {
     await tester.pumpWidget(
@@ -916,6 +982,153 @@ void main() {
 
     expect(value, 'red eyes');
     expect(find.text('red eyes'), findsOneWidget);
+  });
+
+  testWidgets(
+      'saving a weight edit after pending Chinese translation preserves the new tag',
+      (tester) async {
+    String value = 'blue eyes';
+    final completion = Completer<OnlineTranslationResult>();
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000),
+    );
+    GetIt.I.registerSingleton<PromptTranslationService>(
+      _FakePromptTranslationService((request) async {
+        if (request.text == '\u7ea2\u773c' &&
+            request.sourceLanguage == 'zh' &&
+            request.targetLanguage == 'en') {
+          return completion.future;
+        }
+        return const OnlineTranslationResult(
+          text: '',
+          source: OnlineAiResultSource.emptyFallback,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-editor-add')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-input')),
+      '\u7ea2\u773c',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    await tester.tap(_editorChip(0));
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(_editorChip(0));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-weight-field')),
+      '0.8',
+    );
+
+    completion.complete(
+      const OnlineTranslationResult(
+        text: 'red eyes',
+        source: OnlineAiResultSource.online,
+        providerName: 'fake',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(value, 'blue eyes, red eyes');
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-tag-save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(value, '0.8:: blue eyes ::, red eyes');
+    expect(find.text('red eyes'), findsOneWidget);
+    expect(find.text('x0.80'), findsOneWidget);
+  });
+
+  testWidgets(
+      'pending Chinese translation rebases onto weight edits saved while it is in flight',
+      (tester) async {
+    String value = 'blue eyes';
+    final completion = Completer<OnlineTranslationResult>();
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000),
+    );
+    GetIt.I.registerSingleton<PromptTranslationService>(
+      _FakePromptTranslationService((request) async {
+        if (request.text == '\u7ea2\u773c' &&
+            request.sourceLanguage == 'zh' &&
+            request.targetLanguage == 'en') {
+          return completion.future;
+        }
+        return const OnlineTranslationResult(
+          text: '',
+          source: OnlineAiResultSource.emptyFallback,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-editor-add')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-input')),
+      '\u7ea2\u773c',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    await tester.tap(_editorChip(0));
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(_editorChip(0));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-weight-field')),
+      '0.8',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-tag-save')),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(value, '0.8:: blue eyes ::');
+
+    completion.complete(
+      const OnlineTranslationResult(
+        text: 'red eyes',
+        source: OnlineAiResultSource.online,
+        providerName: 'fake',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(value, '0.8:: blue eyes ::, red eyes');
+    expect(find.text('red eyes'), findsOneWidget);
+    expect(find.text('x0.80'), findsOneWidget);
   });
 
   testWidgets('adds one English tag when Chinese translation returns synonyms',
@@ -1134,6 +1347,50 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('prompt-tag-editor-chip-check-1')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('blank click clears editor multi-selection', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        SizedBox(
+          width: 420,
+          child: PromptTagEditor(
+            value: 'blue eyes, long hair, white shirt',
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await _dragSelectionAround(tester, _editorChip(0), _editorChip(1));
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-chip-check-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-chip-check-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-selection-toolbar')),
+      findsOneWidget,
+    );
+
+    await _tapEditorBlankSpace(tester, _editorChip(2));
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-chip-check-0')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-chip-check-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-selection-toolbar')),
       findsNothing,
     );
   });
@@ -1511,8 +1768,8 @@ void main() {
     expect(deleteCurrent, findsOneWidget);
     expect(copyCurrent, findsOneWidget);
     expect(
-      tester.getTopLeft(deleteCurrent).dy,
-      lessThan(tester.getTopLeft(copyCurrent).dy),
+      tester.getTopLeft(copyCurrent).dy,
+      lessThan(tester.getTopLeft(deleteCurrent).dy),
     );
     expect(find.text('复制标签'), findsOneWidget);
     expect(find.text('删除标签'), findsOneWidget);
@@ -1786,9 +2043,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('prompt-tag-editor-edit-weight')),
-      findsNothing,
+      findsOneWidget,
     );
-    await tester.tap(find.text('编辑标签'));
+    expect(find.text('编辑权重'), findsNothing);
+    await tester
+        .tap(find.byKey(const ValueKey('prompt-tag-editor-edit-weight')));
     await tester.pumpAndSettle();
     expect(
       tester

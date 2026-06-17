@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/parameters_config/view_models/parameters_config_viewmodel.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/parameters_config/view_models/parameters_config_viewmodel.dart';
 
 class _FakeConfigService extends ConfigService {
   int saveGlobalGenerationParamsCallCount = 0;

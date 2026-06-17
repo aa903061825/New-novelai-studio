@@ -2,12 +2,12 @@ import 'dart:async' show Completer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/save_asset_confirm_bar.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/widgets/save_asset_confirm_bar.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
 
 void main() {
   group('SaveAssetConfirmBar', () {

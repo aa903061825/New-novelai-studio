@@ -2,10 +2,10 @@ import 'dart:convert';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
-import 'package:nai_casrand/ui/core/widgets/editable_list_tile.dart';
-import 'package:nai_casrand/ui/core/widgets/slider_list_tile.dart';
+import 'package:novel_studio/ui/i2i_config/view_models/i2i_config_viewmodel.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/ui/core/widgets/editable_list_tile.dart';
+import 'package:novel_studio/ui/core/widgets/slider_list_tile.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 class I2iConfigView extends StatelessWidget {

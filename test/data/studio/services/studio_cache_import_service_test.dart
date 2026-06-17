@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/services/studio_cache_import_service.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/studio/services/studio_cache_import_service.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
 
 void main() {
   late Directory tempDir;
@@ -80,10 +80,10 @@ void main() {
     final zipFile = File('${tempDir.path}/cache.zip');
     await zipFile.writeAsBytes(
       _zipBytes({
-        'nai-new-cache/appdata-roaming/org.exception0x0194/nai3_autodraw/'
+        'novel-studio-cache/appdata-roaming/Novel Studio/Novel Studio/'
                 'novel_studio/${WorkspacePaths.manifest}':
             '{"name":"Shared Studio","schemaVersion":1}',
-        'nai-new-cache/appdata-roaming/org.exception0x0194/nai3_autodraw/'
+        'novel-studio-cache/appdata-roaming/Novel Studio/Novel Studio/'
                 'novel_studio/${WorkspacePaths.characters}':
             '[{"id":"new","name":"New Character","traits":{}}]',
       }),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 class PromptTagSelectionToolbar extends StatelessWidget {
   final int count;

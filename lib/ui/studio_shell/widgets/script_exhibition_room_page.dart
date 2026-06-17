@@ -6,18 +6,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/studio_asset_capture.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_generated_image_gallery.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
 
 class ScriptExhibitionRoomPage extends StatefulWidget {
   final ScriptExhibitionRoomViewModel viewModel;
@@ -183,9 +183,13 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
                 onSelect: viewModel.selectScript,
                 onSelectionChanged: viewModel.replaceShelfSelection,
                 onSend: widget.onSendToScriptWorkbench,
-                onDelete: viewModel.canDeleteScripts
+                onDelete: viewModel.canDeleteScripts ||
+                        viewModel.canRemoveScriptCategories
                     ? (script) => _confirmDeleteScript(context, script)
                     : null,
+                canDeleteScript: _canUseScriptDeleteAction,
+                deleteTooltipForScript: _deleteScriptActionTooltip,
+                deleteIconForScript: _deleteScriptActionIcon,
                 onRename: viewModel.canRenameScripts
                     ? (script) => _renameScript(context, script)
                     : null,
@@ -208,15 +212,26 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
                 onVersionSelected: viewModel.selectVersion,
                 onDetailFilterSelected: viewModel.selectDetailFilter,
                 onSend: widget.onSendToScriptWorkbench,
-                onDeleteScript: viewModel.canDeleteScripts
+                onDeleteScript: _canUseScriptDeleteAction(
+                  viewModel.selectedScript!,
+                )
                     ? (script) => _confirmDeleteScript(context, script)
                     : null,
+                deleteTooltip: _deleteScriptActionTooltip(
+                  viewModel.selectedScript!,
+                ),
+                deleteIcon: _deleteScriptActionIcon(viewModel.selectedScript!),
                 onRenameScript: viewModel.canRenameScripts
                     ? (script) => _renameScript(context, script)
                     : null,
                 onRenameVersion: viewModel.canRenameVersions
                     ? (script, version) =>
                         _renameVersion(context, script, version)
+                    : null,
+                canDeleteVersion: viewModel.canDeleteVersion,
+                onDeleteVersion: viewModel.canDeleteVersions
+                    ? (script, version) =>
+                        _confirmDeleteVersion(context, script, version)
                     : null,
                 onImportImages: viewModel.canImportScriptImages
                     ? viewModel.importImagesForScript
@@ -332,6 +347,26 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     BuildContext context,
     ScriptExhibitionScript script,
   ) async {
+    final selectedCategoryName =
+        widget.viewModel.selectedCategoryNameForScript(script);
+    if (selectedCategoryName != null) {
+      if (!widget.viewModel.canRemoveScriptFromSelectedCategory(script)) {
+        return;
+      }
+      final confirmed = await _showDeleteDialog(
+        context: context,
+        title: '从当前分类移除',
+        message:
+            '只会把“${script.title}”从“$selectedCategoryName”分类中移除；不会删除剧本、图片、批量结果或原始目录。',
+        confirmKey:
+            const ValueKey('script-exhibition-confirm-remove-script-category'),
+        confirmLabel: '移除',
+      );
+      if (!confirmed || !mounted) return;
+      await widget.viewModel.removeScriptFromSelectedCategory(script);
+      return;
+    }
+
     final result = await _showScriptDeleteDialog(
       context: context,
       title: '删除剧本展览记录',
@@ -343,6 +378,26 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
       script,
       deleteLocalFiles: result.deleteLocalFiles,
     );
+  }
+
+  String _deleteScriptActionTooltip(ScriptExhibitionScript script) {
+    return widget.viewModel.canRemoveScriptFromSelectedCategory(script)
+        ? '从当前分类移除'
+        : '删除展览记录';
+  }
+
+  IconData _deleteScriptActionIcon(ScriptExhibitionScript script) {
+    return widget.viewModel.canRemoveScriptFromSelectedCategory(script)
+        ? Icons.remove_circle_outline
+        : Icons.delete_outline;
+  }
+
+  bool _canUseScriptDeleteAction(ScriptExhibitionScript script) {
+    if (widget.viewModel.selectedCategoryNameForScript(script) != null) {
+      return widget.viewModel.canRemoveScriptFromSelectedCategory(script);
+    }
+    return widget.viewModel.canDeleteScripts ||
+        widget.viewModel.canRemoveScriptFromSelectedCategory(script);
   }
 
   Future<void> _confirmDeleteItem(
@@ -357,6 +412,24 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     );
     if (!confirmed || !mounted) return;
     await widget.viewModel.deleteItem(item);
+  }
+
+  Future<void> _confirmDeleteVersion(
+    BuildContext context,
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) async {
+    if (!widget.viewModel.canDeleteVersion(script, version)) return;
+    final confirmed = await _showDeleteDialog(
+      context: context,
+      title: '删除版本',
+      message:
+          '只会移除“${script.title}”里的“${version.label}”版本；不会删除整条剧本展览记录或原始剧本目录。',
+      confirmKey: const ValueKey('script-exhibition-confirm-delete-version'),
+      confirmLabel: '删除版本',
+    );
+    if (!confirmed || !mounted) return;
+    await widget.viewModel.deleteVersion(script, version);
   }
 
   Future<void> _renameScript(
@@ -1103,6 +1176,9 @@ class _ScriptShelf extends StatefulWidget {
   final ValueChanged<Set<String>> onSelectionChanged;
   final ValueChanged<ScriptExhibitionFocus> onSend;
   final ValueChanged<ScriptExhibitionScript>? onDelete;
+  final bool Function(ScriptExhibitionScript script) canDeleteScript;
+  final String Function(ScriptExhibitionScript script) deleteTooltipForScript;
+  final IconData Function(ScriptExhibitionScript script) deleteIconForScript;
   final ValueChanged<ScriptExhibitionScript>? onRename;
   final ValueChanged<ScriptExhibitionScript>? onAssignCategory;
 
@@ -1113,6 +1189,9 @@ class _ScriptShelf extends StatefulWidget {
     required this.onSelectionChanged,
     required this.onSend,
     required this.onDelete,
+    required this.canDeleteScript,
+    required this.deleteTooltipForScript,
+    required this.deleteIconForScript,
     required this.onRename,
     required this.onAssignCategory,
   });
@@ -1192,6 +1271,8 @@ class _ScriptShelfState extends State<_ScriptShelf> {
                       final script = widget.scripts[index];
                       final selected =
                           widget.selectedScriptIds.contains(script.scriptId);
+                      final canDelete = widget.onDelete != null &&
+                          widget.canDeleteScript(script);
                       return _ScriptShelfCardRectReporter(
                         scriptId: script.scriptId,
                         onRectChanged: _recordCardRect,
@@ -1209,9 +1290,10 @@ class _ScriptShelfState extends State<_ScriptShelf> {
                           },
                           onTap: () => widget.onSelect(script.scriptId),
                           onSend: () => widget.onSend(script.focus),
-                          onDelete: widget.onDelete == null
-                              ? null
-                              : () => widget.onDelete!(script),
+                          onDelete:
+                              canDelete ? () => widget.onDelete!(script) : null,
+                          deleteTooltip: widget.deleteTooltipForScript(script),
+                          deleteIcon: widget.deleteIconForScript(script),
                           onRename: widget.onRename == null
                               ? null
                               : () => widget.onRename!(script),
@@ -1415,6 +1497,8 @@ class _DraggableScriptShelfCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onSend;
   final VoidCallback? onDelete;
+  final String deleteTooltip;
+  final IconData deleteIcon;
   final VoidCallback? onRename;
   final VoidCallback? onAssignCategory;
 
@@ -1427,6 +1511,8 @@ class _DraggableScriptShelfCard extends StatelessWidget {
     required this.onTap,
     required this.onSend,
     required this.onDelete,
+    required this.deleteTooltip,
+    required this.deleteIcon,
     required this.onRename,
     required this.onAssignCategory,
   });
@@ -1445,6 +1531,8 @@ class _DraggableScriptShelfCard extends StatelessWidget {
           onTap: onTap,
           onSend: onSend,
           onDelete: onDelete,
+          deleteTooltip: deleteTooltip,
+          deleteIcon: deleteIcon,
           onRename: onRename,
           onAssignCategory: onAssignCategory,
         ),
@@ -1457,6 +1545,8 @@ class _DraggableScriptShelfCard extends StatelessWidget {
           onTap: onTap,
           onSend: onSend,
           onDelete: onDelete,
+          deleteTooltip: deleteTooltip,
+          deleteIcon: deleteIcon,
           onRename: onRename,
           onAssignCategory: onAssignCategory,
         ),
@@ -1551,13 +1641,27 @@ Future<void> _showScriptContextMenu(
   }
 }
 
-enum _VersionContextAction { rename }
+enum _VersionContextAction { rename, delete }
 
 Future<void> _showVersionContextMenu(
   BuildContext context,
   Offset position, {
-  required VoidCallback onRename,
+  VoidCallback? onRename,
+  VoidCallback? onDelete,
 }) async {
+  final items = [
+    if (onRename != null)
+      const PopupMenuItem(
+        value: _VersionContextAction.rename,
+        child: Text('重命名版本'),
+      ),
+    if (onDelete != null)
+      const PopupMenuItem(
+        value: _VersionContextAction.delete,
+        child: Text('删除版本'),
+      ),
+  ];
+  if (items.isEmpty) return;
   final action = await showMenu<_VersionContextAction>(
     context: context,
     position: RelativeRect.fromLTRB(
@@ -1566,12 +1670,13 @@ Future<void> _showVersionContextMenu(
       position.dx,
       position.dy,
     ),
-    items: const [
-      PopupMenuItem(value: _VersionContextAction.rename, child: Text('重命名版本')),
-    ],
+    items: items,
   );
   if (action == _VersionContextAction.rename) {
-    onRename();
+    onRename?.call();
+  }
+  if (action == _VersionContextAction.delete) {
+    onDelete?.call();
   }
 }
 
@@ -1581,6 +1686,8 @@ class _ScriptShelfCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onSend;
   final VoidCallback? onDelete;
+  final String deleteTooltip;
+  final IconData deleteIcon;
   final VoidCallback? onRename;
   final VoidCallback? onAssignCategory;
 
@@ -1590,6 +1697,8 @@ class _ScriptShelfCard extends StatelessWidget {
     required this.onTap,
     required this.onSend,
     required this.onDelete,
+    required this.deleteTooltip,
+    required this.deleteIcon,
     required this.onRename,
     required this.onAssignCategory,
   });
@@ -1672,9 +1781,9 @@ class _ScriptShelfCard extends StatelessWidget {
                       key: ValueKey(
                         'script-exhibition-delete-script-${script.scriptId}',
                       ),
-                      tooltip: '删除展览记录',
+                      tooltip: deleteTooltip,
                       onPressed: onDelete,
-                      icon: Icons.delete_outline,
+                      icon: deleteIcon,
                     ),
                   ],
                 ),
@@ -1928,11 +2037,21 @@ class _ScriptDetailHeader extends StatelessWidget {
   final ValueChanged<String> onDetailFilterSelected;
   final ValueChanged<ScriptExhibitionFocus> onSend;
   final ValueChanged<ScriptExhibitionScript>? onDeleteScript;
+  final String deleteTooltip;
+  final IconData deleteIcon;
   final ValueChanged<ScriptExhibitionScript>? onRenameScript;
   final void Function(
     ScriptExhibitionScript script,
     ScriptExhibitionVersion version,
   )? onRenameVersion;
+  final bool Function(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) canDeleteVersion;
+  final void Function(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  )? onDeleteVersion;
   final ValueChanged<ScriptExhibitionScript>? onImportImages;
 
   const _ScriptDetailHeader({
@@ -1945,8 +2064,12 @@ class _ScriptDetailHeader extends StatelessWidget {
     required this.onDetailFilterSelected,
     required this.onSend,
     required this.onDeleteScript,
+    required this.deleteTooltip,
+    required this.deleteIcon,
     required this.onRenameScript,
     required this.onRenameVersion,
+    required this.canDeleteVersion,
+    required this.onDeleteVersion,
     required this.onImportImages,
   });
 
@@ -2036,11 +2159,11 @@ class _ScriptDetailHeader extends StatelessWidget {
                 key: ValueKey(
                   'script-exhibition-delete-script-detail-${script.scriptId}',
                 ),
-                tooltip: '删除展览记录',
+                tooltip: deleteTooltip,
                 onPressed: onDeleteScript == null
                     ? null
                     : () => onDeleteScript!(script),
-                icon: const Icon(Icons.delete_outline),
+                icon: Icon(deleteIcon),
               ),
             ],
           ),
@@ -2058,21 +2181,7 @@ class _ScriptDetailHeader extends StatelessWidget {
             runSpacing: 8,
             children: [
               for (final version in script.versions)
-                GestureDetector(
-                  onSecondaryTapDown: onRenameVersion == null
-                      ? null
-                      : (details) => _showVersionContextMenu(
-                            context,
-                            details.globalPosition,
-                            onRename: () => onRenameVersion!(script, version),
-                          ),
-                  child: ChoiceChip(
-                    key: ValueKey('script-exhibition-version-${version.id}'),
-                    label: Text('${version.label} ${version.items.length}'),
-                    selected: version.id == selectedVersion.id,
-                    onSelected: (_) => onVersionSelected(version.id),
-                  ),
-                ),
+                _buildVersionChip(context, version),
             ],
           ),
           const SizedBox(height: 10),
@@ -2113,6 +2222,34 @@ class _ScriptDetailHeader extends StatelessWidget {
             ).textTheme.bodySmall?.copyWith(color: StudioTokens.textMuted),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVersionChip(
+    BuildContext context,
+    ScriptExhibitionVersion version,
+  ) {
+    final canDelete =
+        onDeleteVersion != null && canDeleteVersion(script, version);
+    final canShowMenu = onRenameVersion != null || canDelete;
+    return GestureDetector(
+      onSecondaryTapDown: !canShowMenu
+          ? null
+          : (details) => _showVersionContextMenu(
+                context,
+                details.globalPosition,
+                onRename: onRenameVersion == null
+                    ? null
+                    : () => onRenameVersion!(script, version),
+                onDelete:
+                    !canDelete ? null : () => onDeleteVersion!(script, version),
+              ),
+      child: ChoiceChip(
+        key: ValueKey('script-exhibition-version-${version.id}'),
+        label: Text('${version.label} ${version.items.length}'),
+        selected: version.id == selectedVersion.id,
+        onSelected: (_) => onVersionSelected(version.id),
       ),
     );
   }
@@ -2228,127 +2365,6 @@ StudioGeneratedImageItem _scriptGeneratedImageItem(ScriptExhibitionItem item) {
   );
 }
 
-// ignore: unused_element
-class _WaterfallItemCard extends StatelessWidget {
-  final ScriptExhibitionItem item;
-  final bool focused;
-  final VoidCallback onTap;
-  final VoidCallback onSend;
-  final VoidCallback? onDelete;
-  final VoidCallback? onRename;
-
-  const _WaterfallItemCard({
-    required this.item,
-    required this.focused,
-    required this.onTap,
-    required this.onSend,
-    required this.onDelete,
-    required this.onRename,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final imageHeight = _waterfallImageHeight(item);
-    return Material(
-      key: ValueKey('script-exhibition-item-${item.id}'),
-      color: StudioTokens.surface2,
-      shape: RoundedRectangleBorder(
-        borderRadius: StudioTokens.radiusCard,
-        side: focused
-            ? const BorderSide(color: StudioTokens.primary, width: 1.6)
-            : StudioTokens.cardBorder.top,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _ImagePreview(item: item, height: imageHeight),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      StudioChip(label: _sourceLabel(item.sourceKind)),
-                      const Spacer(),
-                      _ExhibitionAssetCaptureAction(
-                        itemId: item.id,
-                        drafts: _captureDraftsForExhibitionItem(item),
-                        iconSize: 18,
-                      ),
-                      IconButton(
-                        key: ValueKey(
-                          'script-exhibition-send-workbench-${item.id}',
-                        ),
-                        tooltip: '发送到工作台快速复刻',
-                        onPressed:
-                            item.focus.canOpenSingleWorkbench ? onSend : null,
-                        icon: const Icon(Icons.send_outlined, size: 18),
-                      ),
-                      IconButton(
-                        key: ValueKey(
-                          'script-exhibition-delete-item-${item.id}',
-                        ),
-                        tooltip: '删除展览图片',
-                        onPressed: item.canDelete ? onDelete : null,
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                      ),
-                      if (item.canRename)
-                        IconButton(
-                          key: ValueKey(
-                            'script-exhibition-rename-item-${item.id}',
-                          ),
-                          tooltip: '重命名',
-                          onPressed: onRename,
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: StudioTokens.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.prompt.isEmpty ? item.subtitle : item.prompt,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: StudioTokens.textSecondary,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    [
-                      if (item.frameIndex != null) '#${item.frameIndex}',
-                      item.statusLabel,
-                      if (item.sourceFileName != null) item.sourceFileName!,
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: StudioTokens.textMuted,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 double _waterfallImageHeight(ScriptExhibitionItem item) {
   return item.sourceKind == ScriptExhibitionItemSourceKind.original
       ? 170.0
@@ -2363,12 +2379,10 @@ double _estimatedWaterfallCardHeight(ScriptExhibitionItem item) {
 
 class _ImagePreview extends StatelessWidget {
   final ScriptExhibitionItem item;
-  final double? height;
   final BoxFit fit;
 
   const _ImagePreview({
     required this.item,
-    this.height,
     this.fit = BoxFit.cover,
   });
 
@@ -2376,7 +2390,6 @@ class _ImagePreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final imagePath = item.imagePath.trim();
     return Container(
-      height: height,
       width: double.infinity,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -2902,108 +2915,6 @@ class _ScriptSetCoverAction extends StatelessWidget {
   }
 }
 
-class _ExhibitionAssetCaptureAction extends StatelessWidget {
-  final String itemId;
-  final List<StudioAssetCaptureDraft> drafts;
-  final double? iconSize;
-
-  const _ExhibitionAssetCaptureAction({
-    required this.itemId,
-    required this.drafts,
-    this.iconSize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (drafts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    if (drafts.length == 1) {
-      final draft = drafts.single;
-      return TextButton.icon(
-        key: ValueKey(
-          'script-exhibition-save-asset-$itemId-'
-          '${draft.kind.storageKey}-0',
-        ),
-        style: TextButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          minimumSize: const Size(0, 32),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        onPressed: () async {
-          await _showExhibitionAssetCaptureDraft(context, draft);
-        },
-        icon: Icon(
-          _exhibitionAssetCaptureIcon(draft.kind),
-          size: iconSize ?? 16,
-        ),
-        label: const Text('保存素材'),
-      );
-    }
-    return PopupMenuButton<int>(
-      key: ValueKey('script-exhibition-save-asset-$itemId'),
-      tooltip: '保存素材',
-      child: Builder(
-        builder: (context) {
-          final color = Theme.of(context).colorScheme.primary;
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: StudioTokens.radiusPill,
-              ),
-              child: Padding(
-                padding: EdgeInsets.zero,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.library_add_outlined,
-                      size: iconSize ?? 16,
-                      color: color,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '保存素材',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: color,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-      onSelected: (index) async {
-        await _showExhibitionAssetCaptureDraft(context, drafts[index]);
-      },
-      itemBuilder: (context) => [
-        for (final (index, draft) in drafts.indexed)
-          PopupMenuItem<int>(
-            key: ValueKey(
-              'script-exhibition-save-asset-$itemId-'
-              '${draft.kind.storageKey}-$index',
-            ),
-            value: index,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(_exhibitionAssetCaptureIcon(draft.kind), size: 18),
-                const SizedBox(width: 8),
-                Text('保存${_exhibitionAssetCaptureKindLabel(draft.kind)}'),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 List<StudioAssetCaptureDraft> _captureDraftsForExhibitionItem(
   ScriptExhibitionItem item,
 ) {
@@ -3074,14 +2985,6 @@ Future<void> _showExhibitionAssetCaptureDraft(
     }
     messenger.showSnackBar(SnackBar(content: Text(error.toString())));
   }
-}
-
-String _exhibitionAssetCaptureKindLabel(StudioAssetCaptureKind kind) {
-  return switch (kind) {
-    StudioAssetCaptureKind.artistChain => '画师串',
-    StudioAssetCaptureKind.character => '角色',
-    StudioAssetCaptureKind.outfit => 'Outfit',
-  };
 }
 
 IconData _exhibitionAssetCaptureIcon(StudioAssetCaptureKind kind) {
@@ -3472,123 +3375,6 @@ class _OverlayPanel extends StatelessWidget {
   }
 }
 
-// ignore: unused_element
-Future<void> _showLegacyPreview(
-  BuildContext context,
-  ScriptExhibitionItem item,
-  ValueChanged<ScriptExhibitionFocus> onSend,
-  ValueChanged<ScriptExhibitionItem>? onDelete,
-  ValueChanged<ScriptExhibitionItem>? onRename,
-) {
-  return showDialog<void>(
-    context: context,
-    builder: (context) {
-      return Dialog(
-        insetPadding: const EdgeInsets.all(24),
-        backgroundColor: StudioTokens.surfaceBase,
-        child: ConstrainedBox(
-          key: const ValueKey('script-exhibition-fullscreen-preview'),
-          constraints: const BoxConstraints(maxWidth: 1180, maxHeight: 860),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: StudioTokens.textPrimary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                    ),
-                    FilledButton.icon(
-                      key: const ValueKey('script-exhibition-preview-send'),
-                      onPressed: _sendSingleWorkbenchCallback(item.focus, (
-                        focus,
-                      ) {
-                        Navigator.of(context).pop();
-                        onSend(focus);
-                      }),
-                      icon: const Icon(Icons.send_outlined),
-                      label: const Text('发送到工作台快速复刻'),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      key: const ValueKey('script-exhibition-preview-delete'),
-                      tooltip: '删除展览图片',
-                      onPressed: item.canDelete && onDelete != null
-                          ? () {
-                              Navigator.of(context).pop();
-                              onDelete(item);
-                            }
-                          : null,
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                    const SizedBox(width: 8),
-                    if (item.canRename) ...[
-                      IconButton(
-                        key: const ValueKey('script-exhibition-preview-rename'),
-                        tooltip: '重命名',
-                        onPressed: onRename == null
-                            ? null
-                            : () {
-                                Navigator.of(context).pop();
-                                onRename(item);
-                              },
-                        icon: const Icon(Icons.edit_outlined),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: StudioTokens.radiusCard,
-                    child: _ImagePreview(item: item, height: double.infinity),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  item.prompt.isEmpty ? item.subtitle : item.prompt,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: StudioTokens.textSecondary,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  [
-                    item.versionLabel,
-                    item.statusLabel,
-                    if (item.sourceFileName != null) item.sourceFileName!,
-                    if (item.imagePath.isNotEmpty) item.imagePath,
-                  ].join(' · '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: StudioTokens.textMuted,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
-  );
-}
-
 class _DeleteDialogResult {
   final bool confirmed;
   final bool deleteLocalFiles;
@@ -3670,6 +3456,7 @@ Future<bool> _showDeleteDialog({
   required String title,
   required String message,
   required ValueKey<String> confirmKey,
+  String confirmLabel = '删除',
 }) async {
   final result = await showDialog<bool>(
     context: context,
@@ -3687,27 +3474,13 @@ Future<bool> _showDeleteDialog({
             key: confirmKey,
             onPressed: () => Navigator.of(context).pop(true),
             icon: const Icon(Icons.delete_outline),
-            label: const Text('删除'),
+            label: Text(confirmLabel),
           ),
         ],
       );
     },
   );
   return result ?? false;
-}
-
-String _sourceLabel(ScriptExhibitionItemSourceKind kind) {
-  if (kind == ScriptExhibitionItemSourceKind.attachment) {
-    return '导入图片';
-  }
-  return switch (kind) {
-    ScriptExhibitionItemSourceKind.attachment => '导入图片',
-    ScriptExhibitionItemSourceKind.original => '原始剧本',
-    ScriptExhibitionItemSourceKind.generated => '批量新图',
-    ScriptExhibitionItemSourceKind.queued => '待处理',
-    ScriptExhibitionItemSourceKind.failed => '失败',
-    ScriptExhibitionItemSourceKind.gallery => '已收纳',
-  };
 }
 
 Future<String?> _showRenameDialog({

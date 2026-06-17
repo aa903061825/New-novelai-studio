@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_manifest.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/models/workspace_manifest.dart';
 
 void main() {
   test('WorkspaceManifest round trips migration metadata', () {
@@ -10,8 +10,8 @@ void main() {
       currentPromptConfigId: 'prompt-1',
       migrations: [
         WorkspaceMigrationEntry(
-          sourceType: 'kamia',
-          sourcePath: r'C:\src\kamia',
+          sourceType: 'external',
+          sourcePath: r'C:\src\external',
           importedAt: DateTime.parse('2026-05-21T09:00:00Z'),
           importerVersion: 1,
           counts: const {'recipes': 2, 'tags': 3},
@@ -24,7 +24,7 @@ void main() {
     expect(restored.schemaVersion, 1);
     expect(restored.name, 'Novel Studio');
     expect(restored.currentPromptConfigId, 'prompt-1');
-    expect(restored.migrations.single.sourceType, 'kamia');
+    expect(restored.migrations.single.sourceType, 'external');
     expect(restored.migrations.single.counts['recipes'], 2);
   });
 
@@ -53,7 +53,7 @@ void main() {
         }
       ],
       'imageRefs': ['assets/images/heroine.webp'],
-      'source': {'type': 'kamia', 'id': 'old-char-1'},
+      'source': {'type': 'external', 'id': 'old-char-1'},
       'note': 'main character',
     });
 
@@ -373,8 +373,8 @@ void main() {
   test('Workspace date parsing rejects invalid date strings', () {
     expect(
       () => WorkspaceMigrationEntry.fromJson({
-        'sourceType': 'kamia',
-        'sourcePath': r'C:\src\kamia',
+        'sourceType': 'external',
+        'sourcePath': r'C:\src\external',
         'importedAt': 'not a date',
         'importerVersion': 1,
       }),

@@ -1,13 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/core/constants/settings.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/settings_page/view_models/settings_page_viewmodel.dart';
-import 'package:nai_casrand/ui/core/widgets/editable_list_tile.dart';
-import 'package:nai_casrand/ui/settings_page/widgets/config_selection_page_view.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/core/constants/settings.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/settings_page/view_models/settings_page_viewmodel.dart';
+import 'package:novel_studio/ui/core/widgets/editable_list_tile.dart';
+import 'package:novel_studio/ui/settings_page/widgets/config_selection_page_view.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 import 'package:provider/provider.dart';
 
 class SettingsPageView extends StatelessWidget {

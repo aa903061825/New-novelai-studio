@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_connectivity_service.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/studio/services/script_ai_connectivity_service.dart';
 
 void main() {
   test('posts a minimal chat completion to test script ai connectivity',

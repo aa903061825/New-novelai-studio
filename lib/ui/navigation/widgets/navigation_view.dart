@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/navigation/view_models/navigation_view_model.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_shell_view.dart';
+import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_shell_view.dart';
 
 class NavigationView extends StatelessWidget {
   final NavigationViewModel viewModel;

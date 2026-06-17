@@ -1,4 +1,4 @@
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
 
 class FilterTagsResult {
   final List<String> clean;
@@ -216,9 +216,8 @@ class PromptTagProcessor {
   }
 
   static String cleanTagPure(String text) {
-    final lowered = text
-        .replaceAll(RegExp(r'[{}\[\]\(\)]+'), ' ')
-        .toLowerCase();
+    final lowered =
+        text.replaceAll(RegExp(r'[{}\[\]\(\)]+'), ' ').toLowerCase();
     return stripWeightMarkers(lowered);
   }
 
@@ -768,7 +767,10 @@ class PromptSegment {
   final String suffix;
   final List<String> items;
 
-  PromptSegment.tag(this.text) : prefix = '', suffix = '', items = const [];
+  PromptSegment.tag(this.text)
+      : prefix = '',
+        suffix = '',
+        items = const [];
 
   PromptSegment.weighted({
     required this.prefix,

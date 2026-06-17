@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const defaultCacheDir = path.join(
   process.env.APPDATA ?? '',
-  'org.exception0x0194',
-  'nai3_autodraw',
+  'Novel Studio',
+  'Novel Studio',
   'novel_studio',
   'script_recast',
   'cache',
@@ -433,7 +433,7 @@ function isLowerBodyTerm(term) {
 
 function isUpperClothingTerm(term) {
   const key = termKey(term);
-  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini|bikini top|neckerchief|sailor collar|harness|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|apron|vest|suit|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tank top|cheerleader|nun)\b/u.test(key);
+  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini|bikini top|neckerchief|sailor collar|harness|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|apron|vest|suit|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tanktop|tank top|cheerleader|nun)\b/u.test(key);
 }
 
 function isLowerClothingTerm(term) {
@@ -541,6 +541,10 @@ function cleanFieldReasons(value) {
 }
 
 function labelForStage(label, parts) {
+  const current = stringValue(label).trim();
+  if (hasChinese(current)) {
+    return current;
+  }
   const terms = [
     ...splitTerms(parts.upperClothing),
     ...splitTerms(parts.lowerClothing),
@@ -552,6 +556,10 @@ function labelForStage(label, parts) {
     return next;
   }
   return stringValue(label);
+}
+
+function hasChinese(value) {
+  return /[\u4e00-\u9fff]/u.test(stringValue(value));
 }
 
 function displayNameFromRole(role) {

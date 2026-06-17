@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import csv
@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 SAFE_SOURCE_TYPE = "novalai_codex_adult_docx"
 DEFAULT_LIBRARY = Path(
-    r"C:\Users\admin\AppData\Roaming\org.exception0x0194\nai3_autodraw"
+    r"C:\Users\admin\AppData\Roaming\Novel Studio\Novel Studio"
     r"\novel_studio\library\inspirations.json"
 )
 DEFAULT_EXPORT_DIR = Path("build/adult_codex_export")

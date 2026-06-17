@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 void main() {
   test('loads translation cache from the first existing prompt workshop file',

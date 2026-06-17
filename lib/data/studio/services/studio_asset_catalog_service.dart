@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/data/studio/studio_data_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/studio_data_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class StudioLegacyCodexCategory {
   final String key;
@@ -20,6 +20,12 @@ class StudioLegacyCodexCategory {
 
 class StudioLegacyCodexCategories {
   static const allKey = 'all';
+  static const sourceAllKey = 'all';
+  static const sourceRegularKey = 'regular';
+  static const sourceAdultKey = 'adult';
+  static const sourceCategoryPrefix = 'source:';
+  static const _requestSeparator = '::';
+  static const _sourceCategorySeparator = ' / ';
 
   static const all = StudioLegacyCodexCategory(
     key: allKey,
@@ -78,6 +84,35 @@ class StudioLegacyCodexCategories {
     label: '其他/通用',
   );
 
+  static const adultBody = StudioLegacyCodexCategory(
+    key: 'adult-body',
+    label: '身体/部位',
+  );
+  static const adultInteraction = StudioLegacyCodexCategory(
+    key: 'adult-interaction',
+    label: '互动/姿势',
+  );
+  static const adultClothingState = StudioLegacyCodexCategory(
+    key: 'adult-clothing-state',
+    label: '服装/状态',
+  );
+  static const adultView = StudioLegacyCodexCategory(
+    key: 'adult-view',
+    label: '视角/构图',
+  );
+  static const adultExpression = StudioLegacyCodexCategory(
+    key: 'adult-expression',
+    label: '表情/动作',
+  );
+  static const adultSceneProp = StudioLegacyCodexCategory(
+    key: 'adult-scene-prop',
+    label: '场景/道具',
+  );
+  static const adultQualityFix = StudioLegacyCodexCategory(
+    key: 'adult-quality-fix',
+    label: '质量/修正',
+  );
+
   static const filters = [
     all,
     artistStyle,
@@ -110,29 +145,198 @@ class StudioLegacyCodexCategories {
     magicEffects,
   ];
 
+  static const adultFilters = [
+    all,
+    adultBody,
+    adultInteraction,
+    adultClothingState,
+    adultView,
+    adultExpression,
+    adultSceneProp,
+    adultQualityFix,
+    general,
+  ];
+
+  static const _adultSpecificFilters = [
+    adultBody,
+    adultInteraction,
+    adultClothingState,
+    adultView,
+    adultExpression,
+    adultSceneProp,
+    adultQualityFix,
+  ];
+
+  static List<StudioLegacyCodexCategory> filtersForSource(
+    String sourceScopeKey,
+  ) {
+    final normalized = normalizedSourceScopeKey(sourceScopeKey);
+    return normalized == sourceAdultKey ? adultFilters : filters;
+  }
+
+  static String defaultCategoryKeyForSource(String sourceScopeKey) {
+    return allKey;
+  }
+
   static String normalizedKey(String key) {
     final normalized = key.trim();
     if (normalized.isEmpty) return allKey;
+    if (isSourceCategoryKey(normalized)) return normalized;
     return filters.any((category) => category.key == normalized)
         ? normalized
         : allKey;
   }
 
+  static String normalizedKeyForSource(String key, String sourceScopeKey) {
+    final normalized = key.trim();
+    if (normalized.isEmpty) return allKey;
+    if (isSourceCategoryKey(normalized)) return normalized;
+    final categories = filtersForSource(sourceScopeKey);
+    return categories.any((category) => category.key == normalized)
+        ? normalized
+        : defaultCategoryKeyForSource(sourceScopeKey);
+  }
+
+  static String normalizedSourceScopeKey(String key) {
+    final normalized = key.trim();
+    return switch (normalized) {
+      sourceRegularKey => sourceRegularKey,
+      sourceAdultKey => sourceAdultKey,
+      sourceAllKey => sourceAllKey,
+      _ => sourceAllKey,
+    };
+  }
+
+  static String requestKey({
+    required String sourceScopeKey,
+    required String categoryKey,
+  }) {
+    final normalizedSource = normalizedSourceScopeKey(sourceScopeKey);
+    return [
+      normalizedSource,
+      normalizedKeyForSource(categoryKey, normalizedSource),
+    ].join(_requestSeparator);
+  }
+
+  static String normalizedRequestKey(String key) {
+    final request = requestFilterFor(key);
+    return requestKey(
+      sourceScopeKey: request.sourceScopeKey,
+      categoryKey: request.categoryKey,
+    );
+  }
+
+  static StudioLegacyCodexRequestFilter requestFilterFor(String key) {
+    final raw = key.trim();
+    if (raw.contains(_requestSeparator)) {
+      final parts = raw.split(_requestSeparator);
+      final sourceScopeKey = normalizedSourceScopeKey(parts.first);
+      return StudioLegacyCodexRequestFilter(
+        sourceScopeKey: sourceScopeKey,
+        categoryKey: normalizedKeyForSource(
+          parts.length > 1 ? parts[1] : allKey,
+          sourceScopeKey,
+        ),
+      );
+    }
+    return StudioLegacyCodexRequestFilter(
+      sourceScopeKey: sourceAllKey,
+      categoryKey: normalizedKey(raw),
+    );
+  }
+
   static StudioLegacyCodexCategory byKey(String key) {
     final normalized = normalizedKey(key);
+    if (isSourceCategoryKey(normalized)) {
+      return StudioLegacyCodexCategory(
+        key: normalized,
+        label: labelForKey(normalized),
+      );
+    }
     return filters.firstWhere((category) => category.key == normalized);
   }
 
   static bool matches(InspirationEntry entry, String categoryKey) {
-    final normalized = normalizedKey(categoryKey);
-    return normalized == allKey || keysFor(entry).contains(normalized);
+    final request = requestFilterFor(categoryKey);
+    final normalized = request.categoryKey;
+    if (normalized == allKey) return true;
+    if (isSourceCategoryKey(normalized)) {
+      return keysForSource(entry, request.sourceScopeKey).contains(normalized);
+    }
+    return _semanticKeysForSource(entry, request.sourceScopeKey)
+        .contains(normalized);
   }
 
   static List<String> keysFor(InspirationEntry entry) {
+    return keysForSource(entry, sourceRegularKey);
+  }
+
+  static List<String> keysForSource(
+    InspirationEntry entry,
+    String sourceScopeKey,
+  ) {
+    final sourceCategoryKey = sourceCategoryKeyForPath(
+      entry.sourceCategoryPath,
+    );
+    if (sourceCategoryKey != null) return [sourceCategoryKey];
+    return _semanticKeysForSource(entry, sourceScopeKey);
+  }
+
+  static List<String> _semanticKeysForSource(
+    InspirationEntry entry,
+    String sourceScopeKey,
+  ) {
+    final normalizedSource = normalizedSourceScopeKey(sourceScopeKey);
+    if (normalizedSource == sourceAdultKey) {
+      return _adultKeysFor(entry);
+    }
+    return _regularKeysFor(entry);
+  }
+
+  static String? sourceCategoryKeyForPath(List<String> path) {
+    final normalized = path
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+    if (normalized.isEmpty) return null;
+    return '$sourceCategoryPrefix${normalized.join(_sourceCategorySeparator)}';
+  }
+
+  static bool isSourceCategoryKey(String key) {
+    return key.trim().startsWith(sourceCategoryPrefix);
+  }
+
+  static String labelForKey(String key) {
+    final normalized = key.trim();
+    if (!isSourceCategoryKey(normalized)) {
+      return byKey(normalized).label;
+    }
+    final path = normalized.substring(sourceCategoryPrefix.length);
+    final parts = path
+        .split(_sourceCategorySeparator)
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+    return parts.isEmpty ? path : parts.last;
+  }
+
+  static List<String> _regularKeysFor(InspirationEntry entry) {
     final text = _searchText(entry);
     final keys = <String>[];
     for (final category in _specificFilters) {
       if (_termsFor(category.key).any((term) => _matchesTerm(text, term))) {
+        keys.add(category.key);
+      }
+    }
+    return keys.isEmpty ? [general.key] : List.unmodifiable(keys);
+  }
+
+  static List<String> _adultKeysFor(InspirationEntry entry) {
+    final text = _searchText(entry);
+    final keys = <String>[];
+    for (final category in _adultSpecificFilters) {
+      if (_adultTermsFor(category.key)
+          .any((term) => _matchesTerm(text, term))) {
         keys.add(category.key);
       }
     }
@@ -146,12 +350,20 @@ class StudioLegacyCodexCategories {
   }
 
   static Map<String, int> countByCategory(List<InspirationEntry> entries) {
+    return countByCategoryForSource(entries, sourceRegularKey);
+  }
+
+  static Map<String, int> countByCategoryForSource(
+    List<InspirationEntry> entries,
+    String sourceScopeKey,
+  ) {
+    final filters = filtersForSource(sourceScopeKey);
     final counts = <String, int>{allKey: entries.length};
     for (final category in filters.skip(1)) {
       counts[category.key] = 0;
     }
     for (final entry in entries) {
-      for (final key in keysFor(entry)) {
+      for (final key in keysForSource(entry, sourceScopeKey)) {
         counts[key] = (counts[key] ?? 0) + 1;
       }
     }
@@ -503,6 +715,112 @@ class StudioLegacyCodexCategories {
       _ => const <String>[],
     };
   }
+
+  static List<String> _adultTermsFor(String key) {
+    return switch (key) {
+      'adult-body' => const [
+          'nude',
+          'naked',
+          'breasts',
+          'nipples',
+          'pussy',
+          'penis',
+          'ass',
+          'feet',
+          'labia',
+          'thighs',
+          'bare shoulder',
+          'skin',
+          'body',
+        ],
+      'adult-interaction' => const [
+          'sex',
+          'kiss',
+          'oral',
+          'handjob',
+          'footjob',
+          'missionary',
+          'doggystyle',
+          'penetration',
+          'cum',
+          'grabbing',
+          'kneeling',
+          'lying',
+          'spread legs',
+          'leg grab',
+          'hands on',
+        ],
+      'adult-clothing-state' => const [
+          'see-through',
+          'shirt lift',
+          'shirt lifted',
+          'skirt lift',
+          'collar',
+          'no collar',
+          'panties',
+          'bra',
+          'stockings',
+          'socks',
+          'white ankle socks',
+          'bare shoulder',
+        ],
+      'adult-view' => const [
+          'pov',
+          'first-person',
+          'from above',
+          'from below',
+          'close-up',
+          'front view',
+          'side view',
+          'looking down',
+          'looking at viewer',
+          'upside-down',
+        ],
+      'adult-expression' => const [
+          'blush',
+          'sweat',
+          'crying',
+          'tears',
+          'closed eyes',
+          'open mouth',
+          'looking',
+          'smile',
+        ],
+      'adult-scene-prop' => const [
+          'bed',
+          'on bed',
+          'indoors',
+          'bath',
+          'chair',
+          'floor',
+          'couch',
+          'game console',
+          'nintendo',
+          'mirror',
+        ],
+      'adult-quality-fix' => const [
+          'lowres',
+          'bad anatomy',
+          'extra fingers',
+          'missing fingers',
+          'censored',
+          'uncensored',
+          'negative',
+          'bad hands',
+        ],
+      _ => const <String>[],
+    };
+  }
+}
+
+class StudioLegacyCodexRequestFilter {
+  final String sourceScopeKey;
+  final String categoryKey;
+
+  const StudioLegacyCodexRequestFilter({
+    required this.sourceScopeKey,
+    required this.categoryKey,
+  });
 }
 
 class StudioAssetFavoriteKeys {
@@ -570,6 +888,7 @@ class StudioAssetCatalogSummary {
       inspirationCount +
       loraCount +
       workflowCount +
+      batchPlanCount +
       assemblyPresetCount;
 
   bool get isEmpty => totalAssetCount == 0;
@@ -636,7 +955,7 @@ class StudioAssetCatalogCacheLoadResult {
 }
 
 class StudioAssetCatalogService {
-  static const _cacheSchemaVersion = 5;
+  static const _cacheSchemaVersion = 7;
   static const _singleEntryCacheSchemaVersion = 2;
   static final _genericLegacyOutfitNamePattern = RegExp(
     r'^(变体\s*\d+|服装|outfit|variant\s*\d+|imported outfit|preset\s*\d+)$',
@@ -653,6 +972,7 @@ class StudioAssetCatalogService {
   final Future<List<InspirationEntry>> Function()? legacyCodexLoader;
   List<InspirationEntry>? _legacyCodexCache;
   bool? _legacyCodexAvailabilityCache;
+  final Map<String, _PersistentCatalogCache> _catalogCacheEntries = {};
   final Map<String, List<String>> _legacyCodexCategoryKeyCache = {};
 
   StudioAssetCatalogService({
@@ -670,6 +990,11 @@ class StudioAssetCatalogService {
         normalized.contains('codex_');
   }
 
+  static bool isAdultCodexSourceType(String sourceType) {
+    final normalized = sourceType.trim().toLowerCase().replaceAll('-', '_');
+    return isCodexSourceType(normalized) && normalized.contains('adult');
+  }
+
   Future<StudioAssetCatalogCacheLoadResult> loadSnapshotWithCache({
     bool includeLegacyCodex = false,
     int legacyCodexLimit = 160,
@@ -683,7 +1008,8 @@ class StudioAssetCatalogService {
       legacyCodexQuery: legacyCodexQuery,
       legacyCodexCategoryKey: legacyCodexCategoryKey,
     );
-    final cached = await _readPersistentCache(request);
+    final cached =
+        _readMemoryCache(request) ?? await _readPersistentCache(request);
     if (cached != null) {
       final isStale = checkStaleness
           ? !_sameFingerprint(
@@ -783,7 +1109,7 @@ class StudioAssetCatalogService {
         File(_join(workspaceRoot.path, trimmed)),
         File(_join(workspaceRoot.path, 'assets/references/$trimmed')),
         File(_join(workspaceRoot.path, 'imports/artist_studio/$trimmed')),
-        File(_join(workspaceRoot.path, 'imports/kamia/$trimmed')),
+        File(_join(workspaceRoot.path, 'imports/external/$trimmed')),
       ]) {
         if (candidate.existsSync()) return candidate.path;
       }
@@ -954,7 +1280,9 @@ class StudioAssetCatalogService {
       'legacyCodexLimit': legacyCodexLimit < 1 ? 1 : legacyCodexLimit,
       'legacyCodexQuery': legacyCodexQuery.trim(),
       'legacyCodexCategoryKey':
-          StudioLegacyCodexCategories.normalizedKey(legacyCodexCategoryKey),
+          StudioLegacyCodexCategories.normalizedRequestKey(
+        legacyCodexCategoryKey,
+      ),
     };
   }
 
@@ -968,9 +1296,23 @@ class StudioAssetCatalogService {
       final map = _jsonMap(decoded, 'asset catalog cache');
       if (map['schemaVersion'] == _cacheSchemaVersion) {
         final entries = _jsonMap(map['entries'], 'cache.entries');
+        if (request['includeLegacyCodex'] == true) {
+          final compatible = _readCompatibleCodexCacheEntry(
+            request: request,
+            entries: entries,
+            readEntry: (key, entry) =>
+                _cacheEntryFromJson(entry, 'cache.entry.$key'),
+          );
+          if (compatible != null) {
+            _catalogCacheEntries[_cacheEntryKey(request)] = compatible;
+            return compatible;
+          }
+        }
         final entry = entries[_cacheEntryKey(request)];
         if (entry == null) return null;
-        return _cacheEntryFromJson(entry, 'cache.entry');
+        final cacheEntry = _cacheEntryFromJson(entry, 'cache.entry');
+        _catalogCacheEntries[_cacheEntryKey(request)] = cacheEntry;
+        return cacheEntry;
       }
       if (map['schemaVersion'] == _singleEntryCacheSchemaVersion) {
         final cachedRequest = _jsonMap(map['request'], 'cache.request');
@@ -983,19 +1325,33 @@ class StudioAssetCatalogService {
     }
   }
 
+  _PersistentCatalogCache? _readMemoryCache(Map<String, dynamic> request) {
+    if (request['includeLegacyCodex'] == true) {
+      final compatible = _readCompatibleCodexCacheEntry(
+        request: request,
+        entries: _catalogCacheEntries,
+        readEntry: (_, entry) => entry as _PersistentCatalogCache,
+      );
+      if (compatible != null) return compatible;
+    }
+    return _catalogCacheEntries[_cacheEntryKey(request)];
+  }
+
   Future<void> _writePersistentCache({
     required Map<String, dynamic> request,
     required StudioAssetCatalogSnapshot snapshot,
     required Map<String, String> sourceFingerprint,
   }) async {
+    final cacheEntry = _PersistentCatalogCache(
+      snapshot: snapshot,
+      sourceFingerprint: sourceFingerprint,
+    );
+    _catalogCacheEntries[_cacheEntryKey(request)] = cacheEntry;
     final file = _workspaceFile(WorkspacePaths.assetCatalogCache);
     if (file == null) return;
     await file.parent.create(recursive: true);
     final entries = await _readPersistentCacheEntries(file);
-    entries[_cacheEntryKey(request)] = _cacheEntryToJson(
-      snapshot: snapshot,
-      sourceFingerprint: sourceFingerprint,
-    );
+    entries[_cacheEntryKey(request)] = _cacheEntryToJson(cacheEntry);
     await file.writeAsString(
       jsonEncode({
         'schemaVersion': _cacheSchemaVersion,
@@ -1017,9 +1373,13 @@ class StudioAssetCatalogService {
         final request = _jsonMap(map['request'], 'cache.request');
         return <String, dynamic>{
           _cacheEntryKey(request): _cacheEntryToJson(
-            snapshot: _snapshotFromJson(map['snapshot']),
-            sourceFingerprint:
-                _stringMap(map['sourceFingerprint'], 'cache.sourceFingerprint'),
+            _PersistentCatalogCache(
+              snapshot: _snapshotFromJson(map['snapshot']),
+              sourceFingerprint: _stringMap(
+                map['sourceFingerprint'],
+                'cache.sourceFingerprint',
+              ),
+            ),
           ),
         };
       }
@@ -1029,14 +1389,11 @@ class StudioAssetCatalogService {
     return <String, dynamic>{};
   }
 
-  Map<String, dynamic> _cacheEntryToJson({
-    required StudioAssetCatalogSnapshot snapshot,
-    required Map<String, String> sourceFingerprint,
-  }) {
+  Map<String, dynamic> _cacheEntryToJson(_PersistentCatalogCache cacheEntry) {
     return {
       'generatedAt': DateTime.now().toUtc().toIso8601String(),
-      'sourceFingerprint': sourceFingerprint,
-      'snapshot': _snapshotToJson(snapshot),
+      'sourceFingerprint': cacheEntry.sourceFingerprint,
+      'snapshot': _snapshotToJson(cacheEntry.snapshot),
     };
   }
 
@@ -1049,19 +1406,101 @@ class StudioAssetCatalogService {
     );
   }
 
+  _PersistentCatalogCache? _readCompatibleCodexCacheEntry({
+    required Map<String, dynamic> request,
+    required Map<String, dynamic> entries,
+    required _PersistentCatalogCache Function(String key, dynamic entry)
+        readEntry,
+  }) {
+    final requestedLimit = _intValue(request['legacyCodexLimit']);
+    final requestedQuery = (request['legacyCodexQuery'] ?? '').toString();
+    final requestedCategoryKey =
+        StudioLegacyCodexCategories.normalizedRequestKey(
+      (request['legacyCodexCategoryKey'] ?? '').toString(),
+    );
+    _PersistentCatalogCache? best;
+    var bestLoadedCount = -1;
+    for (final entry in entries.entries) {
+      final key = _cacheEntryKeyParts(entry.key);
+      if (key == null ||
+          key.includeLegacyCodex != true ||
+          key.legacyCodexQuery != requestedQuery ||
+          key.legacyCodexCategoryKey != requestedCategoryKey) {
+        continue;
+      }
+      try {
+        final candidate = readEntry(entry.key, entry.value);
+        final loadedCount = candidate.snapshot.legacyCodexLoadedCount;
+        final totalCount = candidate.snapshot.legacyCodexTotalCount;
+        final coversRequest =
+            loadedCount >= requestedLimit || loadedCount >= totalCount;
+        if (!coversRequest || loadedCount <= bestLoadedCount) continue;
+        best = candidate;
+        bestLoadedCount = loadedCount;
+      } catch (_) {
+        continue;
+      }
+    }
+    return best;
+  }
+
   String _cacheEntryKey(Map<String, dynamic> request) {
     final includeLegacyCodex = request['includeLegacyCodex'] == true ? 1 : 0;
     final limit = _intValue(request['legacyCodexLimit']);
     final query = (request['legacyCodexQuery'] ?? '').toString();
-    final categoryKey = StudioLegacyCodexCategories.normalizedKey(
+    final categoryKey = StudioLegacyCodexCategories.normalizedRequestKey(
       (request['legacyCodexCategoryKey'] ?? '').toString(),
     );
     return [
       'codex=$includeLegacyCodex',
       'limit=$limit',
       'query=$query',
-      'category=$categoryKey',
+      'codexRequest=$categoryKey',
     ].join('|');
+  }
+
+  ({
+    bool includeLegacyCodex,
+    int legacyCodexLimit,
+    String legacyCodexQuery,
+    String legacyCodexCategoryKey,
+  })? _cacheEntryKeyParts(String key) {
+    const codexPrefix = 'codex=';
+    const limitMarker = '|limit=';
+    const queryMarker = '|query=';
+    const categoryMarker = '|codexRequest=';
+    if (!key.startsWith(codexPrefix)) return null;
+    final limitMarkerIndex = key.indexOf(limitMarker);
+    final queryMarkerIndex = key.indexOf(queryMarker, limitMarkerIndex + 1);
+    final categoryMarkerIndex = key.lastIndexOf(categoryMarker);
+    if (limitMarkerIndex < 0 ||
+        queryMarkerIndex < 0 ||
+        categoryMarkerIndex < 0 ||
+        queryMarkerIndex <= limitMarkerIndex ||
+        categoryMarkerIndex <= queryMarkerIndex) {
+      return null;
+    }
+    final codexText = key.substring(codexPrefix.length, limitMarkerIndex);
+    final limitText = key.substring(
+      limitMarkerIndex + limitMarker.length,
+      queryMarkerIndex,
+    );
+    final limit = int.tryParse(limitText);
+    if (limit == null) return null;
+    final query = key.substring(
+      queryMarkerIndex + queryMarker.length,
+      categoryMarkerIndex,
+    );
+    final categoryKey = key.substring(
+      categoryMarkerIndex + categoryMarker.length,
+    );
+    return (
+      includeLegacyCodex: codexText == '1',
+      legacyCodexLimit: limit,
+      legacyCodexQuery: query,
+      legacyCodexCategoryKey:
+          StudioLegacyCodexCategories.normalizedRequestKey(categoryKey),
+    );
   }
 
   File? _workspaceFile(String relativePath) {
@@ -1893,69 +2332,199 @@ class StudioAssetCatalogService {
       workspaceCodexEntries,
       await _loadAllLegacyCodexInspirations(),
     );
+    final requestFilter =
+        StudioLegacyCodexCategories.requestFilterFor(categoryKey);
+    final sourceFiltered = allEntries
+        .where(
+          (entry) => _matchesCodexSourceScope(
+            entry,
+            requestFilter.sourceScopeKey,
+          ),
+        )
+        .toList(growable: false);
+    final sourceGroups = _groupLegacyCodexEntries(sourceFiltered);
     final normalizedQuery = query.trim().toLowerCase();
     final queryFiltered = normalizedQuery.isEmpty
-        ? allEntries
-        : allEntries
-            .where((entry) => _matchesCodexQuery(entry, normalizedQuery))
+        ? sourceGroups
+        : sourceGroups
+            .where((group) => _matchesCodexGroupQuery(group, normalizedQuery))
             .toList(growable: false);
-    final normalizedCategory =
-        StudioLegacyCodexCategories.normalizedKey(categoryKey);
-    final filtered = <InspirationEntry>[];
-    final categoryCounts = _emptyLegacyCodexCategoryCounts(
-      allCount: queryFiltered.length,
+    final normalizedCategory = requestFilter.categoryKey;
+    final categoryCounts = _legacyCodexCategoryCountsForGroups(
+      queryFiltered,
+      sourceScopeKey: requestFilter.sourceScopeKey,
     );
+    final filtered = <_LegacyCodexGroup>[];
     if (normalizedCategory == StudioLegacyCodexCategories.allKey) {
       filtered.addAll(queryFiltered);
     } else {
-      for (final entry in queryFiltered) {
-        final categoryKeys = _legacyCodexCategoryKeysFor(entry);
-        for (final key in categoryKeys) {
-          categoryCounts[key] = (categoryCounts[key] ?? 0) + 1;
-        }
+      for (final group in queryFiltered) {
+        final categoryKeys = _legacyCodexCategoryKeysForGroup(
+          group,
+          requestFilter.sourceScopeKey,
+        );
         if (categoryKeys.contains(normalizedCategory)) {
-          filtered.add(entry);
+          filtered.add(group);
         }
       }
     }
     final safeLimit = limit < 1 ? 1 : limit;
     return _LegacyCodexSlice(
-      entries: filtered.take(safeLimit).toList(growable: false),
+      entries: filtered
+          .take(safeLimit)
+          .map(_legacyCodexGroupEntry)
+          .toList(growable: false),
       totalCount: filtered.length,
       categoryCounts: Map.unmodifiable(categoryCounts),
     );
   }
 
-  Map<String, int> _emptyLegacyCodexCategoryCounts({
-    required int allCount,
+  Map<String, int> _legacyCodexCategoryCountsForGroups(
+    List<_LegacyCodexGroup> groups, {
+    required String sourceScopeKey,
   }) {
-    return {
-      StudioLegacyCodexCategories.allKey: allCount,
-      for (final category in StudioLegacyCodexCategories.filters.skip(1))
-        category.key: 0,
+    final counts = <String, int>{
+      StudioLegacyCodexCategories.allKey: groups.length,
     };
+    final sawSourceCategories = groups.any(
+      (group) => _legacyCodexCategoryKeysForGroup(group, sourceScopeKey).any(
+        StudioLegacyCodexCategories.isSourceCategoryKey,
+      ),
+    );
+    if (!sawSourceCategories) {
+      for (final category
+          in StudioLegacyCodexCategories.filtersForSource(sourceScopeKey)
+              .skip(1)) {
+        counts[category.key] = 0;
+      }
+    }
+    for (final group in groups) {
+      for (final key in _legacyCodexCategoryKeysForGroup(
+        group,
+        sourceScopeKey,
+      )) {
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+    }
+    return counts;
   }
 
-  List<String> _legacyCodexCategoryKeysFor(InspirationEntry entry) {
-    final cacheKey = _legacyCodexCategoryCacheKey(entry);
+  List<String> _legacyCodexCategoryKeysFor(
+    InspirationEntry entry,
+    String sourceScopeKey,
+  ) {
+    final normalizedSourceScopeKey =
+        StudioLegacyCodexCategories.normalizedSourceScopeKey(sourceScopeKey);
+    final cacheKey =
+        _legacyCodexCategoryCacheKey(entry, normalizedSourceScopeKey);
     return _legacyCodexCategoryKeyCache.putIfAbsent(
       cacheKey,
-      () => StudioLegacyCodexCategories.keysFor(entry),
+      () => StudioLegacyCodexCategories.keysForSource(
+        entry,
+        normalizedSourceScopeKey,
+      ),
     );
   }
 
-  String _legacyCodexCategoryCacheKey(InspirationEntry entry) {
+  String _legacyCodexCategoryCacheKey(
+    InspirationEntry entry,
+    String sourceScopeKey,
+  ) {
     return [
+      sourceScopeKey,
       entry.id,
       entry.name,
       entry.prompt,
       entry.negativePrompt,
       entry.tags.join('\u0001'),
       entry.note,
+      entry.sourceCategoryPath.join('\u0001'),
+      entry.sourceParentId ?? '',
+      entry.sourceParentName ?? '',
+      entry.sourceVariantLabel ?? '',
       entry.source.type,
       entry.source.id ?? '',
       entry.source.path ?? '',
     ].join('\u0002');
+  }
+
+  List<String> _legacyCodexCategoryKeysForGroup(
+    _LegacyCodexGroup group,
+    String sourceScopeKey,
+  ) {
+    final keys = <String>{};
+    for (final entry in [group.parent, ...group.variants]) {
+      keys.addAll(_legacyCodexCategoryKeysFor(entry, sourceScopeKey));
+    }
+    return List.unmodifiable(keys);
+  }
+
+  List<_LegacyCodexGroup> _groupLegacyCodexEntries(
+    List<InspirationEntry> entries,
+  ) {
+    final groups = <_MutableLegacyCodexGroup>[];
+    final groupsByParentId = <String, _MutableLegacyCodexGroup>{};
+    final pendingByParentId = <String, List<InspirationEntry>>{};
+
+    void addParent(InspirationEntry entry) {
+      final group = _MutableLegacyCodexGroup(entry);
+      final pending = pendingByParentId.remove(entry.id);
+      if (pending != null) {
+        group.variants.addAll(pending);
+      }
+      groups.add(group);
+      groupsByParentId[entry.id] = group;
+    }
+
+    for (final entry in entries) {
+      final parentId = entry.sourceParentId?.trim();
+      if (parentId == null || parentId.isEmpty) {
+        addParent(entry);
+        continue;
+      }
+      final group = groupsByParentId[parentId];
+      if (group != null) {
+        group.variants.add(entry);
+      } else {
+        pendingByParentId.putIfAbsent(parentId, () => []).add(entry);
+      }
+    }
+    for (final pending in pendingByParentId.values) {
+      for (final entry in pending) {
+        addParent(entry);
+      }
+    }
+    return List.unmodifiable([
+      for (final group in groups)
+        _LegacyCodexGroup(
+          parent: group.parent,
+          variants: List.unmodifiable(group.variants),
+        ),
+    ]);
+  }
+
+  InspirationEntry _legacyCodexGroupEntry(_LegacyCodexGroup group) {
+    if (group.variants.isEmpty && group.parent.variants.isEmpty) {
+      return group.parent;
+    }
+    return InspirationEntry(
+      id: group.parent.id,
+      name: group.parent.name,
+      prompt: group.parent.prompt,
+      negativePrompt: group.parent.negativePrompt,
+      tags: group.parent.tags,
+      imageRefs: group.parent.imageRefs,
+      source: group.parent.source,
+      note: group.parent.note,
+      sourceCategoryPath: group.parent.sourceCategoryPath,
+      sourceParentId: group.parent.sourceParentId,
+      sourceParentName: group.parent.sourceParentName,
+      sourceVariantLabel: group.parent.sourceVariantLabel,
+      variants: [
+        ...group.parent.variants,
+        ...group.variants,
+      ],
+    );
   }
 
   List<InspirationEntry> _mergedCodexEntries(
@@ -2038,8 +2607,36 @@ class StudioAssetCatalogService {
       entry.prompt,
       entry.negativePrompt,
       entry.tags.join(' '),
+      entry.sourceCategoryPath.join(' '),
+      entry.sourceParentName ?? '',
+      entry.sourceVariantLabel ?? '',
       entry.note,
     ].join('\n').toLowerCase().contains(normalizedQuery);
+  }
+
+  bool _matchesCodexGroupQuery(
+    _LegacyCodexGroup group,
+    String normalizedQuery,
+  ) {
+    return _matchesCodexQuery(group.parent, normalizedQuery) ||
+        group.variants.any(
+          (variant) => _matchesCodexQuery(variant, normalizedQuery),
+        );
+  }
+
+  bool _matchesCodexSourceScope(
+    InspirationEntry entry,
+    String sourceScopeKey,
+  ) {
+    final normalizedScope =
+        StudioLegacyCodexCategories.normalizedSourceScopeKey(sourceScopeKey);
+    if (normalizedScope == StudioLegacyCodexCategories.sourceAllKey) {
+      return true;
+    }
+    final isAdult = isAdultCodexSourceType(entry.source.type);
+    return normalizedScope == StudioLegacyCodexCategories.sourceAdultKey
+        ? isAdult
+        : !isAdult;
   }
 
   String _join(String root, String path) {
@@ -2051,6 +2648,23 @@ class StudioAssetCatalogService {
           .where((segment) => segment.isNotEmpty && segment != '.'),
     ].join(Platform.pathSeparator);
   }
+}
+
+class _MutableLegacyCodexGroup {
+  final InspirationEntry parent;
+  final List<InspirationEntry> variants = [];
+
+  _MutableLegacyCodexGroup(this.parent);
+}
+
+class _LegacyCodexGroup {
+  final InspirationEntry parent;
+  final List<InspirationEntry> variants;
+
+  const _LegacyCodexGroup({
+    required this.parent,
+    required this.variants,
+  });
 }
 
 class _LegacyCodexSlice {

@@ -5,10 +5,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 class VibeConfigV4ListViewmodel extends ChangeNotifier {

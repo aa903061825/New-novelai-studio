@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_client.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/studio/services/script_ai_client.dart';
 
 abstract interface class ScriptAiConnectivityService {
   Future<ScriptAiConnectivityResult> testConnection(

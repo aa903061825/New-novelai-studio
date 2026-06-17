@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class StudioBatchQueuePlan {
   final BatchPlan plan;

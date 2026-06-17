@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 void main() {
   group('RecastMapping', () {
@@ -84,6 +85,17 @@ void main() {
       expect(defaults.toJson().keys, isNot(contains('paramPolicies')));
     });
 
+    test('round trips suppressed prompt tag warning keys', () {
+      final mapping = RecastMapping.defaults('script-1').copyWith(
+        suppressedPromptTagWarningKeys: const {'male smile'},
+      );
+
+      final restored = RecastMapping.fromJson(mapping.toJson());
+
+      expect(restored.suppressedPromptTagWarningKeys, {'male smile'});
+      expect(restored.toJson(), mapping.toJson());
+    });
+
     test('copyWith updates selected fields while preserving defaults', () {
       final mapping = RecastMapping.defaults('script-1').copyWith(
         roleSwaps: const [
@@ -141,6 +153,146 @@ void main() {
         restored.roleAssemblies.single.stages.single.preservedParts,
         contains(RecastPromptPart.upperBody),
       );
+    });
+
+    test('round trips role and scene prompt replacement rules', () {
+      const mapping = RecastMapping(
+        id: 'mapping-replacements',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: '角色 1',
+            targetCharacterId: 'lily',
+            targetIdentityPrompt: 'lily, silver hair, blue eyes',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'rule-jacket-skirt',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'term-red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1, 2, 3],
+                  ),
+                  ScriptPromptReplacementTerm(
+                    id: 'term-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1, 2, 3],
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.replace,
+                matchMode: ScriptPromptReplacementMatchMode.any,
+                targetPrompt: 'white dress, lace trim',
+              ),
+            ],
+          ),
+        ],
+        scenePromptReplacements: [
+          ScriptScenePromptReplacement(
+            id: 'scene-base',
+            label: 'base prompt',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'rule-night',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'term-night',
+                    text: 'night',
+                    category: PromptTagCategory.scene,
+                    sourceLocation: 'base prompt',
+                    frameIndexes: [1, 2],
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.delete,
+                matchMode: ScriptPromptReplacementMatchMode.anchor,
+                anchorTermId: 'term-night',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final restored = RecastMapping.fromJson(mapping.toJson());
+
+      expect(restored.toJson(), mapping.toJson());
+      expect(restored.rolePromptReplacements.single.sourceRoleId, 'slot-0');
+      expect(restored.rolePromptReplacements.single.displayLabel, '角色 1');
+      expect(
+        restored.rolePromptReplacements.single.targetCharacterId,
+        'lily',
+      );
+      expect(
+        restored.rolePromptReplacements.single.targetIdentityPrompt,
+        'lily, silver hair, blue eyes',
+      );
+      expect(
+        restored.rolePromptReplacements.single.rules.single.targetPrompt,
+        'white dress, lace trim',
+      );
+      expect(
+        restored.rolePromptReplacements.single.rules.single.sourceTerms
+            .map((term) => term.text),
+        ['red jacket', 'black skirt'],
+      );
+      expect(
+        restored.scenePromptReplacements.single.rules.single.sourceTerms.single
+            .sourceLocation,
+        'base prompt',
+      );
+      expect(
+        restored.scenePromptReplacements.single.rules.single.matchMode,
+        ScriptPromptReplacementMatchMode.anchor,
+      );
+    });
+
+    test('blank target prompt keeps a replacement rule inactive', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-glasses',
+        sourceTerms: [
+          ScriptPromptReplacementTerm(
+            id: 'term-round-glasses',
+            text: 'round glasses',
+            category: PromptTagCategory.clothing,
+          ),
+        ],
+      );
+
+      expect(rule.hasEffect, isFalse);
+      expect(rule.action, ScriptPromptReplacementAction.none);
+    });
+
+    test('target prompt with default action is an effective replacement', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-target-only',
+        targetPrompt: 'white dress, lace trim',
+      );
+
+      expect(rule.action, ScriptPromptReplacementAction.none);
+      expect(rule.effectiveAction, ScriptPromptReplacementAction.replace);
+      expect(rule.hasEffect, isTrue);
+    });
+
+    test('replace action with blank target and manual prompt is inactive', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-blank-replace',
+        action: ScriptPromptReplacementAction.replace,
+        manualPhrase: 'hidden manual output',
+      );
+
+      expect(rule.effectiveAction, ScriptPromptReplacementAction.none);
+      expect(rule.hasEffect, isFalse);
+    });
+
+    test('delete action stays an effective delete', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-delete',
+        action: ScriptPromptReplacementAction.delete,
+      );
+
+      expect(rule.effectiveAction, ScriptPromptReplacementAction.delete);
+      expect(rule.hasEffect, isTrue);
     });
   });
 

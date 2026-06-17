@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:get_it/get_it.dart';
 import 'package:blinking_text/blinking_text.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/ui/core/theme/playful_geometric_theme.dart';
-import 'package:nai_casrand/ui/core/widgets/playful_geometric_surface.dart';
-import 'package:nai_casrand/ui/navigation/widgets/debug_settings_view.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/ui/core/theme/playful_geometric_theme.dart';
+import 'package:novel_studio/ui/core/widgets/playful_geometric_surface.dart';
+import 'package:novel_studio/ui/navigation/widgets/debug_settings_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum AppState { idle, generating, coolingDown }
@@ -145,7 +145,7 @@ class NavigationAppBarState extends State<NavigationAppBar>
       actions: [
         Tooltip(
           message: MaterialLocalizations.of(context)
-              .aboutListTileTitle('NAI CasRand'),
+              .aboutListTileTitle('Novel Studio'),
           child: PlayfulGeometricSurface(
             color: PlayfulGeometricColors.accent,
             shadowColor: PlayfulGeometricColors.foreground,
@@ -168,7 +168,7 @@ class NavigationAppBarState extends State<NavigationAppBar>
 
   void _showAppInfoDialog(BuildContext context) {
     final packageInfo = GetIt.instance<ConfigService>().packageInfo;
-    const appName = 'NAI CasRand';
+    const appName = 'Novel Studio';
     final appVersion = packageInfo.version;
     final iconImage = Image.asset(
       'assets/appicon.png',

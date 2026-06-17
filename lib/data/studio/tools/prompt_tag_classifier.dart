@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 enum PromptTagCategory {
   character,
@@ -91,21 +91,32 @@ class PromptTagClassificationCacheEntry {
 }
 
 class PromptTagClassificationCache {
+  static const String _validCompoundTagsJsonKey = '__validCompoundTags';
+
   final int Function() clock;
   final Map<String, PromptTagClassificationCacheEntry> _entries;
+  final Set<String> _validCompoundTagKeys;
 
   PromptTagClassificationCache({
     int Function()? clock,
     Map<String, PromptTagClassificationCacheEntry>? entries,
+    Iterable<String>? validCompoundTagKeys,
   })  : clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch ~/ 1000),
-        _entries = Map.of(entries ?? const {});
+        _entries = Map.of(entries ?? const {}),
+        _validCompoundTagKeys = {
+          for (final key in validCompoundTagKeys ?? const <String>[])
+            if (key.trim().isNotEmpty)
+              PromptTagProcessor.normalizeMatchKey(key),
+        };
 
   factory PromptTagClassificationCache.fromJson(Map<String, dynamic> json) {
     return PromptTagClassificationCache(
       entries: {
         for (final entry in json.entries)
-          entry.key: PromptTagClassificationCacheEntry.fromJson(entry.value),
+          if (entry.key != _validCompoundTagsJsonKey)
+            entry.key: PromptTagClassificationCacheEntry.fromJson(entry.value),
       },
+      validCompoundTagKeys: _stringList(json[_validCompoundTagsJsonKey]),
     );
   }
 
@@ -115,6 +126,20 @@ class PromptTagClassificationCache {
 
   Map<String, PromptTagClassificationCacheEntry> get entries =>
       Map.unmodifiable(_entries);
+
+  Set<String> get validCompoundTagKeys =>
+      Set.unmodifiable(_validCompoundTagKeys);
+
+  bool isValidCompoundTag(String tag) {
+    final key = _legacyCacheKey(tag);
+    return key.isNotEmpty && _validCompoundTagKeys.contains(key);
+  }
+
+  void confirmValidCompoundTag(String tag) {
+    final key = _legacyCacheKey(tag);
+    if (key.isEmpty) return;
+    _validCompoundTagKeys.add(key);
+  }
 
   PromptTagClassificationCacheEntry? entryFor(
     String tag, {
@@ -166,9 +191,14 @@ class PromptTagClassificationCache {
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = <String, dynamic>{
       for (final entry in _entries.entries) entry.key: entry.value.toJson(),
     };
+    if (_validCompoundTagKeys.isNotEmpty) {
+      json[_validCompoundTagsJsonKey] =
+          (_validCompoundTagKeys.toList()..sort());
+    }
+    return json;
   }
 
   static String _cacheKey(String tag, {required bool negative}) {
@@ -178,6 +208,17 @@ class PromptTagClassificationCache {
   static String _legacyCacheKey(String tag) {
     return PromptTagProcessor.normalizeMatchKey(_cleanTag(tag));
   }
+}
+
+List<String> _stringList(dynamic value) {
+  if (value is! Iterable) {
+    return const [];
+  }
+  return [
+    for (final item in value)
+      if (item != null && item.toString().trim().isNotEmpty)
+        item.toString().trim(),
+  ];
 }
 
 class PromptTagClassificationCacheRepository {
@@ -291,6 +332,111 @@ class PromptTagClassifier {
     ),
   ];
 
+  static const layeredGroups = [
+    PromptTagGroup(
+      id: 'quality',
+      label: '画质区',
+      categories: [
+        PromptTagCategory.quality,
+        PromptTagCategory.negativeQuality,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'artist',
+      label: '画师区',
+      categories: [
+        PromptTagCategory.artist,
+        PromptTagCategory.negativeArtist,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'character',
+      label: '身份',
+      categories: [
+        PromptTagCategory.character,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'upperBody',
+      label: '上身',
+      categories: [
+        PromptTagCategory.upperBody,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'upperClothing',
+      label: '上装',
+      categories: [
+        PromptTagCategory.upperClothing,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'lowerBody',
+      label: '下身',
+      categories: [
+        PromptTagCategory.lowerBody,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'lowerClothing',
+      label: '下装',
+      categories: [
+        PromptTagCategory.lowerClothing,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'clothing',
+      label: '饰品/状态',
+      categories: [
+        PromptTagCategory.clothing,
+        PromptTagCategory.negativeBody,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'action',
+      label: '动作区',
+      categories: [
+        PromptTagCategory.action,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'scene',
+      label: '场景/镜头',
+      categories: [
+        PromptTagCategory.scene,
+        PromptTagCategory.camera,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'style',
+      label: '风格区',
+      categories: [
+        PromptTagCategory.style,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'negative',
+      label: '负面内容',
+      categories: [
+        PromptTagCategory.negativeContent,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'syntax',
+      label: '语法/权重',
+      categories: [
+        PromptTagCategory.promptSyntax,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'other',
+      label: '其它',
+      categories: [
+        PromptTagCategory.other,
+      ],
+    ),
+  ];
+
   static PromptTagClassification classify(
     String tag, {
     bool negative = false,
@@ -329,6 +475,15 @@ class PromptTagClassifier {
       }
     }
     return groups.last;
+  }
+
+  static PromptTagGroup layeredGroupFor(PromptTagCategory category) {
+    for (final group in layeredGroups) {
+      if (group.categories.contains(category)) {
+        return group;
+      }
+    }
+    return layeredGroups.last;
   }
 
   static Uri danbooruWikiUri(String tag) {

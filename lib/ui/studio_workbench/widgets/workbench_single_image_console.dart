@@ -1,22 +1,27 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/core/constants/defaults.dart';
-import 'package:nai_casrand/core/constants/parameters.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/info_card_content.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
-import 'package:nai_casrand/ui/i2i_tab/widgets/i2i_tab_view.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_generated_image_gallery.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_button.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_editor.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:flutter/services.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/info_card_content.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/ui/generation_page/widgets/info_card.dart';
+import 'package:novel_studio/ui/i2i_config/widgets/i2i_config_view.dart';
+import 'package:novel_studio/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/ui/vibe_config_v4/viewmodels/vibe_config_v4_list_viewmodel.dart';
+import 'package:novel_studio/ui/vibe_config_v4/widgets/vibe_config_v4_list_view.dart';
 
 const _characterCardRadius = BorderRadius.only(
   topLeft: Radius.circular(StudioTokens.radiusSmall),
@@ -293,6 +298,7 @@ class _ExecutionSection extends StatelessWidget {
       listenable: Listenable.merge([
         viewmodel.commandStatus.isBatchActive,
         viewmodel.commandStatus.isCoolingDown,
+        parametersViewmodel,
       ]),
       builder: (context, _) {
         final active = viewmodel.commandStatus.isBatchActive.value;
@@ -307,8 +313,18 @@ class _ExecutionSection extends StatelessWidget {
                     active ? StudioButtonTone.danger : StudioButtonTone.primary,
                 onPressed: active
                     ? () => viewmodel.stopBatch()
-                    : viewmodel.startSingleImageGeneration,
+                    : () {
+                        parametersViewmodel.commitPendingInputs();
+                        viewmodel.startSingleImageGeneration(
+                          count: parametersViewmodel.generationCount,
+                        );
+                      },
               ),
+            ),
+            const SizedBox(width: 10),
+            _GenerationCountField(
+              viewmodel: parametersViewmodel,
+              enabled: !active,
             ),
             if (transferViewModel != null) ...[
               const SizedBox(width: 10),
@@ -335,6 +351,43 @@ class _ExecutionSection extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _GenerationCountField extends StatelessWidget {
+  final WorkbenchSingleImageParametersViewmodel viewmodel;
+  final bool enabled;
+
+  const _GenerationCountField({
+    required this.viewmodel,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 108,
+      child: KeyedSubtree(
+        key:
+            ValueKey('workbench-generation-count-${viewmodel.generationCount}'),
+        child: TextFormField(
+          key: const ValueKey('workbench-generation-count-field'),
+          initialValue: viewmodel.generationCount.toString(),
+          enabled: enabled,
+          textAlign: TextAlign.center,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: '张数',
+            isDense: true,
+            prefixIcon: Icon(Icons.collections_outlined, size: 18),
+            prefixIconConstraints: BoxConstraints.tightFor(width: 32),
+          ),
+          onChanged: viewmodel.setGenerationCount,
+          onFieldSubmitted: viewmodel.setGenerationCount,
+        ),
+      ),
     );
   }
 }
@@ -378,6 +431,7 @@ class _GenerationResultList extends StatelessWidget {
               context,
               items: items,
               initialItemId: item.id,
+              footerBuilder: _workbenchGeneratedImagePreviewFooter,
             );
           },
         );
@@ -404,12 +458,38 @@ StudioGeneratedImageItem _workbenchGeneratedImageItem(
       id: 'workbench-$displayIndex',
       name: name,
       imageBytes: bytes,
+      source: content,
     );
   }
   return StudioGeneratedImageItem(
     id: 'workbench-$displayIndex',
     name: name.isEmpty ? '#$displayIndex' : name,
+    source: content,
     placeholder: executing ? '生成中' : '暂无图片',
+  );
+}
+
+Widget _workbenchGeneratedImagePreviewFooter(
+  BuildContext context,
+  StudioGeneratedImageItem item,
+  bool fullscreen,
+) {
+  final source = item.source;
+  if (source is! InfoCardContent) return const SizedBox.shrink();
+  if (source.title.trim().isEmpty &&
+      source.info.trim().isEmpty &&
+      source.additionalInfo.isEmpty) {
+    return const SizedBox.shrink();
+  }
+  return StudioImagePreviewPromptScroll(
+    key: const ValueKey('workbench-generated-image-detail-preview'),
+    child: InfoCardDetailPanel(
+      content: source,
+      dense: true,
+      showCopyActions: false,
+      popOnCopy: false,
+      padding: const EdgeInsets.all(10),
+    ),
   );
 }
 
@@ -509,10 +589,41 @@ class _CoreOutputSection extends StatelessWidget {
   }
 }
 
-class _SizeSelector extends StatelessWidget {
+class _SizeSelector extends StatefulWidget {
   final WorkbenchSingleImageParametersViewmodel viewmodel;
 
   const _SizeSelector({required this.viewmodel});
+
+  @override
+  State<_SizeSelector> createState() => _SizeSelectorState();
+}
+
+class _SizeSelectorState extends State<_SizeSelector> {
+  late final TextEditingController _widthController;
+  late final TextEditingController _heightController;
+
+  WorkbenchSingleImageParametersViewmodel get viewmodel => widget.viewmodel;
+
+  @override
+  void initState() {
+    super.initState();
+    _widthController = TextEditingController(text: viewmodel.draftWidthText);
+    _heightController = TextEditingController(text: viewmodel.draftHeightText);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SizeSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncControllerText(_widthController, viewmodel.draftWidthText);
+    _syncControllerText(_heightController, viewmodel.draftHeightText);
+  }
+
+  @override
+  void dispose() {
+    _widthController.dispose();
+    _heightController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -547,37 +658,45 @@ class _SizeSelector extends StatelessWidget {
             children: [
               Expanded(
                 child: TextFormField(
-                  initialValue: selectedSize.width.toString(),
+                  key: const ValueKey('workbench-width-field'),
+                  controller: _widthController,
                   decoration: const InputDecoration(
                     labelText: '宽度',
                     isDense: true,
                   ),
                   keyboardType: TextInputType.number,
-                  onFieldSubmitted: (value) => viewmodel.setManualSize(
-                    width: value,
-                    height: selectedSize.height.toString(),
-                  ),
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: viewmodel.setDraftWidthText,
+                  onFieldSubmitted: (_) => viewmodel.commitDraftSize(),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: TextFormField(
-                  initialValue: selectedSize.height.toString(),
+                  key: const ValueKey('workbench-height-field'),
+                  controller: _heightController,
                   decoration: const InputDecoration(
                     labelText: '高度',
                     isDense: true,
                   ),
                   keyboardType: TextInputType.number,
-                  onFieldSubmitted: (value) => viewmodel.setManualSize(
-                    width: selectedSize.width.toString(),
-                    height: value,
-                  ),
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onChanged: viewmodel.setDraftHeightText,
+                  onFieldSubmitted: (_) => viewmodel.commitDraftSize(),
                 ),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  void _syncControllerText(TextEditingController controller, String value) {
+    if (controller.text == value) return;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
     );
   }
 }
@@ -619,11 +738,29 @@ class _ReferenceInputSection extends StatefulWidget {
 }
 
 class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
-  late bool _i2iEnabled = widget.viewmodel.hasI2iImage;
+  bool _vibeEnabled = false;
+  bool _i2iEnabled = false;
+  late String _lastVibeSignature;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastVibeSignature = _vibeSignature;
+    _vibeEnabled =
+        widget.viewmodel.vibeEnabled && widget.viewmodel.hasVibeReferences;
+    _i2iEnabled = widget.viewmodel.hasI2iImage;
+  }
 
   @override
   void didUpdateWidget(covariant _ReferenceInputSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final vibeSignature = _vibeSignature;
+    if (vibeSignature != _lastVibeSignature) {
+      _lastVibeSignature = vibeSignature;
+      if (widget.viewmodel.vibeEnabled && widget.viewmodel.hasVibeReferences) {
+        _vibeEnabled = true;
+      }
+    }
     if (!oldWidget.viewmodel.hasI2iImage && widget.viewmodel.hasI2iImage) {
       _i2iEnabled = true;
     }
@@ -639,79 +776,83 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
         final i2iConfig = payload.i2iConfig;
         final vibeCount =
             payload.vibeConfigList.length + payload.vibeConfigListV4.length;
-        final preciseCount = payload.preciseReferenceList.length;
         final hasSourceImage = viewmodel.hasI2iImage;
         final sourceSize = i2iConfig.width > 0 && i2iConfig.height > 0
             ? '${i2iConfig.width} x ${i2iConfig.height}'
             : '已选择';
-        final title = !_i2iEnabled
-            ? '图生图（可选）'
-            : hasSourceImage
-                ? '图生图已启用'
-                : '图生图已开启';
-        final referenceCount = payload.usePreciseReference
-            ? preciseCount
-            : payload.generationRuntimeState.vibeEnabled
-                ? vibeCount
-                : 0;
         return Column(
           key: const ValueKey('workbench-reference-input-section'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _SectionTitle(
-                      icon: Icons.compare_outlined,
-                      title: title,
-                    ),
-                  ),
-                  if (_i2iEnabled) ...[
-                    StudioChip(
-                      icon: hasSourceImage
-                          ? Icons.image_outlined
-                          : Icons.add_photo_alternate_outlined,
-                      label: hasSourceImage ? '底图 $sourceSize' : '未选择底图',
-                      selected: hasSourceImage,
-                    ),
-                    if (referenceCount > 0) ...[
-                      const SizedBox(width: 8),
-                      StudioChip(
-                        icon: payload.usePreciseReference
-                            ? Icons.center_focus_strong_outlined
-                            : Icons.auto_awesome_outlined,
-                        label: payload.usePreciseReference
-                            ? '精确参考 $referenceCount'
-                            : '风格参考 $referenceCount',
-                        selected: true,
-                      ),
-                    ],
-                    const SizedBox(width: 8),
-                  ],
+            _ReferenceSectionHeader(
+              icon: Icons.auto_awesome_outlined,
+              title: '风格参考（Vibe）',
+              chips: [
+                if (vibeCount > 0)
                   StudioChip(
-                    key: const ValueKey('workbench-i2i-section-toggle'),
-                    icon: _i2iEnabled
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_unchecked,
-                    label: _i2iEnabled ? '关闭' : '开启',
-                    selected: _i2iEnabled,
-                    onTap: _toggleI2iEnabled,
+                    icon: Icons.auto_awesome_outlined,
+                    label: 'Vibe $vibeCount',
+                    selected: viewmodel.vibeEnabled,
                   ),
-                ],
+              ],
+              toggle: StudioChip(
+                key: const ValueKey('workbench-vibe-section-toggle'),
+                icon: _vibeEnabled
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                label: _vibeEnabled ? '关闭' : '开启',
+                selected: _vibeEnabled,
+                onTap: _toggleVibeEnabled,
+              ),
+            ),
+            if (_vibeEnabled) ...[
+              const SizedBox(height: 8),
+              KeyedSubtree(
+                key: const ValueKey('workbench-vibe-editor'),
+                child: VibeConfigV4ListView(
+                  viewmodel: VibeConfigV4ListViewmodel(),
+                  vibeEnabled: viewmodel.vibeEnabled,
+                  onVibeEnabledChanged: viewmodel.setVibeEnabled,
+                  compact: true,
+                  showEnabledSwitch: false,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            _ReferenceSectionHeader(
+              icon: Icons.compare_outlined,
+              title: hasSourceImage ? '图生图已配置' : '图生图（可选）',
+              chips: [
+                if (_i2iEnabled)
+                  StudioChip(
+                    icon: hasSourceImage
+                        ? Icons.image_outlined
+                        : Icons.add_photo_alternate_outlined,
+                    label: hasSourceImage ? '底图 $sourceSize' : '未选择底图',
+                    selected: hasSourceImage,
+                  ),
+              ],
+              toggle: StudioChip(
+                key: const ValueKey('workbench-i2i-section-toggle'),
+                icon: _i2iEnabled
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                label: _i2iEnabled ? '关闭' : '开启',
+                selected: _i2iEnabled,
+                onTap: _toggleI2iEnabled,
               ),
             ),
             if (_i2iEnabled) ...[
               const SizedBox(height: 8),
               KeyedSubtree(
-                key: const ValueKey('workbench-reference-editor'),
-                child: I2iTabView(
-                  viewmodel: I2iTabViewmodel(),
+                key: const ValueKey('workbench-i2i-editor'),
+                child: I2iConfigView(
+                  key: const ValueKey('workbench-i2i-config-view'),
+                  viewmodel: I2iTabViewmodel().createI2iViewmodel(),
                   compact: true,
-                  showImageSizeControl: false,
+                  showPromptOverride: false,
+                  showSizeControl: false,
                   showPresetControl: false,
-                  useReferenceModeCards: true,
                 ),
               ),
             ],
@@ -721,12 +862,66 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
     );
   }
 
+  String get _vibeSignature {
+    final payload = widget.viewmodel.payloadConfig;
+    final encodings = [
+      for (final vibe in payload.vibeConfigListV4) vibe.vibeB64.trim(),
+      for (final vibe in payload.vibeConfigList) vibe.imageB64.trim(),
+    ].join('|');
+    return '${payload.generationRuntimeState.vibeEnabled}|$encodings';
+  }
+
+  void _toggleVibeEnabled() {
+    final nextEnabled = !_vibeEnabled;
+    widget.viewmodel.setVibeEnabled(nextEnabled);
+    setState(() {
+      _vibeEnabled = nextEnabled;
+      _lastVibeSignature = _vibeSignature;
+    });
+  }
+
   void _toggleI2iEnabled() {
     final nextEnabled = !_i2iEnabled;
     if (!nextEnabled) {
       widget.viewmodel.disableI2iInputs();
     }
     setState(() => _i2iEnabled = nextEnabled);
+  }
+}
+
+class _ReferenceSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final List<Widget> chips;
+  final Widget toggle;
+
+  const _ReferenceSectionHeader({
+    required this.icon,
+    required this.title,
+    required this.chips,
+    required this.toggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: _SectionTitle(
+              icon: icon,
+              title: title,
+            ),
+          ),
+          for (final chip in chips) ...[
+            chip,
+            const SizedBox(width: 8),
+          ],
+          toggle,
+        ],
+      ),
+    );
   }
 }
 

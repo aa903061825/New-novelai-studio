@@ -33,7 +33,7 @@ class StudioScriptAssetFocus {
       StudioScriptAssetFocusKind.character =>
         'script-asset-character-$characterId',
       StudioScriptAssetFocusKind.outfit =>
-        'script-asset-outfit-$characterId-$outfitId',
+        'script-asset-character-$characterId-outfit-$outfitId',
       StudioScriptAssetFocusKind.artistChain =>
         'script-asset-artist-$artistChainId',
     };

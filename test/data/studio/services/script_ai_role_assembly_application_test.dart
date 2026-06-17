@@ -1,7 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_assembly_application.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_assembly_application.dart';
 
 void main() {
   const application = ScriptAiRoleAssemblyApplication();
@@ -54,6 +55,640 @@ void main() {
     expect(stage.sourceParts.lowerClothing, 'denim shorts');
     expect(stage.omittedParts, contains(RecastPromptPart.upperBody));
   });
+
+  test('applies AI role and scene terms as replacement groups', () {
+    final result = application.apply(
+      mapping: RecastMapping.defaults('script-1'),
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Heroine',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourcePhrase: 'wearing a red jacket',
+                sourceLocation: 'slot-0 prompt',
+                frameIndexes: [1, 2],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'night',
+            text: 'night',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'city street at night',
+            sourceLocation: 'base prompt',
+            frameIndexes: [1],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.mapping.roleAssemblies, isEmpty);
+
+    final roleReplacement = result.mapping.rolePromptReplacements.single;
+    expect(roleReplacement.sourceRoleId, 'slot-0');
+    expect(roleReplacement.displayLabel, 'Heroine');
+    expect(roleReplacement.sourcePreview, 'red jacket');
+    expect(roleReplacement.rules.single.id, 'role-slot-0-red-jacket');
+    expect(
+      roleReplacement.rules.single.sourceTerms.single.text,
+      'red jacket',
+    );
+    expect(
+      roleReplacement.rules.single.sourceTerms.single.frameIndexes,
+      [1, 2],
+    );
+
+    final sceneReplacement = result.mapping.scenePromptReplacements.single;
+    expect(sceneReplacement.rules.single.id, 'scene-night');
+    expect(
+      sceneReplacement.rules.single.sourceTerms.single.text,
+      'night',
+    );
+    expect(
+      sceneReplacement.rules.single.sourceTerms.single.sourceLocation,
+      'base prompt',
+    );
+  });
+
+  test('preserves user edits when refreshing replacement groups', () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      rolePromptReplacements: [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Old heroine',
+          sourcePreview: 'old jacket evidence',
+          targetCharacterId: 'target-character',
+          targetIdentityPrompt: 'target identity prompt',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'role-slot-0-red-jacket',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'red-jacket',
+                  text: 'old red jacket',
+                  category: PromptTagCategory.clothing,
+                  sourcePhrase: 'old evidence',
+                  sourceLocation: 'old prompt',
+                  frameIndexes: [1],
+                ),
+              ],
+              excludedTermIds: ['excluded-term'],
+              action: ScriptPromptReplacementAction.delete,
+              matchMode: ScriptPromptReplacementMatchMode.anchor,
+              targetPrompt: 'white dress',
+              manualPhrase: 'manual jacket phrase',
+              anchorTermId: 'red-jacket',
+            ),
+          ],
+        ),
+      ],
+      scenePromptReplacements: [
+        ScriptScenePromptReplacement(
+          id: 'scene-ai',
+          label: 'Old scene',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'scene-night',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'night',
+                  text: 'old night',
+                  category: PromptTagCategory.scene,
+                  sourcePhrase: 'old scene evidence',
+                  sourceLocation: 'old base prompt',
+                  frameIndexes: [1],
+                ),
+              ],
+              excludedTermIds: ['scene-exclusion'],
+              action: ScriptPromptReplacementAction.delete,
+              matchMode: ScriptPromptReplacementMatchMode.anchor,
+              targetPrompt: 'sunny morning',
+              manualPhrase: 'manual scene phrase',
+              anchorTermId: 'night',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Heroine',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'red-jacket',
+                text: 'crimson jacket',
+                category: PromptTagCategory.clothing,
+                sourcePhrase: 'new jacket evidence',
+                sourceLocation: 'slot-0 prompt',
+                frameIndexes: [2, 3],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'night',
+            text: 'moonlit night',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'new scene evidence',
+            sourceLocation: 'base prompt',
+            frameIndexes: [2, 3],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.changed, isTrue);
+
+    final roleReplacement = result.mapping.rolePromptReplacements.single;
+    expect(roleReplacement.targetCharacterId, 'target-character');
+    expect(roleReplacement.targetIdentityPrompt, 'target identity prompt');
+    final roleRule = roleReplacement.rules.single;
+    expect(roleRule.sourceTerms.single.text, 'crimson jacket');
+    expect(roleRule.sourceTerms.single.sourcePhrase, 'new jacket evidence');
+    expect(roleRule.sourceTerms.single.frameIndexes, [2, 3]);
+    expect(roleRule.targetPrompt, 'white dress');
+    expect(roleRule.manualPhrase, 'manual jacket phrase');
+    expect(roleRule.action, ScriptPromptReplacementAction.delete);
+    expect(roleRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+    expect(roleRule.excludedTermIds, ['excluded-term']);
+    expect(roleRule.anchorTermId, 'red-jacket');
+
+    final sceneRule =
+        result.mapping.scenePromptReplacements.single.rules.single;
+    expect(sceneRule.sourceTerms.single.text, 'moonlit night');
+    expect(sceneRule.sourceTerms.single.sourceLocation, 'base prompt');
+    expect(sceneRule.sourceTerms.single.frameIndexes, [2, 3]);
+    expect(sceneRule.targetPrompt, 'sunny morning');
+    expect(sceneRule.manualPhrase, 'manual scene phrase');
+    expect(sceneRule.action, ScriptPromptReplacementAction.delete);
+    expect(sceneRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+    expect(sceneRule.excludedTermIds, ['scene-exclusion']);
+    expect(sceneRule.anchorTermId, 'night');
+  });
+
+  test('preserves user-merged replacement source terms when refreshing from AI',
+      () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      rolePromptReplacements: [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Heroine',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'role-slot-0-red-jacket',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'red-jacket',
+                  text: 'old red jacket',
+                  category: PromptTagCategory.clothing,
+                  sourcePhrase: 'old red evidence',
+                  frameIndexes: [1],
+                ),
+                ScriptPromptReplacementTerm(
+                  id: 'blue-skirt',
+                  text: 'old blue skirt',
+                  category: PromptTagCategory.clothing,
+                  sourcePhrase: 'old skirt evidence',
+                  frameIndexes: [1],
+                ),
+              ],
+              targetPrompt: 'white dress',
+            ),
+          ],
+        ),
+      ],
+      scenePromptReplacements: [
+        ScriptScenePromptReplacement(
+          id: 'scene-ai',
+          label: 'Scene',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'scene-night',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'night',
+                  text: 'old night',
+                  category: PromptTagCategory.scene,
+                ),
+                ScriptPromptReplacementTerm(
+                  id: 'rain',
+                  text: 'old rain',
+                  category: PromptTagCategory.scene,
+                ),
+              ],
+              targetPrompt: 'sunny morning',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Heroine',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourcePhrase: 'new red evidence',
+                frameIndexes: [2],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'blue-skirt',
+                text: 'blue skirt',
+                category: PromptTagCategory.clothing,
+                sourcePhrase: 'new skirt evidence',
+                frameIndexes: [3],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'night',
+            text: 'night',
+            category: PromptTagCategory.scene,
+            frameIndexes: [2],
+          ),
+          ScriptAiExtractedPromptTerm(
+            id: 'rain',
+            text: 'rain',
+            category: PromptTagCategory.scene,
+            frameIndexes: [3],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    final roleRules = result.mapping.rolePromptReplacements.single.rules;
+    expect(roleRules, hasLength(1));
+    expect(
+      roleRules.single.sourceTerms.map((term) => term.text),
+      ['red jacket', 'blue skirt'],
+    );
+    expect(
+      roleRules.single.sourceTerms.map((term) => term.frameIndexes),
+      [
+        [2],
+        [3],
+      ],
+    );
+    expect(roleRules.single.targetPrompt, 'white dress');
+
+    final sceneRules = result.mapping.scenePromptReplacements.single.rules;
+    expect(sceneRules, hasLength(1));
+    expect(
+      sceneRules.single.sourceTerms.map((term) => term.text),
+      ['night', 'rain'],
+    );
+    expect(sceneRules.single.targetPrompt, 'sunny morning');
+  });
+
+  test(
+    'refreshes scene-ai even when a user-authored scene group appears first',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        scenePromptReplacements: [
+          ScriptScenePromptReplacement(
+            id: 'custom-scene',
+            label: 'Custom scene edits',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'scene-fog',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'fog',
+                    text: 'fog',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+                manualPhrase: 'soft haze',
+              ),
+            ],
+          ),
+          ScriptScenePromptReplacement(
+            id: 'scene-ai',
+            label: 'AI scene terms',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'scene-night',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'night',
+                    text: 'old night evidence',
+                    category: PromptTagCategory.scene,
+                    sourcePhrase: 'old phrase',
+                    sourceLocation: 'old base prompt',
+                    frameIndexes: [1],
+                  ),
+                ],
+                excludedTermIds: ['old-exclusion'],
+                action: ScriptPromptReplacementAction.delete,
+                matchMode: ScriptPromptReplacementMatchMode.anchor,
+                targetPrompt: 'sunlit plaza',
+                manualPhrase: 'manual night edit',
+                anchorTermId: 'night',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          sceneTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'night',
+              text: 'moonlit night',
+              category: PromptTagCategory.scene,
+              sourcePhrase: 'moonlit street at night',
+              sourceLocation: 'base prompt',
+              frameIndexes: [2, 3],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(
+        result.mapping.scenePromptReplacements.map((group) => group.id),
+        ['custom-scene', 'scene-ai'],
+      );
+      final customGroup = result.mapping.scenePromptReplacements.first;
+      expect(customGroup.rules.single.id, 'scene-fog');
+      expect(customGroup.rules.single.manualPhrase, 'soft haze');
+
+      final aiGroup = result.mapping.scenePromptReplacements.last;
+      expect(aiGroup.label, 'AI scene terms');
+      final aiRule = aiGroup.rules.single;
+      expect(aiRule.id, 'scene-night');
+      expect(aiRule.sourceTerms.single.text, 'moonlit night');
+      expect(aiRule.sourceTerms.single.sourcePhrase, 'moonlit street at night');
+      expect(aiRule.sourceTerms.single.sourceLocation, 'base prompt');
+      expect(aiRule.sourceTerms.single.frameIndexes, [2, 3]);
+      expect(aiRule.targetPrompt, 'sunlit plaza');
+      expect(aiRule.manualPhrase, 'manual night edit');
+      expect(aiRule.action, ScriptPromptReplacementAction.delete);
+      expect(aiRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(aiRule.excludedTermIds, ['old-exclusion']);
+      expect(aiRule.anchorTermId, 'night');
+    },
+  );
+
+  test('preserves mapping exactly when extraction is not ready', () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      rolePromptReplacements: [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Heroine',
+          targetCharacterId: 'target-character',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'role-slot-0-red-jacket',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+              targetPrompt: 'white dress',
+            ),
+          ],
+        ),
+      ],
+      scenePromptReplacements: [
+        ScriptScenePromptReplacement(
+          id: 'scene-ai',
+          label: 'Scene',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'scene-night',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'night',
+                  text: 'night',
+                  category: PromptTagCategory.scene,
+                ),
+              ],
+              manualPhrase: 'manual scene',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.needsMoreEvidence,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'blue-dress',
+                text: 'blue dress',
+                category: PromptTagCategory.clothing,
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'day',
+            text: 'day',
+            category: PromptTagCategory.scene,
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.changed, isFalse);
+    expect(identical(result.mapping, mapping), isTrue);
+  });
+
+  test(
+    'drops stale automatic replacement rules but keeps user-authored rules if source disappears',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Heroine',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-red-jacket',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-old-hat',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-hat',
+                    text: 'old hat',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-scarf',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'scarf',
+                    text: 'scarf',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetPrompt: 'blue ribbon',
+              ),
+            ],
+          ),
+        ],
+        scenePromptReplacements: [
+          ScriptScenePromptReplacement(
+            id: 'scene-ai',
+            label: 'Scene',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'scene-night',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'night',
+                    text: 'night',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'scene-old-rain',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-rain',
+                    text: 'old rain',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'scene-fog',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'fog',
+                    text: 'fog',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+                manualPhrase: 'soft sunrise haze',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'red-jacket',
+                  text: 'bright red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+          sceneTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'night',
+              text: 'deep night',
+              category: PromptTagCategory.scene,
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isTrue);
+      expect(
+        result.mapping.rolePromptReplacements.single.rules
+            .map((rule) => rule.id),
+        ['role-slot-0-red-jacket', 'role-slot-0-scarf'],
+      );
+      expect(
+        result.mapping.rolePromptReplacements.single.rules.first.sourceTerms
+            .single.text,
+        'bright red jacket',
+      );
+      expect(
+        result.mapping.rolePromptReplacements.single.rules.last.targetPrompt,
+        'blue ribbon',
+      );
+      expect(
+        result.mapping.scenePromptReplacements.single.rules
+            .map((rule) => rule.id),
+        ['scene-night', 'scene-fog'],
+      );
+      expect(
+        result.mapping.scenePromptReplacements.single.rules.first.sourceTerms
+            .single.text,
+        'deep night',
+      );
+      expect(
+        result.mapping.scenePromptReplacements.single.rules.last.manualPhrase,
+        'soft sunrise haze',
+      );
+    },
+  );
 
   test(
     'keeps AI stages whose ids look like local default stage ids',
@@ -116,7 +751,8 @@ void main() {
     },
   );
 
-  test('keeps user-authored targets and manual fields when refreshing stage', () {
+  test('keeps user-authored targets and manual fields when refreshing stage',
+      () {
     const existingStage = RoleAssemblyStage(
       id: 'stage-casual',
       label: 'Old stage',

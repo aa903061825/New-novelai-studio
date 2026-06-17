@@ -1,6 +1,6 @@
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 typedef ScriptAiRoleStageLabeler = String Function(
   ScriptAiExtractedStage stage,
@@ -25,7 +25,7 @@ class ScriptAiRoleAssemblyApplication {
     required ScriptAiRoleExtraction extraction,
     required ScriptAiRoleStageLabeler stageLabelFor,
   }) {
-    if (!extraction.isReady || extraction.roles.isEmpty) {
+    if (!extraction.isReady) {
       return ScriptAiRoleAssemblyApplicationResult(
         mapping: mapping,
         changed: false,
@@ -33,81 +33,113 @@ class ScriptAiRoleAssemblyApplication {
     }
 
     final normalizedExtraction = extraction.collapseEquivalentStages();
-    final rolesBySourceId = <String, ScriptAiExtractedRole>{
-      for (final role in normalizedExtraction.roles)
-        if (role.sourceRoleId.trim().isNotEmpty) role.sourceRoleId: role,
-    };
-    final coveredSourceRoleIds = _coveredSourceRoleIds(
-      normalizedExtraction.roles,
-    );
-    final usedStageIds = <String>{
-      for (final assembly in mapping.roleAssemblies)
-        for (final stage in assembly.stages)
-          if (_isUserAuthoredStage(stage)) stage.id,
-    };
     var changed = false;
-    final nextAssemblies = <RoleAssembly>[];
-    final appliedRoleIds = <String>{};
+    var roleAssembliesChanged = false;
+    var nextAssemblies = mapping.roleAssemblies;
 
-    for (final assembly in mapping.roleAssemblies) {
-      final role = rolesBySourceId[assembly.sourceRoleId];
-      if (role == null) {
-        if (_shouldKeepUnmatchedExistingAssembly(
-          assembly,
-          coveredSourceRoleIds,
-        )) {
-          nextAssemblies.add(assembly);
-        } else {
-          changed = true;
-        }
-        continue;
-      }
-      appliedRoleIds.add(role.sourceRoleId);
-      final nextAssembly = _assemblyWithAiRoleExtraction(
-        assembly: assembly,
-        role: role,
-        usedStageIds: usedStageIds,
-        stageLabelFor: stageLabelFor,
-      );
-      if (assembly.displayLabel != nextAssembly.displayLabel ||
-          assembly.sourceName != nextAssembly.sourceName ||
-          !_roleAssemblySourceAppearancesEqual(
-            assembly.sourceAppearances,
-            nextAssembly.sourceAppearances,
-          ) ||
-          !_roleAssemblyStagesEqual(assembly.stages, nextAssembly.stages)) {
-        changed = true;
-      }
-      nextAssemblies.add(nextAssembly);
+    void markRoleAssembliesChanged() {
+      changed = true;
+      roleAssembliesChanged = true;
     }
 
-    for (final role in normalizedExtraction.roles) {
-      final sourceRoleId = role.sourceRoleId.trim();
-      if (!_shouldCreateAiRoleAssembly(role) ||
-          appliedRoleIds.contains(sourceRoleId)) {
-        continue;
-      }
-      final stages = _aiRoleExtractionStages(
-        role: role,
-        usedStageIds: usedStageIds,
-        stageLabelFor: stageLabelFor,
+    if (normalizedExtraction.roles.isNotEmpty) {
+      final rolesBySourceId = <String, ScriptAiExtractedRole>{
+        for (final role in normalizedExtraction.roles)
+          if (role.sourceRoleId.trim().isNotEmpty) role.sourceRoleId: role,
+      };
+      final coveredSourceRoleIds = _coveredSourceRoleIds(
+        normalizedExtraction.roles,
       );
-      if (stages.isEmpty) {
-        continue;
+      final usedStageIds = <String>{
+        for (final assembly in mapping.roleAssemblies)
+          for (final stage in assembly.stages)
+            if (_isUserAuthoredStage(stage)) stage.id,
+      };
+      final refreshedAssemblies = <RoleAssembly>[];
+      final appliedRoleIds = <String>{};
+
+      for (final assembly in mapping.roleAssemblies) {
+        final role = rolesBySourceId[assembly.sourceRoleId];
+        if (role == null) {
+          if (_shouldKeepUnmatchedExistingAssembly(
+            assembly,
+            coveredSourceRoleIds,
+          )) {
+            refreshedAssemblies.add(assembly);
+          } else {
+            markRoleAssembliesChanged();
+          }
+          continue;
+        }
+        appliedRoleIds.add(role.sourceRoleId);
+        final nextAssembly = _assemblyWithAiRoleExtraction(
+          assembly: assembly,
+          role: role,
+          usedStageIds: usedStageIds,
+          stageLabelFor: stageLabelFor,
+        );
+        if (assembly.displayLabel != nextAssembly.displayLabel ||
+            assembly.sourceName != nextAssembly.sourceName ||
+            !_roleAssemblySourceAppearancesEqual(
+              assembly.sourceAppearances,
+              nextAssembly.sourceAppearances,
+            ) ||
+            !_roleAssemblyStagesEqual(assembly.stages, nextAssembly.stages)) {
+          markRoleAssembliesChanged();
+        }
+        refreshedAssemblies.add(nextAssembly);
       }
+
+      for (final role in normalizedExtraction.roles) {
+        final sourceRoleId = role.sourceRoleId.trim();
+        if (!_shouldCreateAiRoleAssembly(role) ||
+            appliedRoleIds.contains(sourceRoleId)) {
+          continue;
+        }
+        final stages = _aiRoleExtractionStages(
+          role: role,
+          usedStageIds: usedStageIds,
+          stageLabelFor: stageLabelFor,
+        );
+        if (stages.isEmpty) {
+          continue;
+        }
+        markRoleAssembliesChanged();
+        refreshedAssemblies.add(
+          RoleAssembly(
+            sourceRoleId: sourceRoleId,
+            displayLabel: role.displayName.trim().isEmpty
+                ? sourceRoleId
+                : role.displayName,
+            sourceName: role.displayName,
+            sourceAppearances: _roleAssemblySourceAppearancesFromAi(role),
+            stages: List.unmodifiable(stages),
+          ),
+        );
+        appliedRoleIds.add(sourceRoleId);
+      }
+      nextAssemblies = List.unmodifiable(refreshedAssemblies);
+    }
+
+    final nextRolePromptReplacements = _rolePromptReplacementsFromAi(
+      existingReplacements: mapping.rolePromptReplacements,
+      roles: normalizedExtraction.roles,
+    );
+    final nextScenePromptReplacements = _scenePromptReplacementsFromAi(
+      existingReplacements: mapping.scenePromptReplacements,
+      sceneTerms: normalizedExtraction.sceneTerms,
+    );
+    if (!_rolePromptReplacementsEqual(
+      mapping.rolePromptReplacements,
+      nextRolePromptReplacements,
+    )) {
       changed = true;
-      nextAssemblies.add(
-        RoleAssembly(
-          sourceRoleId: sourceRoleId,
-          displayLabel: role.displayName.trim().isEmpty
-              ? sourceRoleId
-              : role.displayName,
-          sourceName: role.displayName,
-          sourceAppearances: _roleAssemblySourceAppearancesFromAi(role),
-          stages: List.unmodifiable(stages),
-        ),
-      );
-      appliedRoleIds.add(sourceRoleId);
+    }
+    if (!_scenePromptReplacementsEqual(
+      mapping.scenePromptReplacements,
+      nextScenePromptReplacements,
+    )) {
+      changed = true;
     }
 
     if (!changed) {
@@ -116,12 +148,413 @@ class ScriptAiRoleAssemblyApplication {
         changed: false,
       );
     }
+    var nextMapping = mapping.copyWith(
+      roleAssemblies: nextAssemblies,
+      rolePromptReplacements: nextRolePromptReplacements,
+      scenePromptReplacements: nextScenePromptReplacements,
+    );
+    if (roleAssembliesChanged) {
+      nextMapping = _mappingWithoutStaleLocalDefaultStages(nextMapping);
+    }
     return ScriptAiRoleAssemblyApplicationResult(
-      mapping: _mappingWithoutStaleLocalDefaultStages(
-        mapping.copyWith(roleAssemblies: List.unmodifiable(nextAssemblies)),
-      ),
+      mapping: nextMapping,
       changed: true,
     );
+  }
+
+  List<ScriptRolePromptReplacement> _rolePromptReplacementsFromAi({
+    required List<ScriptRolePromptReplacement> existingReplacements,
+    required List<ScriptAiExtractedRole> roles,
+  }) {
+    final existingBySourceRoleId = <String, ScriptRolePromptReplacement>{};
+    for (final replacement in existingReplacements) {
+      final sourceRoleId = replacement.sourceRoleId.trim();
+      if (sourceRoleId.isNotEmpty &&
+          !existingBySourceRoleId.containsKey(sourceRoleId)) {
+        existingBySourceRoleId[sourceRoleId] = replacement;
+      }
+    }
+
+    final next = <ScriptRolePromptReplacement>[];
+    final appliedSourceRoleIds = <String>{};
+    for (final role in roles) {
+      final sourceRoleId = role.sourceRoleId.trim();
+      if (sourceRoleId.isEmpty) {
+        continue;
+      }
+      final promptTerms = _nonEmptyPromptTerms(role.promptTerms);
+      if (promptTerms.isEmpty) {
+        continue;
+      }
+      final existing = existingBySourceRoleId[sourceRoleId];
+      final sourcePreview = _sourcePreviewForPromptTerms(promptTerms);
+      next.add(
+        ScriptRolePromptReplacement(
+          sourceRoleId: sourceRoleId,
+          displayLabel:
+              role.displayName.trim().isEmpty ? sourceRoleId : role.displayName,
+          sourcePreview: sourcePreview.trim().isEmpty
+              ? existing?.sourcePreview ?? ''
+              : sourcePreview,
+          targetCharacterId: existing?.targetCharacterId,
+          targetIdentityPrompt: existing?.targetIdentityPrompt ?? '',
+          rules: _promptReplacementRulesFromAiTerms(
+            terms: promptTerms,
+            existingRules: existing?.rules ?? const [],
+            ruleIdFor: (term) =>
+                _rolePromptReplacementRuleId(sourceRoleId, term),
+          ),
+        ),
+      );
+      appliedSourceRoleIds.add(sourceRoleId);
+    }
+
+    for (final existing in existingReplacements) {
+      final sourceRoleId = existing.sourceRoleId.trim();
+      if (appliedSourceRoleIds.contains(sourceRoleId)) {
+        continue;
+      }
+      final preserved = _rolePromptReplacementWithOnlyUserState(existing);
+      if (preserved != null) {
+        next.add(preserved);
+      }
+    }
+    return List.unmodifiable(next);
+  }
+
+  List<ScriptScenePromptReplacement> _scenePromptReplacementsFromAi({
+    required List<ScriptScenePromptReplacement> existingReplacements,
+    required List<ScriptAiExtractedPromptTerm> sceneTerms,
+  }) {
+    final promptTerms = _nonEmptyPromptTerms(sceneTerms);
+    final existingAiReplacement =
+        _existingAiManagedScenePromptReplacement(existingReplacements);
+    if (promptTerms.isEmpty) {
+      return List.unmodifiable([
+        for (final replacement in existingReplacements)
+          if (_scenePromptReplacementWithOnlyUserState(replacement)
+              case final preserved?)
+            preserved,
+      ]);
+    }
+
+    final refreshedAiReplacement = ScriptScenePromptReplacement(
+      id: _sceneAiPromptReplacementId,
+      label: existingAiReplacement == null ||
+              existingAiReplacement.label.trim().isEmpty
+          ? 'Scene'
+          : existingAiReplacement.label,
+      rules: _promptReplacementRulesFromAiTerms(
+        terms: promptTerms,
+        existingRules: existingAiReplacement?.rules ?? const [],
+        ruleIdFor: _scenePromptReplacementRuleId,
+      ),
+    );
+
+    final next = <ScriptScenePromptReplacement>[];
+    var addedAiReplacement = false;
+    for (final replacement in existingReplacements) {
+      if (_isAiManagedScenePromptReplacement(replacement)) {
+        if (!addedAiReplacement) {
+          next.add(refreshedAiReplacement);
+          addedAiReplacement = true;
+        }
+        continue;
+      }
+      final preserved = _scenePromptReplacementWithOnlyUserState(replacement);
+      if (preserved != null) {
+        next.add(preserved);
+      }
+    }
+    if (!addedAiReplacement) {
+      next.add(refreshedAiReplacement);
+    }
+    return List.unmodifiable(next);
+  }
+
+  static const _sceneAiPromptReplacementId = 'scene-ai';
+
+  ScriptScenePromptReplacement? _existingAiManagedScenePromptReplacement(
+    List<ScriptScenePromptReplacement> replacements,
+  ) {
+    for (final replacement in replacements) {
+      if (_isAiManagedScenePromptReplacement(replacement)) {
+        return replacement;
+      }
+    }
+    return null;
+  }
+
+  bool _isAiManagedScenePromptReplacement(
+    ScriptScenePromptReplacement replacement,
+  ) {
+    return replacement.id.trim() == _sceneAiPromptReplacementId;
+  }
+
+  List<ScriptPromptReplacementRule> _promptReplacementRulesFromAiTerms({
+    required List<ScriptAiExtractedPromptTerm> terms,
+    required List<ScriptPromptReplacementRule> existingRules,
+    required String Function(ScriptAiExtractedPromptTerm term) ruleIdFor,
+  }) {
+    final aiRulesById = <String, ScriptPromptReplacementRule>{};
+    final aiRuleIdsByTermKey = <String, String>{};
+    final aiTermsByKey = <String, ScriptPromptReplacementTerm>{};
+    for (final term in terms) {
+      final ruleId = ruleIdFor(term);
+      if (ruleId.trim().isEmpty || aiRulesById.containsKey(ruleId)) {
+        continue;
+      }
+      final replacementTerm = _promptReplacementTermFromAi(term);
+      aiRulesById[ruleId] = ScriptPromptReplacementRule(
+        id: ruleId,
+        sourceTerms: List.unmodifiable([replacementTerm]),
+      );
+      for (final key in _promptReplacementTermKeys(
+        id: replacementTerm.id,
+        text: replacementTerm.text,
+      )) {
+        aiRuleIdsByTermKey.putIfAbsent(key, () => ruleId);
+        aiTermsByKey.putIfAbsent(key, () => replacementTerm);
+      }
+    }
+
+    final existingRulesById = <String, ScriptPromptReplacementRule>{};
+    for (final rule in existingRules) {
+      if (!existingRulesById.containsKey(rule.id)) {
+        existingRulesById[rule.id] = rule;
+      }
+    }
+
+    final groupedRulesByClaimedRuleId = <String, ScriptPromptReplacementRule>{};
+    for (final rule in existingRules) {
+      if (rule.sourceTerms.length < 2) {
+        continue;
+      }
+      for (final term in rule.sourceTerms) {
+        final claimedRuleId = _aiRuleIdForPromptReplacementTerm(
+          term,
+          aiRuleIdsByTermKey,
+        );
+        if (claimedRuleId != null) {
+          groupedRulesByClaimedRuleId[claimedRuleId] = rule;
+        }
+      }
+    }
+
+    final next = <ScriptPromptReplacementRule>[];
+    final appliedRuleIds = <String>{};
+    final emittedGroupedRuleIds = <String>{};
+    for (final term in terms) {
+      final ruleId = ruleIdFor(term);
+      if (ruleId.trim().isEmpty) {
+        continue;
+      }
+      final groupedRule = groupedRulesByClaimedRuleId[ruleId];
+      if (groupedRule != null) {
+        appliedRuleIds.add(ruleId);
+        if (emittedGroupedRuleIds.add(groupedRule.id)) {
+          next.add(
+            _promptReplacementRuleWithRefreshedSourceTerms(
+              groupedRule,
+              aiTermsByKey,
+            ),
+          );
+          for (final groupedTerm in groupedRule.sourceTerms) {
+            final claimedRuleId = _aiRuleIdForPromptReplacementTerm(
+              groupedTerm,
+              aiRuleIdsByTermKey,
+            );
+            if (claimedRuleId != null) {
+              appliedRuleIds.add(claimedRuleId);
+            }
+          }
+        }
+        continue;
+      }
+      if (!appliedRuleIds.add(ruleId)) {
+        continue;
+      }
+      final aiRule = aiRulesById[ruleId];
+      if (aiRule == null) {
+        continue;
+      }
+      final existing = existingRulesById[ruleId];
+      next.add(
+        existing == null
+            ? aiRule
+            : existing.copyWith(sourceTerms: aiRule.sourceTerms),
+      );
+    }
+
+    for (final existing in existingRules) {
+      if (appliedRuleIds.contains(existing.id) ||
+          emittedGroupedRuleIds.contains(existing.id)) {
+        continue;
+      }
+      if (_isUserAuthoredPromptReplacementRule(existing)) {
+        next.add(existing);
+      }
+    }
+    return List.unmodifiable(next);
+  }
+
+  ScriptPromptReplacementRule _promptReplacementRuleWithRefreshedSourceTerms(
+    ScriptPromptReplacementRule rule,
+    Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
+  ) {
+    return rule.copyWith(
+      sourceTerms: List.unmodifiable([
+        for (final term in rule.sourceTerms)
+          _promptReplacementTermWithRefreshedAiMetadata(term, aiTermsByKey),
+      ]),
+    );
+  }
+
+  ScriptPromptReplacementTerm _promptReplacementTermWithRefreshedAiMetadata(
+    ScriptPromptReplacementTerm term,
+    Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
+  ) {
+    for (final key in _promptReplacementTermKeys(
+      id: term.id,
+      text: term.text,
+    )) {
+      final aiTerm = aiTermsByKey[key];
+      if (aiTerm != null) {
+        return aiTerm;
+      }
+    }
+    return term;
+  }
+
+  String? _aiRuleIdForPromptReplacementTerm(
+    ScriptPromptReplacementTerm term,
+    Map<String, String> aiRuleIdsByTermKey,
+  ) {
+    for (final key in _promptReplacementTermKeys(
+      id: term.id,
+      text: term.text,
+    )) {
+      final ruleId = aiRuleIdsByTermKey[key];
+      if (ruleId != null) {
+        return ruleId;
+      }
+    }
+    return null;
+  }
+
+  List<String> _promptReplacementTermKeys({
+    required String id,
+    required String text,
+  }) {
+    final keys = <String>[];
+    final idKey = id.trim();
+    if (idKey.isNotEmpty) {
+      keys.add('id:$idKey');
+    }
+    final textKey = PromptTagProcessor.normalizeMatchKey(text);
+    if (textKey.isNotEmpty) {
+      keys.add('text:$textKey');
+    }
+    return keys;
+  }
+
+  ScriptPromptReplacementTerm _promptReplacementTermFromAi(
+    ScriptAiExtractedPromptTerm term,
+  ) {
+    return ScriptPromptReplacementTerm(
+      id: term.id.trim().isEmpty
+          ? 'term-${_safePromptTermTextId(term.text)}'
+          : term.id.trim(),
+      text: term.text.trim(),
+      category: term.category,
+      sourcePhrase: term.sourcePhrase.trim(),
+      sourceLocation: term.sourceLocation.trim(),
+      frameIndexes: List.unmodifiable(term.frameIndexes),
+    );
+  }
+
+  ScriptRolePromptReplacement? _rolePromptReplacementWithOnlyUserState(
+    ScriptRolePromptReplacement replacement,
+  ) {
+    final userRules = [
+      for (final rule in replacement.rules)
+        if (_isUserAuthoredPromptReplacementRule(rule)) rule,
+    ];
+    final hasUserTarget =
+        replacement.targetCharacterId?.trim().isNotEmpty == true ||
+            replacement.targetIdentityPrompt.trim().isNotEmpty;
+    if (!hasUserTarget && userRules.isEmpty) {
+      return null;
+    }
+    return replacement.copyWith(rules: List.unmodifiable(userRules));
+  }
+
+  ScriptScenePromptReplacement? _scenePromptReplacementWithOnlyUserState(
+    ScriptScenePromptReplacement replacement,
+  ) {
+    final userRules = [
+      for (final rule in replacement.rules)
+        if (_isUserAuthoredPromptReplacementRule(rule)) rule,
+    ];
+    if (userRules.isEmpty) {
+      return null;
+    }
+    return replacement.copyWith(rules: List.unmodifiable(userRules));
+  }
+
+  bool _isUserAuthoredPromptReplacementRule(
+    ScriptPromptReplacementRule rule,
+  ) {
+    return rule.sourceTerms.length > 1 ||
+        rule.targetPrompt.trim().isNotEmpty ||
+        rule.manualPhrase.trim().isNotEmpty ||
+        rule.action != ScriptPromptReplacementAction.none ||
+        rule.matchMode != ScriptPromptReplacementMatchMode.any ||
+        rule.excludedTermIds.isNotEmpty ||
+        rule.anchorTermId.trim().isNotEmpty;
+  }
+
+  List<ScriptAiExtractedPromptTerm> _nonEmptyPromptTerms(
+    List<ScriptAiExtractedPromptTerm> terms,
+  ) {
+    return List.unmodifiable([
+      for (final term in terms)
+        if (term.text.trim().isNotEmpty) term,
+    ]);
+  }
+
+  String _rolePromptReplacementRuleId(
+    String sourceRoleId,
+    ScriptAiExtractedPromptTerm term,
+  ) {
+    final termId = term.id.trim();
+    if (termId.isNotEmpty) {
+      return 'role-$sourceRoleId-$termId';
+    }
+    return 'role-$sourceRoleId-term-${_safePromptTermTextId(term.text)}';
+  }
+
+  String _scenePromptReplacementRuleId(ScriptAiExtractedPromptTerm term) {
+    final termId = term.id.trim();
+    if (termId.isNotEmpty) {
+      return 'scene-$termId';
+    }
+    return 'scene-term-${_safePromptTermTextId(term.text)}';
+  }
+
+  String _sourcePreviewForPromptTerms(
+    List<ScriptAiExtractedPromptTerm> terms,
+  ) {
+    final seen = <String>{};
+    final parts = <String>[];
+    for (final term in terms) {
+      final text = term.text.trim();
+      if (text.isEmpty || !seen.add(text)) {
+        continue;
+      }
+      parts.add(text);
+    }
+    return parts.join(', ');
   }
 
   RoleAssembly _assemblyWithAiRoleExtraction({
@@ -398,9 +831,8 @@ class ScriptAiRoleAssemblyApplication {
     RecastPromptParts source,
   ) {
     return RecastPromptParts(
-      identity: target.identity.trim().isNotEmpty
-          ? target.identity
-          : source.identity,
+      identity:
+          target.identity.trim().isNotEmpty ? target.identity : source.identity,
       upperBody: target.upperBody.trim().isNotEmpty
           ? target.upperBody
           : source.upperBody,
@@ -568,6 +1000,104 @@ class ScriptAiRoleAssemblyApplication {
     return true;
   }
 
+  bool _rolePromptReplacementsEqual(
+    List<ScriptRolePromptReplacement> left,
+    List<ScriptRolePromptReplacement> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      final leftReplacement = left[index];
+      final rightReplacement = right[index];
+      if (leftReplacement.sourceRoleId != rightReplacement.sourceRoleId ||
+          leftReplacement.displayLabel != rightReplacement.displayLabel ||
+          leftReplacement.sourcePreview != rightReplacement.sourcePreview ||
+          leftReplacement.targetCharacterId !=
+              rightReplacement.targetCharacterId ||
+          leftReplacement.targetIdentityPrompt !=
+              rightReplacement.targetIdentityPrompt ||
+          !_promptReplacementRulesEqual(
+            leftReplacement.rules,
+            rightReplacement.rules,
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _scenePromptReplacementsEqual(
+    List<ScriptScenePromptReplacement> left,
+    List<ScriptScenePromptReplacement> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      final leftReplacement = left[index];
+      final rightReplacement = right[index];
+      if (leftReplacement.id != rightReplacement.id ||
+          leftReplacement.label != rightReplacement.label ||
+          !_promptReplacementRulesEqual(
+            leftReplacement.rules,
+            rightReplacement.rules,
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _promptReplacementRulesEqual(
+    List<ScriptPromptReplacementRule> left,
+    List<ScriptPromptReplacementRule> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      final leftRule = left[index];
+      final rightRule = right[index];
+      if (leftRule.id != rightRule.id ||
+          !_promptReplacementTermsEqual(
+            leftRule.sourceTerms,
+            rightRule.sourceTerms,
+          ) ||
+          !_listEquals(leftRule.excludedTermIds, rightRule.excludedTermIds) ||
+          leftRule.action != rightRule.action ||
+          leftRule.matchMode != rightRule.matchMode ||
+          leftRule.targetPrompt != rightRule.targetPrompt ||
+          leftRule.manualPhrase != rightRule.manualPhrase ||
+          leftRule.anchorTermId != rightRule.anchorTermId) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _promptReplacementTermsEqual(
+    List<ScriptPromptReplacementTerm> left,
+    List<ScriptPromptReplacementTerm> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      final leftTerm = left[index];
+      final rightTerm = right[index];
+      if (leftTerm.id != rightTerm.id ||
+          leftTerm.text != rightTerm.text ||
+          leftTerm.category != rightTerm.category ||
+          leftTerm.sourcePhrase != rightTerm.sourcePhrase ||
+          leftTerm.sourceLocation != rightTerm.sourceLocation ||
+          !_listEquals(leftTerm.frameIndexes, rightTerm.frameIndexes)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool _promptPartsEqual(RecastPromptParts left, RecastPromptParts right) {
     return left.identity == right.identity &&
         left.upperBody == right.upperBody &&
@@ -581,6 +1111,18 @@ class ScriptAiRoleAssemblyApplication {
         .replaceAll(RegExp(r'[^a-zA-Z0-9_-]+'), '-')
         .replaceAll(RegExp(r'-+'), '-')
         .replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  String _safePromptTermTextId(String value) {
+    final safe = _safeIdSegment(value.toLowerCase());
+    if (safe.isNotEmpty) {
+      return safe;
+    }
+    var hash = 0;
+    for (final codeUnit in value.codeUnits) {
+      hash = (hash * 31 + codeUnit) & 0x7fffffff;
+    }
+    return 'text-${hash.toRadixString(16)}';
   }
 
   String _summaryFromPromptParts(RecastPromptParts parts) {

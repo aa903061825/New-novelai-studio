@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
-import 'package:nai_casrand/ui/core/widgets/image_config_row_card.dart';
-import 'package:nai_casrand/ui/vibe_config/view_models/vibe_config_viewmodel.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/ui/core/widgets/image_config_row_card.dart';
+import 'package:novel_studio/ui/vibe_config/view_models/vibe_config_viewmodel.dart';
 
 class VibeConfigView extends StatelessWidget {
   final VibeConfigViewmodel viewmodel;

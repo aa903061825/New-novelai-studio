@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/studio_core/services/prompt_tag_list_utils.dart';
+import 'package:novel_studio/ui/studio_core/services/prompt_tag_list_utils.dart';
 
 void main() {
   group('prompt tag list utils', () {

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/config_service.dart';
 
 import '../../../data/models/vibe_config_v4.dart';
 

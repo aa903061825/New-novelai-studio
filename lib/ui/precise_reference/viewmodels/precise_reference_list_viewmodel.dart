@@ -2,9 +2,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 class PreciseReferenceListViewmodel extends ChangeNotifier {

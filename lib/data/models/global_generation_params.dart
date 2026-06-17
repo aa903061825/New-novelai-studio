@@ -73,7 +73,8 @@ class GlobalGenerationParams {
 
   int resolveSteps(ParamConfig config) => useGlobalSteps ? steps : config.steps;
 
-  double resolveScale(ParamConfig config) => useGlobalScale ? scale : config.scale;
+  double resolveScale(ParamConfig config) =>
+      useGlobalScale ? scale : config.scale;
 
   double resolveCfgRescale(ParamConfig config) =>
       useGlobalCfgRescale ? cfgRescale : config.cfgRescale;

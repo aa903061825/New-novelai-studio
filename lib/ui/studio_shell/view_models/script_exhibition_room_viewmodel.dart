@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
 
 typedef ScriptExhibitionScriptsLoader = Future<List<TokenizerScript>>
     Function();
@@ -34,6 +34,10 @@ typedef ScriptExhibitionScriptCategoryAssigner = Future<void> Function(
   ScriptExhibitionScript script,
   String categoryName,
 );
+typedef ScriptExhibitionScriptCategoryRemover = Future<void> Function(
+  ScriptExhibitionScript script,
+  String categoryName,
+);
 typedef ScriptExhibitionCategoryDeleter = Future<void> Function(
   String categoryName,
 );
@@ -45,6 +49,10 @@ typedef ScriptExhibitionVersionLabelRenamer = Future<void> Function(
   ScriptExhibitionScript script,
   ScriptExhibitionVersion version,
   String label,
+);
+typedef ScriptExhibitionVersionDeleter = Future<void> Function(
+  ScriptExhibitionScript script,
+  ScriptExhibitionVersion version,
 );
 typedef ScriptExhibitionItemCoverSetter = Future<void> Function(
   ScriptExhibitionItem item,
@@ -440,9 +448,11 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final ScriptExhibitionItemDeleter? deleteItemRecord;
   final ScriptExhibitionScriptRenamer? renameScriptRecord;
   final ScriptExhibitionScriptCategoryAssigner? assignScriptCategory;
+  final ScriptExhibitionScriptCategoryRemover? removeScriptCategory;
   final ScriptExhibitionCategoryDeleter? deleteCategoryRecord;
   final ScriptExhibitionImageAttachmentRenamer? renameImageAttachment;
   final ScriptExhibitionVersionLabelRenamer? renameVersionLabelRecord;
+  final ScriptExhibitionVersionDeleter? deleteVersionRecord;
   final ScriptExhibitionItemCoverSetter? setCoverItemRecord;
   final List<ScriptExhibitionUserCategory> customCategories;
   final Map<String, List<String>> customCategoryScriptIds;
@@ -473,9 +483,11 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     this.deleteItemRecord,
     this.renameScriptRecord,
     this.assignScriptCategory,
+    this.removeScriptCategory,
     this.deleteCategoryRecord,
     this.renameImageAttachment,
     ScriptExhibitionVersionLabelRenamer? renameVersionLabel,
+    this.deleteVersionRecord,
     this.setCoverItemRecord,
     this.customCategories = const [],
     this.customCategoryScriptIds = const {},
@@ -495,6 +507,8 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   bool get canCategorizeScripts => assignScriptCategory != null;
 
+  bool get canRemoveScriptCategories => removeScriptCategory != null;
+
   bool get canDeleteCategories => deleteCategoryRecord != null;
 
   Set<String> get selectedScriptIds => Set.unmodifiable(_selectedScriptIds);
@@ -502,6 +516,8 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   bool get canRenameItems => renameImageAttachment != null;
 
   bool get canRenameVersions => renameVersionLabelRecord != null;
+
+  bool get canDeleteVersions => deleteVersionRecord != null;
 
   bool get canSetCoverItems => setCoverItemRecord != null;
 
@@ -916,6 +932,34 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     await load();
   }
 
+  bool canDeleteVersion(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) {
+    if (deleteVersionRecord == null) return false;
+    if (version.id == ScriptExhibitionVersion.originalId) return false;
+    if (!script.versions.any((candidate) => candidate.id == version.id)) {
+      return false;
+    }
+    return version.items.any((item) => item.canDelete);
+  }
+
+  Future<void> deleteVersion(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) async {
+    final deleter = deleteVersionRecord;
+    if (deleter == null || !canDeleteVersion(script, version)) return;
+    await deleter(script, version);
+    if (selectedScriptId == script.scriptId &&
+        selectedVersionId == version.id) {
+      selectedVersionId = null;
+      selectedDetailFilterId = allDetailFilterId;
+      focusedItemId = null;
+    }
+    await load();
+  }
+
   Future<void> renameScript(
     ScriptExhibitionScript script,
     String label,
@@ -967,6 +1011,35 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     focusedItemId = null;
     _selectedScriptIds.clear();
     notifyListeners();
+  }
+
+  String? selectedCategoryNameForScript(ScriptExhibitionScript script) {
+    final categoryName = _selectedCustomCategoryName();
+    if (categoryName == null) return null;
+    if (!_scriptHasCategory(script, categoryName)) return null;
+    return categoryName;
+  }
+
+  bool canRemoveScriptFromSelectedCategory(ScriptExhibitionScript script) {
+    return removeScriptCategory != null &&
+        selectedCategoryNameForScript(script) != null;
+  }
+
+  Future<void> removeScriptFromSelectedCategory(
+    ScriptExhibitionScript script,
+  ) async {
+    final remover = removeScriptCategory;
+    final categoryName = selectedCategoryNameForScript(script);
+    if (remover == null || categoryName == null) return;
+    await remover(script, categoryName);
+    if (selectedScriptId == script.scriptId) {
+      selectedScriptId = null;
+      selectedVersionId = null;
+      selectedDetailFilterId = allDetailFilterId;
+      focusedItemId = null;
+    }
+    _selectedScriptIds.remove(script.scriptId);
+    await load();
   }
 
   bool canDeleteCategory(ScriptExhibitionCategory category) {
@@ -1122,6 +1195,18 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       ),
     );
   }
+
+  String? _selectedCustomCategoryName() {
+    if (_isProtectedCategoryId(selectedCategoryId)) return null;
+    final matchingCategory = categories
+        .where((category) => category.id == selectedCategoryId)
+        .firstOrNull;
+    final categoryTitle = matchingCategory?.title.trim();
+    if (categoryTitle != null && categoryTitle.isNotEmpty) {
+      return categoryTitle;
+    }
+    return _customCategoryDisplayNameFromId(selectedCategoryId);
+  }
 }
 
 String _customCategoryId(String categoryName) =>
@@ -1143,6 +1228,24 @@ String? _customCategoryNameFromId(String categoryId) {
   if (!categoryId.startsWith(prefix)) return null;
   final value = categoryId.substring(prefix.length).trim().toLowerCase();
   return value.isEmpty ? null : value;
+}
+
+String? _customCategoryDisplayNameFromId(String categoryId) {
+  const prefix = 'custom:';
+  if (!categoryId.startsWith(prefix)) return null;
+  final value = categoryId.substring(prefix.length).trim();
+  return value.isEmpty ? null : value;
+}
+
+bool _scriptHasCategory(
+  ScriptExhibitionScript script,
+  String categoryName,
+) {
+  final normalized = categoryName.trim().toLowerCase();
+  if (normalized.isEmpty) return false;
+  return script.categoryNames.any(
+    (name) => name.trim().toLowerCase() == normalized,
+  );
 }
 
 ScriptExhibitionSnapshot _buildSnapshot({

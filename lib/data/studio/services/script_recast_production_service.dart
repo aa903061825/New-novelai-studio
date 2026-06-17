@@ -1,7 +1,7 @@
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_engine.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_payload_adapter.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
+import 'package:novel_studio/data/studio/services/script_recast_payload_adapter.dart';
 
 typedef ScriptRecastProductionClock = DateTime Function();
 

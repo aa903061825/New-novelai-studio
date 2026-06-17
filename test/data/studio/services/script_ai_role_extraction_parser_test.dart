@@ -1,12 +1,83 @@
 import 'dart:convert';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_parser.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_parser.dart';
 
 void main() {
   group('ScriptAiRoleExtractionParser', () {
     const parser = ScriptAiRoleExtractionParser();
+
+    test('accepts roles with prompt terms and scene terms', () {
+      const raw = '''
+{
+  "status": "ready",
+  "roles": [
+    {
+      "source_role_id": "slot-0",
+      "display_name": "alice",
+      "prompt_terms": [
+        {
+          "id": "slot-0-identity-alice",
+          "text": "alice (wonder story)",
+          "category": "identity",
+          "source_phrase": "alice (wonder story), brown hair",
+          "frame_indexes": [1, 2, 3]
+        },
+        {
+          "id": "slot-0-clothing-jacket",
+          "text": "red jacket",
+          "category": "clothing",
+          "source_phrase": "wearing a red jacket and black skirt",
+          "frame_indexes": [1, 2, 3]
+        }
+      ]
+    }
+  ],
+  "scene_terms": [
+    {
+      "id": "scene-rainy-street",
+      "text": "rainy city street",
+      "category": "scene",
+      "source_phrase": "in a rainy city street at night",
+      "source_location": "base prompt",
+      "frame_indexes": [1, 2]
+    }
+  ]
+}
+''';
+
+      final extraction = parser.parse(raw);
+
+      expect(extraction.status, ScriptAiRoleExtractionStatus.ready);
+      expect(extraction.roles.single.promptTerms, hasLength(2));
+      expect(extraction.roles.single.promptTerms.first.text,
+          'alice (wonder story)');
+      expect(extraction.sceneTerms.single.text, 'rainy city street');
+      expect(extraction.sceneTerms.single.category, PromptTagCategory.scene);
+
+      final allTerms = [
+        for (final role in extraction.roles) ...role.promptTerms,
+        ...extraction.sceneTerms,
+      ].map((term) => term.text).toList();
+      expect(allTerms, isNot(contains('1girl')));
+      expect(allTerms, isNot(contains('solo')));
+    });
+
+    test('rejects scene terms schema signal when value is not a list', () {
+      const raw = '{"roles":[],"scene_terms":"not a list"}';
+
+      final extraction = parser.parse(raw);
+
+      expect(extraction.isFailed, isTrue);
+      expect(extraction.attentionItems.single.kind, 'parse_failure');
+      expect(
+        extraction.attentionItems.single.message,
+        contains('Missing role extraction object'),
+      );
+      expect(extraction.rawResponse, raw);
+    });
 
     test('parses plain role extraction JSON object', () {
       const raw = '''
@@ -114,7 +185,8 @@ void main() {
       expect(extraction.evidenceRequests.single.sourceId, 'slot-0');
     });
 
-    test('parser accepts failed response with attention items and no roles', () {
+    test('parser accepts failed response with attention items and no roles',
+        () {
       final extraction = parser.parse('''
 {
   "schema_version": 2,

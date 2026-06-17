@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:nai_casrand/data/models/api_request.dart';
+import 'package:novel_studio/data/models/api_request.dart';
 
 typedef ScriptAiChatExceptionFactory = Exception Function(String message);
 

@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:nai_casrand/data/services/file_service.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/services/production_executor_service.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_payload_adapter.dart';
+import 'package:novel_studio/data/services/file_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_payload_adapter.dart';
 
 typedef ProductionTaskJsonExporter = Future<bool> Function(
   String content,

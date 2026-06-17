@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/generation_preview_panel.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/prompt_composer_panel.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
-import 'package:nai_casrand/ui/studio_workbench/widgets/workbench_single_image_console.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/generation_preview_panel.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/prompt_composer_panel.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
+import 'package:novel_studio/ui/studio_workbench/widgets/workbench_single_image_console.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 class GenerationPageView extends StatelessWidget {

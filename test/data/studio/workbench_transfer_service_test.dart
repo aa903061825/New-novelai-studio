@@ -1,13 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/i2i_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/studio/models/workbench_document.dart';
-import 'package:nai_casrand/data/studio/services/workbench_transfer_service.dart';
+import 'package:novel_studio/data/models/i2i_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/studio/models/workbench_document.dart';
+import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
 
 PayloadConfig _payload(String prompt) {
   return PayloadConfig(
@@ -40,7 +40,7 @@ void main() {
     expect(document.payload['override_prompt'], 'rainy street');
   });
 
-  test('decode accepts legacy CasRand payload json', () {
+  test('decode accepts legacy payload json', () {
     final service = WorkbenchTransferService();
     final text = jsonEncode(_payload('legacy prompt').toJson());
 

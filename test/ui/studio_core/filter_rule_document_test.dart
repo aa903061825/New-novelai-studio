@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/ui/studio_core/services/filter_rule_document.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/studio_core/services/filter_rule_document.dart';
 
 void main() {
   String resolveBlock(String text) {
@@ -53,7 +53,8 @@ void main() {
     expect(document.toRuleText(), 'dramatic light, cinematic light');
   });
 
-  test('source order exposes non-empty blocks before empty canonical blocks', () {
+  test('source order exposes non-empty blocks before empty canonical blocks',
+      () {
     final document = FilterRuleDocument.fromText(
       'street, lowres',
       resolveBlock: resolveBlock,

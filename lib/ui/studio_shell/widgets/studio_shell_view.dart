@@ -7,51 +7,54 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/models/studio_gallery_record.dart';
-import 'package:nai_casrand/data/studio/models/tokenizer_script.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/services/prompt_workshop_bridge.dart';
-import 'package:nai_casrand/data/studio/services/production_queue_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_capture_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_preview_generation_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_gallery_service.dart';
-import 'package:nai_casrand/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:nai_casrand/data/studio/services/script_recast_parser_service.dart';
-import 'package:nai_casrand/data/studio/services/tokenizer_script_service.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
-import 'package:nai_casrand/ui/generation_page/widgets/generation_page_view.dart';
-import 'package:nai_casrand/ui/navigation/view_models/navigation_view_model.dart';
-import 'package:nai_casrand/ui/navigation/widgets/metadata_drop_area.dart';
-import 'package:nai_casrand/ui/settings_page/widgets/settings_page_view.dart';
-import 'package:nai_casrand/ui/studio_batch/view_models/production_queue_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_asset_capture_host.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_chip.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/studio_panel.dart';
-import 'package:nai_casrand/ui/studio_batch/widgets/studio_batch_page.dart';
-import 'package:nai_casrand/ui/studio_script/models/studio_script_asset_focus.dart';
-import 'package:nai_casrand/ui/studio_shell/models/studio_shell_section.dart';
-import 'package:nai_casrand/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/asset_library_page.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/script_exhibition_room_page.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_gallery_page.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_home_page.dart';
-import 'package:nai_casrand/ui/studio_shell/widgets/studio_tools_page.dart';
-import 'package:nai_casrand/ui/studio_script/view_models/studio_script_viewmodel.dart';
-import 'package:nai_casrand/ui/studio_script/widgets/studio_script_page.dart';
-import 'package:nai_casrand/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
+import 'package:novel_studio/data/studio/services/tokenizer_script_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/generation_page/widgets/generation_page_view.dart';
+import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dart';
+import 'package:novel_studio/ui/navigation/widgets/metadata_drop_area.dart';
+import 'package:novel_studio/ui/settings_page/widgets/settings_page_view.dart';
+import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_batch/widgets/studio_batch_page.dart';
+import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
+import 'package:novel_studio/ui/studio_shell/studio_shell_dependencies.dart';
+import 'package:novel_studio/ui/studio_shell/models/studio_shell_section.dart';
+import 'package:novel_studio/ui/studio_shell/view_models/script_exhibition_room_viewmodel.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/asset_library_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/script_exhibition_room_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_gallery_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_home_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_tools_page.dart';
+import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_script/widgets/studio_script_page.dart';
+import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 
 class StudioShellView extends StatefulWidget {
   final NavigationViewModel viewModel;
+  final StudioShellDependencies? dependencies;
 
-  const StudioShellView({super.key, required this.viewModel});
+  const StudioShellView({
+    super.key,
+    required this.viewModel,
+    this.dependencies,
+  });
 
   @override
   State<StudioShellView> createState() => _StudioShellViewState();
@@ -68,6 +71,9 @@ class _StudioShellViewState extends State<StudioShellView> {
       _productionQueueViewModelFromGetIt();
   late final ScriptExhibitionRoomViewModel _scriptExhibitionRoomViewModel =
       _scriptExhibitionRoomViewModelFromGetIt();
+
+  StudioShellDependencies get _dependencies =>
+      widget.dependencies ?? StudioShellDependencies(getIt: GetIt.I);
 
   @override
   Widget build(BuildContext context) {
@@ -125,25 +131,26 @@ class _StudioShellViewState extends State<StudioShellView> {
   }
 
   Widget _buildCurrentPage() {
+    final dependencies = _dependencies;
     return switch (_currentSection) {
       StudioShellSection.home => StudioHomePage(
-          catalogService: GetIt.I(),
-          galleryService: GetIt.I(),
-          workbenchAssetService: GetIt.I<StudioWorkbenchAssetService>(),
-          payloadConfig: GetIt.I(),
+          catalogService: dependencies.catalogService,
+          galleryService: dependencies.galleryService,
+          workbenchAssetService: dependencies.workbenchAssetService,
+          payloadConfig: dependencies.payloadConfig,
           onNavigate: _changeSection,
         ),
       StudioShellSection.assets => _withAssetCapture(
           StudioShellSection.assets,
           AssetLibraryPage(
-            catalogService: GetIt.I(),
-            workbenchAssetService: GetIt.I<StudioWorkbenchAssetService>(),
-            previewGenerationService:
-                GetIt.I<StudioAssetPreviewGenerationService>(),
+            catalogService: dependencies.catalogService,
+            workbenchAssetService: dependencies.workbenchAssetService,
+            previewGenerationService: dependencies.previewGenerationService,
             onSendToScript: _openScriptAsset,
-            saveCharacters: GetIt.I<WorkspaceService>().saveCharacters,
+            saveCharacters: dependencies.workspaceService.saveCharacters,
           )),
-      StudioShellSection.workbench => GenerationPageView(viewmodel: GetIt.I()),
+      StudioShellSection.workbench =>
+        GenerationPageView(viewmodel: dependencies.generationPageViewModel),
       StudioShellSection.script => _withAssetCapture(
           StudioShellSection.script,
           StudioScriptPage(
@@ -166,9 +173,9 @@ class _StudioShellViewState extends State<StudioShellView> {
       StudioShellSection.gallery => _withAssetCapture(
           StudioShellSection.gallery,
           StudioGalleryPage(
-            viewModel: GetIt.I(),
-            galleryService: GetIt.I(),
-            payloadConfig: GetIt.I(),
+            viewModel: dependencies.generationPageViewModel,
+            galleryService: dependencies.galleryService,
+            payloadConfig: dependencies.payloadConfig,
           )),
       StudioShellSection.settings => SettingsPageView(
           knowledgeAndRulesSection: _buildKnowledgeAndRulesPage(),
@@ -179,7 +186,7 @@ class _StudioShellViewState extends State<StudioShellView> {
   Widget _withAssetCapture(StudioShellSection section, Widget child) {
     return StudioAssetCaptureHost(
       key: ValueKey('asset-capture-host-${section.name}'),
-      service: GetIt.I<StudioAssetCaptureService>(),
+      service: _dependencies.assetCaptureService,
       child: child,
     );
   }
@@ -235,7 +242,7 @@ class _StudioShellViewState extends State<StudioShellView> {
           ? GetIt.I<TokenizerScriptService>().loadScripts
           : null,
       loadRecastCaches: GetIt.I<WorkspaceService>().loadRecastScriptCaches,
-      loadProductionPlans: GetIt.I<ProductionQueueService>().loadPlans,
+      loadProductionPlans: GetIt.I<ProductionQueueService>().loadPlansReadOnly,
       loadGalleryRecords: GetIt.I<StudioGalleryService>().loadRecords,
       importScriptFolder: _importScriptExhibitionFolder,
       importScriptImages: _importScriptImagesForExhibitionScript,
@@ -243,9 +250,11 @@ class _StudioShellViewState extends State<StudioShellView> {
       deleteItemRecord: _deleteScriptExhibitionItem,
       renameScriptRecord: _renameScriptExhibitionScript,
       assignScriptCategory: _assignScriptExhibitionScriptCategory,
+      removeScriptCategory: _removeScriptExhibitionScriptCategory,
       deleteCategoryRecord: _deleteScriptExhibitionCategory,
       renameImageAttachment: _renameScriptImageAttachment,
       renameVersionLabel: _renameScriptExhibitionVersionLabel,
+      deleteVersionRecord: _deleteScriptExhibitionVersion,
       setCoverItemRecord: _setScriptExhibitionCoverItem,
     );
   }
@@ -292,7 +301,7 @@ class _StudioShellViewState extends State<StudioShellView> {
     final nextFocus = _focusWithNonce(focus, _scriptAssetFocusNonce);
     _scriptAssetFocus = nextFocus;
     _changeSection(StudioShellSection.script);
-    await _scriptViewModel.ensureAssetsLoaded();
+    await _scriptViewModel.ensureAssetsLoaded(forceRefresh: true);
     if (!mounted || _scriptAssetFocus?.nonce != nextFocus.nonce) return;
     _scriptAssetFocusNonce += 1;
     setState(() {
@@ -522,6 +531,28 @@ class _StudioShellViewState extends State<StudioShellView> {
       _cacheWithScriptSnapshot(
         cache,
         _scriptWithLegacyCategory(snapshot, trimmed),
+      ),
+    );
+  }
+
+  Future<void> _removeScriptExhibitionScriptCategory(
+    ScriptExhibitionScript script,
+    String categoryName,
+  ) async {
+    final cache = await _findRecastCacheForExhibition(
+      scriptId: script.scriptId,
+      title: script.title,
+      sourceFolder: script.sourceFolder,
+    );
+    final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+    final trimmed = categoryName.trim();
+    if (cache == null || snapshot == null || trimmed.isEmpty) {
+      return;
+    }
+    await GetIt.I<WorkspaceService>().saveRecastScriptCache(
+      _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithoutLegacyCategory(snapshot, trimmed),
       ),
     );
   }
@@ -1085,6 +1116,22 @@ class _StudioShellViewState extends State<StudioShellView> {
     }
     await productionService.savePlans(nextPlans);
     unawaited(_productionQueueViewModel.load());
+  }
+
+  Future<void> _deleteScriptExhibitionVersion(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) async {
+    if (version.id == ScriptExhibitionVersion.originalId) {
+      return;
+    }
+    final items = [
+      for (final item in version.items)
+        if (item.canDelete) item,
+    ];
+    for (final item in items) {
+      await _deleteScriptExhibitionItem(item);
+    }
   }
 
   bool _productionTaskMatchesScript(

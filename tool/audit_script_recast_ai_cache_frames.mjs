@@ -1,10 +1,10 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 
 const defaultCacheDir = path.join(
   process.env.APPDATA ?? '',
-  'org.exception0x0194',
-  'nai3_autodraw',
+  'Novel Studio',
+  'Novel Studio',
   'novel_studio',
   'script_recast',
   'cache',

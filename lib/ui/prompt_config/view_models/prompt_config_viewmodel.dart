@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/ui/core/utils/flushbar.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/ui/core/utils/flushbar.dart';
 
 class PromptConfigViewModel extends ChangeNotifier {
   PromptConfig config;

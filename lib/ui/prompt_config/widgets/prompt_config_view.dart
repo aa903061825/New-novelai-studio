@@ -1,9 +1,9 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/prompt_config/widgets/prompt_config_delete_view.dart';
-import 'package:nai_casrand/ui/prompt_config/widgets/prompt_config_edit_view.dart';
-import 'package:nai_casrand/ui/prompt_config/widgets/prompt_config_reorder_view.dart';
-import 'package:nai_casrand/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_config/widgets/prompt_config_delete_view.dart';
+import 'package:novel_studio/ui/prompt_config/widgets/prompt_config_edit_view.dart';
+import 'package:novel_studio/ui/prompt_config/widgets/prompt_config_reorder_view.dart';
+import 'package:novel_studio/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
 import 'package:provider/provider.dart';
 
 class PromptConfigView extends StatelessWidget {

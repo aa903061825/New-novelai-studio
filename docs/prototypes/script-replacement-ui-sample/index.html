@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>脚本替换 UI 样本：分组标签池 + 编辑抽屉</title>
+    <style>
+      :root {
+        --bg: #090c10;
+        --surface-1: #10151c;
+        --surface-2: #151b23;
+        --surface-3: #1c2430;
+        --surface-4: #263343;
+        --line: #2d3847;
+        --line-strong: #46566a;
+        --text: #f4f7fb;
+        --muted: #8390a2;
+        --soft: #c6d0dd;
+        --primary: #7ce4c8;
+        --primary-soft: rgb(124 228 200 / 13%);
+        --info: #7fb7ff;
+        --accent: #c7a6ff;
+        --warning: #ffca66;
+        --danger: #ff7b72;
+        --shadow: 0 20px 60px rgb(0 0 0 / 34%);
+        font-family:
+          "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui,
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1180px;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 18% 0, rgb(124 228 200 / 8%), transparent 28%),
+          linear-gradient(180deg, #0c1118 0, var(--bg) 54%, #07090d 100%);
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      .shell {
+        display: grid;
+        gap: 14px;
+        padding: 20px 24px 96px;
+      }
+
+      .note,
+      .panel,
+      .drawer,
+      .compact-row,
+      .summary-bar {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .note {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px;
+      }
+
+      .eyebrow {
+        margin-bottom: 4px;
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .note h1 {
+        font-size: 22px;
+      }
+
+      .note p,
+      .muted,
+      .hint,
+      .meta {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .toolbar,
+      .row,
+      .tabs,
+      .chip-row,
+      .drawer-actions,
+      .group-head,
+      .status-row,
+      .switcher {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .toolbar {
+        justify-content: space-between;
+        padding: 12px 14px;
+      }
+
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 340px;
+        padding: 0 10px;
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+      }
+
+      .search input {
+        width: 100%;
+        height: 34px;
+        color: var(--text);
+        background: transparent;
+        border: 0;
+        outline: 0;
+      }
+
+      .button,
+      .tab,
+      .icon-button,
+      .seg {
+        min-height: 32px;
+        padding: 0 11px;
+        color: var(--soft);
+        background: var(--surface-3);
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .button.primary,
+      .tab.active,
+      .seg.active {
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-color: var(--primary);
+        font-weight: 850;
+      }
+
+      .button.danger {
+        color: var(--danger);
+        border-color: rgb(255 123 114 / 62%);
+      }
+
+      .icon-button {
+        width: 32px;
+        padding: 0;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 390px;
+        gap: 14px;
+      }
+
+      .left-stack {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+
+      .group {
+        overflow: hidden;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .group-head {
+        justify-content: space-between;
+        padding: 11px 12px;
+        background: var(--surface-1);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .group-title {
+        display: grid;
+        gap: 2px;
+      }
+
+      .group-title strong {
+        font-size: 14px;
+      }
+
+      .count {
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .tag-pool {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .tag {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        max-width: 260px;
+        min-height: 32px;
+        padding: 6px 10px 6px 8px;
+        color: var(--soft);
+        background: var(--surface-3);
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .tag::before {
+        content: "";
+        width: 3px;
+        align-self: stretch;
+        min-height: 18px;
+        border-radius: 999px;
+        background: var(--category, var(--primary));
+      }
+
+      .tag span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tag.active {
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 1px rgb(124 228 200 / 18%);
+      }
+
+      .tag.replaced {
+        border-color: var(--accent);
+      }
+
+      .tag.deleted {
+        color: var(--danger);
+        border-color: rgb(255 123 114 / 55%);
+        background: rgb(255 123 114 / 9%);
+        text-decoration: line-through;
+      }
+
+      .tag.excluded {
+        opacity: 0.48;
+      }
+
+      .badge {
+        flex: 0 0 auto;
+        padding: 2px 6px;
+        color: var(--muted);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 11px;
+        text-decoration: none;
+      }
+
+      .drawer {
+        position: sticky;
+        top: 14px;
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        align-content: start;
+      }
+
+      .drawer h2 {
+        font-size: 16px;
+      }
+
+      .source-card,
+      .target-card,
+      .batch-card,
+      .drop-zone,
+      .target-tray {
+        display: grid;
+        gap: 8px;
+        padding: 11px;
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .target-tray {
+        background: var(--surface-2);
+      }
+
+      .target-token {
+        border-color: var(--accent);
+      }
+
+      .drop-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .drop-zone {
+        min-height: 86px;
+        align-content: center;
+        background: var(--surface-1);
+        border-style: dashed;
+      }
+
+      .drop-zone strong {
+        font-size: 13px;
+      }
+
+      .drop-zone.drag-over {
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-color: var(--primary);
+      }
+
+      .drop-zone.danger-zone.drag-over {
+        color: var(--danger);
+        background: rgb(255 123 114 / 9%);
+        border-color: var(--danger);
+      }
+
+      textarea {
+        min-height: 78px;
+        resize: vertical;
+        color: var(--text);
+        background: var(--surface-2);
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        padding: 9px;
+        outline: 0;
+      }
+
+      textarea:focus {
+        border-color: var(--primary);
+      }
+
+      .segmented {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .summary-bar {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 11px 12px;
+      }
+
+      .kanban {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .column {
+        min-height: 460px;
+      }
+
+      .column .tag-pool {
+        align-content: start;
+      }
+
+      .compact-grid {
+        display: grid;
+        gap: 7px;
+      }
+
+      .compact-row {
+        display: grid;
+        grid-template-columns: 28px minmax(180px, 1fr) 120px minmax(220px, 0.8fr) 112px;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        box-shadow: none;
+      }
+
+      .mini-target {
+        min-height: 34px;
+        padding: 7px 9px;
+        color: var(--soft);
+        background: var(--surface-1);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .variant {
+        display: none;
+      }
+
+      .variant.active {
+        display: grid;
+        gap: 12px;
+      }
+
+      .prototype-switcher {
+        position: fixed;
+        left: 50%;
+        bottom: 18px;
+        z-index: 50;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        color: var(--text);
+        background: #050608;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        box-shadow: 0 14px 44px rgb(0 0 0 / 55%);
+      }
+
+      .switch-label {
+        min-width: 260px;
+        text-align: center;
+        color: var(--soft);
+        font-size: 13px;
+        font-weight: 850;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="note">
+        <div>
+          <p class="eyebrow">Throwaway Prototype</p>
+          <h1>脚本替换 UI 样本：分组标签池 + 右侧编辑抽屉</h1>
+          <p>
+            问题：词很多时，一行一规则太长。这里模拟“分组标签池 + 批量/单项编辑”的 3 个版式变体，底部可切换。
+          </p>
+        </div>
+        <div class="tabs" aria-label="样本操作">
+          <button class="button" id="resetButton" type="button">重置样本</button>
+          <button class="button primary" id="selectClothingButton" type="button">
+            选中服装组
+          </button>
+        </div>
+      </section>
+
+      <section class="panel toolbar">
+        <div class="tabs" role="tablist" aria-label="范围筛选">
+          <button class="tab active" data-filter="all" type="button">全部</button>
+          <button class="tab" data-filter="role" type="button">角色</button>
+          <button class="tab" data-filter="scene" type="button">场景</button>
+          <button class="tab" data-filter="changed" type="button">已修改</button>
+        </div>
+        <label class="search">
+          <span class="muted">搜索</span>
+          <input id="searchInput" type="search" placeholder="源词 / 目标词 / 分类 / 帧" />
+        </label>
+      </section>
+
+      <section id="variantA" class="variant active" aria-label="变体 A">
+        <div class="layout">
+          <div class="left-stack" id="groupedPool"></div>
+          <aside class="drawer" id="drawerA"></aside>
+        </div>
+      </section>
+
+      <section id="variantB" class="variant" aria-label="变体 B">
+        <div class="summary-bar">
+          <div>
+            <strong>批量优先看板</strong>
+            <p class="muted">先看哪些词保持、替换、删除；底部批量栏负责统一动作。</p>
+          </div>
+          <div class="status-row" id="summaryB"></div>
+        </div>
+        <div class="kanban" id="kanbanPool"></div>
+        <div class="summary-bar" id="bulkBarB"></div>
+      </section>
+
+      <section id="variantC" class="variant" aria-label="变体 C">
+        <div class="layout">
+          <div class="compact-grid" id="compactGrid"></div>
+          <aside class="drawer" id="drawerC"></aside>
+        </div>
+      </section>
+    </main>
+
+    <nav class="prototype-switcher" aria-label="原型变体切换">
+      <button class="icon-button" id="prevVariant" type="button">←</button>
+      <div class="switch-label" id="variantLabel">A · 分组标签池 + 右侧抽屉</div>
+      <button class="icon-button" id="nextVariant" type="button">→</button>
+    </nav>
+
+    <script>
+      const variants = [
+        ["A", "拖拽标签池 + 操作投放区"],
+        ["B", "三栏状态看板 + 批量栏"],
+        ["C", "紧凑表格 + 标签详情"],
+      ];
+
+      const targetTray = [
+        "white dress",
+        "blue kimono",
+        "school uniform",
+        "white bikini",
+        "sunlit school hallway",
+        "daytime",
+        "close-up",
+      ];
+
+      const categoryMeta = {
+        identity: ["身份", "#7ce4c8"],
+        body: ["外观", "#7fb7ff"],
+        clothing: ["服装", "#c7a6ff"],
+        state: ["状态", "#ffca66"],
+        accessory: ["饰品", "#9fd16f"],
+        scene: ["场景", "#f59bd3"],
+        camera: ["镜头", "#8aa6ff"],
+      };
+
+      const seedTerms = [
+        term("wakamo (blue_archive)", "identity", "role", "1,2,3,4,5,6,+184", "wakamo"),
+        term("girl", "identity", "role", "1-6,+184", ""),
+        term("fox ears", "body", "role", "1-6,+184", ""),
+        term("red halo", "body", "role", "1-6,+184", ""),
+        term("white tanktop", "clothing", "role", "1-4", "white dress"),
+        term("black shorts", "clothing", "role", "1-4", "pleated skirt"),
+        term("dolphin shorts", "clothing", "role", "5-6", ""),
+        term("fox tail", "body", "role", "1-6,+184", ""),
+        term("black kimono", "clothing", "role", "7-9", "blue kimono"),
+        term("red kimono", "clothing", "role", "7-9", ""),
+        term("short kimono", "clothing", "role", "7-9", ""),
+        term("tassel", "accessory", "role", "7-9", ""),
+        term("sash", "accessory", "role", "7-9", ""),
+        term("black panties", "clothing", "role", "2-5", "", "deleted"),
+        term("bead bracelet", "accessory", "role", "1-9", ""),
+        term("large breasts", "body", "role", "1-9", ""),
+        term("straight hair", "body", "role", "1-9", ""),
+        term("tail flower", "accessory", "role", "1-9", ""),
+        term("string bikini", "clothing", "role", "10-14", "white bikini"),
+        term("official alternate costume", "clothing", "role", "10-14", ""),
+        term("black choker", "accessory", "role", "10-14", ""),
+        term("rainy city street", "scene", "scene", "1-4", "sunlit school hallway"),
+        term("night", "scene", "scene", "1-4", "daytime"),
+        term("broken shop window", "scene", "scene", "2-3", "", "excluded"),
+        term("warm indoor light", "scene", "scene", "6-8", ""),
+        term("wide shot", "camera", "scene", "1,8", "close-up"),
+      ];
+
+      let state = {
+        activeId: seedTerms[0].id,
+        selected: new Set([seedTerms[0].id]),
+        filter: "all",
+        search: "",
+        variant: new URLSearchParams(location.search).get("variant") || "A",
+        terms: structuredClone(seedTerms),
+      };
+      let currentDragPayload = null;
+
+      if (!variants.some(([key]) => key === state.variant)) {
+        state.variant = "A";
+      }
+
+      function term(text, category, scope, frames, target = "", status = "") {
+        const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        return { id, text, category, scope, frames, target, status };
+      }
+
+      function visibleTerms() {
+        const q = state.search.trim().toLowerCase();
+        return state.terms.filter((item) => {
+          if (state.filter === "role" && item.scope !== "role") return false;
+          if (state.filter === "scene" && item.scope !== "scene") return false;
+          if (state.filter === "changed" && !isChanged(item)) return false;
+          if (!q) return true;
+          return [item.text, item.target, item.category, item.scope, item.frames]
+            .join(" ")
+            .toLowerCase()
+            .includes(q);
+        });
+      }
+
+      function isChanged(item) {
+        return item.target.trim() || item.status === "deleted" || item.status === "excluded";
+      }
+
+      function render() {
+        renderVariantShell();
+        renderTabs();
+        renderGroupedPool();
+        renderKanban();
+        renderCompact();
+        renderDragBoard();
+        renderDrawer("drawerC");
+        renderSwitcher();
+      }
+
+      function renderVariantShell() {
+        for (const [key] of variants) {
+          document.querySelector(`#variant${key}`).classList.toggle("active", state.variant === key);
+        }
+      }
+
+      function renderTabs() {
+        document.querySelectorAll("[data-filter]").forEach((button) => {
+          button.classList.toggle("active", button.dataset.filter === state.filter);
+        });
+      }
+
+      function renderGroupedPool() {
+        const groups = groupByCategory(visibleTerms());
+        document.querySelector("#groupedPool").innerHTML = Object.entries(groups)
+          .map(([category, items]) => renderGroup(category, items))
+          .join("") || empty("没有匹配的来源词");
+      }
+
+      function renderGroup(category, items) {
+        const [label] = categoryMeta[category] || [category];
+        const changed = items.filter(isChanged).length;
+        return `
+          <article class="group">
+            <header class="group-head">
+              <div class="group-title">
+                <strong>${escapeHtml(label)}</strong>
+                <span class="muted">${items.length} 个词 · ${changed} 个已修改</span>
+              </div>
+              <button class="button" data-select-category="${category}" type="button">多选整组</button>
+            </header>
+            <div class="tag-pool">${items.map(renderTag).join("")}</div>
+          </article>
+        `;
+      }
+
+      function renderTag(item) {
+        const [, color] = categoryMeta[item.category] || ["", "#7ce4c8"];
+        const classes = ["tag"];
+        if (state.activeId === item.id) classes.push("active");
+        if (item.target.trim()) classes.push("replaced");
+        if (item.status === "deleted") classes.push("deleted");
+        if (item.status === "excluded") classes.push("excluded");
+        return `
+          <button class="${classes.join(" ")}" style="--category:${color}" data-term="${item.id}" draggable="true" type="button">
+            <span>${escapeHtml(item.text)}</span>
+            <small class="badge">${escapeHtml(item.frames)}</small>
+            ${item.target.trim() ? `<small class="badge">替</small>` : ""}
+          </button>
+        `;
+      }
+
+      function renderDragBoard() {
+        const selected = selectedTerms();
+        const active = getActive();
+        document.querySelector("#drawerA").innerHTML = `
+          <h2>拖拽操作区</h2>
+          <p class="muted">拖目标标签到来源词上 = 替换；拖来源词到投放区 = 删除/排除/合并。多选后拖一个来源词会带上全部选中词。</p>
+          <section class="target-tray">
+            <strong>目标标签托盘</strong>
+            <div class="tag-pool">
+              ${targetTray
+                .map((tag) => `
+                  <button class="tag target-token" data-target-token="${escapeHtml(tag)}" draggable="true" type="button">
+                    <span>${escapeHtml(tag)}</span>
+                  </button>
+                `)
+                .join("")}
+            </div>
+          </section>
+          <section class="source-card">
+            <strong>${selected.length > 1 ? `已选 ${selected.length} 个来源词` : "当前来源词"}</strong>
+            <p class="muted">${selected.length > 1 ? selected.map((item) => item.text).join(", ") : active.text}</p>
+          </section>
+          <div class="drop-grid">
+            <section class="drop-zone danger-zone" data-drop-action="delete">
+              <strong>拖到这里删除</strong>
+              <p class="hint">剧本里直接删掉这些源词</p>
+            </section>
+            <section class="drop-zone" data-drop-action="exclude">
+              <strong>拖到这里不替换</strong>
+              <p class="hint">保留源词，但这轮不生成替换规则</p>
+            </section>
+          </div>
+          <section class="drop-zone" data-drop-action="merge">
+            <strong>拖到这里合并成一条规则</strong>
+            <p class="hint">适合 red jacket + black shorts -> white dress 这种多对一</p>
+          </section>
+          <section class="batch-card">
+            <strong>状态预览</strong>
+            <p class="muted">${state.terms.filter(isChanged).length} 个已修改；${state.terms.filter((item) => item.status === "deleted").length} 个删除；${state.terms.filter((item) => item.status === "excluded").length} 个不参与。</p>
+          </section>
+        `;
+      }
+
+      function renderDrawer(targetId) {
+        const drawer = document.querySelector(`#${targetId}`);
+        const selected = selectedTerms();
+        if (selected.length > 1) {
+          drawer.innerHTML = `
+            <h2>批量编辑 ${selected.length} 个来源词</h2>
+            <p class="muted">${selected.map((item) => item.text).join(", ")}</p>
+            <section class="batch-card">
+              <strong>统一目标词</strong>
+              <textarea id="${targetId}-batch-target" placeholder="填入后，选中的来源词全部替换为这里">${sharedTarget(selected)}</textarea>
+              <div class="drawer-actions">
+                <button class="button primary" data-batch-apply="${targetId}" type="button">应用到选中</button>
+                <button class="button danger" data-batch-delete type="button">删除选中</button>
+                <button class="button" data-batch-exclude type="button">不参与替换</button>
+              </div>
+            </section>
+            <section class="source-card">
+              <strong>出现范围</strong>
+              <p class="muted">${selected.map((item) => `${item.text}: ${item.frames}`).join(" / ")}</p>
+            </section>
+          `;
+          return;
+        }
+
+        const item = getActive();
+        drawer.innerHTML = `
+          <h2>编辑来源词</h2>
+          <section class="source-card">
+            <strong>${escapeHtml(item.text)}</strong>
+            <div class="chip-row">
+              <span class="badge">${escapeHtml(categoryMeta[item.category]?.[0] || item.category)}</span>
+              <span class="badge">${item.scope === "role" ? "角色" : "场景"}</span>
+              <span class="badge">帧 ${escapeHtml(item.frames)}</span>
+            </div>
+          </section>
+          <section class="target-card">
+            <strong>目标词</strong>
+            <textarea id="${targetId}-single-target" data-single-target="${item.id}" placeholder="留空 = 不替换">${escapeHtml(item.target)}</textarea>
+            <div class="segmented">
+              <button class="seg active" type="button">任一出现</button>
+              <button class="seg" type="button">同时出现</button>
+              <button class="seg" type="button">锚点触发</button>
+            </div>
+            <div class="drawer-actions">
+              <button class="button primary" data-copy-source="${item.id}" type="button">复制来源到目标</button>
+              <button class="button danger" data-delete="${item.id}" type="button">${item.status === "deleted" ? "恢复" : "删除来源词"}</button>
+              <button class="button" data-exclude="${item.id}" type="button">${item.status === "excluded" ? "恢复参与" : "不参与替换"}</button>
+            </div>
+          </section>
+        `;
+      }
+
+      function renderKanban() {
+        const buckets = {
+          keep: ["保持原样", visibleTerms().filter((item) => !isChanged(item))],
+          replace: ["已替换", visibleTerms().filter((item) => item.target.trim())],
+          remove: ["删除 / 不参与", visibleTerms().filter((item) => item.status === "deleted" || item.status === "excluded")],
+        };
+        document.querySelector("#kanbanPool").innerHTML = Object.entries(buckets)
+          .map(([key, [label, items]]) => `
+            <article class="group column">
+              <header class="group-head">
+                <div class="group-title">
+                  <strong>${label}</strong>
+                  <span class="muted">${items.length} 个</span>
+                </div>
+              </header>
+              <div class="tag-pool">${items.map(renderTag).join("") || `<span class="hint">暂无</span>`}</div>
+            </article>
+          `)
+          .join("");
+        const changed = state.terms.filter(isChanged).length;
+        document.querySelector("#summaryB").innerHTML = `
+          <span class="badge">总词 ${state.terms.length}</span>
+          <span class="badge">已改 ${changed}</span>
+          <span class="badge">选中 ${state.selected.size}</span>
+        `;
+        document.querySelector("#bulkBarB").innerHTML = `
+          <div>
+            <strong>${state.selected.size ? `已选 ${state.selected.size} 个` : "未选中词"}</strong>
+            <p class="muted">在看板里点标签即可多选，再用这里统一处理。</p>
+          </div>
+          <div class="drawer-actions">
+            <button class="button primary" data-fill-selected="white dress, lace trim" type="button">替换成白礼服</button>
+            <button class="button danger" data-batch-delete type="button">删除选中</button>
+            <button class="button" data-clear-selection type="button">清空选择</button>
+          </div>
+        `;
+      }
+
+      function renderCompact() {
+        document.querySelector("#compactGrid").innerHTML = visibleTerms().map((item) => `
+          <article class="compact-row">
+            <input type="checkbox" data-check="${item.id}" ${state.selected.has(item.id) ? "checked" : ""} />
+            ${renderTag(item)}
+            <span class="badge">帧 ${escapeHtml(item.frames)}</span>
+            <div class="mini-target">${item.target.trim() ? escapeHtml(item.target) : "留空 = 不替换"}</div>
+            <div class="drawer-actions">
+              <button class="icon-button" data-copy-source="${item.id}" type="button">↷</button>
+              <button class="icon-button" data-delete="${item.id}" type="button">删</button>
+            </div>
+          </article>
+        `).join("") || empty("没有匹配的来源词");
+      }
+
+      function renderSwitcher() {
+        const current = variants.find(([key]) => key === state.variant) || variants[0];
+        document.querySelector("#variantLabel").textContent = `${current[0]} · ${current[1]}`;
+        const url = new URL(location.href);
+        url.searchParams.set("variant", state.variant);
+        history.replaceState(null, "", url);
+      }
+
+      function groupByCategory(items) {
+        return items.reduce((groups, item) => {
+          (groups[item.category] ||= []).push(item);
+          return groups;
+        }, {});
+      }
+
+      function selectedTerms() {
+        return state.terms.filter((item) => state.selected.has(item.id));
+      }
+
+      function getActive() {
+        return state.terms.find((item) => item.id === state.activeId) || state.terms[0];
+      }
+
+      function sharedTarget(items) {
+        if (!items.length) return "";
+        const first = items[0].target;
+        return items.every((item) => item.target === first) ? first : "";
+      }
+
+      function empty(text) {
+        return `<div class="panel" style="padding:16px"><span class="hint">${text}</span></div>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      document.addEventListener("click", (event) => {
+        const termButton = event.target.closest("[data-term]");
+        if (termButton) {
+          const id = termButton.dataset.term;
+          state.activeId = id;
+          if (event.shiftKey || event.ctrlKey || event.metaKey || state.variant === "B") {
+            state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id);
+          } else {
+            state.selected = new Set([id]);
+          }
+          render();
+          return;
+        }
+
+        const filter = event.target.closest("[data-filter]");
+        if (filter) {
+          state.filter = filter.dataset.filter;
+          render();
+          return;
+        }
+
+        const category = event.target.closest("[data-select-category]");
+        if (category) {
+          const ids = state.terms
+            .filter((item) => item.category === category.dataset.selectCategory)
+            .map((item) => item.id);
+          state.selected = new Set(ids);
+          state.activeId = ids[0] || state.activeId;
+          render();
+          return;
+        }
+
+        const copy = event.target.closest("[data-copy-source]");
+        if (copy) {
+          updateTerm(copy.dataset.copySource, (item) => (item.target = item.text));
+          render();
+          return;
+        }
+
+        const del = event.target.closest("[data-delete]");
+        if (del) {
+          updateTerm(del.dataset.delete, (item) => {
+            item.status = item.status === "deleted" ? "" : "deleted";
+          });
+          render();
+          return;
+        }
+
+        const exclude = event.target.closest("[data-exclude]");
+        if (exclude) {
+          updateTerm(exclude.dataset.exclude, (item) => {
+            item.status = item.status === "excluded" ? "" : "excluded";
+          });
+          render();
+          return;
+        }
+
+        if (event.target.closest("[data-batch-delete]")) {
+          for (const item of selectedTerms()) item.status = "deleted";
+          render();
+          return;
+        }
+
+        if (event.target.closest("[data-batch-exclude]")) {
+          for (const item of selectedTerms()) item.status = "excluded";
+          render();
+          return;
+        }
+
+        const fill = event.target.closest("[data-fill-selected]");
+        if (fill) {
+          for (const item of selectedTerms()) item.target = fill.dataset.fillSelected;
+          render();
+          return;
+        }
+
+        const batchApply = event.target.closest("[data-batch-apply]");
+        if (batchApply) {
+          const textarea = document.querySelector(`#${batchApply.dataset.batchApply}-batch-target`);
+          for (const item of selectedTerms()) item.target = textarea.value.trim();
+          render();
+          return;
+        }
+
+        const check = event.target.closest("[data-check]");
+        if (check) {
+          const id = check.dataset.check;
+          check.checked ? state.selected.add(id) : state.selected.delete(id);
+          state.activeId = id;
+          render();
+          return;
+        }
+
+        if (event.target.closest("[data-clear-selection]")) {
+          state.selected.clear();
+          render();
+        }
+      });
+
+      document.addEventListener("input", (event) => {
+        if (event.target.id === "searchInput") {
+          state.search = event.target.value;
+          render();
+          return;
+        }
+        const single = event.target.closest("[data-single-target]");
+        if (single) {
+          updateTerm(single.dataset.singleTarget, (item) => (item.target = single.value));
+          renderGroupedPool();
+          renderKanban();
+          renderCompact();
+        }
+      });
+
+      document.addEventListener("dragstart", (event) => {
+        const targetToken = event.target.closest("[data-target-token]");
+        if (targetToken) {
+          setDragPayload(event, {
+            kind: "target",
+            value: targetToken.dataset.targetToken,
+          });
+          return;
+        }
+
+        const sourceTag = event.target.closest("[data-term]");
+        if (sourceTag) {
+          const id = sourceTag.dataset.term;
+          setDragPayload(event, {
+            kind: "source",
+            ids: sourceIdsForDrag(id),
+          });
+        }
+      });
+
+      document.addEventListener("dragend", () => {
+        currentDragPayload = null;
+        document.querySelectorAll(".drop-zone.drag-over").forEach((zone) => {
+          zone.classList.remove("drag-over");
+        });
+      });
+
+      document.addEventListener("dragover", (event) => {
+        const payload = readDragPayload(event);
+        const sourceTarget = event.target.closest("[data-term]");
+        const dropZone = event.target.closest("[data-drop-action]");
+        if (
+          (payload?.kind === "target" && sourceTarget) ||
+          (payload?.kind === "source" && dropZone)
+        ) {
+          event.preventDefault();
+          dropZone?.classList.add("drag-over");
+        }
+      });
+
+      document.addEventListener("dragleave", (event) => {
+        event.target.closest("[data-drop-action]")?.classList.remove("drag-over");
+      });
+
+      document.addEventListener("drop", (event) => {
+        const payload = readDragPayload(event);
+        document.querySelectorAll(".drop-zone.drag-over").forEach((zone) => {
+          zone.classList.remove("drag-over");
+        });
+        if (!payload) return;
+
+        const sourceTarget = event.target.closest("[data-term]");
+        if (payload.kind === "target" && sourceTarget) {
+          event.preventDefault();
+          const ids = sourceIdsForDrop(sourceTarget.dataset.term);
+          for (const id of ids) {
+            updateTerm(id, (item) => {
+              item.target = payload.value;
+              if (item.status === "deleted" || item.status === "excluded") item.status = "";
+            });
+          }
+          state.activeId = sourceTarget.dataset.term;
+          state.selected = new Set(ids);
+          render();
+          return;
+        }
+
+        const dropZone = event.target.closest("[data-drop-action]");
+        if (payload.kind === "source" && dropZone) {
+          event.preventDefault();
+          const ids = payload.ids || [];
+          if (dropZone.dataset.dropAction === "delete") {
+            for (const id of ids) updateTerm(id, (item) => (item.status = "deleted"));
+          }
+          if (dropZone.dataset.dropAction === "exclude") {
+            for (const id of ids) updateTerm(id, (item) => (item.status = "excluded"));
+          }
+          if (dropZone.dataset.dropAction === "merge") {
+            state.selected = new Set(ids);
+            state.activeId = ids[0] || state.activeId;
+          }
+          render();
+        }
+      });
+
+      document.querySelector("#resetButton").addEventListener("click", () => {
+        state = {
+          activeId: seedTerms[0].id,
+          selected: new Set([seedTerms[0].id]),
+          filter: "all",
+          search: "",
+          variant: state.variant,
+          terms: structuredClone(seedTerms),
+        };
+        document.querySelector("#searchInput").value = "";
+        render();
+      });
+
+      document.querySelector("#selectClothingButton").addEventListener("click", () => {
+        const ids = state.terms.filter((item) => item.category === "clothing").map((item) => item.id);
+        state.selected = new Set(ids);
+        state.activeId = ids[0] || state.activeId;
+        render();
+      });
+
+      document.querySelector("#prevVariant").addEventListener("click", () => cycleVariant(-1));
+      document.querySelector("#nextVariant").addEventListener("click", () => cycleVariant(1));
+
+      document.addEventListener("keydown", (event) => {
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+        if (event.key === "ArrowLeft") cycleVariant(-1);
+        if (event.key === "ArrowRight") cycleVariant(1);
+      });
+
+      function cycleVariant(delta) {
+        const index = variants.findIndex(([key]) => key === state.variant);
+        const next = (index + delta + variants.length) % variants.length;
+        state.variant = variants[next][0];
+        render();
+      }
+
+      function updateTerm(id, mutate) {
+        const item = state.terms.find((term) => term.id === id);
+        if (item) mutate(item);
+      }
+
+      function setDragPayload(event, payload) {
+        currentDragPayload = payload;
+        event.dataTransfer.effectAllowed = "copyMove";
+        event.dataTransfer.setData("application/json", JSON.stringify(payload));
+      }
+
+      function readDragPayload(event) {
+        const raw = event.dataTransfer?.getData("application/json");
+        if (!raw) return currentDragPayload;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return currentDragPayload;
+        }
+      }
+
+      function sourceIdsForDrag(id) {
+        return state.selected.has(id) ? [...state.selected] : [id];
+      }
+
+      function sourceIdsForDrop(id) {
+        return state.selected.has(id) && state.selected.size > 1
+          ? [...state.selected]
+          : [id];
+      }
+
+      render();
+    </script>
+  </body>
+</html>

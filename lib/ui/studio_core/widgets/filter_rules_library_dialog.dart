@@ -3,15 +3,15 @@ import 'dart:async';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/studio/services/studio_asset_catalog_service.dart';
-import 'package:nai_casrand/data/studio/tools/filter_rule_config.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_processor.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/data/workspace/models/workspace_entities.dart';
-import 'package:nai_casrand/data/workspace/workspace_paths.dart';
-import 'package:nai_casrand/ui/studio_core/services/filter_rule_document.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/data/workspace/workspace_paths.dart';
+import 'package:novel_studio/ui/studio_core/services/filter_rule_document.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 typedef FilterRulesConfigLoader = Future<FilterRuleConfig> Function();
 typedef FilterRulesConfigSaver = Future<void> Function(
@@ -2026,8 +2026,7 @@ Iterable<_EditableReplaceRule> _flattenReplaceBlocks(
   }
 }
 
-Iterable<String> _sourceOrderBlocks<T>(
-        Map<String, List<T>> rulesByBlock) =>
+Iterable<String> _sourceOrderBlocks<T>(Map<String, List<T>> rulesByBlock) =>
     filterRuleSourceOrderBlocks(rulesByBlock);
 
 List<String> _ruleWords(String text) => parseFilterRuleWords(text);

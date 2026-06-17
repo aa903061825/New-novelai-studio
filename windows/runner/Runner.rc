@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "org.exception0x0194" "\0"
-            VALUE "FileDescription", "NAI_CasRand" "\0"
+            VALUE "CompanyName", "Novel Studio" "\0"
+            VALUE "FileDescription", "Novel Studio" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "NAI_CasRand" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2024 org.exception0x0194. All rights reserved." "\0"
-            VALUE "OriginalFilename", "NAI_CasRand.exe" "\0"
-            VALUE "ProductName", "nai3_autodraw" "\0"
+            VALUE "InternalName", "Novel_Studio" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Novel Studio. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Novel_Studio.exe" "\0"
+            VALUE "ProductName", "Novel Studio" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

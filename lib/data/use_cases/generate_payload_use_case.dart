@@ -1,12 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/precise_reference_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/prompt_replace_rule.dart';
-import 'package:nai_casrand/data/models/vibe_config.dart';
-import 'package:nai_casrand/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/precise_reference_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/prompt_replace_rule.dart';
+import 'package:novel_studio/data/models/vibe_config.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
 
 const Map<int, String> xMapping = {
   0: 'X',
@@ -88,9 +88,13 @@ class _ParsedShell {
 
 class GeneratePayloadUseCase {
   final PayloadConfig payloadConfig;
+  final bool useGlobalGenerationParams;
+  final bool useBatchResolution;
 
   GeneratePayloadUseCase({
     required this.payloadConfig,
+    this.useGlobalGenerationParams = true,
+    this.useBatchResolution = true,
   });
 
   ParamConfig get paramConfig => payloadConfig.paramConfig;
@@ -130,8 +134,12 @@ class GeneratePayloadUseCase {
       comment: _applyPromptReplaceRules(basePromptResult.toComment(),
           isComment: true),
     );
-    final effectiveParamConfig =
-        payloadConfig.globalGenerationParams.resolveParamConfig(paramConfig);
+    final effectiveParamConfig = useGlobalGenerationParams
+        ? payloadConfig.globalGenerationParams.resolveParamConfig(paramConfig)
+        : paramConfig.copy();
+    if (!useBatchResolution) {
+      effectiveParamConfig.enableBatchResolution = false;
+    }
     final paramPayload = effectiveParamConfig.getPayload();
     final i2iImageB64 = payloadConfig.i2iConfig.imageB64;
     final i2iResult = i2iImageB64 == null || i2iImageB64.isEmpty
@@ -221,6 +229,8 @@ class GeneratePayloadUseCase {
       final referenceDescriptionsList = [];
 
       for (final ref in preciseReferenceList) {
+        final imageB64 = ref.imageB64.trim();
+        if (imageB64.isEmpty) continue;
         final safeType = switch (ref.type) {
           'character' => 'character',
           'style' => 'style',
@@ -229,7 +239,7 @@ class GeneratePayloadUseCase {
         final strength = ref.strength.clamp(0.0, 1.0);
         final fidelity = ref.fidelity.clamp(0.0, 1.0);
 
-        imageB64List.add(ref.imageB64);
+        imageB64List.add(imageB64);
         referenceStrengthList.add(strength);
         referenceSecondaryStrengthList.add(1.0 - fidelity);
         referenceInfoExtractedList.add(1.0);
@@ -242,52 +252,68 @@ class GeneratePayloadUseCase {
         });
       }
 
-      paramPayload['director_reference_images'] = imageB64List;
-      paramPayload['director_reference_strength_values'] =
-          referenceStrengthList;
-      paramPayload['director_reference_secondary_strength_values'] =
-          referenceSecondaryStrengthList;
-      paramPayload['director_reference_information_extracted'] =
-          referenceInfoExtractedList;
-      paramPayload['director_reference_descriptions'] =
-          referenceDescriptionsList;
+      if (imageB64List.isEmpty) {
+        _removeReferencePayload(paramPayload);
+      } else {
+        paramPayload['director_reference_images'] = imageB64List;
+        paramPayload['director_reference_strength_values'] =
+            referenceStrengthList;
+        paramPayload['director_reference_secondary_strength_values'] =
+            referenceSecondaryStrengthList;
+        paramPayload['director_reference_information_extracted'] =
+            referenceInfoExtractedList;
+        paramPayload['director_reference_descriptions'] =
+            referenceDescriptionsList;
 
-      // Keep Precise Reference and Vibe Transfer mutually exclusive.
-      paramPayload.remove('reference_image_multiple');
-      paramPayload.remove('reference_strength_multiple');
-      paramPayload.remove('reference_information_extracted_multiple');
+        // Keep Precise Reference and Vibe Transfer mutually exclusive.
+        paramPayload.remove('reference_image_multiple');
+        paramPayload.remove('reference_strength_multiple');
+        paramPayload.remove('reference_information_extracted_multiple');
+      }
     } else if (vibeEnabled && effectiveParamConfig.model.contains('-3')) {
       // Vibe config for NAI3 models
       final imageB64List = [];
       final referenceStrengthList = [];
       final imformationExtractedList = [];
       for (final vc in vibeConfigList) {
-        imageB64List.add(vc.imageB64);
+        final imageB64 = vc.imageB64.trim();
+        if (imageB64.isEmpty) continue;
+        imageB64List.add(imageB64);
         referenceStrengthList.add(vc.referenceStrength);
         imformationExtractedList.add(vc.infoExtracted);
       }
-      paramPayload['reference_image_multiple'] = imageB64List;
-      paramPayload['reference_strength_multiple'] = referenceStrengthList;
-      paramPayload['reference_information_extracted_multiple'] =
-          imformationExtractedList;
+      if (imageB64List.isEmpty) {
+        _removeReferencePayload(paramPayload);
+      } else {
+        paramPayload['reference_image_multiple'] = imageB64List;
+        paramPayload['reference_strength_multiple'] = referenceStrengthList;
+        paramPayload['reference_information_extracted_multiple'] =
+            imformationExtractedList;
+        _removeDirectorReferencePayload(paramPayload);
+      }
     } else if (vibeEnabled && effectiveParamConfig.model.contains('-4-')) {
       // Vibe config for NAI4 models
       final imageB64List = [];
       final infoExtractedList = [];
       final referenceStrengthList = [];
       for (final vc in vibeConfigV4List) {
-        imageB64List.add(vc.vibeB64);
+        final imageB64 = vc.vibeB64.trim();
+        if (imageB64.isEmpty) continue;
+        imageB64List.add(imageB64);
         referenceStrengthList.add(vc.referenceStrength);
         infoExtractedList.add(1.0);
       }
-      paramPayload['reference_image_multiple'] = imageB64List;
-      paramPayload['reference_strength_multiple'] = referenceStrengthList;
-      paramPayload['reference_information_extracted_multiple'] =
-          infoExtractedList;
-    } else if (!vibeEnabled) {
-      paramPayload.remove('reference_image_multiple');
-      paramPayload.remove('reference_strength_multiple');
-      paramPayload.remove('reference_information_extracted_multiple');
+      if (imageB64List.isEmpty) {
+        _removeReferencePayload(paramPayload);
+      } else {
+        paramPayload['reference_image_multiple'] = imageB64List;
+        paramPayload['reference_strength_multiple'] = referenceStrengthList;
+        paramPayload['reference_information_extracted_multiple'] =
+            infoExtractedList;
+        _removeDirectorReferencePayload(paramPayload);
+      }
+    } else {
+      _removeReferencePayload(paramPayload);
     }
 
     final processedFileName = _applyPromptReplaceRules(
@@ -314,6 +340,21 @@ class GeneratePayloadUseCase {
         'parameters': paramPayload,
       },
     );
+  }
+
+  void _removeReferencePayload(Map<String, dynamic> paramPayload) {
+    paramPayload.remove('reference_image_multiple');
+    paramPayload.remove('reference_strength_multiple');
+    paramPayload.remove('reference_information_extracted_multiple');
+    _removeDirectorReferencePayload(paramPayload);
+  }
+
+  void _removeDirectorReferencePayload(Map<String, dynamic> paramPayload) {
+    paramPayload.remove('director_reference_images');
+    paramPayload.remove('director_reference_strength_values');
+    paramPayload.remove('director_reference_secondary_strength_values');
+    paramPayload.remove('director_reference_information_extracted');
+    paramPayload.remove('director_reference_descriptions');
   }
 
   String _processFileNameKey(

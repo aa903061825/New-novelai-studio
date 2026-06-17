@@ -1,6 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:nai_casrand/ui/core/widgets/compact_image_config_card.dart';
+import 'package:novel_studio/ui/core/widgets/compact_image_config_card.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../viewmodels/precise_reference_item_viewmodel.dart';

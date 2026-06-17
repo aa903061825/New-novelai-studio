@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/ui/core/widgets/playful_geometric_surface.dart';
+import 'package:novel_studio/ui/core/widgets/playful_geometric_surface.dart';
 
 void main() {
   testWidgets('surface hover, press, and tap use the same InkWell hit target', (

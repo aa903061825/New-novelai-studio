@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 class PromptWorkshopBridge {
   const PromptWorkshopBridge._();
@@ -27,8 +27,8 @@ class PromptWorkshopBridge {
     }
     return [
       File(
-        '$appData${Platform.pathSeparator}org.exception0x0194'
-        '${Platform.pathSeparator}nai3_autodraw'
+        '$appData${Platform.pathSeparator}Novel Studio'
+        '${Platform.pathSeparator}Novel Studio'
         '${Platform.pathSeparator}novel_studio'
         '${Platform.pathSeparator}configs'
         '${Platform.pathSeparator}$fileName',

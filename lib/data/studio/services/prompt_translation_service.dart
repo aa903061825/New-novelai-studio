@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/api_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/api_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 typedef PromptTranslationProviderRunner
     = Future<OnlineTranslationProviderResult> Function(

@@ -1,9 +1,9 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
-import 'package:nai_casrand/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
-import 'package:nai_casrand/ui/prompt_config/widgets/prompt_config_view.dart';
-import 'package:nai_casrand/ui/saved_config_list/view_models/saved_config_list_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_config/view_models/prompt_config_viewmodel.dart';
+import 'package:novel_studio/ui/prompt_config/widgets/prompt_config_view.dart';
+import 'package:novel_studio/ui/saved_config_list/view_models/saved_config_list_viewmodel.dart';
 import 'package:provider/provider.dart';
 
 class SavedConfigListView extends StatelessWidget {

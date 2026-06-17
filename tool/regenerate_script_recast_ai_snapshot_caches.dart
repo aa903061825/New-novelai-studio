@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:hive/hive.dart';
-import 'package:nai_casrand/data/studio/models/script_ai_role_extraction.dart';
-import 'package:nai_casrand/data/studio/models/script_recast.dart';
-import 'package:nai_casrand/data/studio/models/script_recast_knowledge.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_client.dart';
-import 'package:nai_casrand/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
+import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
+
+import 'script_recast_ai_cache_mapping_sync.dart';
 
 Future<void> main(List<String> args) async {
   final options = _Options.parse(args);
@@ -134,7 +136,10 @@ Future<ScriptAiBatchReport> regenerateScriptRecastAiSnapshotCaches({
         sourceFingerprint: cache.sourceFingerprint,
         updatedAt: DateTime.now().toUtc(),
         roleCandidates: cache.roleCandidates,
-        mapping: cache.mapping,
+        mapping: mappingWithAppliedAiRoleExtraction(
+          mapping: cache.mapping,
+          extraction: extraction,
+        ),
         aiRoleExtraction: extraction,
         aiRoleExtractionChunks: const [],
         aiRoleExtractionDraftCollapsed: false,
@@ -450,8 +455,8 @@ String _defaultWorkspaceRoot() {
   }
   return [
     appData,
-    'org.exception0x0194',
-    'nai3_autodraw',
+    'Novel Studio',
+    'Novel Studio',
     'novel_studio',
   ].join(Platform.pathSeparator);
 }

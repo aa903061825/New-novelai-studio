@@ -3,14 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/studio/services/prompt_translation_service.dart';
-import 'package:nai_casrand/data/studio/tools/online_ai_tools.dart';
-import 'package:nai_casrand/data/studio/tools/prompt_tag_classifier.dart';
-import 'package:nai_casrand/data/studio/tools/translation_cache.dart';
-import 'package:nai_casrand/ui/core/app_display_settings.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_theme.dart';
-import 'package:nai_casrand/ui/studio_core/theme/studio_tokens.dart';
-import 'package:nai_casrand/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
+import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
+import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_drag.dart';
 
 void main() {
   setUp(() async {
@@ -92,6 +95,28 @@ void main() {
     }
   }
 
+  Future<void> tapBlankSpace(WidgetTester tester, Finder chip) async {
+    final rect = dropAreaRectContaining(tester, chip);
+    await tester.tapAt(rect.bottomRight - const Offset(8, 8));
+    await tester.pump();
+  }
+
+  ({BoxDecoration decoration, Clip clipBehavior}) chipDecoration(
+    WidgetTester tester,
+    Finder finder,
+  ) {
+    final widget = tester.widget(finder);
+    return switch (widget) {
+      AnimatedContainer(:final decoration, :final clipBehavior)
+          when decoration is BoxDecoration =>
+        (decoration: decoration, clipBehavior: clipBehavior),
+      Container(:final decoration, :final clipBehavior)
+          when decoration is BoxDecoration =>
+        (decoration: decoration, clipBehavior: clipBehavior),
+      _ => throw StateError('Unexpected chip body widget: $widget'),
+    };
+  }
+
   testWidgets('renders prompt text as raw tags by default', (tester) async {
     await tester.pumpWidget(
       host(
@@ -129,6 +154,115 @@ void main() {
     expect(find.text('x0.95'), findsOneWidget);
     expect(find.text('1.2::blue eyes::'), findsNothing);
     expect(find.text('blue translated'), findsOneWidget);
+  });
+
+  testWidgets('can hide suspected missing comma warning chrome', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const PromptTagDisplay(
+          text: 'male smile',
+          showTagWarnings: false,
+        ),
+      ),
+    );
+
+    final chip = tester.widget<PromptTagChip>(
+      find.byWidgetPredicate(
+        (widget) => widget is PromptTagChip && widget.label == 'male smile',
+      ),
+    );
+    expect(chip.warning, isFalse);
+  });
+
+  testWidgets('right click can confirm a suspicious tag as globally valid', (
+    tester,
+  ) async {
+    final classificationCache =
+        PromptTagClassificationCache(clock: () => 1710000000);
+    var saveCount = 0;
+
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'male smile',
+          enableTagActions: true,
+          classificationCache: classificationCache,
+          saveClassificationCache: (_) async {
+            saveCount += 1;
+          },
+        ),
+      ),
+    );
+
+    PromptTagChip warningChip() {
+      return tester.widget<PromptTagChip>(
+        find.byWidgetPredicate(
+          (widget) => widget is PromptTagChip && widget.label == 'male smile',
+        ),
+      );
+    }
+
+    expect(warningChip().warning, isTrue);
+
+    await tester.tap(find.text('male smile'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-confirm-valid-compound')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(classificationCache.isValidCompoundTag('male smile'), isTrue);
+    expect(saveCount, 1);
+    expect(warningChip().warning, isFalse);
+  });
+
+  testWidgets('right click can hide a suspicious tag for the current scope', (
+    tester,
+  ) async {
+    var suppressedKeys = <String>{};
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: 'male smile',
+              enableTagActions: true,
+              suppressedTagWarningKeys: suppressedKeys,
+              onSuppressTagWarningForScope: (tag) {
+                setState(() {
+                  suppressedKeys = {
+                    PromptTagProcessor.normalizeMatchKey(tag),
+                  };
+                });
+              },
+            );
+          },
+        ),
+      ),
+    );
+
+    PromptTagChip warningChip() {
+      return tester.widget<PromptTagChip>(
+        find.byWidgetPredicate(
+          (widget) => widget is PromptTagChip && widget.label == 'male smile',
+        ),
+      );
+    }
+
+    expect(warningChip().warning, isTrue);
+
+    await tester.tap(find.text('male smile'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-suppress-warning-scope')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(suppressedKeys, {'male smile'});
+    expect(warningChip().warning, isFalse);
   });
 
   testWidgets('negative prompt weight badges use danger colors', (
@@ -362,11 +496,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI重译'), findsOneWidget);
-    expect(find.text('手动编辑'), findsOneWidget);
+    expect(find.text('编辑提示词'), findsNothing);
+    expect(find.text('编辑翻译'), findsOneWidget);
     expect(find.text('复制标签'), findsOneWidget);
 
     await tester.tap(find.text('复制标签'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(copiedText, 'blue eyes');
 
@@ -380,7 +515,7 @@ void main() {
 
     await tester.tap(find.text('blue eyes'), buttons: kSecondaryMouseButton);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('手动编辑'));
+    await tester.tap(find.text('编辑翻译'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('prompt-tag-manual-translation-field')),
@@ -425,7 +560,7 @@ void main() {
       buttons: kSecondaryMouseButton,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('手动编辑'));
+    await tester.tap(find.text('编辑翻译'));
     await tester.pumpAndSettle();
 
     final field = tester.widget<TextField>(
@@ -473,6 +608,48 @@ void main() {
     expect(chipKey('year_2023', 2, selected: true), findsOneWidget);
   });
 
+  test('shared selection controller reuses marquee position snapshots', () {
+    final controller = PromptTagSelectionController();
+    addTearDown(controller.dispose);
+    var snapshotCalls = 0;
+    controller.registerField(
+      PromptTagSelectionField(
+        fieldId: 'field-a',
+        selectionGroupId: 'replacement-rules',
+        snapshots: () {
+          snapshotCalls += 1;
+          return const [
+            PromptTagSelectionItem(
+              fieldId: 'field-a',
+              index: 0,
+              tag: 'blue eyes',
+              globalRect: Rect.fromLTWH(10, 10, 40, 20),
+            ),
+            PromptTagSelectionItem(
+              fieldId: 'field-a',
+              index: 1,
+              tag: 'white shirt',
+              globalRect: Rect.fromLTWH(70, 10, 60, 20),
+            ),
+          ];
+        },
+        removeIndexes: (_) {},
+      ),
+    );
+
+    controller.beginSelectionSnapshot();
+    expect(snapshotCalls, 1);
+
+    controller.previewIntersecting(const Rect.fromLTWH(0, 0, 80, 40));
+    controller.previewIntersecting(const Rect.fromLTWH(0, 0, 120, 40));
+    controller.selectIntersecting(const Rect.fromLTWH(0, 0, 120, 40));
+    expect(snapshotCalls, 1);
+
+    controller.endSelectionSnapshot();
+    controller.previewIntersecting(const Rect.fromLTWH(0, 0, 120, 40));
+    expect(snapshotCalls, 2);
+  });
+
   testWidgets('ctrl box selection appends selected chips', (
     tester,
   ) async {
@@ -505,6 +682,45 @@ void main() {
       findsOneWidget,
     );
     expect(chipKey('year_2022', 1, selected: true), findsNothing);
+  });
+
+  testWidgets('blank click clears display multi-selection', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 420,
+          child: PromptTagDisplay(
+            text: 'year_2021, year_2022, year_2023',
+            enableTagActions: true,
+            translationCache: cache(),
+          ),
+        ),
+      ),
+    );
+
+    await dragSelectionAround(
+      tester,
+      chipKey('year_2021', 0, selected: false),
+      chipKey('year_2022', 1, selected: false),
+    );
+
+    expect(chipKey('year_2021', 0, selected: true), findsOneWidget);
+    expect(chipKey('year_2022', 1, selected: true), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-selection-toolbar')),
+      findsOneWidget,
+    );
+
+    await tapBlankSpace(tester, chipKey('year_2023', 2, selected: false));
+
+    expect(chipKey('year_2021', 0, selected: true), findsNothing);
+    expect(chipKey('year_2022', 1, selected: true), findsNothing);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-selection-toolbar')),
+      findsNothing,
+    );
   });
 
   testWidgets('ctrl c copies selected interactive display tags', (
@@ -554,7 +770,7 @@ void main() {
   testWidgets(
     'selected editable display tags can be dragged between displays',
     (tester) async {
-      var upper = 'fox ears, red halo';
+      var upper = '1.4:: fox ears ::, red halo';
       var lower = 'fox tail';
 
       await tester.pumpWidget(
@@ -566,6 +782,10 @@ void main() {
                   PromptTagDisplay(
                     key: const ValueKey('upper-display'),
                     text: upper,
+                    initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+                    respectInitialLayoutMode: true,
+                    sourceOrderCollapsedTagMaxWidth: 160,
+                    sourceOrderHoveredTagMaxWidth: 260,
                     enableTagActions: true,
                     translationCache: cache(),
                     onChanged: (next) => setState(() => upper = next),
@@ -615,14 +835,16 @@ void main() {
       await mouse.removePointer();
 
       expect(upper, 'red halo');
-      expect(lower, 'fox tail, fox ears');
+      expect(lower, 'fox tail, 1.4:: fox ears ::');
+      expect(find.descendant(of: lowerDisplay, matching: find.text('x1.40')),
+          findsOneWidget);
     },
   );
 
   testWidgets(
     'unselected editable display tag can be dragged directly between displays',
     (tester) async {
-      var upper = 'fox ears, red halo';
+      var upper = '1.4:: fox ears ::, red halo';
       var lower = 'fox tail';
 
       await tester.pumpWidget(
@@ -634,6 +856,10 @@ void main() {
                   PromptTagDisplay(
                     key: const ValueKey('upper-display'),
                     text: upper,
+                    initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+                    respectInitialLayoutMode: true,
+                    sourceOrderCollapsedTagMaxWidth: 160,
+                    sourceOrderHoveredTagMaxWidth: 260,
                     enableTagActions: true,
                     translationCache: cache(),
                     onChanged: (next) => setState(() => upper = next),
@@ -677,9 +903,49 @@ void main() {
       await mouse.removePointer();
 
       expect(upper, 'red halo');
-      expect(lower, 'fox tail, fox ears');
+      expect(lower, 'fox tail, 1.4:: fox ears ::');
+      expect(find.descendant(of: lowerDisplay, matching: find.text('x1.40')),
+          findsOneWidget);
     },
   );
+
+  testWidgets('moving weighted display tag within a display preserves weight', (
+    tester,
+  ) async {
+    var value = '1.2:: blue eyes ::, long hair, white shirt';
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    final sourceChip = chipKey('blue eyes', 0, selected: false);
+    final targetChip = chipKey('white shirt', 2, selected: false);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    final start = tester.getCenter(sourceChip);
+    final end = tester.getCenter(targetChip);
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+
+    expect(value, 'long hair, 1.2:: blue eyes ::, white shirt');
+    expect(find.text('x1.20'), findsOneWidget);
+  });
 
   testWidgets('escape and clear button empty interactive tag selection', (
     tester,
@@ -862,11 +1128,10 @@ void main() {
       const Color(0xFF5B8DEF),
     );
 
-    final start =
-        selectionStartNear(tester, chipKey('blue eyes', 0, selected: false));
-    final end =
-        tester.getBottomRight(chipKey('blue eyes', 0, selected: false)) -
-            const Offset(1, 1);
+    final idleFinder = chipKey('blue eyes', 0, selected: false);
+    final dropRect = dropAreaRectContaining(tester, idleFinder);
+    final start = dropRect.topRight + const Offset(-2, 2);
+    final end = tester.getBottomLeft(idleFinder) + const Offset(1, -1);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: start);
     await tester.pump();
@@ -875,10 +1140,11 @@ void main() {
     await mouse.moveTo(end);
     await tester.pump();
 
-    final previewChip = tester.widget<Container>(
+    final previewChip = chipDecoration(
+      tester,
       chipKey('blue eyes', 0, selected: false),
     );
-    final decoration = previewChip.decoration! as BoxDecoration;
+    final decoration = previewChip.decoration;
     final border = decoration.border! as Border;
 
     expect(previewChip.clipBehavior, Clip.antiAlias);
@@ -1018,6 +1284,71 @@ void main() {
     expect(value, '0.6:: blue eyes ::, 0.6:: long hair ::, white shirt');
     expect(find.text('x0.60'), findsNWidgets(2));
     expect(find.text('white shirt'), findsOneWidget);
+  });
+
+  testWidgets('double click opens merged display tag and weight editor', (
+    tester,
+  ) async {
+    var value = '1.2:: blue eyes ::, long hair';
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('blue eyes'));
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(find.text('blue eyes'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-edit-weight-dialog')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('prompt-tag-edit-tag-field')),
+          )
+          .controller
+          ?.text,
+      'blue eyes',
+    );
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('prompt-tag-edit-weight-field')),
+          )
+          .controller
+          ?.text,
+      '1.2',
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-edit-tag-field')),
+      'red eyes',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-edit-weight-field')),
+      '0.7',
+    );
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-edit-weight-save')));
+    await tester.pumpAndSettle();
+
+    expect(value, '0.7:: red eyes ::, long hair');
+    expect(find.text('red eyes'), findsOneWidget);
+    expect(find.text('x0.70'), findsOneWidget);
+    expect(find.text('blue eyes'), findsNothing);
   });
 
   testWidgets('right click can expose an extra script-only filter target', (
@@ -1334,6 +1665,40 @@ void main() {
     );
   });
 
+  testWidgets('compact source order tags expand on hover', (
+    tester,
+  ) async {
+    const longTag = 'wakamo (swimsuit) (blue_archive)';
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 360,
+          child: PromptTagDisplay(
+            text: '$longTag, white shirt',
+            initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+            respectInitialLayoutMode: true,
+            enableTagActions: true,
+            sourceOrderCollapsedTagMaxWidth: 96,
+            sourceOrderHoveredTagMaxWidth: 260,
+            translationCache: cache(),
+          ),
+        ),
+      ),
+    );
+
+    final longChip = chipKey(longTag, 0, selected: false);
+    expect(longChip, findsOneWidget);
+    final collapsedWidth = tester.getSize(longChip).width;
+    expect(collapsedWidth, lessThanOrEqualTo(112));
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: tester.getCenter(longChip));
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(longChip).width, greaterThan(collapsedWidth));
+    await mouse.removePointer();
+  });
+
   testWidgets(
     'dragging a selected tag onto a grouped block changes its block',
     (tester) async {
@@ -1487,30 +1852,39 @@ void main() {
     },
   );
 
-  testWidgets('legacy layered initial mode still renders grouped blocks', (
+  testWidgets('layered initial mode renders role field groups', (
     tester,
   ) async {
     await tester.pumpWidget(
       host(
         PromptTagDisplay(
-          text: 'masterpiece, artist: sy4',
+          text: 'girl, collarbone, white shirt, black shorts, dress',
           initialLayoutMode: PromptTagLayoutMode.layered,
+          respectInitialLayoutMode: true,
           translationCache: cache(),
         ),
       ),
     );
 
     expect(
-      find.byKey(const ValueKey('prompt-tag-group-quality')),
+      find.byKey(const ValueKey('prompt-tag-group-character')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('prompt-tag-group-artist')),
+      find.byKey(const ValueKey('prompt-tag-group-upperBody')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const ValueKey('prompt-tag-layer-quality')),
-      findsNothing,
+      find.byKey(const ValueKey('prompt-tag-group-upperClothing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-group-lowerClothing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-group-clothing')),
+      findsOneWidget,
     );
   });
 

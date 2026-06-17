@@ -4,12 +4,12 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/core/constants/parameters.dart';
-import 'package:nai_casrand/data/models/character_config.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/services/image_service.dart';
-import 'package:nai_casrand/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/services/image_service.dart';
+import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
 import 'package:png_chunks_extract/png_chunks_extract.dart' as png_extract;
 
 class WorkbenchMetadataImportSummary {

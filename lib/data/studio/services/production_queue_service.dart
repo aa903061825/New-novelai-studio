@@ -1,5 +1,5 @@
-import 'package:nai_casrand/data/studio/models/production_task.dart';
-import 'package:nai_casrand/data/workspace/workspace_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 class ProductionQueueService {
   final WorkspaceService workspaceService;
@@ -14,9 +14,11 @@ class ProductionQueueService {
     if (_hasCompactedPlans(plans, compactedPlans)) {
       await workspaceService.saveProductionPlans(compactedPlans);
     }
-    return [
-      ...compactedPlans,
-    ]..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    return _sortPlansByRecent(compactedPlans);
+  }
+
+  Future<List<ProductionPlan>> loadPlansReadOnly() async {
+    return _sortPlansByRecent(await workspaceService.loadProductionPlans());
   }
 
   Future<void> savePlans(List<ProductionPlan> plans) {
@@ -53,4 +55,9 @@ bool _hasCompactedPlans(
     }
   }
   return false;
+}
+
+List<ProductionPlan> _sortPlansByRecent(List<ProductionPlan> plans) {
+  return [...plans]
+    ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
 }

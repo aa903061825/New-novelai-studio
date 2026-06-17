@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:nai_casrand/ui/studio_core/widgets/studio_generated_image_gallery.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
 
 void main() {
   testWidgets('gallery renders complete image cards with names',
@@ -395,7 +395,7 @@ void main() {
   });
 }
 
-const _windowChannel = MethodChannel('nai_casrand/window');
+const _windowChannel = MethodChannel('novel_studio/window');
 
 double _fullscreenTopChromeOpacity(WidgetTester tester) {
   return tester

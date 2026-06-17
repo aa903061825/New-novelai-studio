@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nai_casrand/data/models/settings.dart';
+import 'package:novel_studio/data/models/settings.dart';
 
 void main() {
   test('settings constructor keeps jitter defaults compatible', () {

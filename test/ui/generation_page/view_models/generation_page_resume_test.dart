@@ -4,16 +4,16 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:nai_casrand/data/models/api_request.dart';
-import 'package:nai_casrand/data/models/command_status.dart';
-import 'package:nai_casrand/data/models/generation_runtime_state.dart';
-import 'package:nai_casrand/data/models/payload_config.dart';
-import 'package:nai_casrand/data/models/param_config.dart';
-import 'package:nai_casrand/data/models/prompt_config.dart';
-import 'package:nai_casrand/data/models/settings.dart';
-import 'package:nai_casrand/data/services/config_service.dart';
-import 'package:nai_casrand/data/use_cases/generate_payload_use_case.dart';
-import 'package:nai_casrand/ui/generation_page/view_models/generation_page_viewmodel.dart';
+import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_runtime_state.dart';
+import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/models/param_config.dart';
+import 'package:novel_studio/data/models/prompt_config.dart';
+import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/use_cases/generate_payload_use_case.dart';
+import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
 
 PayloadConfig _buildPayloadConfig({
   int numberOfRequests = 3,
@@ -524,7 +524,8 @@ void main() {
       viewmodel.resumeBatchFromLast();
       await _waitForBatchToStop(viewmodel);
 
-      expect(viewmodel.commandList.last.value.additionalInfo['input'], 'prompt-2');
+      expect(
+          viewmodel.commandList.last.value.additionalInfo['input'], 'prompt-2');
     },
   );
 
@@ -541,7 +542,8 @@ void main() {
       viewmodel.resumeBatchFromNumber(3);
       await _waitForBatchToStop(viewmodel);
 
-      expect(viewmodel.commandList.last.value.additionalInfo['input'], 'prompt-3');
+      expect(
+          viewmodel.commandList.last.value.additionalInfo['input'], 'prompt-3');
     },
   );
 }
