@@ -441,6 +441,8 @@ function buildExtraction(cache) {
     }
   }
 
+  attachUnmatchedPromptEvidenceToGroups(frames, groups);
+
   const roles = [];
   const usedRoleIds = new Set();
   const baseFrameGroupCount = countBaseFrameGroupMemberships(groups);
@@ -811,6 +813,28 @@ function promptTermsForRoleGroup(roleId, group, context = {}) {
         });
         continue;
       }
+      const accessoryPrompt = accessoryPromptTermForTag(tag);
+      if (accessoryPrompt) {
+        addPromptTerm(terms, {
+          category: 'accessory',
+          text: accessoryPrompt,
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+        continue;
+      }
+      const bodyPrompt = bodyPromptTermForTag(tag);
+      if (bodyPrompt) {
+        addPromptTerm(terms, {
+          category: 'body',
+          text: bodyPrompt,
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        });
+        continue;
+      }
       if (
         (isVisualDisplacementTermForStageKey(normalized) &&
           !hasTornReplacementEvidence(normalized)) ||
@@ -960,7 +984,7 @@ function isScenePromptReplacementTerm(tag) {
     return false;
   }
   if (
-    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fangs?|skin|face|hat|cap|ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|ponytail|pigtails?|braids?|bangs|hairclip|hairband|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|chest|breasts?|bust|midriff|abs|thighs?|legs?|feet|toes?|hips?|waist|navel|stomach)\b/.test(
+    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fangs?|skin|face|hat|cap|ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|ponytail|pigtails?|braids?|bangs|hairclip|hairband|glasses|sunglasses|eyewear|goggles|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|chest|breasts?|bust|midriff|abs|thighs?|legs?|feet|toes?|hips?|waist|navel|stomach)\b/.test(
       normalized,
     )
   ) {
@@ -1000,9 +1024,10 @@ function promptTermRowsFromMap(terms, idPrefix) {
   const order = new Map([
     ['identity', 0],
     ['body', 1],
-    ['clothing', 2],
-    ['clothingState', 3],
-    ['scene', 4],
+    ['accessory', 2],
+    ['clothing', 3],
+    ['clothingState', 4],
+    ['scene', 5],
   ]);
   return [...terms.values()]
     .sort(
@@ -1023,12 +1048,16 @@ function promptTermRowsFromMap(terms, idPrefix) {
 function clothingPromptTermForTag(tag) {
   const normalized = normalizedTagKey(tag);
   if (!normalized) return '';
+  const cleanedNormalized = normalizedTagKey(cleanPromptReplacementStateTag(tag));
   if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
     return '';
   }
   if (isOtherCharacterClothingActionTag(normalized)) return '';
   if (isNonClothingPhraseWithClothingToken(normalized)) return '';
-  if (!isAllowedClothingStatePromptTerm(normalized) && !containsGarmentOrClothingToken(normalized)) {
+  if (
+    !isAllowedClothingStatePromptTerm(cleanedNormalized || normalized) &&
+    !containsGarmentOrClothingToken(cleanedNormalized || normalized)
+  ) {
     return '';
   }
   const text = cleanPromptReplacementStateTag(tag);
@@ -1036,7 +1065,7 @@ function clothingPromptTermForTag(tag) {
 }
 
 function clothingPromptTermCategoryForTag(tag) {
-  const normalized = normalizedTagKey(tag);
+  const normalized = normalizedTagKey(cleanPromptReplacementStateTag(tag) || tag);
   if (!normalized) return 'clothing';
   return isAllowedClothingStatePromptTerm(normalized) ? 'clothingState' : 'clothing';
 }
@@ -1047,6 +1076,32 @@ function clothingStatePromptTermForTag(tag) {
   return clothingPromptTermCategoryForTag(tag) === 'clothingState' ? text : '';
 }
 
+function accessoryPromptTermForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return '';
+  }
+  if (containsGarmentOrClothingToken(normalized)) return '';
+  if (!isRoleAccessoryPromptTerm(normalized)) return '';
+  return cleanPromptReplacementStateTag(tag);
+}
+
+function bodyPromptTermForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return '';
+  }
+  if (containsGarmentOrClothingToken(normalized)) return '';
+  if (isRoleAccessoryPromptTerm(normalized)) return '';
+  if (!isRoleBodyPromptTerm(tag, normalized)) return '';
+  if (/\bglowing vine(?: like)? dendro tattoo\b/.test(normalized)) {
+    return 'glowing vine dendro tattoo';
+  }
+  return cleanPromptReplacementStateTag(tag);
+}
+
 function cleanPromptReplacementStateTag(tag) {
   let text = cleanTag(tag);
   if (!text) return '';
@@ -1055,7 +1110,7 @@ function cleanPromptReplacementStateTag(tag) {
     previous = text;
     text = text.replace(/^[{}\[\]\s]+|[{}\[\]\s]+$/g, '').trim();
   }
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replace(/[.。]+$/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function isAllowedClothingStatePromptTerm(normalized) {
@@ -1115,6 +1170,82 @@ function containsGarmentOrClothingToken(normalized) {
   );
 }
 
+function isRoleAccessoryPromptTerm(normalized) {
+  if (!normalized) return false;
+  if (isHardNonAccessoryTerm(normalized)) return false;
+  return (
+    /\b(glasses|sunglasses|eyewear|goggles|monocle|eyepatch|eye patch)\b/.test(
+      normalized,
+    ) ||
+    /\b(hat|cap|crown|tiara|hair ornament|hair ornaments|hair accessories|hair accessory|hairclip|hair clip|hairband|headband|headdress|headwear|headpiece|veil)\b/.test(
+      normalized,
+    ) ||
+    /\b(jewelry|jewellery|earrings?|necklace|chokers?|collars?|pet collar|bracelets?|anklets?|rings?|wedding ring|married ring|piercings?|nipple piercings?)\b/.test(
+      normalized,
+    ) ||
+    /\b(mask|mouth mask|face mask|shoulder bag|handbag|purse|satchel|backpack)\b/.test(
+      normalized,
+    ) ||
+    /\b(hair ribbon|ribbons?|bowtie|bow tie)\b/.test(normalized) ||
+    /(\u773c\u955c|\u773c\u93e1|\u30e1\u30ac\u30cd|\u3081\u304c\u306d|\u30b5\u30f3\u30b0\u30e9\u30b9|\u30b4\u30fc\u30b0\u30eb|\u5e3d\u5b50|\u9aea\u98fe\u308a|\u53d1\u9970|\u767c\u98fe|\u9996\u8f2a|\u9879\u5708|\u9805\u5708|\u30c1\u30e7\u30fc\u30ab\u30fc|\u30cd\u30c3\u30af\u30ec\u30b9|\u30d4\u30a2\u30b9|\u6307\u8f2a|\u6212\u6307|\u30d6\u30ec\u30b9\u30ec\u30c3\u30c8)/.test(
+      normalized,
+    )
+  );
+}
+
+function isRoleBodyPromptTerm(tag, normalized = normalizedTagKey(tag)) {
+  if (!normalized) return false;
+  if (isHardNonRoleBodyTerm(normalized)) return false;
+  if (
+    /\b(tail|tails?|paw|paws|hooves?)\b/.test(normalized) ||
+    /\b(hair|eyes?|iris|pupils?|ears?|animal ears|cat ears|fox ears|dog ears|wolf ears|rabbit ears|bunny ears|pointy ears|long ears|horns?|halo|fangs?|skin|face|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
+      normalized,
+    ) ||
+    /\b(thighs?|thick thighs?|bare legs?|legs?|navel|stomach|hips?|waist|barefoot|feet|foot|toes?|thighcut)\b/.test(
+      normalized,
+    ) ||
+    /(兽耳|獸耳|猫耳|貓耳|狐耳|犬耳|兔耳|角|尾巴|尻尾|しっぽ|髪|发|髮|眼|瞳|肌|皮肤|皮膚|刺青|纹身|紋身)/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const classified = classificationCategoryForTag(tag);
+  return classified === 'upperBody' || classified === 'lowerBody';
+}
+
+function isHardNonRoleBodyTerm(normalized) {
+  if (/\b(?:male|female|man|woman|girl|boy|loli|child)\b/.test(normalized)) {
+    return true;
+  }
+  if (
+    /\b(averting eyes?|looking|watching|staring|closed eyes?|closed eye|one eye closed|open mouth|blush|crying|smile|pain|panic|dazed|motion blur|sound effects?|heart[- ]shaped pupils?|heart pupils?|heart in eyes?|rape eyes?|no highlights|no eyes|empty eyes|evil eyes|wild eyes|tired eyes|surprised face|constricted pupils?|wide eyes?|dull eyes?|vacant eyes?|eyes rolled back|rolling eyes?|uneven eyes?|covered eyes?|sharp eyes?|naughty face|angry|despair|scared)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(lick(?:ing)?|suck(?:ing)?|touch(?:ing)?|caress(?:ing)?|grab(?:bing)?|grip(?:ping)?|grop(?:ing)?|fondling|pull(?:ing|ed)?|hold(?:ing)?|shake|shaking|lift(?:ing|ed)?|push(?:ing|ed)?|spread(?:ing)?|standing|sitting|lying|kneeling|close[- ]?up|front face view|monitor on wall|face focus|side face|head back|head down|head tilt|out of frame|on floor|on bed|on stomach|pressed into|pressed against|face in|face on|face to|water splash|adjusting hair|fixing hair|brushing hair|combing hair|messy hair|wet hair|hair grab|grab .*hair|grabbing .*hair|pulling .*hair|shading eyes|cover(?:ing|ed)? .*eyes|cover(?:ing|ed)? .*mouth|covered navel|disembodied hands?|hand(?:s)?[ _-]|arms? around|arms? over|leg up|legs? up|legs? together|legs? apart|leg apart|plantar flexion|soles? on feet|feet in mid-air|paw pose|thighhold|squeezing thighs?|rapid hip movement|stomach punch|foot job|view between legs|streching legs|stretching legs|hanging breasts?|m legs|leg lock|another(?:'s| s)? hand|hand on|hands? on)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return /\b(wet|sweaty|sweat|stained|torn|ripped|damaged|sex|cum|semen|saliva|orgy|penetration|missionary|doggystyle|position|facial|ass|pussy|penis|nipples?|areola|pubic|vaginal|anal|censored|mosaic|crime scene|corpse|dead|kidnapping|chloroform|strangle|punishment|body writing|stomach bulge|breast press|bouncing breasts?|breasts? out|squeezed together|hard nipple|hide nipple|tattoo machine)\b/.test(
+    normalized,
+  );
+}
+
+function isHardNonAccessoryTerm(normalized) {
+  if (/^(?:bow|collarbone|bag|box|condom box|condom wrapper)$/.test(normalized)) {
+    return true;
+  }
+  return /\b(?:looking|watching|holding|grabbing|pulling|touching|sex|cum|on table|on the table)\b/.test(
+    normalized,
+  );
+}
+
 function isCrossSubjectClothingCompositionTerm(normalized) {
   return /\bclothed (?:female|girl|woman|male|boy|man) nude (?:female|girl|woman|male|boy|man)\b/.test(
     normalized,
@@ -1142,6 +1273,12 @@ function shouldSkipPromptReplacementTerm(term, category) {
     if (isOtherCharacterClothingActionTag(normalized)) return true;
     if (isNonClothingPhraseWithClothingToken(normalized)) return true;
     return !containsGarmentOrClothingToken(normalized);
+  }
+  if (category === 'accessory') {
+    return !isRoleAccessoryPromptTerm(normalized);
+  }
+  if (category === 'body') {
+    return !isRoleBodyPromptTerm(term, normalized);
   }
   if (isHardNonRoleTerm(normalized)) return true;
   if (
@@ -1508,6 +1645,130 @@ function shouldSkipCaptionAsRole(tags, identity) {
     return true;
   }
   return false;
+}
+
+function attachUnmatchedPromptEvidenceToGroups(frames, groups) {
+  const groupList = [...groups.values()];
+  const coveredSourceFrames = new Set();
+  for (const group of groupList) {
+    for (const [sourceId, sourceFrames] of group.sourceIds ?? []) {
+      for (const frameIndex of sourceFrames ?? []) {
+        if (Number.isInteger(Number(frameIndex))) {
+          coveredSourceFrames.add(`${sourceId}\u001f${Number(frameIndex)}`);
+        }
+      }
+    }
+  }
+  const groupTermCache = new Map(
+    groupList.map((group) => [group, promptEvidenceTermsForGroup(group)]),
+  );
+  for (const frame of frames) {
+    const frameIndex = Number(frame.index);
+    if (!Number.isInteger(frameIndex)) continue;
+    const captions = Array.isArray(frame.parsed?.charCaptions)
+      ? frame.parsed.charCaptions
+      : [];
+    captions.forEach((caption, slot) => {
+      if (!stringValue(caption).trim()) return;
+      const sourceId = `slot-${slot}`;
+      const coverageKey = `${sourceId}\u001f${frameIndex}`;
+      if (coveredSourceFrames.has(coverageKey)) return;
+      const tags = parseTags(caption);
+      if (tags.length === 0) return;
+      const promptEvidenceTerms = promptEvidenceTermsForTags(tags);
+      if (promptEvidenceTerms.size === 0) return;
+      const target = chooseGroupForUnmatchedPromptEvidence(groupList, {
+        sourceId,
+        frameIndex,
+        tags,
+        promptEvidenceTerms,
+        groupTermCache,
+      });
+      if (!target) return;
+
+      const identity = sanitizeIdentityForRole(identityForTags(tags), tags);
+      target.frames.add(frameIndex);
+      const sourceFrames = target.sourceIds.get(sourceId) ?? new Set();
+      sourceFrames.add(frameIndex);
+      target.sourceIds.set(sourceId, sourceFrames);
+      coveredSourceFrames.add(coverageKey);
+      target.frameTags.push({
+        frameIndex,
+        sourceId,
+        tags,
+        baseTags: parseTags(frame.parsed?.baseCaption),
+        identity,
+      });
+      target.identity = sanitizeIdentityForRole(mergeIdentities(target.identity, identity));
+      const cachedTerms = groupTermCache.get(target) ?? new Set();
+      for (const term of promptEvidenceTerms) cachedTerms.add(term);
+      groupTermCache.set(target, cachedTerms);
+    });
+  }
+}
+
+function chooseGroupForUnmatchedPromptEvidence(groups, context) {
+  const sourceIdentity = sanitizeIdentityForRole(identityForTags(context.tags), context.tags);
+  const sourceGender = identityGender(sourceIdentity);
+  const scored = [];
+  for (const group of groups) {
+    const groupGender = identityGender(group.identity);
+    if (sourceGender && groupGender && sourceGender !== groupGender) continue;
+    let score = 0;
+    if (group.sourceIds?.has(context.sourceId)) score += 70;
+    if (group.frames?.has(context.frameIndex)) score += 40;
+    const groupTerms =
+      context.groupTermCache?.get(group) ?? promptEvidenceTermsForGroup(group);
+    for (const term of context.promptEvidenceTerms) {
+      if (groupTerms.has(term)) score += 25;
+    }
+    if (sourceGender && groupGender && sourceGender === groupGender) score += 10;
+    if (hasSpecificGenericIdentity(sourceIdentity)) {
+      const sourceGeneric = new Set(
+        (sourceIdentity.generic ?? []).map(normalizedTagKey).filter(Boolean),
+      );
+      const groupGeneric = new Set(
+        [
+          ...(group.identity?.generic ?? []),
+          ...(group.identity?.rawGeneric ?? []),
+          ...(group.identity?.concrete ?? []),
+        ]
+          .map(normalizedTagKey)
+          .filter(Boolean),
+      );
+      for (const term of sourceGeneric) {
+        if (groupGeneric.has(term)) score += 20;
+      }
+    }
+    if (score >= 70) scored.push({ group, score });
+  }
+  scored.sort((left, right) => right.score - left.score);
+  if (scored.length === 0) return null;
+  if (scored[1] && scored[0].score - scored[1].score < 15) return null;
+  return scored[0].group;
+}
+
+function promptEvidenceTermsForGroup(group) {
+  const terms = new Set();
+  for (const entry of group.frameTags ?? []) {
+    for (const term of promptEvidenceTermsForTags(entry.tags ?? [])) {
+      terms.add(term);
+    }
+  }
+  return terms;
+}
+
+function promptEvidenceTermsForTags(tags) {
+  const terms = new Set();
+  for (const tag of tags ?? []) {
+    const text =
+      clothingPromptTermForTag(tag) ||
+      accessoryPromptTermForTag(tag) ||
+      bodyPromptTermForTag(tag);
+    const key = normalizedTagKey(text);
+    if (key) terms.add(key);
+  }
+  return terms;
 }
 
 function canAttachGenericCaptionToAnchor(tags, identity, anchor) {
@@ -3868,7 +4129,7 @@ function categoryForTag(tag) {
     return 'upperClothing';
   }
   if (
-    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fang|fangs|skin|face|hat|cap|hair ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|hairclip|hairband|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
+    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fang|fangs|skin|face|hat|cap|hair ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|hairclip|hairband|glasses|sunglasses|eyewear|goggles|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
       normalized,
     )
   ) {
@@ -4176,7 +4437,7 @@ function categoryForTagWithoutCharacter(tag) {
     return 'knownNonCharacter';
   }
   if (
-    /\b(hair|eyes?|iris|pupils?|ears?|horns?|halo|fangs?|face|skin|tail|hat|cap|hood|headdress|headwear|shirt|jacket|skirt|shorts|pants|panties|shoes?|boots?|socks?|nude|sex|cum|artist|quality|solo|hand|hands|frame|flip|lift|open clothes|shower|bathroom|bath|place|locker room|bedroom|school|classroom|chair|vision|object|faceless male|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|hairclip|hairband|ribbon|bow|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|midriff|abs|navel|stomach|thighs?|legs?|feet|foot|toes?|uniform|bikini|swimsuit|dress|kimono|yukata|gloves?)\b/.test(
+    /\b(hair|eyes?|iris|pupils?|ears?|horns?|halo|fangs?|face|skin|tail|hat|cap|hood|headdress|headwear|shirt|jacket|skirt|shorts|pants|panties|shoes?|boots?|socks?|nude|sex|cum|artist|quality|solo|hand|hands|frame|flip|lift|open clothes|shower|bathroom|bath|place|locker room|bedroom|school|classroom|chair|vision|object|faceless male|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|hairclip|hairband|ribbon|bow|glasses|sunglasses|eyewear|goggles|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|midriff|abs|navel|stomach|thighs?|legs?|feet|foot|toes?|uniform|bikini|swimsuit|dress|kimono|yukata|gloves?)\b/.test(
       normalized,
     )
   ) {

@@ -9,12 +9,18 @@ const defaultCacheDir = path.join(
   'script_recast',
   'cache',
 );
+const defaultClassificationCache =
+  'E:/NAI\u7684\u811a\u672c\u7fa4/tag_classification_cache.json';
 
 const options = parseArgs(process.argv.slice(2));
 const cacheDir = path.resolve(options.cacheDir ?? defaultCacheDir);
 const reportPath =
   options.report ??
   path.join('build', 'script_recast_replacement_prompt_terms_audit_20260617.json');
+const classificationCache = loadJson(
+  options.classificationCache ?? defaultClassificationCache,
+  {},
+);
 
 if (!fs.existsSync(cacheDir)) {
   throw new Error(`Missing cache dir: ${cacheDir}`);
@@ -34,6 +40,18 @@ const report = {
   clothing_missing_mapping_count: 0,
   clothing_unmatched_role_evidence_count: 0,
   clothing_term_no_role_slot_evidence_count: 0,
+  accessory_evidence_count: 0,
+  accessory_missing_prompt_term_count: 0,
+  accessory_wrong_category_count: 0,
+  accessory_missing_mapping_count: 0,
+  accessory_unmatched_role_evidence_count: 0,
+  accessory_term_no_role_slot_evidence_count: 0,
+  body_evidence_count: 0,
+  body_missing_prompt_term_count: 0,
+  body_wrong_category_count: 0,
+  body_missing_mapping_count: 0,
+  body_unmatched_role_evidence_count: 0,
+  body_term_no_role_slot_evidence_count: 0,
   scene_evidence_count: 0,
   scene_missing_prompt_term_count: 0,
   scene_missing_mapping_count: 0,
@@ -54,6 +72,24 @@ for (const fileName of files) {
     fileReport.clothing_unmatched_role_evidence_count;
   report.clothing_term_no_role_slot_evidence_count +=
     fileReport.clothing_term_no_role_slot_evidence_count;
+  report.accessory_evidence_count += fileReport.accessory_evidence_count;
+  report.accessory_missing_prompt_term_count +=
+    fileReport.accessory_missing_prompt_term_count;
+  report.accessory_wrong_category_count += fileReport.accessory_wrong_category_count;
+  report.accessory_missing_mapping_count += fileReport.accessory_missing_mapping_count;
+  report.accessory_unmatched_role_evidence_count +=
+    fileReport.accessory_unmatched_role_evidence_count;
+  report.accessory_term_no_role_slot_evidence_count +=
+    fileReport.accessory_term_no_role_slot_evidence_count;
+  report.body_evidence_count += fileReport.body_evidence_count;
+  report.body_missing_prompt_term_count +=
+    fileReport.body_missing_prompt_term_count;
+  report.body_wrong_category_count += fileReport.body_wrong_category_count;
+  report.body_missing_mapping_count += fileReport.body_missing_mapping_count;
+  report.body_unmatched_role_evidence_count +=
+    fileReport.body_unmatched_role_evidence_count;
+  report.body_term_no_role_slot_evidence_count +=
+    fileReport.body_term_no_role_slot_evidence_count;
   report.scene_evidence_count += fileReport.scene_evidence_count;
   report.scene_missing_prompt_term_count +=
     fileReport.scene_missing_prompt_term_count;
@@ -65,6 +101,16 @@ for (const fileName of files) {
     fileReport.clothing_missing_mapping_count > 0 ||
     fileReport.clothing_unmatched_role_evidence_count > 0 ||
     fileReport.clothing_term_no_role_slot_evidence_count > 0 ||
+    fileReport.accessory_missing_prompt_term_count > 0 ||
+    fileReport.accessory_wrong_category_count > 0 ||
+    fileReport.accessory_missing_mapping_count > 0 ||
+    fileReport.accessory_unmatched_role_evidence_count > 0 ||
+    fileReport.accessory_term_no_role_slot_evidence_count > 0 ||
+    fileReport.body_missing_prompt_term_count > 0 ||
+    fileReport.body_wrong_category_count > 0 ||
+    fileReport.body_missing_mapping_count > 0 ||
+    fileReport.body_unmatched_role_evidence_count > 0 ||
+    fileReport.body_term_no_role_slot_evidence_count > 0 ||
     fileReport.scene_missing_prompt_term_count > 0 ||
     fileReport.scene_missing_mapping_count > 0
   ) {
@@ -108,6 +154,18 @@ function auditCache(fileName, cache) {
     clothing_missing_mapping_count: 0,
     clothing_unmatched_role_evidence_count: 0,
     clothing_term_no_role_slot_evidence_count: 0,
+    accessory_evidence_count: 0,
+    accessory_missing_prompt_term_count: 0,
+    accessory_wrong_category_count: 0,
+    accessory_missing_mapping_count: 0,
+    accessory_unmatched_role_evidence_count: 0,
+    accessory_term_no_role_slot_evidence_count: 0,
+    body_evidence_count: 0,
+    body_missing_prompt_term_count: 0,
+    body_wrong_category_count: 0,
+    body_missing_mapping_count: 0,
+    body_unmatched_role_evidence_count: 0,
+    body_term_no_role_slot_evidence_count: 0,
     scene_evidence_count: 0,
     scene_missing_prompt_term_count: 0,
     scene_missing_mapping_count: 0,
@@ -204,11 +262,145 @@ function auditCache(fileName, cache) {
           }
         }
       }
+      for (const rawTag of parseTags(caption)) {
+        const expected = accessoryPromptTermForTag(rawTag);
+        if (!expected) continue;
+        const expectedCategory = 'accessory';
+        const expectedKey = normalizedTagKey(expected);
+        const matchedRoles =
+          roleBySlotFrame.get(`slot-${slot}\u001f${frameIndex}`) ?? [];
+        if (matchedRoles.length === 0) {
+          fileReport.accessory_unmatched_role_evidence_count += 1;
+          sample(fileReport, {
+            reason: 'accessory_unmatched_role',
+            frame: frameIndex,
+            slot,
+            term: expected,
+            expectedCategory,
+          });
+          continue;
+        }
+        for (const role of matchedRoles) {
+          fileReport.accessory_evidence_count += 1;
+          const prompt = promptTermMap(role.prompt_terms);
+          const roleTerm = prompt.get(expectedKey);
+          if (!roleTerm) {
+            fileReport.accessory_missing_prompt_term_count += 1;
+            sample(fileReport, {
+              reason: 'missing_accessory_prompt_term',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+            });
+            continue;
+          }
+          if (!promptCategoryMatches(expectedCategory, roleTerm.category)) {
+            fileReport.accessory_wrong_category_count += 1;
+            sample(fileReport, {
+              reason: 'wrong_accessory_category',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+              category: roleTerm.category,
+            });
+          }
+          const mappedTerms =
+            roleMappingTerms.get(stringValue(role.source_role_id)) ?? new Set();
+          if (!mappedTerms.has(expectedKey)) {
+            fileReport.accessory_missing_mapping_count += 1;
+            sample(fileReport, {
+              reason: 'missing_accessory_prompt_mapping',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+            });
+          }
+        }
+      }
+      for (const rawTag of parseTags(caption)) {
+        const expected = bodyPromptTermForTag(rawTag);
+        if (!expected) continue;
+        const expectedCategory = 'body';
+        const expectedKey = normalizedTagKey(expected);
+        const matchedRoles =
+          roleBySlotFrame.get(`slot-${slot}\u001f${frameIndex}`) ?? [];
+        if (matchedRoles.length === 0) {
+          fileReport.body_unmatched_role_evidence_count += 1;
+          sample(fileReport, {
+            reason: 'body_unmatched_role',
+            frame: frameIndex,
+            slot,
+            term: expected,
+            expectedCategory,
+          });
+          continue;
+        }
+        for (const role of matchedRoles) {
+          fileReport.body_evidence_count += 1;
+          const prompt = promptTermMap(role.prompt_terms);
+          const roleTerm = prompt.get(expectedKey);
+          if (!roleTerm) {
+            fileReport.body_missing_prompt_term_count += 1;
+            sample(fileReport, {
+              reason: 'missing_body_prompt_term',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+            });
+            continue;
+          }
+          if (!promptCategoryMatches(expectedCategory, roleTerm.category)) {
+            fileReport.body_wrong_category_count += 1;
+            sample(fileReport, {
+              reason: 'wrong_body_category',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+              category: roleTerm.category,
+            });
+          }
+          const mappedTerms =
+            roleMappingTerms.get(stringValue(role.source_role_id)) ?? new Set();
+          if (!mappedTerms.has(expectedKey)) {
+            fileReport.body_missing_mapping_count += 1;
+            sample(fileReport, {
+              reason: 'missing_body_prompt_mapping',
+              frame: frameIndex,
+              slot,
+              role: role.source_role_id,
+              term: expected,
+              expectedCategory,
+            });
+          }
+        }
+      }
     });
   }
 
   for (const role of roles) {
     auditRoleClothingPromptTermEvidence({
+      role,
+      frameByIndex,
+      baseRoleCountByFrame,
+      fileReport,
+    });
+    auditRoleAccessoryPromptTermEvidence({
+      role,
+      frameByIndex,
+      baseRoleCountByFrame,
+      fileReport,
+    });
+    auditRoleBodyPromptTermEvidence({
       role,
       frameByIndex,
       baseRoleCountByFrame,
@@ -289,6 +481,67 @@ function auditRoleClothingPromptTermEvidence({
   }
 }
 
+function auditRoleAccessoryPromptTermEvidence({
+  role,
+  frameByIndex,
+  baseRoleCountByFrame,
+  fileReport,
+}) {
+  const terms = Array.isArray(role.prompt_terms) ? role.prompt_terms : [];
+  for (const term of terms) {
+    const category = normalizePromptCategory(term?.category);
+    if (category !== 'accessory') continue;
+    if (
+      rolePromptTermHasOwnSlotEvidence(
+        role,
+        term,
+        frameByIndex,
+        baseRoleCountByFrame,
+      )
+    ) {
+      continue;
+    }
+    fileReport.accessory_term_no_role_slot_evidence_count += 1;
+    sample(fileReport, {
+      reason: 'accessory_term_no_role_slot_evidence',
+      role: role.source_role_id,
+      term: term?.text,
+      category: term?.category,
+      sourcePhrase: term?.source_phrase ?? term?.sourcePhrase,
+      frameIndexes: term?.frame_indexes ?? term?.frameIndexes ?? [],
+    });
+  }
+}
+
+function auditRoleBodyPromptTermEvidence({
+  role,
+  frameByIndex,
+  baseRoleCountByFrame,
+  fileReport,
+}) {
+  for (const term of Array.isArray(role.prompt_terms) ? role.prompt_terms : []) {
+    const category = normalizePromptCategory(term?.category);
+    if (category !== 'body') continue;
+    if (
+      rolePromptTermHasOwnSlotEvidence(
+        role,
+        term,
+        frameByIndex,
+        baseRoleCountByFrame,
+      )
+    ) {
+      continue;
+    }
+    fileReport.body_term_no_role_slot_evidence_count += 1;
+    sample(fileReport, {
+      reason: 'body_term_no_role_slot_evidence',
+      role: role.source_role_id,
+      term: term?.text,
+      frames: term?.frame_indexes,
+    });
+  }
+}
+
 function rolePromptTermHasOwnSlotEvidence(
   role,
   term,
@@ -340,7 +593,11 @@ function rolePromptTermHasOwnSlotEvidence(
         caption = captions[slot];
       }
       for (const rawTag of parseTags(caption)) {
-        const evidenceText = clothingPromptTermForTag(rawTag) || cleanTag(rawTag);
+        const evidenceText =
+          clothingPromptTermForTag(rawTag) ||
+          accessoryPromptTermForTag(rawTag) ||
+          bodyPromptTermForTag(rawTag) ||
+          cleanTag(rawTag);
         if (candidates.has(normalizedTagKey(evidenceText))) return true;
         if (candidates.has(normalizedTagKey(rawTag))) return true;
       }
@@ -483,21 +740,51 @@ function normalizePromptCategory(category) {
 function clothingPromptTermForTag(tag) {
   const normalized = normalizedTagKey(tag);
   if (!normalized) return '';
+  const cleanedNormalized = normalizedTagKey(cleanPromptReplacementStateTag(tag));
   if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
     return '';
   }
   if (isOtherCharacterClothingActionTag(normalized)) return '';
   if (isNonClothingPhraseWithClothingToken(normalized)) return '';
-  if (!isAllowedClothingStatePromptTerm(normalized) && !containsGarmentOrClothingToken(normalized)) {
+  if (
+    !isAllowedClothingStatePromptTerm(cleanedNormalized || normalized) &&
+    !containsGarmentOrClothingToken(cleanedNormalized || normalized)
+  ) {
     return '';
   }
   return cleanPromptReplacementStateTag(tag);
 }
 
 function clothingPromptTermCategoryForTag(tag) {
-  const normalized = normalizedTagKey(tag);
+  const normalized = normalizedTagKey(cleanPromptReplacementStateTag(tag) || tag);
   if (!normalized) return 'clothing';
   return isAllowedClothingStatePromptTerm(normalized) ? 'clothingState' : 'clothing';
+}
+
+function accessoryPromptTermForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return '';
+  }
+  if (containsGarmentOrClothingToken(normalized)) return '';
+  if (!isRoleAccessoryPromptTerm(normalized)) return '';
+  return cleanPromptReplacementStateTag(tag);
+}
+
+function bodyPromptTermForTag(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (isKnownFranchiseCharacterTag(tag, normalized) || isVariantNamedCharacterTag(tag)) {
+    return '';
+  }
+  if (containsGarmentOrClothingToken(normalized)) return '';
+  if (isRoleAccessoryPromptTerm(normalized)) return '';
+  if (!isRoleBodyPromptTerm(tag, normalized)) return '';
+  if (/\bglowing vine(?: like)? dendro tattoo\b/.test(normalized)) {
+    return 'glowing vine dendro tattoo';
+  }
+  return cleanPromptReplacementStateTag(tag);
 }
 
 function isUnassignableClothingActionEvidence(tag, caption) {
@@ -533,7 +820,7 @@ function cleanPromptReplacementStateTag(tag) {
     previous = text;
     text = text.replace(/^[{}\[\]\s]+|[{}\[\]\s]+$/g, '').trim();
   }
-  return text.replace(/\s+/g, ' ').trim();
+  return text.replace(/[.。]+$/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function isAllowedClothingStatePromptTerm(normalized) {
@@ -589,6 +876,82 @@ function containsGarmentOrClothingToken(normalized) {
     return true;
   }
   return /(服饰|服飾|服装|服裝|衣服|衣装|衣裝|衣裳|衣類|衣类|制服|校服|水着|泳装|泳裝|浴衣|和服|着物|メイド服|メイド衣装|下着|パンツ|ブラジャー|靴下|靴|ブーツ|スカート|シャツ|ブラウス|ワンピース|コスチューム|衣裳)/.test(
+    normalized,
+  );
+}
+
+function isRoleAccessoryPromptTerm(normalized) {
+  if (!normalized) return false;
+  if (isHardNonAccessoryTerm(normalized)) return false;
+  return (
+    /\b(glasses|sunglasses|eyewear|goggles|monocle|eyepatch|eye patch)\b/.test(
+      normalized,
+    ) ||
+    /\b(hat|cap|crown|tiara|hair ornament|hair ornaments|hair accessories|hair accessory|hairclip|hair clip|hairband|headband|headdress|headwear|headpiece|veil)\b/.test(
+      normalized,
+    ) ||
+    /\b(jewelry|jewellery|earrings?|necklace|chokers?|collars?|pet collar|bracelets?|anklets?|rings?|wedding ring|married ring|piercings?|nipple piercings?)\b/.test(
+      normalized,
+    ) ||
+    /\b(mask|mouth mask|face mask|shoulder bag|handbag|purse|satchel|backpack)\b/.test(
+      normalized,
+    ) ||
+    /\b(hair ribbon|ribbons?|bowtie|bow tie)\b/.test(normalized) ||
+    /(\u773c\u955c|\u773c\u93e1|\u30e1\u30ac\u30cd|\u3081\u304c\u306d|\u30b5\u30f3\u30b0\u30e9\u30b9|\u30b4\u30fc\u30b0\u30eb|\u5e3d\u5b50|\u9aea\u98fe\u308a|\u53d1\u9970|\u767c\u98fe|\u9996\u8f2a|\u9879\u5708|\u9805\u5708|\u30c1\u30e7\u30fc\u30ab\u30fc|\u30cd\u30c3\u30af\u30ec\u30b9|\u30d4\u30a2\u30b9|\u6307\u8f2a|\u6212\u6307|\u30d6\u30ec\u30b9\u30ec\u30c3\u30c8)/.test(
+      normalized,
+    )
+  );
+}
+
+function isRoleBodyPromptTerm(tag, normalized = normalizedTagKey(tag)) {
+  if (!normalized) return false;
+  if (isHardNonRoleBodyTerm(normalized)) return false;
+  if (
+    /\b(tail|tails?|paw|paws|hooves?)\b/.test(normalized) ||
+    /\b(hair|eyes?|iris|pupils?|ears?|animal ears|cat ears|fox ears|dog ears|wolf ears|rabbit ears|bunny ears|pointy ears|long ears|horns?|halo|fangs?|skin|face|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
+      normalized,
+    ) ||
+    /\b(thighs?|thick thighs?|bare legs?|legs?|navel|stomach|hips?|waist|barefoot|feet|foot|toes?|thighcut)\b/.test(
+      normalized,
+    ) ||
+    /(兽耳|獸耳|猫耳|貓耳|狐耳|犬耳|兔耳|角|尾巴|尻尾|しっぽ|髪|发|髮|眼|瞳|肌|皮肤|皮膚|刺青|纹身|紋身)/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  const classified = classificationCategoryForTag(tag);
+  return classified === 'upperBody' || classified === 'lowerBody';
+}
+
+function isHardNonAccessoryTerm(normalized) {
+  if (/^(?:bow|collarbone|bag|box|condom box|condom wrapper)$/.test(normalized)) {
+    return true;
+  }
+  return /\b(?:looking|watching|holding|grabbing|pulling|touching|sex|cum|on table|on the table)\b/.test(
+    normalized,
+  );
+}
+
+function isHardNonRoleBodyTerm(normalized) {
+  if (/\b(?:male|female|man|woman|girl|boy|loli|child)\b/.test(normalized)) {
+    return true;
+  }
+  if (
+    /\b(averting eyes?|looking|watching|staring|closed eyes?|closed eye|one eye closed|open mouth|blush|crying|smile|pain|panic|dazed|motion blur|sound effects?|heart[- ]shaped pupils?|heart pupils?|heart in eyes?|rape eyes?|no highlights|no eyes|empty eyes|evil eyes|wild eyes|tired eyes|surprised face|constricted pupils?|wide eyes?|dull eyes?|vacant eyes?|eyes rolled back|rolling eyes?|uneven eyes?|covered eyes?|sharp eyes?|naughty face|angry|despair|scared)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(lick(?:ing)?|suck(?:ing)?|touch(?:ing)?|caress(?:ing)?|grab(?:bing)?|grip(?:ping)?|grop(?:ing)?|fondling|pull(?:ing|ed)?|hold(?:ing)?|shake|shaking|lift(?:ing|ed)?|push(?:ing|ed)?|spread(?:ing)?|standing|sitting|lying|kneeling|close[- ]?up|front face view|monitor on wall|face focus|side face|head back|head down|head tilt|out of frame|on floor|on bed|on stomach|pressed into|pressed against|face in|face on|face to|water splash|adjusting hair|fixing hair|brushing hair|combing hair|messy hair|wet hair|hair grab|grab .*hair|grabbing .*hair|pulling .*hair|shading eyes|cover(?:ing|ed)? .*eyes|cover(?:ing|ed)? .*mouth|covered navel|disembodied hands?|hand(?:s)?[ _-]|arms? around|arms? over|leg up|legs? up|legs? together|legs? apart|leg apart|plantar flexion|soles? on feet|feet in mid-air|paw pose|thighhold|squeezing thighs?|rapid hip movement|stomach punch|foot job|view between legs|streching legs|stretching legs|hanging breasts?|m legs|leg lock|another(?:'s| s)? hand|hand on|hands? on)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return /\b(wet|sweaty|sweat|stained|torn|ripped|damaged|sex|cum|semen|saliva|orgy|penetration|missionary|doggystyle|position|facial|ass|pussy|penis|nipples?|areola|pubic|vaginal|anal|censored|mosaic|crime scene|corpse|dead|kidnapping|chloroform|strangle|punishment|body writing|stomach bulge|breast press|bouncing breasts?|breasts? out|squeezed together|hard nipple|hide nipple|tattoo machine)\b/.test(
     normalized,
   );
 }
@@ -649,7 +1012,7 @@ function isScenePromptTerm(tag) {
     return false;
   }
   if (
-    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fangs?|skin|face|hat|cap|ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|ponytail|pigtails?|braids?|bangs|hairclip|hairband|glasses|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|chest|breasts?|bust|midriff|abs|thighs?|legs?|feet|toes?|hips?|waist|navel|stomach)\b/.test(
+    /\b(hair|eyes?|iris|pupil|ears?|horns?|halo|fangs?|skin|face|hat|cap|ornament|headdress|headwear|jewelry|earrings?|necklace|choker|collar|ribbon|bow|twintails?|ponytail|pigtails?|braids?|bangs|hairclip|hairband|glasses|sunglasses|eyewear|goggles|crown|bracelet|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|chest|breasts?|bust|midriff|abs|thighs?|legs?|feet|toes?|hips?|waist|navel|stomach)\b/.test(
       normalized,
     )
   ) {
@@ -717,9 +1080,42 @@ function normalizedTagKey(value) {
     .trim();
 }
 
+function classificationCategoryForTag(tag) {
+  const raw = cleanTag(tag);
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  const spaced = lower.replace(/_/g, ' ');
+  const normalized = normalizedTagKey(raw);
+  const keys = [
+    raw,
+    lower,
+    spaced,
+    normalized,
+    normalized.replace(/\s+/g, '_'),
+    normalized.replace(/\s+/g, '-'),
+  ];
+  const seen = new Set();
+  for (const key of keys) {
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const entry = classificationCache[`positive:${key}`];
+    if (entry?.category) return entry.category;
+  }
+  return undefined;
+}
+
 function sample(fileReport, item) {
   if (fileReport.samples.length < 30) {
     fileReport.samples.push(item);
+  }
+}
+
+function loadJson(filePath, fallback) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return fallback;
   }
 }
 

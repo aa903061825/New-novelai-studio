@@ -190,11 +190,11 @@ Display metadata:
   exact surrounding phrase in `source_phrase`.
 - A term appearing in a different role, different slot, or different stage is
   not evidence for this stage.
-- A clothing or clothingState `prompt_terms` entry is valid only when the term
-  or its `source_phrase` appears in that role's own `appearances[*].source_id`
-  slot caption on one of the term's `frame_indexes`. Do not mix clothing terms
-  across roles, slots, or stages even when the same frame contains multiple
-  characters.
+- A clothing, clothingState, accessory, or body/appearance `prompt_terms` entry
+  is valid only when the term or its `source_phrase` appears in that role's own
+  `appearances[*].source_id` slot caption on one of the term's `frame_indexes`.
+  Do not mix clothing, accessory, or body/appearance terms across roles, slots,
+  or stages even when the same frame contains multiple characters.
 - Stable missing fields stay empty. Do not use known character defaults to fill
   a frame/stage.
 - Correct obvious typos only when the source evidence and project convention are
@@ -241,6 +241,15 @@ Display metadata:
   cache instead of refreshing exact-source AI terms.
 - Scene leak: scene/place/light/weather/background terms copied into role
   `prompt_terms` instead of top-level `scene_terms`.
+- Accessory mix: eyewear, headwear, jewelry, collars/chokers, masks, bags,
+  ribbons/bows, hair ornaments, or other accessories copied between roles,
+  slots, or stages, or stored only as `body` when an `accessory` prompt term is
+  required.
+- Body/appearance mix: hair, eyes, ears, animal ears, horns, halo, fangs, tail,
+  skin, face, body shape, tattoos, moles, shoulders, chest, waist, hips, legs,
+  feet, or similar character-owned traits missing from role `prompt_terms`,
+  copied between roles/slots/stages, or stored under a non-`body` category when
+  a `body` prompt term is required.
 - Composition leak: subject-count/composition terms such as `1girl`, `solo`, or
   `2girls` copied into role identity prompt terms.
 

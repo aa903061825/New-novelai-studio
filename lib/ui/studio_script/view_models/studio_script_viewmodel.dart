@@ -52,6 +52,16 @@ typedef StudioScriptAiSettingProvider = String Function();
 typedef StudioScriptTagClassificationCacheSaver = Future<void> Function(
     PromptTagClassificationCache cache);
 
+class StudioScriptReplacementSourceTermDraft {
+  final String text;
+  final PromptTagCategory category;
+
+  const StudioScriptReplacementSourceTermDraft({
+    required this.text,
+    required this.category,
+  });
+}
+
 class _ReplacementRuleSplitResult {
   final List<ScriptPromptReplacementRule> rules;
   final String newRuleId;
@@ -59,6 +69,32 @@ class _ReplacementRuleSplitResult {
   const _ReplacementRuleSplitResult({
     required this.rules,
     required this.newRuleId,
+  });
+}
+
+sealed class _SelectedReplacementRuleTarget {
+  const _SelectedReplacementRuleTarget();
+}
+
+class _SelectedRoleReplacementRuleTarget
+    extends _SelectedReplacementRuleTarget {
+  final String sourceRoleId;
+  final String ruleId;
+
+  const _SelectedRoleReplacementRuleTarget({
+    required this.sourceRoleId,
+    required this.ruleId,
+  });
+}
+
+class _SelectedSceneReplacementRuleTarget
+    extends _SelectedReplacementRuleTarget {
+  final String groupId;
+  final String ruleId;
+
+  const _SelectedSceneReplacementRuleTarget({
+    required this.groupId,
+    required this.ruleId,
   });
 }
 
@@ -2337,6 +2373,177 @@ class StudioScriptViewModel extends ChangeNotifier {
     _refreshReplacementEditPreview();
     notifyListeners();
     _scheduleCurrentCacheSave();
+  }
+
+  bool get hasSingleSelectedReplacementRule {
+    return _selectedReplacementRuleTarget() != null;
+  }
+
+  bool addFrameReviewTermsToSelectedReplacementRule({
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final target = _selectedReplacementRuleTarget();
+    if (target == null) {
+      return false;
+    }
+    return switch (target) {
+      _SelectedRoleReplacementRuleTarget() =>
+        addFrameReviewTermsToRoleReplacementRule(
+          sourceRoleId: target.sourceRoleId,
+          ruleId: target.ruleId,
+          frameIndex: frameIndex,
+          sourceLocation: sourceLocation,
+          terms: terms,
+        ),
+      _SelectedSceneReplacementRuleTarget() =>
+        addFrameReviewTermsToSceneReplacementRule(
+          groupId: target.groupId,
+          ruleId: target.ruleId,
+          frameIndex: frameIndex,
+          sourceLocation: sourceLocation,
+          terms: terms,
+        ),
+    };
+  }
+
+  bool addFrameReviewTermsToRoleReplacementRule({
+    required String sourceRoleId,
+    required String ruleId,
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final incoming = _frameReviewReplacementTerms(
+      frameIndex: frameIndex,
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+    if (incoming.isEmpty) {
+      return false;
+    }
+    if (!_updateRoleReplacementRule(
+      sourceRoleId: sourceRoleId,
+      ruleId: ruleId,
+      update: (rule) => rule.copyWith(
+        sourceTerms: _replacementTermsWithAdded(rule.sourceTerms, incoming),
+      ),
+    )) {
+      return false;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+    return true;
+  }
+
+  bool addFrameReviewTermsToSceneReplacementRule({
+    required String groupId,
+    required String ruleId,
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final incoming = _frameReviewReplacementTerms(
+      frameIndex: frameIndex,
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+    if (incoming.isEmpty) {
+      return false;
+    }
+    if (!_updateSceneReplacementRule(
+      groupId: groupId,
+      ruleId: ruleId,
+      update: (rule) => rule.copyWith(
+        sourceTerms: _replacementTermsWithAdded(rule.sourceTerms, incoming),
+      ),
+    )) {
+      return false;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+    return true;
+  }
+
+  _SelectedReplacementRuleTarget? _selectedReplacementRuleTarget() {
+    final roleTargets = <_SelectedRoleReplacementRuleTarget>[];
+    for (final entry in _selectedRoleReplacementRuleIdsByRole.entries) {
+      for (final ruleId in entry.value) {
+        roleTargets.add(
+          _SelectedRoleReplacementRuleTarget(
+            sourceRoleId: entry.key,
+            ruleId: ruleId,
+          ),
+        );
+      }
+    }
+    final sceneTargets = <_SelectedSceneReplacementRuleTarget>[];
+    for (final entry in _selectedSceneReplacementRuleIdsByGroup.entries) {
+      for (final ruleId in entry.value) {
+        sceneTargets.add(
+          _SelectedSceneReplacementRuleTarget(
+            groupId: entry.key,
+            ruleId: ruleId,
+          ),
+        );
+      }
+    }
+    if (roleTargets.length + sceneTargets.length != 1) {
+      return null;
+    }
+    if (roleTargets.isNotEmpty) {
+      return roleTargets.single;
+    }
+    return sceneTargets.single;
+  }
+
+  List<ScriptPromptReplacementTerm> _frameReviewReplacementTerms({
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final result = <ScriptPromptReplacementTerm>[];
+    final seenKeys = <String>{};
+    for (final term in terms) {
+      final text = term.text.trim();
+      final key = PromptTagProcessor.normalizeMatchKey(text);
+      if (text.isEmpty || key.isEmpty || !seenKeys.add(key)) {
+        continue;
+      }
+      result.add(
+        ScriptPromptReplacementTerm(
+          id: stableIdFromText(
+            prefix: 'frame-term',
+            text: '$frameIndex|$sourceLocation|${term.category.name}|$text',
+            label: text,
+          ),
+          text: text,
+          category: term.category,
+          sourceLocation: sourceLocation.trim(),
+          frameIndexes: frameIndex > 0 ? [frameIndex] : const [],
+        ),
+      );
+    }
+    return List.unmodifiable(result);
+  }
+
+  List<ScriptPromptReplacementTerm> _replacementTermsWithAdded(
+    List<ScriptPromptReplacementTerm> current,
+    List<ScriptPromptReplacementTerm> incoming,
+  ) {
+    final seenKeys = {
+      for (final term in current)
+        if (PromptTagProcessor.normalizeMatchKey(term.text).isNotEmpty)
+          PromptTagProcessor.normalizeMatchKey(term.text),
+    };
+    return List.unmodifiable([
+      ...current,
+      for (final term in incoming)
+        if (seenKeys.add(PromptTagProcessor.normalizeMatchKey(term.text))) term,
+    ]);
   }
 
   void scaleRoleReplacementRuleWeight(

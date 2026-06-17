@@ -2738,6 +2738,10 @@ class _KeyframeReviewPanel extends StatelessWidget {
                   tagKeyPrefix: 'script-keyframe-positive-tags',
                   allowGrouping: true,
                   onAddToFilterRules: viewModel.addTagsToFilterRulesLibrary,
+                  contextMenuActionBuilder: _frameReviewReplacementActions(
+                    viewModel: viewModel,
+                    review: review,
+                  ),
                   classificationCache: viewModel.classificationCache,
                   saveClassificationCache: viewModel.saveClassificationCache,
                   classificationOverrides:
@@ -2802,6 +2806,7 @@ class _KeyframeTokenColumn extends StatefulWidget {
   final Widget? trailing;
   final bool allowGrouping;
   final PromptTagFilterRuleAdder? onAddToFilterRules;
+  final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagClassificationCache? classificationCache;
   final PromptTagClassificationCacheSaver? saveClassificationCache;
   final Map<String, PromptTagCategory> classificationOverrides;
@@ -2818,6 +2823,7 @@ class _KeyframeTokenColumn extends StatefulWidget {
     this.trailing,
     this.allowGrouping = false,
     this.onAddToFilterRules,
+    this.contextMenuActionBuilder,
     this.classificationCache,
     this.saveClassificationCache,
     this.classificationOverrides = const {},
@@ -2920,6 +2926,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                 defaultTranslated: true,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
+                contextMenuActionBuilder: widget.contextMenuActionBuilder,
                 filterRuleTargets: _scriptPromptFilterRuleTargets,
                 classificationCache: widget.classificationCache,
                 saveClassificationCache: widget.saveClassificationCache,
@@ -2939,6 +2946,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                 defaultTranslated: true,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
+                contextMenuActionBuilder: widget.contextMenuActionBuilder,
                 filterRuleTargets: _scriptPromptFilterRuleTargets,
                 classificationCache: widget.classificationCache,
                 saveClassificationCache: widget.saveClassificationCache,
@@ -2956,6 +2964,82 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
       ),
     );
   }
+}
+
+PromptTagContextMenuActionBuilder _frameReviewReplacementActions({
+  required StudioScriptViewModel viewModel,
+  required StudioScriptFrameReview review,
+}) {
+  return (context, actionContext) {
+    if (actionContext.negative) {
+      return const <PromptTagContextMenuAction>[];
+    }
+    final terms = _frameReviewReplacementTermDrafts(actionContext);
+    if (terms.isEmpty) {
+      return const <PromptTagContextMenuAction>[];
+    }
+    if (!viewModel.hasSingleSelectedReplacementRule) {
+      return [
+        PromptTagContextMenuAction(
+          key: const ValueKey('script-frame-select-one-replacement-rule-hint'),
+          icon: Icons.check_box_outline_blank,
+          label: '先只勾选一个替换规则',
+          enabled: false,
+          onSelected: (_, __) {},
+        ),
+      ];
+    }
+    return [
+      PromptTagContextMenuAction(
+        key: const ValueKey('script-frame-add-to-current-replacement-rule'),
+        icon: Icons.playlist_add_outlined,
+        label: '加入当前替换规则',
+        onSelected: (context, actionContext) {
+          final added = viewModel.addFrameReviewTermsToSelectedReplacementRule(
+            frameIndex: review.frameIndex,
+            sourceLocation: actionContext.groupLabel ??
+                actionContext.groupId ??
+                review.title,
+            terms: _frameReviewReplacementTermDrafts(actionContext),
+          );
+          if (context.mounted) {
+            _showFrameReviewReplacementSnack(context, added);
+          }
+        },
+      ),
+    ];
+  };
+}
+
+List<StudioScriptReplacementSourceTermDraft> _frameReviewReplacementTermDrafts(
+  PromptTagContextMenuContext context,
+) {
+  final seen = <String>{};
+  return [
+    for (final tag in context.selectedTags)
+      if (seen.add(PromptTagProcessor.normalizeMatchKey(tag.displayText)))
+        StudioScriptReplacementSourceTermDraft(
+          text: tag.displayText,
+          category: tag.classification.category,
+        ),
+  ];
+}
+
+void _showFrameReviewReplacementSnack(BuildContext context, bool added) {
+  if (Scaffold.maybeOf(context) == null) {
+    return;
+  }
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) {
+    return;
+  }
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        added ? '已加入当前替换规则' : '未找到可加入的替换规则',
+      ),
+    ),
+  );
 }
 
 bool _isNegativeReviewColumn(List<StudioScriptReviewToken> tokens) {

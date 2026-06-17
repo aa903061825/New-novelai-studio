@@ -42,6 +42,15 @@ typedef PromptTagGroupActionBuilder = Widget? Function(
   BuildContext context,
   PromptTagGroupActionContext group,
 );
+typedef PromptTagContextMenuActionCallback = FutureOr<void> Function(
+  BuildContext context,
+  PromptTagContextMenuContext actionContext,
+);
+typedef PromptTagContextMenuActionBuilder = List<PromptTagContextMenuAction>
+    Function(
+  BuildContext context,
+  PromptTagContextMenuContext actionContext,
+);
 typedef PromptTagDisplayDiffResolver = PromptTagChipDiffState Function(
   String tag,
 );
@@ -86,6 +95,72 @@ class PromptTagGroupActionTag {
     required this.classification,
     this.weightLabel,
     this.weight,
+  });
+}
+
+class PromptTagContextMenuContext {
+  final String tag;
+  final List<PromptTagContextMenuTag> selectedTags;
+  final String? groupId;
+  final String? groupLabel;
+  final bool negative;
+
+  const PromptTagContextMenuContext({
+    required this.tag,
+    required this.selectedTags,
+    this.groupId,
+    this.groupLabel,
+    this.negative = false,
+  });
+
+  List<String> get promptTags =>
+      selectedTags.map((tag) => tag.promptText).toList(growable: false);
+
+  List<String> get displayTags =>
+      selectedTags.map((tag) => tag.displayText).toList(growable: false);
+
+  PromptTagContextMenuContext copyWith({
+    String? groupId,
+    String? groupLabel,
+    bool? negative,
+  }) {
+    return PromptTagContextMenuContext(
+      tag: tag,
+      selectedTags: selectedTags,
+      groupId: groupId ?? this.groupId,
+      groupLabel: groupLabel ?? this.groupLabel,
+      negative: negative ?? this.negative,
+    );
+  }
+}
+
+class PromptTagContextMenuTag {
+  final String promptText;
+  final String displayText;
+  final PromptTagClassification classification;
+
+  const PromptTagContextMenuTag({
+    required this.promptText,
+    required this.displayText,
+    required this.classification,
+  });
+}
+
+class PromptTagContextMenuAction {
+  final Key? key;
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final StudioContextMenuItemTone tone;
+  final PromptTagContextMenuActionCallback onSelected;
+
+  const PromptTagContextMenuAction({
+    this.key,
+    required this.icon,
+    required this.label,
+    required this.onSelected,
+    this.enabled = true,
+    this.tone = StudioContextMenuItemTone.normal,
   });
 }
 
@@ -146,6 +221,7 @@ class PromptTagGroupDisplay extends StatelessWidget {
   final ValueChanged<String>? onTagTap;
   final ValueChanged<String>? onChanged;
   final PromptTagGroupActionBuilder? groupActionBuilder;
+  final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagGroupDiffResolver? diffStateForTag;
   final bool showTagWarnings;
   final Set<String> suppressedTagWarningKeys;
@@ -178,6 +254,7 @@ class PromptTagGroupDisplay extends StatelessWidget {
     this.onTagTap,
     this.onChanged,
     this.groupActionBuilder,
+    this.contextMenuActionBuilder,
     this.diffStateForTag,
     this.showTagWarnings = true,
     this.suppressedTagWarningKeys = const {},
@@ -250,6 +327,16 @@ class PromptTagGroupDisplay extends StatelessWidget {
                   onTagTap: onTagTap,
                   onChanged: onChanged,
                   groupActionBuilder: groupActionBuilder,
+                  contextMenuActionBuilder: contextMenuActionBuilder == null
+                      ? null
+                      : (context, actionContext) => contextMenuActionBuilder!(
+                            context,
+                            actionContext.copyWith(
+                              groupId: group.id,
+                              groupLabel: group.label,
+                              negative: group.negative,
+                            ),
+                          ),
                   diffStateForTag: diffStateForTag == null
                       ? null
                       : (tag) => diffStateForTag!(group.id, tag),
@@ -491,6 +578,7 @@ class PromptTagDisplay extends StatefulWidget {
   final String? selectionGroupId;
   final bool showSelectionToolbar;
   final PromptTagGroupActionBuilder? groupActionBuilder;
+  final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagDisplayDiffResolver? diffStateForTag;
   final bool showTagWarnings;
   final Set<String> suppressedTagWarningKeys;
@@ -528,6 +616,7 @@ class PromptTagDisplay extends StatefulWidget {
     this.selectionGroupId,
     this.showSelectionToolbar = true,
     this.groupActionBuilder,
+    this.contextMenuActionBuilder,
     this.diffStateForTag,
     this.showTagWarnings = true,
     this.suppressedTagWarningKeys = const {},
@@ -1939,6 +2028,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     final addToFilterRules = _filterRuleAdder();
     final warningActive = _shouldShowTagWarningForIndex(index);
+    final actionContext = _contextMenuActionContext(index, tag);
+    final extraActions =
+        widget.contextMenuActionBuilder?.call(context, actionContext) ??
+            const <PromptTagContextMenuAction>[];
     final choice = await StudioContextMenu.show<_PromptTagMenuChoice>(
       context: context,
       position: position,
@@ -2009,6 +2102,18 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           label: '复制标签',
           shortcut: 'Ctrl C',
         ),
+        if (extraActions.isNotEmpty) ...[
+          const StudioContextMenuDivider(),
+          for (final (index, action) in extraActions.indexed)
+            StudioContextMenuItem(
+              key: action.key,
+              value: _PromptTagMenuChoice.custom(index),
+              icon: action.icon,
+              label: action.label,
+              enabled: action.enabled,
+              tone: action.tone,
+            ),
+        ],
         if (addToFilterRules != null)
           const StudioContextMenuItem(
             key: ValueKey('prompt-tag-add-to-filter-rules'),
@@ -2048,6 +2153,14 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         await _suppressTagWarningForScope(context, tag);
       case _PromptTagMenuAction.copy:
         await _copyTags(context, fallbackTag: tag);
+      case _PromptTagMenuAction.custom:
+        final customIndex = choice.customIndex;
+        if (customIndex == null ||
+            customIndex < 0 ||
+            customIndex >= extraActions.length) {
+          return;
+        }
+        await extraActions[customIndex].onSelected(context, actionContext);
       case _PromptTagMenuAction.addToFilterRules:
         final adder = addToFilterRules;
         if (adder == null) {
@@ -2059,6 +2172,70 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           addToFilterRules: adder,
         );
     }
+  }
+
+  PromptTagContextMenuContext _contextMenuActionContext(
+    int index,
+    String tag,
+  ) {
+    return PromptTagContextMenuContext(
+      tag: tag,
+      selectedTags: _contextMenuSelectedTags(index, tag),
+      negative: widget.negative,
+    );
+  }
+
+  List<PromptTagContextMenuTag> _contextMenuSelectedTags(
+    int fallbackIndex,
+    String fallbackTag,
+  ) {
+    final analyses = _analysesFor(widget.text);
+    final selected = _activeSelectedIndexes;
+    final indexes = selected.isEmpty ? {fallbackIndex} : selected;
+    final tags = <PromptTagContextMenuTag>[];
+    for (final index in indexes.toList(growable: false)..sort()) {
+      if (index < 0 || index >= analyses.length) {
+        continue;
+      }
+      final analysis = analyses[index];
+      final displayText = analysis.displayText.trim();
+      if (displayText.isEmpty) {
+        continue;
+      }
+      tags.add(
+        PromptTagContextMenuTag(
+          promptText: promptTagRawValueForAnalysis(analysis),
+          displayText: displayText,
+          classification: classifyPromptTagForPresentation(
+            displayText,
+            negative: widget.negative,
+            cache: _classificationCache(),
+            overrides: widget.classificationOverrides,
+            cacheRuleClassification: true,
+          ),
+        ),
+      );
+    }
+    if (tags.isNotEmpty) {
+      return List.unmodifiable(tags);
+    }
+    final trimmed = fallbackTag.trim();
+    if (trimmed.isEmpty) {
+      return const [];
+    }
+    return [
+      PromptTagContextMenuTag(
+        promptText: trimmed,
+        displayText: trimmed,
+        classification: classifyPromptTagForPresentation(
+          trimmed,
+          negative: widget.negative,
+          cache: _classificationCache(),
+          overrides: widget.classificationOverrides,
+          cacheRuleClassification: true,
+        ),
+      ),
+    ];
   }
 
   Future<void> _setTagCategory(
@@ -2898,13 +3075,18 @@ enum _PromptTagMenuAction {
   confirmValidCompound,
   suppressWarningForScope,
   copy,
+  custom,
   addToFilterRules,
 }
 
 class _PromptTagMenuChoice {
   final _PromptTagMenuAction action;
+  final int? customIndex;
 
-  const _PromptTagMenuChoice(this.action);
+  const _PromptTagMenuChoice(this.action) : customIndex = null;
+
+  const _PromptTagMenuChoice.custom(this.customIndex)
+      : action = _PromptTagMenuAction.custom;
 }
 
 List<PromptTagCategory> _manualCategoryChoices(bool negative) {

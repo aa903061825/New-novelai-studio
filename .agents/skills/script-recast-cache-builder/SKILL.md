@@ -48,9 +48,29 @@ replacement terms, and the compatibility five role fields `identity`,
   category `clothingState` or `clothing_state`. Do not require the term to
   describe clothing motion. Only worn garment summaries belong in the
   upper/lower clothing five fields.
+- Every source term whose core subject is an accessory, eyewear, headwear,
+  jewelry, collar/choker, mask, bag, ribbon/bow, hair ornament, or other
+  removable/display accessory belongs in that exact role's `prompt_terms` with
+  category `accessory`. Do not hide these terms in `body`, and do not require
+  the term to describe accessory motion.
+- Every source term whose core subject is stable role appearance or body
+  identity, including hair, eyes, ears, animal ears, horns, halo, fangs, tail,
+  skin, face, body shape, tattoos, moles, shoulders, chest, waist, hips, legs,
+  feet, or similar character-owned traits, belongs in that exact role's
+  `prompt_terms` with category `body`. Do not require the term to be clothing
+  or accessory related. Exclude action, pose, expression, camera, sex act, and
+  transient state terms even when they mention a body part.
 - Clothing prompt terms must be scoped by the role's own source slot and frame
   evidence. Never copy clothing from another role, another slot, another stage,
   or base/global scene evidence into a role replacement group.
+- Accessory prompt terms must follow the same same-role source slot and frame
+  evidence rule as clothing. Never copy accessories from another role, another
+  slot, another stage, or base/global scene evidence into a role replacement
+  group.
+- Body/appearance prompt terms must follow the same same-role source slot and
+  frame evidence rule as clothing and accessories. Never copy body traits from
+  another role, another slot, another stage, or base/global scene evidence into
+  a role replacement group.
 - Scene, location, time, lighting, weather, and background-object source terms
   belong in top-level `scene_terms` and `mapping.scenePromptReplacements`, not
   inside role prompt terms.
@@ -130,6 +150,12 @@ A cache is not done until all applicable checks pass:
 - every role clothing/clothingState prompt term has same-role slot/frame source
   evidence and no role replacement group contains clothing sourced only from a
   different role;
+- every role accessory prompt term has same-role slot/frame source evidence,
+  category `accessory`, and no role replacement group contains accessories
+  sourced only from a different role;
+- every role body/appearance prompt term has same-role slot/frame source
+  evidence, category `body`, and no role replacement group contains body traits
+  sourced only from a different role;
 - `mapping.rolePromptReplacements` and `mapping.scenePromptReplacements` are in
   sync with AI prompt terms; ready caches must not rely only on old
   `roleAssemblies` when prompt terms exist;

@@ -226,14 +226,17 @@ function repairFieldLeak(cache, repair) {
 
 function ensureIdentityPromptTerm(role, repair) {
   role.prompt_terms = Array.isArray(role.prompt_terms) ? role.prompt_terms : [];
+  const expectedId = `role-${repair.roleId}-identity-${safeId(repair.promptTermText)}`;
   const oldText = repair.replacePromptTermText;
-  let term = oldText
+  let term =
+    role.prompt_terms.find((item) => stringValue(item.id) === expectedId) ??
+    (oldText
     ? role.prompt_terms.find(
         (item) =>
           normalized(item.text) === normalized(oldText) &&
           stringValue(item.category) === 'identity',
       )
-    : undefined;
+    : undefined);
   if (!term) {
     term = role.prompt_terms.find(
       (item) =>
@@ -243,7 +246,7 @@ function ensureIdentityPromptTerm(role, repair) {
   }
   if (!term) {
     term = {
-      id: `role-${repair.roleId}-identity-${safeId(repair.promptTermText)}`,
+      id: expectedId,
       text: repair.promptTermText,
       category: 'identity',
       source_phrase: repair.sourcePhraseTerm ?? repair.promptTermText,
@@ -257,7 +260,10 @@ function ensureIdentityPromptTerm(role, repair) {
   term.source_phrase = repair.sourcePhraseTerm ?? repair.promptTermText;
   term.source_location = term.source_location || 'slot prompt';
   term.frame_indexes = sortedInts(term.frame_indexes?.length ? term.frame_indexes : role.frame_indexes);
-  term.id = `role-${repair.roleId}-identity-${safeId(repair.promptTermText)}`;
+  term.id = expectedId;
+  role.prompt_terms = role.prompt_terms.filter(
+    (item) => item === term || stringValue(item.id) !== expectedId,
+  );
   return term;
 }
 

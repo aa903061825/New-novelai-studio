@@ -2887,6 +2887,76 @@ void main() {
     );
 
     test(
+      'frame review source terms can be added to selected replacement rule',
+      () async {
+        final script = _singleFrameScript(
+          id: 'frame-review-source-add-script',
+          name: 'Frame Review Source Add Script',
+          rootPath: 'frame-review-source-add-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, fox ears, blue jacket'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 17),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-hero',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-source-hero',
+                        text: 'source hero',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+        viewModel.setRoleReplacementRuleSelected('slot-0', 'rule-hero', true);
+
+        final added = viewModel.addFrameReviewTermsToSelectedReplacementRule(
+          frameIndex: 1,
+          sourceLocation: '角色 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'fox ears',
+              category: PromptTagCategory.upperBody,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(
+          rule.sourceTerms.map((term) => term.text),
+          orderedEquals(['source hero', 'fox ears']),
+        );
+        expect(rule.sourceTerms.last.frameIndexes, [1]);
+        expect(rule.sourceTerms.last.sourceLocation, '角色 1');
+      },
+    );
+
+    test(
       'AI role extraction materializes role-local candidates from covered frames',
       () async {
         final viewModel = StudioScriptViewModel(
@@ -8185,6 +8255,87 @@ void main() {
       expect(savedRules['delete_keywords'], contains('lowres'));
       expect(savedRules['delete_keywords'], contains('city lights'));
     });
+
+    testWidgets(
+      'keyframe source tag menu can add tokens to selected replacement rule',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _singleFrameScript(
+          id: 'frame-source-menu-script',
+          name: 'Frame Source Menu Script',
+          rootPath: 'frame-source-menu-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, fox ears, blue jacket'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 17),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-hero',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-source-hero',
+                        text: 'source hero',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+        viewModel.setRoleReplacementRuleSelected('slot-0', 'rule-hero', true);
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
+        final foxEars = find
+            .descendant(of: positiveColumn, matching: find.text('fox ears'))
+            .first;
+        await tester.ensureVisible(foxEars);
+        await tester.pumpAndSettle();
+        await tester.tap(foxEars, buttons: kSecondaryMouseButton);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey('script-frame-add-to-current-replacement-rule'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(
+          rule.sourceTerms.map((term) => term.text),
+          orderedEquals(['source hero', 'fox ears']),
+        );
+      },
+    );
 
     testWidgets(
       'keyframe source tags can be right clicked into script-only block words',
