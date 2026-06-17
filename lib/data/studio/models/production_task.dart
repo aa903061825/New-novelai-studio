@@ -324,6 +324,7 @@ class ProductionPlanExecutionSettings {
   final int requestIntervalRandomRangeSeconds;
   final int retryCount;
   final bool retryIndefinitely;
+  final int retryOn429DelaySeconds;
   final String outputDirectory;
 
   const ProductionPlanExecutionSettings({
@@ -344,6 +345,7 @@ class ProductionPlanExecutionSettings {
     this.requestIntervalRandomRangeSeconds = 0,
     this.retryCount = 1,
     this.retryIndefinitely = false,
+    this.retryOn429DelaySeconds = 10,
     this.outputDirectory = '',
   });
 
@@ -424,6 +426,13 @@ class ProductionPlanExecutionSettings {
         map['retryIndefinitely'],
         'productionPlan.executionSettings.retryIndefinitely',
       ),
+      retryOn429DelaySeconds: _positiveIntOrDefault(
+        _optionalInt(
+          map['retryOn429DelaySeconds'] ?? map['retry_on_429_delay_sec'],
+          'productionPlan.executionSettings.retryOn429DelaySeconds',
+        ),
+        10,
+      ),
       outputDirectory: _optionalString(
             map['outputDirectory'],
             'productionPlan.executionSettings.outputDirectory',
@@ -450,6 +459,7 @@ class ProductionPlanExecutionSettings {
         'requestIntervalRandomRangeSeconds': requestIntervalRandomRangeSeconds,
         'retryCount': retryCount,
         'retryIndefinitely': retryIndefinitely,
+        'retryOn429DelaySeconds': retryOn429DelaySeconds,
         'outputDirectory': outputDirectory,
       };
 }
@@ -896,6 +906,13 @@ bool _boolValue(dynamic value, String field) {
     return value;
   }
   throw FormatException('$field must be a boolean.');
+}
+
+int _positiveIntOrDefault(int? value, int defaultValue) {
+  if (value == null || value <= 0) {
+    return defaultValue;
+  }
+  return value;
 }
 
 DateTime _dateTime(dynamic value, String field) {

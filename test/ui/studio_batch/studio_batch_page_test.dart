@@ -350,7 +350,7 @@ void main() {
     expect(find.textContaining('并发'), findsNothing);
     expect(find.text('间隔 4s'), findsOneWidget);
     expect(find.text('随机 +0~8s'), findsOneWidget);
-    expect(find.text('重试次数 3'), findsOneWidget);
+    expect(find.textContaining('重试次数 3'), findsOneWidget);
     expect(find.text(r'C:\outputs'), findsWidgets);
     expect(find.text('Frame 1'), findsWidgets);
     expect(find.text('Frame 2'), findsWidgets);
@@ -479,6 +479,10 @@ void main() {
       '4',
     );
     await tester.enterText(
+      find.byKey(const ValueKey('studio-production-429-delay-input')),
+      '30',
+    );
+    await tester.enterText(
       find.byKey(const ValueKey('studio-production-output-input')),
       r'D:\batch-output',
     );
@@ -488,7 +492,8 @@ void main() {
     expect(find.text('间隔 12s'), findsOneWidget);
     expect(find.text('随机 +0~20s'), findsOneWidget);
     expect(find.text('retry'), findsNothing);
-    expect(find.text('重试次数 4'), findsOneWidget);
+    expect(find.textContaining('重试次数 4'), findsOneWidget);
+    expect(find.textContaining('429 30s'), findsOneWidget);
     expect(find.text(r'D:\batch-output'), findsWidgets);
   });
 
@@ -513,7 +518,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('重试次数 3'), findsOneWidget);
+    expect(find.textContaining('重试次数 3'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('studio-production-retry-infinite')),
       findsOneWidget,
@@ -525,7 +530,7 @@ void main() {
     await tester.pump();
 
     expect(viewModel.retryIndefinitely, isTrue);
-    expect(find.text('重试 无限'), findsOneWidget);
+    expect(find.textContaining('重试 无限'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('studio-production-retry-infinite')),
@@ -533,7 +538,7 @@ void main() {
     await tester.pump();
 
     expect(viewModel.retryIndefinitely, isFalse);
-    expect(find.text('重试次数 3'), findsOneWidget);
+    expect(find.textContaining('重试次数 3'), findsOneWidget);
   });
 
   testWidgets('batch page lets output directory be typed or browsed',

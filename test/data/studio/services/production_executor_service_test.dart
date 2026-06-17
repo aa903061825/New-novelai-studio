@@ -233,6 +233,42 @@ void main() {
     expect(result.tasks.single.error, contains('Internal Server Error'));
   });
 
+  test('runPlan waits the configured 429 delay before retrying the task',
+      () async {
+    final requestedInputs = <String>[];
+    final delays = <Duration>[];
+    final executor = ProductionExecutorService(
+      requestImage: (payload) async {
+        requestedInputs.add(payload['input'] as String);
+        if (requestedInputs.length == 1) {
+          throw const ProductionNaiApiException(
+            statusCode: 429,
+            message: '{"statusCode":429,"message":"Concurrent generation"}',
+          );
+        }
+        return _fakePngBytes;
+      },
+      saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      now: () => DateTime.utc(2026, 5, 25, 12),
+      delay: (duration) async {
+        delays.add(duration);
+      },
+    );
+
+    final result = await executor.runPlan(
+      _plan([
+        _scriptTask(id: 'task-429', frameIndex: 1, input: 'locked frame'),
+      ]),
+      maxRetries: 2,
+      retryOn429Delay: const Duration(seconds: 17),
+    );
+
+    expect(requestedInputs, ['locked frame', 'locked frame']);
+    expect(delays, [const Duration(seconds: 17)]);
+    expect(result.tasks.single.status, ProductionTaskStatus.completed);
+    expect(result.tasks.single.attempts, 2);
+  });
+
   test('runPlan stops infinite retry after shouldContinue turns false',
       () async {
     final requestedInputs = <String>[];

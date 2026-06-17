@@ -574,8 +574,8 @@ class _ExecutionSettingsPanel extends StatelessWidget {
               StudioChip(
                 icon: Icons.replay_circle_filled_outlined,
                 label: viewModel.retryIndefinitely
-                    ? '重试 无限'
-                    : '重试次数 ${viewModel.retryCount}',
+                    ? '重试 无限 · 429 ${viewModel.retryOn429DelaySeconds}s'
+                    : '重试次数 ${viewModel.retryCount} · 429 ${viewModel.retryOn429DelaySeconds}s',
               ),
               StudioChip(
                 icon: Icons.casino_outlined,
@@ -829,9 +829,13 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
               label: '重试',
               child: _BatchRetrySettingField(
                 value: viewModel.retryCount.toString(),
+                retryOn429DelayValue:
+                    viewModel.retryOn429DelaySeconds.toString(),
                 enabled: canEdit,
                 retryIndefinitely: viewModel.retryIndefinitely,
                 onCountChanged: viewModel.setRetryCountText,
+                onRetryOn429DelayChanged:
+                    viewModel.setRetryOn429DelaySecondsText,
                 onRetryIndefinitelyChanged: viewModel.setRetryIndefinitely,
               ),
             ),
@@ -1065,16 +1069,20 @@ class _BatchSettingSelectField extends StatelessWidget {
 
 class _BatchRetrySettingField extends StatelessWidget {
   final String value;
+  final String retryOn429DelayValue;
   final bool enabled;
   final bool retryIndefinitely;
   final ValueChanged<String> onCountChanged;
+  final ValueChanged<String> onRetryOn429DelayChanged;
   final ValueChanged<bool> onRetryIndefinitelyChanged;
 
   const _BatchRetrySettingField({
     required this.value,
+    required this.retryOn429DelayValue,
     required this.enabled,
     required this.retryIndefinitely,
     required this.onCountChanged,
+    required this.onRetryOn429DelayChanged,
     required this.onRetryIndefinitelyChanged,
   });
 
@@ -1083,33 +1091,38 @@ class _BatchRetrySettingField extends StatelessWidget {
     return Row(
       children: [
         Expanded(
+          flex: 2,
           child: _BatchSettingTextField(
             key: const ValueKey('studio-production-retry-input'),
             value: value,
-            label: '重试次数',
+            label: '次数',
             enabled: enabled && !retryIndefinitely,
             keyboardType: TextInputType.number,
             onChanged: onCountChanged,
           ),
         ),
-        const SizedBox(width: 8),
-        Checkbox(
-          key: const ValueKey('studio-production-retry-infinite'),
-          value: retryIndefinitely,
-          onChanged: enabled
-              ? (value) => onRetryIndefinitelyChanged(value ?? false)
-              : null,
-          visualDensity: VisualDensity.compact,
+        const SizedBox(width: 6),
+        Expanded(
+          child: _BatchSettingTextField(
+            key: const ValueKey('studio-production-429-delay-input'),
+            value: retryOn429DelayValue,
+            label: '429s',
+            enabled: enabled,
+            keyboardType: TextInputType.number,
+            onChanged: onRetryOn429DelayChanged,
+          ),
         ),
-        Text(
-          '无限',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color:
-                    enabled ? StudioTokens.textPrimary : StudioTokens.textMuted,
-              ),
+        const SizedBox(width: 6),
+        Tooltip(
+          message: '无限重试',
+          child: Checkbox(
+            key: const ValueKey('studio-production-retry-infinite'),
+            value: retryIndefinitely,
+            onChanged: enabled
+                ? (value) => onRetryIndefinitelyChanged(value ?? false)
+                : null,
+            visualDensity: VisualDensity.compact,
+          ),
         ),
       ],
     );

@@ -32,6 +32,7 @@ class ProductionQueueExecutionSettings {
   final int requestIntervalRandomRangeSeconds;
   final int retryCount;
   final bool retryIndefinitely;
+  final int retryOn429DelaySeconds;
   final String outputDirectory;
   final bool useOriginalGenerationSettings;
   final bool useOriginalSeed;
@@ -49,6 +50,7 @@ class ProductionQueueExecutionSettings {
     this.requestIntervalRandomRangeSeconds = 0,
     this.retryCount = 0,
     this.retryIndefinitely = false,
+    this.retryOn429DelaySeconds = 10,
     this.outputDirectory = '',
     this.useOriginalGenerationSettings = false,
     this.useOriginalSeed = false,
@@ -86,6 +88,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
   late int _requestIntervalRandomRangeSeconds;
   late int _retryCount;
   late bool _retryIndefinitely;
+  late int _retryOn429DelaySeconds;
   late String _outputDirectory;
   int _executionEpoch = 0;
   Future<void> _executionSettingsSaveQueue = Future<void>.value();
@@ -209,6 +212,8 @@ class ProductionQueueViewModel extends ChangeNotifier {
   int get retryCount => _retryCount;
 
   bool get retryIndefinitely => _retryIndefinitely;
+
+  int get retryOn429DelaySeconds => _retryOn429DelaySeconds;
 
   String get outputDirectory => _outputDirectory;
 
@@ -349,6 +354,13 @@ class ProductionQueueViewModel extends ChangeNotifier {
     _notifyAndPersistExecutionSettings();
   }
 
+  void setRetryOn429DelaySecondsText(String value) {
+    final next = _parsePositiveInt(value) ?? 1;
+    if (_retryOn429DelaySeconds == next) return;
+    _retryOn429DelaySeconds = next;
+    _notifyAndPersistExecutionSettings();
+  }
+
   void setOutputDirectory(String value) {
     final next = value.trim();
     if (_outputDirectory == next) return;
@@ -428,6 +440,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
             taskId: nextTask.id,
             maxRetries: _maxRetries,
             retryIndefinitely: _retryIndefinitely,
+            retryOn429Delay: Duration(seconds: _retryOn429DelaySeconds),
             onTaskUpdate: (task) {
               if (_executionEpoch != runEpoch) return Future<void>.value();
               return _replaceTaskInPlan(executionPlan.id, task);
@@ -519,6 +532,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
         executionPlan,
         maxRetries: _maxRetries,
         retryIndefinitely: _retryIndefinitely,
+        retryOn429Delay: Duration(seconds: _retryOn429DelaySeconds),
         onTaskUpdate: (updatedTask) {
           if (_executionEpoch != runEpoch) return Future<void>.value();
           return _replaceTaskInPlan(executionPlan.id, updatedTask);
@@ -616,6 +630,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
         taskId: task.id,
         maxRetries: _maxRetries,
         retryIndefinitely: _retryIndefinitely,
+        retryOn429Delay: Duration(seconds: _retryOn429DelaySeconds),
         onTaskUpdate: (updatedTask) {
           if (_executionEpoch != runEpoch) return Future<void>.value();
           return _replaceTaskInPlan(executionPlan.id, updatedTask);
@@ -1007,6 +1022,8 @@ class ProductionQueueViewModel extends ChangeNotifier {
           _nonNegativeInt(settings.requestIntervalRandomRangeSeconds);
       _retryCount = _positiveIntOrOne(settings.retryCount);
       _retryIndefinitely = settings.retryIndefinitely;
+      _retryOn429DelaySeconds =
+          _positiveIntOrOne(settings.retryOn429DelaySeconds);
       _outputDirectory = settings.outputDirectory;
       return;
     }
@@ -1035,6 +1052,8 @@ class ProductionQueueViewModel extends ChangeNotifier {
         _nonNegativeInt(planSettings.requestIntervalRandomRangeSeconds);
     _retryCount = _positiveIntOrOne(planSettings.retryCount);
     _retryIndefinitely = planSettings.retryIndefinitely;
+    _retryOn429DelaySeconds =
+        _positiveIntOrOne(planSettings.retryOn429DelaySeconds);
     _outputDirectory = planSettings.outputDirectory;
   }
 
@@ -1057,6 +1076,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
       requestIntervalRandomRangeSeconds: _requestIntervalRandomRangeSeconds,
       retryCount: _retryCount,
       retryIndefinitely: _retryIndefinitely,
+      retryOn429DelaySeconds: _retryOn429DelaySeconds,
       outputDirectory: _outputDirectory,
     );
   }

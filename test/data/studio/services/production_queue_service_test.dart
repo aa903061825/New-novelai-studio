@@ -368,6 +368,7 @@ void main() {
       requestIntervalRandomRangeSeconds: 20,
       retryCount: 2,
       retryIndefinitely: true,
+      retryOn429DelaySeconds: 17,
       outputDirectory: r'C:\outputs',
     );
 

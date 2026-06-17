@@ -175,6 +175,7 @@ void main() {
         requestIntervalRandomRangeSeconds: 20,
         retryCount: 2,
         retryIndefinitely: true,
+        retryOn429DelaySeconds: 17,
         outputDirectory: r'C:\outputs',
       ),
       createdAt: DateTime.utc(2026, 5, 25),
@@ -197,6 +198,7 @@ void main() {
     expect(restored.executionSettings?.requestIntervalRandomRangeSeconds, 20);
     expect(restored.executionSettings?.retryCount, 2);
     expect(restored.executionSettings?.retryIndefinitely, isTrue);
+    expect(restored.executionSettings?.retryOn429DelaySeconds, 17);
     expect(restored.executionSettings?.outputDirectory, r'C:\outputs');
   });
 

@@ -79,6 +79,7 @@ class ProductionExecutorService {
     bool retryIndefinitely = false,
     Duration requestInterval = Duration.zero,
     Duration requestIntervalRandomRange = Duration.zero,
+    Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
   }) async {
@@ -88,6 +89,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: requestInterval,
       requestIntervalRandomRange: requestIntervalRandomRange,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: onTaskUpdate,
       shouldRun: (task) => task.status == ProductionTaskStatus.queued,
       shouldContinue: shouldContinue,
@@ -99,6 +101,7 @@ class ProductionExecutorService {
     String planId, {
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
   }) async {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, planId);
@@ -108,6 +111,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
       shouldRun: (task) => task.status == ProductionTaskStatus.failed,
     );
@@ -120,6 +124,7 @@ class ProductionExecutorService {
     required int frameIndex,
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
   }) async {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, planId);
@@ -129,6 +134,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
       shouldRun: (task) =>
           task.taskType == ProductionTaskType.scriptRecastFrame &&
@@ -143,6 +149,7 @@ class ProductionExecutorService {
     required String taskId,
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
   }) async {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, planId);
@@ -152,6 +159,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
       shouldRun: (task) => task.id == taskId,
     );
@@ -164,6 +172,7 @@ class ProductionExecutorService {
     required String taskId,
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
   }) {
@@ -173,6 +182,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: onTaskUpdate,
       shouldRun: (task) => task.id == taskId,
       shouldContinue: shouldContinue,
@@ -183,6 +193,7 @@ class ProductionExecutorService {
     ProductionPlan plan, {
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
   }) {
@@ -192,6 +203,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: onTaskUpdate,
       shouldRun: _isAbnormalTask,
       shouldContinue: shouldContinue,
@@ -204,6 +216,7 @@ class ProductionExecutorService {
     required String planFingerprint,
     int maxRetries = 1,
     bool retryIndefinitely = false,
+    Duration retryOn429Delay = Duration.zero,
   }) async {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, productionPlanId);
@@ -228,6 +241,7 @@ class ProductionExecutorService {
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
       requestIntervalRandomRange: Duration.zero,
+      retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
       shouldRun: (task) => task.status == ProductionTaskStatus.queued,
     );
@@ -241,6 +255,7 @@ class ProductionExecutorService {
     required bool retryIndefinitely,
     required Duration requestInterval,
     required Duration requestIntervalRandomRange,
+    required Duration retryOn429Delay,
     required ProductionTaskUpdate? onTaskUpdate,
     required bool Function(ProductionTask task) shouldRun,
     ProductionShouldContinue? shouldContinue,
@@ -252,6 +267,8 @@ class ProductionExecutorService {
     final effectiveRandomRange = requestIntervalRandomRange.isNegative
         ? Duration.zero
         : requestIntervalRandomRange;
+    final effectiveRetryOn429Delay =
+        retryOn429Delay.isNegative ? Duration.zero : retryOn429Delay;
     var hasRunPreviousTask = false;
     for (var index = 0; index < plan.tasks.length; index += 1) {
       final task = plan.tasks[index];
@@ -279,6 +296,7 @@ class ProductionExecutorService {
           task,
           maxRetries: maxRetries,
           retryIndefinitely: retryIndefinitely,
+          retryOn429Delay: effectiveRetryOn429Delay,
           onTaskUpdate: onTaskUpdate,
           shouldContinue: shouldContinue,
         ),
@@ -307,6 +325,7 @@ class ProductionExecutorService {
     ProductionTask task, {
     required int maxRetries,
     required bool retryIndefinitely,
+    required Duration retryOn429Delay,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
   }) async {
@@ -367,6 +386,12 @@ class ProductionExecutorService {
         if (!shouldRetry) {
           return currentTask;
         }
+        if (_isHttp429(error) && retryOn429Delay.inMicroseconds > 0) {
+          await delay(retryOn429Delay);
+          if (shouldContinue != null && !shouldContinue()) {
+            return currentTask;
+          }
+        }
       }
     }
     return currentTask;
@@ -376,7 +401,11 @@ class ProductionExecutorService {
     if (error is! ProductionNaiApiException) {
       return true;
     }
-    return error.statusCode == 429;
+    return _isHttp429(error);
+  }
+
+  bool _isHttp429(Object error) {
+    return error is ProductionNaiApiException && error.statusCode == 429;
   }
 
   ProductionTask _taskWithExecutionSeed(

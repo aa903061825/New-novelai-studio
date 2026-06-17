@@ -282,6 +282,7 @@ void main() async {
         requestIntervalSeconds: payloadConfig.settings.batchIntervalSec,
         requestIntervalRandomRangeSeconds: 0,
         retryCount: payloadConfig.settings.retryOn429Enabled ? 2 : 1,
+        retryOn429DelaySeconds: payloadConfig.settings.retryOn429DelaySec,
         outputDirectory: payloadConfig.settings.outputFolderPath,
       ),
     ),

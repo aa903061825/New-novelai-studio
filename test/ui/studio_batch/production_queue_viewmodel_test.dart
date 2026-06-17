@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
 import 'package:novel_studio/data/studio/services/production_queue_service.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
@@ -144,6 +145,56 @@ void main() {
     expect(viewModel.requestIntervalRandomRangeSeconds, 0);
   });
 
+  test('setRetryOn429DelaySecondsText clamps invalid values to one', () {
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([_scriptTask(id: 'task-1')])
+      ],
+      settings: const ProductionQueueExecutionSettings(
+        retryOn429DelaySeconds: 12,
+      ),
+    );
+
+    viewModel.setRetryOn429DelaySecondsText('0');
+
+    expect(viewModel.retryOn429DelaySeconds, 1);
+  });
+
+  test('start passes 429 retry delay to the executor', () async {
+    final delays = <Duration>[];
+    var attempts = 0;
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([_scriptTask(id: 'task-1')])
+      ],
+      settings: const ProductionQueueExecutionSettings(
+        retryCount: 2,
+        retryOn429DelaySeconds: 23,
+      ),
+      executorService: _executor(
+        requestImage: (_) async {
+          attempts += 1;
+          if (attempts == 1) {
+            throw const ProductionNaiApiException(
+              statusCode: 429,
+              message: '{"statusCode":429,"message":"Concurrent generation"}',
+            );
+          }
+          return _fakePngBytes;
+        },
+        delay: (duration) async {
+          delays.add(duration);
+        },
+      ),
+    );
+
+    await viewModel.start();
+
+    expect(delays, [const Duration(seconds: 23)]);
+    expect(viewModel.selectedTask?.status, ProductionTaskStatus.completed);
+    expect(viewModel.selectedTask?.attempts, 2);
+  });
+
   test('pending execution settings save does not overwrite newer numeric edits',
       () async {
     final blockingQueueService = _BlockingExecutionSettingsQueueService(
@@ -161,6 +212,7 @@ void main() {
 
     viewModel.setRequestIntervalSecondsText('30');
     viewModel.setRequestIntervalRandomRangeText('45');
+    viewModel.setRetryOn429DelaySecondsText('90');
 
     blockingQueueService.releaseFirstSave();
     await viewModel.flushPendingExecutionSettingsSaves();
@@ -176,6 +228,8 @@ void main() {
           .selectedPlan?.executionSettings?.requestIntervalRandomRangeSeconds,
       45,
     );
+    expect(
+        viewModel.selectedPlan?.executionSettings?.retryOn429DelaySeconds, 90);
   });
 
   test('pickOutputDirectory updates the editable output path', () async {
