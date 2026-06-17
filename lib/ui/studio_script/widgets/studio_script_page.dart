@@ -5141,6 +5141,12 @@ class _RoleReplacementSection extends StatelessWidget {
                 targetRuleId: targetRuleId,
                 tags: tags,
               ),
+              onRuleSourceTagsSplitOut: (sourceRuleId, tags) =>
+                  viewModel.splitRoleReplacementSourceTerms(
+                sourceRoleId: role.sourceRoleId,
+                sourceRuleId: sourceRuleId,
+                tags: tags,
+              ),
               onRuleMerged: (sourceRuleId, targetRuleId) =>
                   viewModel.mergeRoleReplacementRules(
                 sourceRoleId: role.sourceRoleId,
@@ -5233,6 +5239,12 @@ class _SceneReplacementSection extends StatelessWidget {
                 groupId: group.id,
                 sourceRuleId: sourceRuleId,
                 targetRuleId: targetRuleId,
+                tags: tags,
+              ),
+              onRuleSourceTagsSplitOut: (sourceRuleId, tags) =>
+                  viewModel.splitSceneReplacementSourceTerms(
+                groupId: group.id,
+                sourceRuleId: sourceRuleId,
                 tags: tags,
               ),
               onRuleMerged: (sourceRuleId, targetRuleId) =>
@@ -5596,6 +5608,8 @@ class _RoleReplacementCard extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, List<String> tags)
+      onRuleSourceTagsSplitOut;
   final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
   final ValueChanged<String> onRuleRemoved;
@@ -5623,6 +5637,7 @@ class _RoleReplacementCard extends StatelessWidget {
     required this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
     required this.onRuleSourceTagsDropped,
+    required this.onRuleSourceTagsSplitOut,
     required this.onRuleMerged,
     required this.onRuleDeletedChanged,
     required this.onRuleRemoved,
@@ -5778,6 +5793,7 @@ class _RoleReplacementCard extends StatelessWidget {
                   onRuleTargetTagsDropped: onRuleTargetTagsDropped,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
                   onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleSourceTagsSplitOut: onRuleSourceTagsSplitOut,
                   onRuleMerged: onRuleMerged,
                   onRuleDeletedChanged: onRuleDeletedChanged,
                   onRuleRemoved: onRuleRemoved,
@@ -5903,6 +5919,8 @@ class _SceneReplacementCard extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, List<String> tags)
+      onRuleSourceTagsSplitOut;
   final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
   final ValueChanged<String> onRuleRemoved;
@@ -5917,6 +5935,7 @@ class _SceneReplacementCard extends StatelessWidget {
     required this.onRuleTargetChanged,
     required this.onRuleWeightMultiplierChanged,
     required this.onRuleSourceTagsDropped,
+    required this.onRuleSourceTagsSplitOut,
     required this.onRuleMerged,
     required this.onRuleDeletedChanged,
     required this.onRuleRemoved,
@@ -5990,6 +6009,7 @@ class _SceneReplacementCard extends StatelessWidget {
                   onRuleTargetChanged: onRuleTargetChanged,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
                   onRuleSourceTagsDropped: onRuleSourceTagsDropped,
+                  onRuleSourceTagsSplitOut: onRuleSourceTagsSplitOut,
                   onRuleMerged: onRuleMerged,
                   onRuleDeletedChanged: onRuleDeletedChanged,
                   onRuleRemoved: onRuleRemoved,
@@ -6025,6 +6045,8 @@ class _ReplacementRuleGrid extends StatelessWidget {
   final void Function(
           String targetRuleId, String sourceRuleId, List<String> tags)?
       onRuleSourceTagsDropped;
+  final void Function(String sourceRuleId, List<String> tags)
+      onRuleSourceTagsSplitOut;
   final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
   final ValueChanged<String> onRuleRemoved;
@@ -6051,6 +6073,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
     this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
     this.onRuleSourceTagsDropped,
+    required this.onRuleSourceTagsSplitOut,
     required this.onRuleMerged,
     required this.onRuleDeletedChanged,
     required this.onRuleRemoved,
@@ -6132,6 +6155,11 @@ class _ReplacementRuleGrid extends StatelessWidget {
           ),
           const SizedBox(height: 10),
         ],
+        _ReplacementRuleSplitDropTarget(
+          scope: scope,
+          ownerId: ownerId,
+          onSourceTagsSplitOut: onRuleSourceTagsSplitOut,
+        ),
       ],
     );
   }
@@ -6167,6 +6195,70 @@ class _ReplacementRuleGroupHeader extends StatelessWidget {
               ),
         ),
       ],
+    );
+  }
+}
+
+class _ReplacementRuleSplitDropTarget extends StatelessWidget {
+  final String scope;
+  final String ownerId;
+  final void Function(String sourceRuleId, List<String> tags)
+      onSourceTagsSplitOut;
+
+  const _ReplacementRuleSplitDropTarget({
+    required this.scope,
+    required this.ownerId,
+    required this.onSourceTagsSplitOut,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<PromptTagDragData>(
+      key: ValueKey('replacement-rule-split-drop-$scope-$ownerId'),
+      hitTestBehavior: HitTestBehavior.translucent,
+      onWillAcceptWithDetails: (details) =>
+          _replacementRuleIdForDraggedSourceTags(
+            details.data,
+            scope: scope,
+            ownerId: ownerId,
+          ) !=
+          null,
+      onAcceptWithDetails: (details) {
+        final sourceRuleId = _replacementRuleIdForDraggedSourceTags(
+          details.data,
+          scope: scope,
+          ownerId: ownerId,
+        );
+        if (sourceRuleId == null) {
+          return;
+        }
+        onSourceTagsSplitOut(sourceRuleId, details.data.tags);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final active = candidateData.isNotEmpty;
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 96,
+            height: 34,
+            decoration: BoxDecoration(
+              color: active
+                  ? StudioTokens.primary.withAlpha(18)
+                  : StudioTokens.surface1,
+              borderRadius: StudioTokens.radiusSlot,
+              border: Border.all(
+                color: active ? StudioTokens.primary : StudioTokens.border,
+              ),
+            ),
+            child: Icon(
+              Icons.open_in_new_outlined,
+              size: 16,
+              color: active ? StudioTokens.primary : StudioTokens.textMuted,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -6226,6 +6318,7 @@ class _ReplacementRuleRow extends StatefulWidget {
 
 class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
   bool _editingTarget = false;
+  bool _draggingRule = false;
 
   @override
   void didUpdateWidget(covariant _ReplacementRuleRow oldWidget) {
@@ -6250,21 +6343,12 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
   }
 
   String? _sourceRuleIdForDraggedTags(PromptTagDragData data) {
-    if (data.sourceFieldIds.length != 1 ||
-        data.tags.every((tag) => tag.trim().isEmpty)) {
-      return null;
-    }
-    final prefix = _replacementRuleSourceFieldId(
-      widget.scope,
-      widget.ownerId,
-      '',
+    final sourceRuleId = _replacementRuleIdForDraggedSourceTags(
+      data,
+      scope: widget.scope,
+      ownerId: widget.ownerId,
     );
-    final fieldId = data.sourceFieldIds.single;
-    if (!fieldId.startsWith(prefix)) {
-      return null;
-    }
-    final sourceRuleId = fieldId.substring(prefix.length);
-    if (sourceRuleId.isEmpty || sourceRuleId == widget.rule.id) {
+    if (sourceRuleId == null || sourceRuleId == widget.rule.id) {
       return null;
     }
     return sourceRuleId;
@@ -6405,336 +6489,370 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
             },
             builder: (context, promptTagCandidateData, rejectedPromptTagData) {
               final promptTagTargetActive = promptTagCandidateData.isNotEmpty;
-              return ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: ruleMaxWidth,
-                ),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: rule.selected
-                      ? () => widget.onSelectedChanged(false)
-                      : null,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
-                    padding: const EdgeInsets.fromLTRB(8, 7, 5, 7),
-                    decoration: BoxDecoration(
-                      color: promptTagTargetActive
-                          ? StudioTokens.primary.withAlpha(18)
-                          : backgroundColor,
-                      borderRadius: StudioTokens.radiusSlot,
-                      border: Border.all(
-                        color: mergeTargetActive || promptTagTargetActive
-                            ? StudioTokens.primary
-                            : borderColor,
+              return AnimatedOpacity(
+                duration: const Duration(milliseconds: 90),
+                opacity: _draggingRule ? 0.32 : 1,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: ruleMaxWidth,
+                  ),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: rule.selected
+                        ? () => widget.onSelectedChanged(false)
+                        : null,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      padding: const EdgeInsets.fromLTRB(8, 7, 5, 7),
+                      decoration: BoxDecoration(
+                        color: promptTagTargetActive
+                            ? StudioTokens.primary.withAlpha(18)
+                            : backgroundColor,
+                        borderRadius: StudioTokens.radiusSlot,
+                        border: Border.all(
+                          color: mergeTargetActive || promptTagTargetActive
+                              ? StudioTokens.primary
+                              : borderColor,
+                        ),
+                        boxShadow: rule.selected
+                            ? [
+                                BoxShadow(
+                                  color: StudioTokens.primary.withAlpha(38),
+                                  blurRadius: 0,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : const [],
                       ),
-                      boxShadow: rule.selected
-                          ? [
-                              BoxShadow(
-                                color: StudioTokens.primary.withAlpha(38),
-                                blurRadius: 0,
-                                spreadRadius: 2,
+                      child: IntrinsicHeight(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _ReplacementRuleDragHandle(
+                              key: ValueKey(
+                                'replacement-rule-drag-handle-$ruleKey',
                               ),
-                            ]
-                          : const [],
-                    ),
-                    child: IntrinsicHeight(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _ReplacementRuleDragHandle(
-                            key: ValueKey(
-                              'replacement-rule-drag-handle-$ruleKey',
+                              data: dragData,
+                              label: dragLabel,
+                              ruleKey: ruleKey,
+                              sourcePrompt: sourcePrompt,
+                              targetPrompt: rule.targetPrompt,
+                              deleted: deleted,
+                              onDragStarted: () {
+                                setState(() {
+                                  _draggingRule = true;
+                                });
+                              },
+                              onDragEnded: () {
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(() {
+                                  _draggingRule = false;
+                                });
+                              },
                             ),
-                            data: dragData,
-                            label: dragLabel,
-                          ),
-                          const SizedBox(width: 7),
-                          Flexible(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Flexible(
-                                      child: MouseRegion(
-                                        cursor: SystemMouseCursors.click,
-                                        child: GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () => widget.onSelectedChanged(
-                                              !rule.selected),
+                            const SizedBox(width: 7),
+                            Flexible(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Flexible(
+                                        child: MouseRegion(
+                                          cursor: SystemMouseCursors.click,
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: () =>
+                                                widget.onSelectedChanged(
+                                                    !rule.selected),
+                                            child: ConstrainedBox(
+                                              constraints: BoxConstraints(
+                                                maxWidth: sourcePromptWidth,
+                                              ),
+                                              child: SizedBox(
+                                                width: sourcePromptWidth,
+                                                child: PromptTagDisplay(
+                                                  key: ValueKey(
+                                                    'replacement-rule-source-$ruleKey',
+                                                  ),
+                                                  text: sourcePrompt,
+                                                  defaultTranslated: true,
+                                                  dense: true,
+                                                  initialLayoutMode:
+                                                      PromptTagLayoutMode
+                                                          .sourceOrder,
+                                                  respectInitialLayoutMode:
+                                                      true,
+                                                  sourceOrderCollapsedTagMaxWidth:
+                                                      _replacementRuleCollapsedTagMaxWidth,
+                                                  sourceOrderHoveredTagMaxWidth:
+                                                      _replacementRuleCollapsedTagMaxWidth,
+                                                  enableTagActions: true,
+                                                  translationCache:
+                                                      widget.translationCache,
+                                                  classificationCache: widget
+                                                      .classificationCache,
+                                                  saveClassificationCache: widget
+                                                      .saveClassificationCache,
+                                                  suppressedTagWarningKeys: widget
+                                                      .suppressedTagWarningKeys,
+                                                  onSuppressTagWarningForScope:
+                                                      widget
+                                                          .onSuppressTagWarningForScope,
+                                                  selectionController: widget
+                                                      .selectionController,
+                                                  selectionFieldId:
+                                                      _replacementRuleSourceFieldId(
+                                                    widget.scope,
+                                                    widget.ownerId,
+                                                    rule.id,
+                                                  ),
+                                                  selectionGroupId:
+                                                      widget.selectionGroupId,
+                                                  showSelectionToolbar: false,
+                                                  emptyText: '暂无来源词',
+                                                  onTagTap:
+                                                      widget.onTermExcludedChanged ==
+                                                              null
+                                                          ? null
+                                                          : (tag) {
+                                                              final termId =
+                                                                  _replacementTermIdForTag(
+                                                                      rule,
+                                                                      tag);
+                                                              if (termId ==
+                                                                  null) {
+                                                                return;
+                                                              }
+                                                              widget
+                                                                  .onTermExcludedChanged!(
+                                                                termId,
+                                                                !rule
+                                                                    .excludedTermIds
+                                                                    .contains(
+                                                                        termId),
+                                                              );
+                                                            },
+                                                  diffStateForTag: (tag) {
+                                                    final termId =
+                                                        _replacementTermIdForTag(
+                                                      rule,
+                                                      tag,
+                                                    );
+                                                    if (deleted ||
+                                                        (termId != null &&
+                                                            rule.excludedTermIds
+                                                                .contains(
+                                                                    termId))) {
+                                                      return PromptTagChipDiffState
+                                                          .removed;
+                                                    }
+                                                    return PromptTagChipDiffState
+                                                        .unchanged;
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      if (frameLabel.isNotEmpty) ...[
+                                        const SizedBox(width: 5),
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 2),
+                                          child: _ReplacementFrameIcon(
+                                            label: frameLabel,
+                                          ),
+                                        ),
+                                      ],
+                                      if (showingTarget) ...[
+                                        const SizedBox(width: 8),
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 8),
+                                          child: Text(
+                                            '→',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelLarge
+                                                ?.copyWith(
+                                                  color: StudioTokens.primary,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
                                           child: ConstrainedBox(
                                             constraints: BoxConstraints(
-                                              maxWidth: sourcePromptWidth,
+                                              maxWidth: targetPromptWidth,
                                             ),
-                                            child: SizedBox(
-                                              width: sourcePromptWidth,
-                                              child: PromptTagDisplay(
-                                                key: ValueKey(
-                                                  'replacement-rule-source-$ruleKey',
-                                                ),
-                                                text: sourcePrompt,
-                                                defaultTranslated: true,
-                                                dense: true,
-                                                initialLayoutMode:
-                                                    PromptTagLayoutMode
-                                                        .sourceOrder,
-                                                respectInitialLayoutMode: true,
-                                                sourceOrderCollapsedTagMaxWidth:
-                                                    _replacementRuleCollapsedTagMaxWidth,
-                                                sourceOrderHoveredTagMaxWidth:
-                                                    _replacementRuleCollapsedTagMaxWidth,
-                                                enableTagActions: true,
-                                                translationCache:
-                                                    widget.translationCache,
-                                                classificationCache:
-                                                    widget.classificationCache,
-                                                saveClassificationCache: widget
-                                                    .saveClassificationCache,
-                                                suppressedTagWarningKeys: widget
-                                                    .suppressedTagWarningKeys,
-                                                onSuppressTagWarningForScope: widget
-                                                    .onSuppressTagWarningForScope,
-                                                selectionController:
-                                                    widget.selectionController,
-                                                selectionFieldId:
-                                                    _replacementRuleSourceFieldId(
-                                                  widget.scope,
-                                                  widget.ownerId,
-                                                  rule.id,
-                                                ),
-                                                selectionGroupId:
-                                                    widget.selectionGroupId,
-                                                showSelectionToolbar: false,
-                                                emptyText: '暂无来源词',
-                                                onTagTap:
-                                                    widget.onTermExcludedChanged ==
-                                                            null
-                                                        ? null
-                                                        : (tag) {
-                                                            final termId =
-                                                                _replacementTermIdForTag(
-                                                                    rule, tag);
-                                                            if (termId ==
-                                                                null) {
-                                                              return;
-                                                            }
-                                                            widget
-                                                                .onTermExcludedChanged!(
-                                                              termId,
-                                                              !rule
-                                                                  .excludedTermIds
-                                                                  .contains(
-                                                                      termId),
-                                                            );
-                                                          },
-                                                diffStateForTag: (tag) {
-                                                  final termId =
-                                                      _replacementTermIdForTag(
-                                                    rule,
-                                                    tag,
-                                                  );
-                                                  if (deleted ||
-                                                      (termId != null &&
-                                                          rule.excludedTermIds
-                                                              .contains(
-                                                                  termId))) {
-                                                    return PromptTagChipDiffState
-                                                        .removed;
-                                                  }
-                                                  return PromptTagChipDiffState
-                                                      .unchanged;
-                                                },
-                                              ),
-                                            ),
+                                            child: _editingTarget
+                                                ? SizedBox(
+                                                    width: targetPromptWidth,
+                                                    child: PromptTagEditor(
+                                                      key: ValueKey(
+                                                        'replacement-rule-target-input-$ruleKey',
+                                                      ),
+                                                      value: rule.targetPrompt,
+                                                      dense: true,
+                                                      emptyText: '',
+                                                      showControls: false,
+                                                      showSelectionToolbar:
+                                                          false,
+                                                      preferTranslatedLabels:
+                                                          true,
+                                                      selectionController: widget
+                                                          .selectionController,
+                                                      selectionFieldId:
+                                                          _replacementRuleTargetFieldId(
+                                                        widget.scope,
+                                                        widget.ownerId,
+                                                        rule.id,
+                                                      ),
+                                                      selectionGroupId: widget
+                                                          .selectionGroupId,
+                                                      onChanged: widget
+                                                          .onTargetChanged,
+                                                    ),
+                                                  )
+                                                : SizedBox(
+                                                    width: targetPromptWidth,
+                                                    child: PromptTagDisplay(
+                                                      key: ValueKey(
+                                                        'replacement-rule-target-$ruleKey',
+                                                      ),
+                                                      text: rule.targetPrompt,
+                                                      defaultTranslated: true,
+                                                      dense: true,
+                                                      initialLayoutMode:
+                                                          PromptTagLayoutMode
+                                                              .sourceOrder,
+                                                      respectInitialLayoutMode:
+                                                          true,
+                                                      sourceOrderCollapsedTagMaxWidth:
+                                                          _replacementRuleCollapsedTagMaxWidth,
+                                                      sourceOrderHoveredTagMaxWidth:
+                                                          _replacementRuleCollapsedTagMaxWidth,
+                                                      enableTagActions: true,
+                                                      translationCache: widget
+                                                          .translationCache,
+                                                      classificationCache: widget
+                                                          .classificationCache,
+                                                      saveClassificationCache:
+                                                          widget
+                                                              .saveClassificationCache,
+                                                      suppressedTagWarningKeys:
+                                                          widget
+                                                              .suppressedTagWarningKeys,
+                                                      onSuppressTagWarningForScope:
+                                                          widget
+                                                              .onSuppressTagWarningForScope,
+                                                      selectionController: widget
+                                                          .selectionController,
+                                                      selectionFieldId:
+                                                          _replacementRuleTargetFieldId(
+                                                        widget.scope,
+                                                        widget.ownerId,
+                                                        rule.id,
+                                                      ),
+                                                      selectionGroupId: widget
+                                                          .selectionGroupId,
+                                                      showSelectionToolbar:
+                                                          false,
+                                                      onChanged: widget
+                                                          .onTargetChanged,
+                                                    ),
+                                                  ),
                                           ),
                                         ),
-                                      ),
+                                      ],
+                                    ],
+                                  ),
+                                  if (widget.onMatchModeChanged != null ||
+                                      !deleted) ...[
+                                    const SizedBox(height: 5),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        if (widget.onMatchModeChanged != null)
+                                          _ReplacementMatchModeSelector(
+                                            ruleKey: ruleKey,
+                                            value: rule.matchMode,
+                                            onChanged:
+                                                widget.onMatchModeChanged!,
+                                          ),
+                                        if (!deleted)
+                                          _ReplacementRuleActionButton(
+                                            key: ValueKey(
+                                              'replacement-rule-scale-weight-$ruleKey',
+                                            ),
+                                            tooltip: '按倍率调整整块权重',
+                                            icon: Icons.monitor_weight_outlined,
+                                            color: StudioTokens.primary,
+                                            onPressed: () => unawaited(
+                                              _editWeightMultiplier(context),
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                    if (frameLabel.isNotEmpty) ...[
-                                      const SizedBox(width: 5),
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: _ReplacementFrameIcon(
-                                          label: frameLabel,
-                                        ),
-                                      ),
-                                    ],
-                                    if (showingTarget) ...[
-                                      const SizedBox(width: 8),
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 8),
-                                        child: Text(
-                                          '→',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelLarge
-                                              ?.copyWith(
-                                                color: StudioTokens.primary,
-                                                fontWeight: FontWeight.w900,
-                                              ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Flexible(
-                                        child: ConstrainedBox(
-                                          constraints: BoxConstraints(
-                                            maxWidth: targetPromptWidth,
-                                          ),
-                                          child: _editingTarget
-                                              ? SizedBox(
-                                                  width: targetPromptWidth,
-                                                  child: PromptTagEditor(
-                                                    key: ValueKey(
-                                                      'replacement-rule-target-input-$ruleKey',
-                                                    ),
-                                                    value: rule.targetPrompt,
-                                                    dense: true,
-                                                    emptyText: '',
-                                                    showControls: false,
-                                                    showSelectionToolbar: false,
-                                                    preferTranslatedLabels:
-                                                        true,
-                                                    selectionController: widget
-                                                        .selectionController,
-                                                    selectionFieldId:
-                                                        _replacementRuleTargetFieldId(
-                                                      widget.scope,
-                                                      widget.ownerId,
-                                                      rule.id,
-                                                    ),
-                                                    selectionGroupId:
-                                                        widget.selectionGroupId,
-                                                    onChanged:
-                                                        widget.onTargetChanged,
-                                                  ),
-                                                )
-                                              : SizedBox(
-                                                  width: targetPromptWidth,
-                                                  child: PromptTagDisplay(
-                                                    key: ValueKey(
-                                                      'replacement-rule-target-$ruleKey',
-                                                    ),
-                                                    text: rule.targetPrompt,
-                                                    defaultTranslated: true,
-                                                    dense: true,
-                                                    initialLayoutMode:
-                                                        PromptTagLayoutMode
-                                                            .sourceOrder,
-                                                    respectInitialLayoutMode:
-                                                        true,
-                                                    sourceOrderCollapsedTagMaxWidth:
-                                                        _replacementRuleCollapsedTagMaxWidth,
-                                                    sourceOrderHoveredTagMaxWidth:
-                                                        _replacementRuleCollapsedTagMaxWidth,
-                                                    enableTagActions: true,
-                                                    translationCache:
-                                                        widget.translationCache,
-                                                    classificationCache: widget
-                                                        .classificationCache,
-                                                    saveClassificationCache: widget
-                                                        .saveClassificationCache,
-                                                    suppressedTagWarningKeys: widget
-                                                        .suppressedTagWarningKeys,
-                                                    onSuppressTagWarningForScope:
-                                                        widget
-                                                            .onSuppressTagWarningForScope,
-                                                    selectionController: widget
-                                                        .selectionController,
-                                                    selectionFieldId:
-                                                        _replacementRuleTargetFieldId(
-                                                      widget.scope,
-                                                      widget.ownerId,
-                                                      rule.id,
-                                                    ),
-                                                    selectionGroupId:
-                                                        widget.selectionGroupId,
-                                                    showSelectionToolbar: false,
-                                                    onChanged:
-                                                        widget.onTargetChanged,
-                                                  ),
-                                                ),
-                                        ),
-                                      ),
-                                    ],
                                   ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _ReplacementRuleActionButton(
+                                  key: ValueKey(
+                                    'replacement-rule-remove-$ruleKey',
+                                  ),
+                                  tooltip: '移除规则卡片',
+                                  icon: Icons.delete_outline,
+                                  color: StudioTokens.danger,
+                                  onPressed: widget.onRemoved,
                                 ),
-                                if (widget.onMatchModeChanged != null ||
-                                    !deleted) ...[
-                                  const SizedBox(height: 5),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 4,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      if (widget.onMatchModeChanged != null)
-                                        _ReplacementMatchModeSelector(
-                                          ruleKey: ruleKey,
-                                          value: rule.matchMode,
-                                          onChanged: widget.onMatchModeChanged!,
-                                        ),
-                                      if (!deleted)
-                                        _ReplacementRuleActionButton(
-                                          key: ValueKey(
-                                            'replacement-rule-scale-weight-$ruleKey',
-                                          ),
-                                          tooltip: '按倍率调整整块权重',
-                                          icon: Icons.monitor_weight_outlined,
-                                          color: StudioTokens.primary,
-                                          onPressed: () => unawaited(
-                                            _editWeightMultiplier(context),
-                                          ),
-                                        ),
-                                    ],
+                                const SizedBox(height: 8),
+                                _ReplacementRuleActionButton(
+                                  tooltip: deleted ? '恢复此规则' : '删除此规则',
+                                  icon: deleted
+                                      ? Icons.undo_outlined
+                                      : Icons.close,
+                                  color: deleted
+                                      ? StudioTokens.warning
+                                      : StudioTokens.textMuted,
+                                  onPressed: () =>
+                                      widget.onDeletedChanged(!deleted),
+                                ),
+                                if (!deleted) ...[
+                                  const SizedBox(height: 8),
+                                  _ReplacementRuleActionButton(
+                                    tooltip: '添加目标词',
+                                    icon: Icons.add,
+                                    color: StudioTokens.primary,
+                                    onPressed: () {
+                                      setState(() {
+                                        _editingTarget = true;
+                                      });
+                                    },
                                   ),
                                 ],
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 5),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _ReplacementRuleActionButton(
-                                key: ValueKey(
-                                  'replacement-rule-remove-$ruleKey',
-                                ),
-                                tooltip: '移除规则卡片',
-                                icon: Icons.delete_outline,
-                                color: StudioTokens.danger,
-                                onPressed: widget.onRemoved,
-                              ),
-                              const SizedBox(height: 8),
-                              _ReplacementRuleActionButton(
-                                tooltip: deleted ? '恢复此规则' : '删除此规则',
-                                icon:
-                                    deleted ? Icons.undo_outlined : Icons.close,
-                                color: deleted
-                                    ? StudioTokens.warning
-                                    : StudioTokens.textMuted,
-                                onPressed: () =>
-                                    widget.onDeletedChanged(!deleted),
-                              ),
-                              if (!deleted) ...[
-                                const SizedBox(height: 8),
-                                _ReplacementRuleActionButton(
-                                  tooltip: '添加目标词',
-                                  icon: Icons.add,
-                                  color: StudioTokens.primary,
-                                  onPressed: () {
-                                    setState(() {
-                                      _editingTarget = true;
-                                    });
-                                  },
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -6763,19 +6881,32 @@ class _ReplacementRuleDragData {
 }
 
 class _ReplacementRuleDragFeedback extends StatelessWidget {
+  final String ruleKey;
   final String label;
+  final String sourcePrompt;
+  final String targetPrompt;
+  final bool deleted;
 
-  const _ReplacementRuleDragFeedback({required this.label});
+  const _ReplacementRuleDragFeedback({
+    required this.ruleKey,
+    required this.label,
+    required this.sourcePrompt,
+    required this.targetPrompt,
+    required this.deleted,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 260),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      key: ValueKey('replacement-rule-card-feedback-$ruleKey'),
+      constraints: const BoxConstraints(minWidth: 260, maxWidth: 520),
+      padding: const EdgeInsets.fromLTRB(8, 7, 10, 7),
       decoration: BoxDecoration(
         color: StudioTokens.surface3,
         borderRadius: StudioTokens.radiusSlot,
-        border: Border.all(color: StudioTokens.primary),
+        border: Border.all(
+          color: deleted ? StudioTokens.danger : StudioTokens.primary,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withAlpha(120),
@@ -6784,14 +6915,68 @@ class _ReplacementRuleDragFeedback extends StatelessWidget {
           ),
         ],
       ),
-      child: Text(
-        label,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: StudioTokens.textPrimary,
-              fontWeight: FontWeight.w900,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 22,
+            height: 46,
+            decoration: BoxDecoration(
+              color: StudioTokens.surface1,
+              borderRadius: StudioTokens.radiusBadge,
+              border: Border.all(color: StudioTokens.border),
             ),
+            child: const Icon(
+              Icons.drag_indicator,
+              size: 16,
+              color: StudioTokens.textMuted,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  sourcePrompt.isEmpty ? label : sourcePrompt,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: StudioTokens.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                if (targetPrompt.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.arrow_forward,
+                        size: 13,
+                        color: StudioTokens.primary,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          targetPrompt,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: StudioTokens.primary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6800,11 +6985,23 @@ class _ReplacementRuleDragFeedback extends StatelessWidget {
 class _ReplacementRuleDragHandle extends StatelessWidget {
   final _ReplacementRuleDragData data;
   final String label;
+  final String ruleKey;
+  final String sourcePrompt;
+  final String targetPrompt;
+  final bool deleted;
+  final VoidCallback onDragStarted;
+  final VoidCallback onDragEnded;
 
   const _ReplacementRuleDragHandle({
     super.key,
     required this.data,
     required this.label,
+    required this.ruleKey,
+    required this.sourcePrompt,
+    required this.targetPrompt,
+    required this.deleted,
+    required this.onDragStarted,
+    required this.onDragEnded,
   });
 
   @override
@@ -6834,9 +7031,17 @@ class _ReplacementRuleDragHandle extends StatelessWidget {
     return Draggable<_ReplacementRuleDragData>(
       data: data,
       dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: onDragStarted,
+      onDragEnd: (_) => onDragEnded(),
       feedback: Material(
         color: Colors.transparent,
-        child: _ReplacementRuleDragFeedback(label: label),
+        child: _ReplacementRuleDragFeedback(
+          ruleKey: ruleKey,
+          label: label,
+          sourcePrompt: sourcePrompt,
+          targetPrompt: targetPrompt,
+          deleted: deleted,
+        ),
       ),
       childWhenDragging: Opacity(opacity: 0.45, child: handle),
       child: handle,
@@ -7233,6 +7438,24 @@ String _replacementRuleSourceFieldId(
   String ruleId,
 ) {
   return 'replacement-rule-source-field-$scope-$ownerId-$ruleId';
+}
+
+String? _replacementRuleIdForDraggedSourceTags(
+  PromptTagDragData data, {
+  required String scope,
+  required String ownerId,
+}) {
+  if (data.sourceFieldIds.length != 1 ||
+      data.tags.every((tag) => tag.trim().isEmpty)) {
+    return null;
+  }
+  final prefix = _replacementRuleSourceFieldId(scope, ownerId, '');
+  final fieldId = data.sourceFieldIds.single;
+  if (!fieldId.startsWith(prefix)) {
+    return null;
+  }
+  final sourceRuleId = fieldId.substring(prefix.length);
+  return sourceRuleId.isEmpty ? null : sourceRuleId;
 }
 
 String _replacementRuleTargetFieldId(

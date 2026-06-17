@@ -1,0 +1,60 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="tileGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(708 208) rotate(128) scale(820)">
+      <stop offset="0" stop-color="#393D7A"/>
+      <stop offset="0.35" stop-color="#202346"/>
+      <stop offset="0.7" stop-color="#13142C"/>
+      <stop offset="1" stop-color="#080914"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="165" y1="126" x2="848" y2="902" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EC56A7"/>
+      <stop offset="0.48" stop-color="#9773FF"/>
+      <stop offset="1" stop-color="#75CF67"/>
+    </linearGradient>
+    <linearGradient id="markFill" x1="318" y1="160" x2="703" y2="848" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDE8"/>
+      <stop offset="0.56" stop-color="#F8F5C9"/>
+      <stop offset="1" stop-color="#E9E5A7"/>
+    </linearGradient>
+    <linearGradient id="markShade" x1="300" y1="160" x2="732" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="specular" x1="165" y1="144" x2="810" y2="410" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.26"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="softShadow" x="-25%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="34" stdDeviation="32" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="rimShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="26" stdDeviation="34" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="tileClip">
+      <rect width="1024" height="1024" rx="220"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#080914"/>
+  <g clip-path="url(#tileClip)">
+    <rect width="1024" height="1024" rx="220" fill="#080914"/>
+    <circle cx="512" cy="512" r="438" fill="url(#rim)" filter="url(#rimShadow)"/>
+    <circle cx="512" cy="512" r="398" fill="url(#tileGlow)"/>
+    <circle cx="512" cy="512" r="332" fill="#191B31" opacity="0.58"/>
+    <path d="M161 243C279 158 447 124 610 158C705 178 791 220 859 282" stroke="url(#specular)" stroke-width="30" stroke-linecap="round"/>
+    <path d="M204 835C289 890 391 920 512 920C633 920 736 890 820 835" stroke="#F5F3C2" stroke-opacity="0.13" stroke-width="24" stroke-linecap="round"/>
+
+    <g transform="translate(512 512) rotate(-8) translate(-512 -512)" filter="url(#softShadow)">
+      <g transform="translate(249 153) scale(16.05)">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M5.89418 31.9285C4.51814 29.6818 2.83212 27.8112 0.836131 26.521C0.26793 26.1537 0.124452 25.3382 0.540438 24.8047C4.15593 20.1672 9.79294 8.01868 12.7415 1.40215C13.181 0.416062 14.6883 0.738582 14.6883 1.81816V19.44C13.1242 20.1331 12.0332 21.6992 12.0332 23.5201C12.0332 24.1851 12.1787 24.8161 12.4397 25.383L5.89418 31.9285ZM7.34675 34.6814C8.03773 36.2042 8.61427 37.8368 9.07635 39.5334C9.19588 39.9722 9.59101 40.2824 10.0459 40.2824H16.4937H22.9416C23.3964 40.2824 23.7916 39.9722 23.9111 39.5334C24.3732 37.8368 24.9497 36.2042 25.6407 34.6814L22.211 31.2516L19.3551 34.1075C19.4281 34.3655 19.4672 34.6378 19.4672 34.9192C19.4672 36.5615 18.1358 37.8928 16.4935 37.8928C14.8512 37.8928 13.5198 36.5615 13.5198 34.9192C13.5198 33.2768 14.8512 31.9455 16.4935 31.9455C16.7448 31.9455 16.9888 31.9766 17.2219 32.0353L20.1083 29.1489L18.4762 27.5169C17.879 27.8137 17.2058 27.9806 16.4937 27.9806C15.7816 27.9806 15.1084 27.8137 14.5112 27.5169L7.34675 34.6814ZM27.0933 31.9285C28.4693 29.6818 30.1553 27.8112 32.1513 26.521C32.7195 26.1537 32.863 25.3382 32.447 24.8047C28.8315 20.1672 23.1945 8.01868 20.2459 1.40215C19.8065 0.416062 18.2992 0.738582 18.2992 1.81816V19.44C19.8632 20.1332 20.9542 21.6992 20.9542 23.5201C20.9542 24.1851 20.8087 24.8161 20.5478 25.383L27.0933 31.9285Z" fill="url(#markFill)"/>
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M5.89418 31.9285C4.51814 29.6818 2.83212 27.8112 0.836131 26.521C0.26793 26.1537 0.124452 25.3382 0.540438 24.8047C4.15593 20.1672 9.79294 8.01868 12.7415 1.40215C13.181 0.416062 14.6883 0.738582 14.6883 1.81816V19.44C13.1242 20.1331 12.0332 21.6992 12.0332 23.5201C12.0332 24.1851 12.1787 24.8161 12.4397 25.383L5.89418 31.9285ZM7.34675 34.6814C8.03773 36.2042 8.61427 37.8368 9.07635 39.5334C9.19588 39.9722 9.59101 40.2824 10.0459 40.2824H16.4937H22.9416C23.3964 40.2824 23.7916 39.9722 23.9111 39.5334C24.3732 37.8368 24.9497 36.2042 25.6407 34.6814L22.211 31.2516L19.3551 34.1075C19.4281 34.3655 19.4672 34.6378 19.4672 34.9192C19.4672 36.5615 18.1358 37.8928 16.4935 37.8928C14.8512 37.8928 13.5198 36.5615 13.5198 34.9192C13.5198 33.2768 14.8512 31.9455 16.4935 31.9455C16.7448 31.9455 16.9888 31.9766 17.2219 32.0353L20.1083 29.1489L18.4762 27.5169C17.879 27.8137 17.2058 27.9806 16.4937 27.9806C15.7816 27.9806 15.1084 27.8137 14.5112 27.5169L7.34675 34.6814ZM27.0933 31.9285C28.4693 29.6818 30.1553 27.8112 32.1513 26.521C32.7195 26.1537 32.863 25.3382 32.447 24.8047C28.8315 20.1672 23.1945 8.01868 20.2459 1.40215C19.8065 0.416062 18.2992 0.738582 18.2992 1.81816V19.44C19.8632 20.1332 20.9542 21.6992 20.9542 23.5201C20.9542 24.1851 20.8087 24.8161 20.5478 25.383L27.0933 31.9285Z" fill="url(#markShade)"/>
+      </g>
+    </g>
+
+    <path d="M773 190L792 238L841 257L792 276L773 326L754 276L705 257L754 238L773 190Z" fill="#75CF67"/>
+    <circle cx="727" cy="192" r="16" fill="#EC56A7"/>
+    <circle cx="818" cy="347" r="8" fill="#F5F3C2" opacity="0.86"/>
+  </g>
+</svg>

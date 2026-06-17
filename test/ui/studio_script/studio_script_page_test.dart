@@ -11426,6 +11426,193 @@ void main() {
     );
 
     testWidgets(
+      'role replacement source tag drag can split a merged term out',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 17),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-accessories',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-white-bow',
+                          text: 'white bow',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-red-hairband',
+                          text: 'red hairband',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-red-collar',
+                          text: 'red collar',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceDisplay = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-accessories',
+          ),
+        );
+        final redCollarChip = find.descendant(
+          of: sourceDisplay,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-red collar-2-idle'),
+          ),
+        );
+        final splitTarget = find.byKey(
+          const ValueKey('replacement-rule-split-drop-role-slot-0'),
+        );
+        expect(redCollarChip, findsOneWidget);
+        expect(splitTarget, findsOneWidget);
+
+        await _dragSelectedTagTo(tester, redCollarChip, splitTarget);
+        await tester.pumpAndSettle();
+
+        final rules = viewModel.roleReplacementMappings.single.rules;
+        final original =
+            rules.singleWhere((rule) => rule.id == 'rule-accessories');
+        final split = rules.singleWhere(
+          (rule) => rule.id != 'rule-accessories',
+        );
+        expect(
+          original.sourceTerms.map((term) => term.text),
+          ['white bow', 'red hairband'],
+        );
+        expect(split.sourceTerms.map((term) => term.text), ['red collar']);
+        expect(
+          rules.where((rule) => rule.selected).map((rule) => rule.id),
+          [split.id],
+        );
+      },
+    );
+
+    testWidgets(
+      'role replacement card drag shows a full-card feedback surface',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 17),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-accessories',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-white-bow',
+                          text: 'white bow',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-red-collar',
+                          text: 'red collar',
+                          category: PromptTagCategory.upperClothing,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'black collar',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceHandle = find.byKey(
+          const ValueKey(
+            'replacement-rule-drag-handle-role-slot-0-rule-accessories',
+          ),
+        );
+        expect(sourceHandle, findsOneWidget);
+        final start = tester.getCenter(sourceHandle);
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        addTearDown(mouse.removePointer);
+        await mouse.addPointer(location: start);
+        await tester.pump();
+        await mouse.down(start);
+        await mouse.moveBy(const Offset(120, 80));
+        await tester.pump();
+
+        final feedback = find.byKey(
+          const ValueKey(
+            'replacement-rule-card-feedback-role-slot-0-rule-accessories',
+          ),
+        );
+        expect(feedback, findsOneWidget);
+        expect(tester.getSize(feedback).width, greaterThan(220));
+
+        await mouse.up();
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
       'role replacement remove button removes a rule card',
       (tester) async {
         tester.view.physicalSize = const Size(1600, 3600);

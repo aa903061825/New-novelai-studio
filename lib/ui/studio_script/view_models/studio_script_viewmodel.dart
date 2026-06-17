@@ -52,6 +52,16 @@ typedef StudioScriptAiSettingProvider = String Function();
 typedef StudioScriptTagClassificationCacheSaver = Future<void> Function(
     PromptTagClassificationCache cache);
 
+class _ReplacementRuleSplitResult {
+  final List<ScriptPromptReplacementRule> rules;
+  final String newRuleId;
+
+  const _ReplacementRuleSplitResult({
+    required this.rules,
+    required this.newRuleId,
+  });
+}
+
 enum StudioScriptTimelineStatus { warning, error, sent, failed }
 
 enum StudioScriptAiProgressStepState { waiting, active, done, failed }
@@ -2388,6 +2398,43 @@ class StudioScriptViewModel extends ChangeNotifier {
     unawaited(_saveCurrentCache());
   }
 
+  void splitRoleReplacementSourceTerms({
+    required String sourceRoleId,
+    required String sourceRuleId,
+    required Iterable<String> tags,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null) {
+      return;
+    }
+    final replacement = mapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (replacement == null) {
+      return;
+    }
+    final split = _replacementRulesWithSplitSourceTerms(
+      rules: replacement.rules,
+      sourceRuleId: sourceRuleId,
+      tags: tags,
+    );
+    if (split == null) {
+      return;
+    }
+    if (!_updateRoleReplacement(
+      sourceRoleId,
+      (replacement) => replacement.copyWith(
+        rules: List.unmodifiable(split.rules),
+      ),
+    )) {
+      return;
+    }
+    _selectedRoleReplacementRuleIdsByRole[sourceRoleId] = {split.newRuleId};
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
   void mergeRoleReplacementRules({
     required String sourceRoleId,
     required String sourceRuleId,
@@ -2890,6 +2937,43 @@ class StudioScriptViewModel extends ChangeNotifier {
     unawaited(_saveCurrentCache());
   }
 
+  void splitSceneReplacementSourceTerms({
+    required String groupId,
+    required String sourceRuleId,
+    required Iterable<String> tags,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null) {
+      return;
+    }
+    final replacement = mapping.scenePromptReplacements
+        .where((replacement) => replacement.id == groupId)
+        .firstOrNull;
+    if (replacement == null) {
+      return;
+    }
+    final split = _replacementRulesWithSplitSourceTerms(
+      rules: replacement.rules,
+      sourceRuleId: sourceRuleId,
+      tags: tags,
+    );
+    if (split == null) {
+      return;
+    }
+    if (!_updateSceneReplacement(
+      groupId,
+      (replacement) => replacement.copyWith(
+        rules: List.unmodifiable(split.rules),
+      ),
+    )) {
+      return;
+    }
+    _selectedSceneReplacementRuleIdsByGroup[groupId] = {split.newRuleId};
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    unawaited(_saveCurrentCache());
+  }
+
   ScriptPromptReplacementRule _ruleWithTarget(
     ScriptPromptReplacementRule rule,
     String value,
@@ -3244,6 +3328,111 @@ class StudioScriptViewModel extends ChangeNotifier {
       targetRuleId: targetRuleId,
       tags: sourceRule.sourceTerms.map((term) => term.text),
     );
+  }
+
+  _ReplacementRuleSplitResult? _replacementRulesWithSplitSourceTerms({
+    required List<ScriptPromptReplacementRule> rules,
+    required String sourceRuleId,
+    required Iterable<String> tags,
+  }) {
+    final wantedKeys = {
+      for (final tag in tags)
+        if (tag.trim().isNotEmpty)
+          PromptTagProcessor.normalizeMatchKey(tag.trim()),
+    }..removeWhere((key) => key.isEmpty);
+    if (wantedKeys.isEmpty) {
+      return null;
+    }
+    final sourceRule =
+        rules.where((rule) => rule.id == sourceRuleId).firstOrNull;
+    if (sourceRule == null || sourceRule.sourceTerms.length < 2) {
+      return null;
+    }
+    final movingTerms = [
+      for (final term in sourceRule.sourceTerms)
+        if (wantedKeys.contains(
+          PromptTagProcessor.normalizeMatchKey(term.text),
+        ))
+          term,
+    ];
+    if (movingTerms.isEmpty ||
+        movingTerms.length == sourceRule.sourceTerms.length) {
+      return null;
+    }
+    final movingTermIds = {for (final term in movingTerms) term.id};
+    final remainingSourceTerms = [
+      for (final term in sourceRule.sourceTerms)
+        if (!movingTermIds.contains(term.id)) term,
+    ];
+    final remainingSourceTermIds = {
+      for (final term in remainingSourceTerms) term.id,
+    };
+    final remainingExcludedIds = [
+      for (final id in sourceRule.excludedTermIds)
+        if (remainingSourceTermIds.contains(id)) id,
+    ];
+    final movingExcludedIds = [
+      for (final id in sourceRule.excludedTermIds)
+        if (movingTermIds.contains(id)) id,
+    ];
+    final newRuleId = _splitReplacementRuleId(
+      sourceRuleId: sourceRuleId,
+      movingTerms: movingTerms,
+      rules: rules,
+    );
+    final newRule = ScriptPromptReplacementRule(
+      id: newRuleId,
+      sourceTerms: List.unmodifiable(movingTerms),
+      excludedTermIds: List.unmodifiable(movingExcludedIds),
+      anchorTermId: movingTermIds.contains(sourceRule.anchorTermId)
+          ? sourceRule.anchorTermId
+          : '',
+    );
+    final nextSourceAnchorTermId =
+        remainingSourceTermIds.contains(sourceRule.anchorTermId)
+            ? sourceRule.anchorTermId
+            : '';
+    final nextRules = <ScriptPromptReplacementRule>[];
+    for (final rule in rules) {
+      if (rule.id == sourceRuleId) {
+        nextRules
+          ..add(
+            sourceRule.copyWith(
+              sourceTerms: List.unmodifiable(remainingSourceTerms),
+              excludedTermIds: List.unmodifiable(remainingExcludedIds),
+              anchorTermId: nextSourceAnchorTermId,
+            ),
+          )
+          ..add(newRule);
+        continue;
+      }
+      nextRules.add(rule);
+    }
+    return _ReplacementRuleSplitResult(
+      rules: List.unmodifiable(nextRules),
+      newRuleId: newRuleId,
+    );
+  }
+
+  String _splitReplacementRuleId({
+    required String sourceRuleId,
+    required List<ScriptPromptReplacementTerm> movingTerms,
+    required List<ScriptPromptReplacementRule> rules,
+  }) {
+    final existingIds = {for (final rule in rules) rule.id};
+    final baseId = stableIdFromText(
+      prefix: '$sourceRuleId-split',
+      text: movingTerms.map((term) => term.id).join('|'),
+      label: movingTerms.map((term) => term.text).join(' '),
+    );
+    if (!existingIds.contains(baseId)) {
+      return baseId;
+    }
+    var suffix = 2;
+    while (existingIds.contains('$baseId-$suffix')) {
+      suffix += 1;
+    }
+    return '$baseId-$suffix';
   }
 
   List<ScriptPromptReplacementRule>? _replacementRulesWithMovedSourceTerms({
