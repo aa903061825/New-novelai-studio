@@ -373,6 +373,7 @@ class StudioScriptReplacementRuleItem {
   final ScriptPromptReplacementAction action;
   final ScriptPromptReplacementMatchMode matchMode;
   final String targetPrompt;
+  final double? targetWeightMultiplier;
   final String manualPhrase;
   final String anchorTermId;
   final bool selected;
@@ -384,6 +385,7 @@ class StudioScriptReplacementRuleItem {
     this.action = ScriptPromptReplacementAction.none,
     this.matchMode = ScriptPromptReplacementMatchMode.any,
     this.targetPrompt = '',
+    this.targetWeightMultiplier,
     this.manualPhrase = '',
     this.anchorTermId = '',
     this.selected = false,
@@ -395,6 +397,7 @@ class StudioScriptReplacementRuleItem {
     ScriptPromptReplacementAction? action,
     ScriptPromptReplacementMatchMode? matchMode,
     String? targetPrompt,
+    double? targetWeightMultiplier,
     String? manualPhrase,
     String? anchorTermId,
     bool? selected,
@@ -406,6 +409,8 @@ class StudioScriptReplacementRuleItem {
       action: action ?? this.action,
       matchMode: matchMode ?? this.matchMode,
       targetPrompt: targetPrompt ?? this.targetPrompt,
+      targetWeightMultiplier:
+          targetWeightMultiplier ?? this.targetWeightMultiplier,
       manualPhrase: manualPhrase ?? this.manualPhrase,
       anchorTermId: anchorTermId ?? this.anchorTermId,
       selected: selected ?? this.selected,
@@ -2844,6 +2849,7 @@ class StudioScriptViewModel extends ChangeNotifier {
             if (selectedIds.contains(rule.id))
               rule.copyWith(
                 targetPrompt: targetIdentityPrompt,
+                targetWeightMultiplier: null,
                 action: ScriptPromptReplacementAction.replace,
               )
             else
@@ -3193,6 +3199,8 @@ class StudioScriptViewModel extends ChangeNotifier {
             : ScriptPromptReplacementAction.none;
     return rule.copyWith(
       targetPrompt: targetPrompt,
+      targetWeightMultiplier:
+          targetPrompt.trim().isEmpty ? null : rule.targetWeightMultiplier,
       action: action,
     );
   }
@@ -3264,9 +3272,11 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     final existingTarget = rule.targetPrompt.trim();
     if (existingTarget.isNotEmpty) {
-      return _ruleWithTarget(
-        rule,
-        _promptWithScaledWeights(existingTarget, multiplier),
+      return rule.copyWith(
+        targetWeightMultiplier: _scaledTargetWeightMultiplier(
+          rule.targetWeightMultiplier,
+          multiplier,
+        ),
       );
     }
     final sourcePrompt = _replacementRuleIncludedSourcePrompt(rule);
@@ -3274,8 +3284,13 @@ class StudioScriptViewModel extends ChangeNotifier {
       return rule;
     }
     return _ruleWithTarget(
-      rule,
-      _promptWithScaledWeights(sourcePrompt, multiplier),
+      rule.copyWith(
+        targetWeightMultiplier: _scaledTargetWeightMultiplier(
+          rule.targetWeightMultiplier,
+          multiplier,
+        ),
+      ),
+      sourcePrompt,
     );
   }
 
@@ -3293,24 +3308,15 @@ class StudioScriptViewModel extends ChangeNotifier {
     ]);
   }
 
-  String _promptWithScaledWeights(String prompt, double multiplier) {
-    final scaledTags = <String>[];
-    for (final tag in PromptTagProcessor.analyzeWorkshopTags(prompt)) {
-      final display = tag.displayText.trim();
-      if (display.isEmpty) {
-        continue;
-      }
-      final nextWeight = (tag.weight ?? 1.0) * multiplier;
-      scaledTags.add(_tagWithPromptWeight(display, nextWeight));
+  double? _scaledTargetWeightMultiplier(
+    double? current,
+    double multiplier,
+  ) {
+    final next = (current ?? 1.0) * multiplier;
+    if ((next - 1.0).abs() < 0.000001) {
+      return null;
     }
-    return _joinPromptTags(scaledTags);
-  }
-
-  String _tagWithPromptWeight(String tag, double weight) {
-    if ((weight - 1.0).abs() < 0.000001) {
-      return tag.trim();
-    }
-    return PromptTagProcessor.formatInlineWeightTag(tag, weight);
+    return next;
   }
 
   ScriptPromptReplacementRule _ruleWithDeleted(
@@ -8266,6 +8272,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       action: rule.action,
       matchMode: rule.matchMode,
       targetPrompt: rule.targetPrompt,
+      targetWeightMultiplier: rule.targetWeightMultiplier,
       manualPhrase: rule.manualPhrase,
       anchorTermId: rule.anchorTermId,
       selected: selected,

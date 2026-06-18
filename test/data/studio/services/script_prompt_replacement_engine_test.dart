@@ -331,6 +331,63 @@ void main() {
 
       expect(result, 'lily, solo');
     });
+
+    test('applies target weight multiplier as one weighted replacement block',
+        () {
+      final result = engine.applyRules(
+        prompt: 'cat ears, fox ears, solo',
+        frameIndex: 1,
+        rules: [
+          ScriptPromptReplacementRule.fromJson(const {
+            'id': 'rule-weighted-block',
+            'sourceTerms': [
+              {
+                'id': 'term-cat-ears',
+                'text': 'cat ears',
+                'category': 'upperBody',
+              },
+              {
+                'id': 'term-fox-ears',
+                'text': 'fox ears',
+                'category': 'upperBody',
+              },
+            ],
+            'targetPrompt': 'no cap, no hat',
+            'targetWeightMultiplier': 1.2,
+          }),
+        ],
+      );
+
+      expect(result, '1.2:: no cap, no hat ::, solo');
+    });
+
+    test('block multiplier multiplies existing target tag weights', () {
+      final result = engine.applyRules(
+        prompt: 'cat ears, fox ears, solo',
+        frameIndex: 1,
+        rules: [
+          ScriptPromptReplacementRule.fromJson(const {
+            'id': 'rule-weighted-block',
+            'sourceTerms': [
+              {
+                'id': 'term-cat-ears',
+                'text': 'cat ears',
+                'category': 'upperBody',
+              },
+              {
+                'id': 'term-fox-ears',
+                'text': 'fox ears',
+                'category': 'upperBody',
+              },
+            ],
+            'targetPrompt': '1.5:: no cap ::, no hat',
+            'targetWeightMultiplier': 2,
+          }),
+        ],
+      );
+
+      expect(result, '3:: no cap ::, 2:: no hat ::, solo');
+    });
   });
 }
 

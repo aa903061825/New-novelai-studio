@@ -6213,6 +6213,8 @@ class _ReplacementRuleGrid extends StatelessWidget {
                             sourceRuleId,
                             tags,
                           ),
+                  onSourceTagsDraggedOut: (tags) =>
+                      onRuleSourceTagsSplitOut(rule.id, tags),
                   onDeletedChanged: (deleted) =>
                       onRuleDeletedChanged(rule.id, deleted),
                   onRemoved: () => onRuleRemoved(rule.id),
@@ -6364,6 +6366,7 @@ class _ReplacementRuleRow extends StatefulWidget {
   final ValueChanged<double> onWeightMultiplierChanged;
   final void Function(String sourceRuleId, List<String> tags)?
       onSourceTagsDropped;
+  final ValueChanged<List<String>>? onSourceTagsDraggedOut;
   final ValueChanged<bool> onDeletedChanged;
   final VoidCallback onRemoved;
   final ValueChanged<ScriptPromptReplacementMatchMode>? onMatchModeChanged;
@@ -6388,6 +6391,7 @@ class _ReplacementRuleRow extends StatefulWidget {
     this.onPromptTagsDropped,
     required this.onWeightMultiplierChanged,
     this.onSourceTagsDropped,
+    this.onSourceTagsDraggedOut,
     required this.onDeletedChanged,
     required this.onRemoved,
     this.onMatchModeChanged,
@@ -6401,6 +6405,7 @@ class _ReplacementRuleRow extends StatefulWidget {
 }
 
 class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
+  final GlobalKey _cardKey = GlobalKey();
   bool _editingTarget = false;
   bool _draggingRule = false;
 
@@ -6441,6 +6446,36 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
   bool _canAcceptSourceTagsForMerge(PromptTagDragData data) {
     return widget.onSourceTagsDropped != null &&
         _sourceRuleIdForDraggedTags(data) != null;
+  }
+
+  bool _isOutsideCurrentCard(Offset globalOffset) {
+    final renderObject = _cardKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return false;
+    }
+    final rect = renderObject.localToGlobal(Offset.zero) & renderObject.size;
+    return !rect.inflate(8).contains(globalOffset);
+  }
+
+  void _handleSourceTagDragEnd(
+    PromptTagDragData data,
+    DraggableDetails details,
+  ) {
+    if (details.wasAccepted ||
+        widget.onSourceTagsDraggedOut == null ||
+        data.tags.every((tag) => tag.trim().isEmpty)) {
+      return;
+    }
+    final sourceRuleId = _replacementRuleIdForDraggedSourceTags(
+      data,
+      scope: widget.scope,
+      ownerId: widget.ownerId,
+    );
+    if (sourceRuleId != widget.rule.id ||
+        !_isOutsideCurrentCard(details.offset)) {
+      return;
+    }
+    widget.onSourceTagsDraggedOut!(data.tags);
   }
 
   Future<void> _editWeightMultiplier(BuildContext context) async {
@@ -6586,6 +6621,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                         ? () => widget.onSelectedChanged(false)
                         : null,
                     child: AnimatedContainer(
+                      key: _cardKey,
                       duration: const Duration(milliseconds: 120),
                       padding: const EdgeInsets.fromLTRB(8, 7, 5, 7),
                       decoration: BoxDecoration(
@@ -6701,6 +6737,8 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                                                   selectionGroupId:
                                                       widget.selectionGroupId,
                                                   showSelectionToolbar: false,
+                                                  onTagDragEnd:
+                                                      _handleSourceTagDragEnd,
                                                   emptyText: '暂无来源词',
                                                   onTagTap:
                                                       widget.onTermExcludedChanged ==
@@ -6779,10 +6817,13 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                                             constraints: BoxConstraints(
                                               maxWidth: targetPromptWidth,
                                             ),
-                                            child: _editingTarget
-                                                ? SizedBox(
-                                                    width: targetPromptWidth,
-                                                    child: PromptTagEditor(
+                                            child: _ReplacementTargetPromptBox(
+                                              ruleKey: ruleKey,
+                                              width: targetPromptWidth,
+                                              weightMultiplier:
+                                                  rule.targetWeightMultiplier,
+                                              child: _editingTarget
+                                                  ? PromptTagEditor(
                                                       key: ValueKey(
                                                         'replacement-rule-target-input-$ruleKey',
                                                       ),
@@ -6806,11 +6847,8 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                                                           .selectionGroupId,
                                                       onChanged: widget
                                                           .onTargetChanged,
-                                                    ),
-                                                  )
-                                                : SizedBox(
-                                                    width: targetPromptWidth,
-                                                    child: PromptTagDisplay(
+                                                    )
+                                                  : PromptTagDisplay(
                                                       key: ValueKey(
                                                         'replacement-rule-target-$ruleKey',
                                                       ),
@@ -6855,7 +6893,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                                                       onChanged: widget
                                                           .onTargetChanged,
                                                     ),
-                                                  ),
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -7189,6 +7227,63 @@ class _ReplacementFrameIcon extends StatelessWidget {
           color: StudioTokens.primary.withAlpha(210),
         ),
       ),
+    );
+  }
+}
+
+class _ReplacementTargetPromptBox extends StatelessWidget {
+  final String ruleKey;
+  final double width;
+  final double? weightMultiplier;
+  final Widget child;
+
+  const _ReplacementTargetPromptBox({
+    required this.ruleKey,
+    required this.width,
+    required this.weightMultiplier,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final weight = weightMultiplier;
+    final body = SizedBox(width: width, child: child);
+    if (weight == null || (weight - 1.0).abs() < 0.000001) {
+      return body;
+    }
+    final isNegative = weight < 0;
+    final color = isNegative ? StudioTokens.danger : StudioTokens.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        body,
+        Positioned(
+          key: ValueKey('replacement-rule-target-block-weight-$ruleKey'),
+          right: -5,
+          top: -8,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.withAlpha(isNegative ? 30 : 28),
+              borderRadius: StudioTokens.radiusBadge,
+              border:
+                  Border.all(color: color.withAlpha(isNegative ? 150 : 120)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              child: Text(
+                'x${weight.toStringAsFixed(2)}',
+                maxLines: 1,
+                overflow: TextOverflow.fade,
+                softWrap: false,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

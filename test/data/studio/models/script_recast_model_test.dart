@@ -274,6 +274,16 @@ void main() {
       expect(rule.hasEffect, isTrue);
     });
 
+    test('round trips replacement rule target block weight multiplier', () {
+      final rule = ScriptPromptReplacementRule.fromJson(const {
+        'id': 'rule-weighted-block',
+        'targetPrompt': 'white dress, lace trim',
+        'targetWeightMultiplier': 1.2,
+      });
+
+      expect(rule.toJson()['targetWeightMultiplier'], 1.2);
+    });
+
     test('replace action with blank target and manual prompt is inactive', () {
       const rule = ScriptPromptReplacementRule(
         id: 'rule-blank-replace',

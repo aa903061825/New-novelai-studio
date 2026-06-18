@@ -632,6 +632,7 @@ class ScriptPromptReplacementRule {
   final ScriptPromptReplacementAction action;
   final ScriptPromptReplacementMatchMode matchMode;
   final String targetPrompt;
+  final double? targetWeightMultiplier;
   final String manualPhrase;
   final String anchorTermId;
 
@@ -642,6 +643,7 @@ class ScriptPromptReplacementRule {
     this.action = ScriptPromptReplacementAction.none,
     this.matchMode = ScriptPromptReplacementMatchMode.any,
     this.targetPrompt = '',
+    this.targetWeightMultiplier,
     this.manualPhrase = '',
     this.anchorTermId = '',
   });
@@ -667,6 +669,8 @@ class ScriptPromptReplacementRule {
         ScriptPromptReplacementMatchMode.any,
       ),
       targetPrompt: json['targetPrompt'] as String? ?? '',
+      targetWeightMultiplier:
+          _positiveFiniteDoubleOrNull(json['targetWeightMultiplier']),
       manualPhrase: json['manualPhrase'] as String? ?? '',
       anchorTermId: json['anchorTermId'] as String? ?? '',
     );
@@ -691,6 +695,7 @@ class ScriptPromptReplacementRule {
     ScriptPromptReplacementAction? action,
     ScriptPromptReplacementMatchMode? matchMode,
     String? targetPrompt,
+    Object? targetWeightMultiplier = _unset,
     String? manualPhrase,
     String? anchorTermId,
   }) {
@@ -701,6 +706,9 @@ class ScriptPromptReplacementRule {
       action: action ?? this.action,
       matchMode: matchMode ?? this.matchMode,
       targetPrompt: targetPrompt ?? this.targetPrompt,
+      targetWeightMultiplier: identical(targetWeightMultiplier, _unset)
+          ? this.targetWeightMultiplier
+          : targetWeightMultiplier as double?,
       manualPhrase: manualPhrase ?? this.manualPhrase,
       anchorTermId: anchorTermId ?? this.anchorTermId,
     );
@@ -715,6 +723,8 @@ class ScriptPromptReplacementRule {
         if (matchMode != ScriptPromptReplacementMatchMode.any)
           'matchMode': matchMode.name,
         if (targetPrompt.trim().isNotEmpty) 'targetPrompt': targetPrompt,
+        if (targetWeightMultiplier != null)
+          'targetWeightMultiplier': targetWeightMultiplier,
         if (manualPhrase.trim().isNotEmpty) 'manualPhrase': manualPhrase,
         if (anchorTermId.trim().isNotEmpty) 'anchorTermId': anchorTermId,
       };
@@ -1189,6 +1199,19 @@ List<dynamic> _listOfDynamic(Object? value) {
     return value;
   }
   return const [];
+}
+
+const Object _unset = Object();
+
+double? _positiveFiniteDoubleOrNull(Object? value) {
+  if (value is! num) {
+    return null;
+  }
+  final parsed = value.toDouble();
+  if (!parsed.isFinite || parsed <= 0) {
+    return null;
+  }
+  return parsed;
 }
 
 Set<RecastPromptPart> _promptPartSet(Object? value) {

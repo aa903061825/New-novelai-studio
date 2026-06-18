@@ -11002,7 +11002,7 @@ void main() {
     );
 
     testWidgets(
-      'role replacement weight multiplier scales target weights',
+      'role replacement weight multiplier stores a block target weight',
       (tester) async {
         late final RecastScriptCache cache;
         await tester.runAsync(() async {
@@ -11056,16 +11056,14 @@ void main() {
         );
 
         final rule = viewModel.roleReplacementMappings.single.rules.single;
-        expect(
-          rule.targetPrompt,
-          '1.8:: cat ears ::, 1.2:: fox ears ::',
-        );
+        expect(rule.targetPrompt, '1.5:: cat ears ::, fox ears');
+        expect(rule.targetWeightMultiplier, 1.2);
         expect(rule.action, ScriptPromptReplacementAction.replace);
       },
     );
 
     testWidgets(
-      'role replacement weight multiplier writes weighted source terms when no target exists',
+      'role replacement weight multiplier writes source terms with block weight when no target exists',
       (tester) async {
         late final RecastScriptCache cache;
         await tester.runAsync(() async {
@@ -11123,10 +11121,8 @@ void main() {
         );
 
         final rule = viewModel.roleReplacementMappings.single.rules.single;
-        expect(
-          rule.targetPrompt,
-          '1.8:: cat ears ::, 1.2:: fox ears ::',
-        );
+        expect(rule.targetPrompt, '1.5:: cat ears ::, fox ears');
+        expect(rule.targetWeightMultiplier, 1.2);
         expect(rule.action, ScriptPromptReplacementAction.replace);
       },
     );
@@ -11204,10 +11200,10 @@ void main() {
         await tester.pumpAndSettle();
 
         final rule = viewModel.roleReplacementMappings.single.rules.single;
-        expect(
-          rule.targetPrompt,
-          '1.8:: cat ears ::, 1.2:: fox ears ::',
-        );
+        expect(rule.targetPrompt, '1.5:: cat ears ::, fox ears');
+        expect(rule.targetWeightMultiplier, 1.2);
+        expect(find.text('x1.80'), findsNothing);
+        expect(find.text('x1.20'), findsOneWidget);
       },
     );
 
@@ -11669,6 +11665,103 @@ void main() {
           ['white bow', 'red hairband'],
         );
         expect(split.sourceTerms.map((term) => term.text), ['red collar']);
+        expect(
+          rules.where((rule) => rule.selected).map((rule) => rule.id),
+          [split.id],
+        );
+      },
+    );
+
+    testWidgets(
+      'role replacement source tag drag out splits without explicit target',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 18),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-identity',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-hikari',
+                          text: 'hikari (blue archive)',
+                          category: PromptTagCategory.character,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-girl',
+                          text: 'girl',
+                          category: PromptTagCategory.character,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceDisplay = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-identity',
+          ),
+        );
+        final girlChip = find.descendant(
+          of: sourceDisplay,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-girl-1-idle'),
+          ),
+        );
+        expect(girlChip, findsOneWidget);
+
+        final start = tester.getCenter(girlChip);
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: start);
+        await tester.pump();
+        await mouse.down(start);
+        await mouse.moveTo(start + const Offset(460, 0));
+        await tester.pump();
+        await mouse.up();
+        await tester.pumpAndSettle();
+        await mouse.removePointer();
+
+        final rules = viewModel.roleReplacementMappings.single.rules;
+        final original =
+            rules.singleWhere((rule) => rule.id == 'rule-identity');
+        final split = rules.singleWhere((rule) => rule.id != 'rule-identity');
+        expect(
+          original.sourceTerms.map((term) => term.text),
+          ['hikari (blue archive)'],
+        );
+        expect(split.sourceTerms.map((term) => term.text), ['girl']);
         expect(
           rules.where((rule) => rule.selected).map((rule) => rule.id),
           [split.id],

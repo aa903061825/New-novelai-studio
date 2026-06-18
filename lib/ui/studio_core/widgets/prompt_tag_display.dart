@@ -59,6 +59,10 @@ typedef PromptTagGroupDiffResolver = PromptTagChipDiffState Function(
   String tag,
 );
 typedef PromptTagWarningScopeSuppressor = FutureOr<void> Function(String tag);
+typedef PromptTagDragEndCallback = void Function(
+  PromptTagDragData data,
+  DraggableDetails details,
+);
 
 const defaultPromptTagFilterRuleTargets = [
   PromptTagFilterRuleTarget.deleteKeywords,
@@ -578,6 +582,7 @@ class PromptTagDisplay extends StatefulWidget {
   final String? selectionGroupId;
   final bool showSelectionToolbar;
   final PromptTagGroupActionBuilder? groupActionBuilder;
+  final PromptTagDragEndCallback? onTagDragEnd;
   final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagDisplayDiffResolver? diffStateForTag;
   final bool showTagWarnings;
@@ -616,6 +621,7 @@ class PromptTagDisplay extends StatefulWidget {
     this.selectionGroupId,
     this.showSelectionToolbar = true,
     this.groupActionBuilder,
+    this.onTagDragEnd,
     this.contextMenuActionBuilder,
     this.diffStateForTag,
     this.showTagWarnings = true,
@@ -1811,6 +1817,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               onDragStarted: selected
                   ? null
                   : () => _beginDraggingIndexes(dragData.indexes),
+              onDragEnd: widget.onTagDragEnd == null
+                  ? null
+                  : (details) => widget.onTagDragEnd!(dragData, details),
               childWhenDragging: Opacity(opacity: 0.45, child: chip),
               child: chip,
             );

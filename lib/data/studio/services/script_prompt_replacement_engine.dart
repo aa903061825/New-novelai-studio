@@ -177,10 +177,9 @@ class ScriptPromptReplacementEngine {
       for (final tag in remaining) PromptTagProcessor.normalizeMatchKey(tag),
     };
     final replacementKeys = <String>{};
-    final result = <String>[];
-    for (final tag in sanitizeGenerationPromptTags(
-        PromptTagProcessor.splitWorkshopTags(output))) {
-      final key = PromptTagProcessor.normalizeMatchKey(tag);
+    final result = <_ReplacementOutputTag>[];
+    for (final tag in _replacementOutputTags(output)) {
+      final key = tag.key;
       if (key.isEmpty ||
           existingKeys.contains(key) ||
           replacementKeys.contains(key)) {
@@ -189,8 +188,90 @@ class ScriptPromptReplacementEngine {
       replacementKeys.add(key);
       result.add(tag);
     }
-    return result;
+    if (result.isEmpty) {
+      return const [];
+    }
+    final multiplier = rule.targetWeightMultiplier;
+    if (multiplier == null || (multiplier - 1.0).abs() < 0.000001) {
+      return [for (final tag in result) tag.text];
+    }
+    if (result.any((tag) => tag.weight != null)) {
+      return [
+        for (final tag in result)
+          _tagWithEffectiveWeight(
+            tag.displayText,
+            (tag.weight ?? 1.0) * multiplier,
+          ),
+      ];
+    }
+    return [
+      PromptTagProcessor.formatInlineWeightTag(
+        result.map((tag) => tag.text).join(', '),
+        multiplier,
+      ),
+    ];
   }
+
+  List<_ReplacementOutputTag> _replacementOutputTags(String output) {
+    final tags = <_ReplacementOutputTag>[];
+    for (final analysis in PromptTagProcessor.analyzeWorkshopTags(output)) {
+      final displayText = analysis.displayText.trim();
+      if (displayText.isEmpty) {
+        continue;
+      }
+      final materialized = _materializeReplacementTag(analysis);
+      for (final sanitized in sanitizeGenerationPromptTags([materialized])) {
+        final key = PromptTagProcessor.normalizeMatchKey(sanitized);
+        if (key.isEmpty) {
+          continue;
+        }
+        tags.add(
+          _ReplacementOutputTag(
+            text: sanitized,
+            displayText: displayText,
+            weight: analysis.weight,
+            key: key,
+          ),
+        );
+      }
+    }
+    return List.unmodifiable(tags);
+  }
+
+  String _materializeReplacementTag(WorkshopTagAnalysis tag) {
+    final raw = tag.text.trim();
+    final weight = tag.weight;
+    if (weight == null ||
+        PromptTagProcessor.hasCompleteNonInlineWeightSyntax(raw)) {
+      return raw;
+    }
+    final display = tag.displayText.trim();
+    if (display.isEmpty) {
+      return raw;
+    }
+    return PromptTagProcessor.formatInlineWeightTag(display, weight);
+  }
+
+  String _tagWithEffectiveWeight(String tag, double weight) {
+    if ((weight - 1.0).abs() < 0.000001) {
+      return tag.trim();
+    }
+    return PromptTagProcessor.formatInlineWeightTag(tag, weight);
+  }
+}
+
+class _ReplacementOutputTag {
+  final String text;
+  final String displayText;
+  final double? weight;
+  final String key;
+
+  const _ReplacementOutputTag({
+    required this.text,
+    required this.displayText,
+    required this.weight,
+    required this.key,
+  });
 }
 
 class _RuleApplication {
