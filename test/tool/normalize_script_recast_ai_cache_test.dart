@@ -1103,6 +1103,64 @@ void main() {
       PromptTagCategory.clothingState,
     );
   });
+
+  test(
+    'does not reuse legacy rule when non-migration categories only share text',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'legacy-standing-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-standing',
+                    text: 'standing',
+                    category: PromptTagCategory.character,
+                  ),
+                ],
+                targetPrompt: 'hero pose',
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-standing',
+                text: 'standing',
+                category: PromptTagCategory.action,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, isNot('legacy-standing-rule'));
+      expect(rules.first.sourceTerms.single.id, 'term-standing');
+      expect(rules.first.sourceTerms.single.category, PromptTagCategory.action);
+      expect(rules.first.targetPrompt, isEmpty);
+      expect(rules.last.id, 'legacy-standing-rule');
+      expect(rules.last.targetPrompt, 'hero pose');
+    },
+  );
 }
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
