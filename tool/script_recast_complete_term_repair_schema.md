@@ -100,9 +100,9 @@ preferred output should use `clothingState`.
   category, the rule keeps its target/manual fields and only refreshes source
   term metadata.
 - Legacy role replacement rules that still store category `clothing` are also
-  matched by normalized text against incoming `accessory` and `clothingState`
-  schema terms. Refreshed source term metadata uses the incoming schema
-  category.
+  matched by normalized text against incoming `upperClothing`,
+  `lowerClothing`, `accessory`, and `clothingState` schema terms. Refreshed
+  source term metadata uses the incoming schema category.
 - Missing role and scene replacement rules are appended with empty targets.
 - Existing AI extraction terms are kept unless the schema supplies the same
   normalized text/category, in which case metadata is merged.

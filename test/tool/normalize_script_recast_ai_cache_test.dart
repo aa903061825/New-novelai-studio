@@ -1441,6 +1441,87 @@ void main() {
   );
 
   test(
+    'rewrites replacement anchors and exclusions when normalizer refreshes source term ids',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'legacy-shirt-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                excludedTermIds: ['legacy-black-skirt', 'unmapped-term'],
+                action: ScriptPromptReplacementAction.replace,
+                matchMode: ScriptPromptReplacementMatchMode.anchor,
+                targetPrompt: 'black blouse',
+                anchorTermId: 'legacy-white-shirt',
+              ),
+              ScriptPromptReplacementRule(
+                id: 'legacy-skirt-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.delete,
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-white-shirt',
+                text: 'white shirt',
+                category: PromptTagCategory.upperClothing,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-black-skirt',
+                text: 'black skirt',
+                category: PromptTagCategory.lowerClothing,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      final shirtRule = rules.singleWhere(
+        (rule) => rule.id == 'legacy-shirt-rule',
+      );
+      expect(shirtRule.sourceTerms.single.id, 'term-white-shirt');
+      expect(shirtRule.anchorTermId, 'term-white-shirt');
+      expect(shirtRule.excludedTermIds, ['term-black-skirt', 'unmapped-term']);
+      expect(shirtRule.action, ScriptPromptReplacementAction.replace);
+      expect(shirtRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(shirtRule.targetPrompt, 'black blouse');
+    },
+  );
+
+  test(
     'does not reuse existing refined rule when incoming term has same id and text but different refined category',
     () {
       final replacements =

@@ -630,6 +630,12 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
   const existingRuleByTermKey = new Map();
   const incomingCoverageKeys = new Set();
   const emittedCoverageKeys = new Set();
+  const emittedRulesByCoverageKey = new Map();
+  const sourceTermIdRemap = replacementSourceTermIdRemap(
+    existingRules,
+    incomingTerms,
+    options,
+  );
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     for (const term of rule.sourceTerms ?? []) {
       for (const key of replacementExistingLookupKeys(term, options)) {
@@ -650,16 +656,32 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
       .map((key) => existingRuleByTermKey.get(key))
       .find((rule) => rule && !emittedIds.has(rule.id));
     if (existing) {
-      rules.push({ ...existing, sourceTerms: [replacementTerm] });
+      const refreshed = replacementRuleWithSourceTerms(
+        existing,
+        [replacementTerm],
+        sourceTermIdRemap,
+      );
+      rules.push(refreshed);
       emittedIds.add(existing.id);
-      keys.forEach((key) => emittedCoverageKeys.add(key));
+      keys.forEach((key) => {
+        emittedCoverageKeys.add(key);
+        if (!emittedRulesByCoverageKey.has(key)) {
+          emittedRulesByCoverageKey.set(key, refreshed);
+        }
+      });
       continue;
     }
     const id = stringValue(incoming.ruleId ?? incoming.rule_id) || idForTerm(replacementTerm);
     if (emittedIds.has(id)) continue;
-    rules.push({ id, sourceTerms: [replacementTerm] });
+    const rule = { id, sourceTerms: [replacementTerm] };
+    rules.push(rule);
     emittedIds.add(id);
-    keys.forEach((key) => emittedCoverageKeys.add(key));
+    keys.forEach((key) => {
+      emittedCoverageKeys.add(key);
+      if (!emittedRulesByCoverageKey.has(key)) {
+        emittedRulesByCoverageKey.set(key, rule);
+      }
+    });
     merged += 1;
   }
 
@@ -669,6 +691,8 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
       isSchemaCoveredDuplicateRule(rule, {
         incomingCoverageKeys,
         emittedCoverageKeys,
+        emittedRulesByCoverageKey,
+        sourceTermIdRemap,
         options,
       })
     ) {
@@ -678,6 +702,54 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
     emittedIds.add(rule.id);
   }
   return { rules, merged };
+}
+
+function replacementRuleWithSourceTerms(rule, sourceTerms, sourceTermIdRemap) {
+  return replacementRuleWithRemappedTermIds(
+    { ...rule, sourceTerms },
+    sourceTermIdRemap,
+  );
+}
+
+function replacementRuleWithRemappedTermIds(rule, sourceTermIdRemap) {
+  if (!(sourceTermIdRemap instanceof Map) || sourceTermIdRemap.size === 0) {
+    return rule;
+  }
+  const remapped = { ...rule };
+  if (typeof remapped.anchorTermId === 'string') {
+    remapped.anchorTermId =
+      sourceTermIdRemap.get(remapped.anchorTermId.trim()) ?? remapped.anchorTermId;
+  }
+  if (Array.isArray(remapped.excludedTermIds)) {
+    remapped.excludedTermIds = remapped.excludedTermIds.map((id) => {
+      if (typeof id !== 'string') return id;
+      return sourceTermIdRemap.get(id.trim()) ?? id;
+    });
+  }
+  return remapped;
+}
+
+function replacementSourceTermIdRemap(existingRules, incomingTerms, options = {}) {
+  const incomingReplacementTerms = (Array.isArray(incomingTerms) ? incomingTerms : [])
+    .map((term) => promptReplacementTermFromAi(term, options));
+  const remap = new Map();
+  for (const rule of Array.isArray(existingRules) ? existingRules : []) {
+    for (const oldTerm of rule.sourceTerms ?? []) {
+      const oldId = stringValue(oldTerm?.id);
+      if (!oldId) continue;
+      const oldKeys = replacementExistingLookupKeys(oldTerm, options);
+      for (const newTerm of incomingReplacementTerms) {
+        const newKeys = replacementIncomingLookupKeys(newTerm, options);
+        if (!oldKeys.some((key) => newKeys.includes(key))) continue;
+        const newId = stringValue(newTerm?.id);
+        if (newId && newId !== oldId && !remap.has(oldId)) {
+          remap.set(oldId, newId);
+        }
+        break;
+      }
+    }
+  }
+  return remap;
 }
 
 function promptReplacementTermFromAi(term, options = {}) {
@@ -752,11 +824,17 @@ function isRefinedLegacyClothingCategory(category) {
 
 function isSchemaCoveredDuplicateRule(
   rule,
-  { incomingCoverageKeys, emittedCoverageKeys, options = {} } = {},
+  {
+    incomingCoverageKeys,
+    emittedCoverageKeys,
+    emittedRulesByCoverageKey,
+    sourceTermIdRemap,
+    options = {},
+  } = {},
 ) {
   const sourceTerms = Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : [];
   if (sourceTerms.length === 0) return false;
-  return sourceTerms.every((term) => {
+  const covered = sourceTerms.every((term) => {
     const keys = replacementExistingLookupKeys(term, options);
     return (
       keys.length > 0 &&
@@ -764,6 +842,120 @@ function isSchemaCoveredDuplicateRule(
       keys.some((key) => emittedCoverageKeys.has(key))
     );
   });
+  if (!covered) return false;
+  if (!hasUserAuthoredReplacementState(rule)) {
+    return true;
+  }
+  const candidateRules = [];
+  const candidateIds = new Set();
+  for (const term of sourceTerms) {
+    for (const key of replacementExistingLookupKeys(term, options)) {
+      const candidate = emittedRulesByCoverageKey?.get(key);
+      const id = stringValue(candidate?.id);
+      if (!candidate || candidateIds.has(id)) continue;
+      candidateIds.add(id);
+      candidateRules.push(candidate);
+    }
+  }
+  return candidateRules.some((candidate) =>
+    replacementUserStateEquivalent(rule, candidate, sourceTermIdRemap),
+  );
+}
+
+function hasUserAuthoredReplacementState(rule) {
+  return Object.keys(replacementUserState(rule)).length > 0;
+}
+
+function replacementUserStateEquivalent(left, right, sourceTermIdRemap) {
+  return (
+    stableJson(replacementUserState(left, sourceTermIdRemap)) ===
+    stableJson(replacementUserState(right))
+  );
+}
+
+function replacementUserState(rule, sourceTermIdRemap = new Map()) {
+  const state = {};
+  for (const key of Object.keys(rule ?? {}).sort()) {
+    if (!isReplacementUserStateKey(key)) continue;
+    const value = normalizedReplacementUserStateValue(
+      key,
+      rule[key],
+      sourceTermIdRemap,
+    );
+    if (value !== undefined) {
+      state[key] = value;
+    }
+  }
+  return state;
+}
+
+function isReplacementUserStateKey(key) {
+  return (
+    key === 'action' ||
+    key === 'matchMode' ||
+    key === 'anchorTermId' ||
+    key === 'excludedTermIds' ||
+    key === 'targetWeightMultiplier' ||
+    key === 'targetBlockWeightMultiplier' ||
+    key.startsWith('target') ||
+    key.startsWith('manual')
+  );
+}
+
+function normalizedReplacementUserStateValue(key, value, sourceTermIdRemap) {
+  if (key === 'action') {
+    const action = stringValue(value);
+    return action && action !== 'none' ? action : undefined;
+  }
+  if (key === 'matchMode') {
+    const matchMode = stringValue(value);
+    return matchMode && matchMode !== 'any' ? matchMode : undefined;
+  }
+  if (key === 'anchorTermId') {
+    const id = stringValue(value);
+    if (!id) return undefined;
+    return sourceTermIdRemap?.get(id) ?? id;
+  }
+  if (key === 'excludedTermIds') {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    return value
+      .map((id) => {
+        const stringId = stringValue(id);
+        return sourceTermIdRemap?.get(stringId) ?? stringId;
+      })
+      .filter(Boolean)
+      .sort();
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? text : undefined;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value : undefined;
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0 ? value : undefined;
+  }
+  return undefined;
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function normalizePromptTerm(term, options = {}) {

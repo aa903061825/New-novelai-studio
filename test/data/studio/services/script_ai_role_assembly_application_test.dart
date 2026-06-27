@@ -634,7 +634,7 @@ void main() {
       expect(rules.first.targetPrompt, 'black blouse');
       expect(rules.first.action, ScriptPromptReplacementAction.replace);
       expect(rules.first.matchMode, ScriptPromptReplacementMatchMode.anchor);
-      expect(rules.first.anchorTermId, 'legacy-white-shirt');
+      expect(rules.first.anchorTermId, 'term-white-shirt');
       expect(rules.first.sourceTerms.single.id, 'term-white-shirt');
       expect(
         rules.first.sourceTerms.single.category,
@@ -648,6 +648,87 @@ void main() {
         rules.last.sourceTerms.single.category,
         PromptTagCategory.lowerClothing,
       );
+    },
+  );
+
+  test(
+    'rewrites replacement anchors and exclusions when source term ids refresh',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-shirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-white-shirt',
+                      text: 'white shirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  excludedTermIds: ['legacy-black-skirt', 'unmapped-term'],
+                  action: ScriptPromptReplacementAction.replace,
+                  matchMode: ScriptPromptReplacementMatchMode.anchor,
+                  targetPrompt: 'black blouse',
+                  anchorTermId: 'legacy-white-shirt',
+                ),
+                ScriptPromptReplacementRule(
+                  id: 'legacy-skirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-black-skirt',
+                      text: 'black skirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.delete,
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      final shirtRule = rules.singleWhere(
+        (rule) => rule.id == 'legacy-shirt-rule',
+      );
+      expect(shirtRule.sourceTerms.single.id, 'term-white-shirt');
+      expect(shirtRule.anchorTermId, 'term-white-shirt');
+      expect(shirtRule.excludedTermIds, ['term-black-skirt', 'unmapped-term']);
+      expect(shirtRule.action, ScriptPromptReplacementAction.replace);
+      expect(shirtRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(shirtRule.targetPrompt, 'black blouse');
     },
   );
 

@@ -2059,6 +2059,10 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
   final rules = <ScriptPromptReplacementRule>[];
   final existingRulesByTermKey = <String, ScriptPromptReplacementRule>{};
   final emittedRuleIds = <String>{};
+  final sourceTermIdRemap = _promptReplacementSourceTermIdRemap(
+    existing?.rules ?? const <ScriptPromptReplacementRule>[],
+    promptTerms,
+  );
   for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
     for (final term in rule.sourceTerms) {
       for (final key in _promptReplacementExistingLookupKeys(
@@ -2089,8 +2093,10 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     if (existingRule != null) {
       if (emittedRuleIds.add(existingRule.id)) {
         rules.add(
-          existingRule.copyWith(
-            sourceTerms: [_promptReplacementTermFromAi(term)],
+          _promptReplacementRuleWithSourceTerms(
+            existingRule,
+            [_promptReplacementTermFromAi(term)],
+            sourceTermIdRemap,
           ),
         );
       }
@@ -2132,6 +2138,70 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     targetIdentityPrompt: existing?.targetIdentityPrompt ?? '',
     rules: List.unmodifiable(rules),
   );
+}
+
+ScriptPromptReplacementRule _promptReplacementRuleWithSourceTerms(
+  ScriptPromptReplacementRule rule,
+  List<ScriptPromptReplacementTerm> sourceTerms,
+  Map<String, String> sourceTermIdRemap,
+) {
+  return _promptReplacementRuleWithRemappedTermIds(
+    rule.copyWith(sourceTerms: List.unmodifiable(sourceTerms)),
+    sourceTermIdRemap,
+  );
+}
+
+ScriptPromptReplacementRule _promptReplacementRuleWithRemappedTermIds(
+  ScriptPromptReplacementRule rule,
+  Map<String, String> sourceTermIdRemap,
+) {
+  if (sourceTermIdRemap.isEmpty) {
+    return rule;
+  }
+  return rule.copyWith(
+    excludedTermIds: List.unmodifiable([
+      for (final id in rule.excludedTermIds) sourceTermIdRemap[id.trim()] ?? id,
+    ]),
+    anchorTermId:
+        sourceTermIdRemap[rule.anchorTermId.trim()] ?? rule.anchorTermId,
+  );
+}
+
+Map<String, String> _promptReplacementSourceTermIdRemap(
+  List<ScriptPromptReplacementRule> existingRules,
+  List<ScriptAiExtractedPromptTerm> promptTerms,
+) {
+  final replacementTerms = [
+    for (final term in promptTerms) _promptReplacementTermFromAi(term),
+  ];
+  final remap = <String, String>{};
+  for (final rule in existingRules) {
+    for (final oldTerm in rule.sourceTerms) {
+      final oldId = oldTerm.id.trim();
+      if (oldId.isEmpty) {
+        continue;
+      }
+      final oldKeys = _promptReplacementExistingLookupKeys(
+        oldTerm.text,
+        oldTerm.category,
+      );
+      for (final newTerm in replacementTerms) {
+        final newKeys = _promptReplacementIncomingLookupKeys(
+          newTerm.text,
+          newTerm.category,
+        );
+        if (!oldKeys.any(newKeys.contains)) {
+          continue;
+        }
+        final newId = newTerm.id.trim();
+        if (newId.isNotEmpty && newId != oldId) {
+          remap.putIfAbsent(oldId, () => newId);
+        }
+        break;
+      }
+    }
+  }
+  return Map.unmodifiable(remap);
 }
 
 ScriptPromptReplacementTerm _promptReplacementTermFromAi(
