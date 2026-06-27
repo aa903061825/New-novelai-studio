@@ -5156,7 +5156,7 @@ void main() {
         source: 'manual-role-field',
       );
       classificationCache.setCategory(
-        'large breasts',
+        'city street',
         PromptTagCategory.other,
         source: 'manual-role-omit',
       );
@@ -5167,7 +5167,7 @@ void main() {
             (
               index: 1,
               base: 'city street',
-              chars: ['ai hero, braids, large breasts, blue jacket'],
+              chars: ['ai hero, braids, city street, blue jacket'],
             ),
           ]),
         ]),
@@ -5186,7 +5186,7 @@ void main() {
                     label: 'main outfit',
                     frameIndexes: [1],
                     identity: 'ai hero',
-                    upperBody: 'braids, large breasts',
+                    upperBody: 'braids, city street',
                     upperClothing: 'blue jacket',
                     confidence: 0.9,
                   ),
@@ -5204,7 +5204,7 @@ void main() {
       await viewModel.generateAiRoleExtraction();
 
       var stage = viewModel.aiRoleExtraction.roles.single.stages.single;
-      expect(stage.upperBody, 'braids, large breasts');
+      expect(stage.upperBody, 'braids, city street');
       expect(stage.lowerBody, isEmpty);
       expect(stage.nonRole, isEmpty);
 
@@ -5213,7 +5213,7 @@ void main() {
       stage = viewModel.aiRoleExtraction.roles.single.stages.single;
       expect(stage.upperBody, isEmpty);
       expect(stage.lowerBody, 'braids');
-      expect(stage.nonRole, 'large breasts');
+      expect(stage.nonRole, isEmpty);
       expect(viewModel.isAiRoleExtractionDraftCollapsed, isFalse);
     });
 
