@@ -640,11 +640,20 @@ function mergeScenePromptReplacementSchema(existingReplacements, sceneTerms) {
 function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options = {}) {
   const rules = [];
   const emittedIds = new Set();
-  const existingByTermKey = new Map();
+  const exactRuleByTermKey = new Map();
+  const aliasRuleByTermKey = new Map();
+  const incomingCoverageKeys = new Set();
+  const emittedCoverageKeys = new Set();
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     for (const term of rule.sourceTerms ?? []) {
-      for (const key of replacementTermKeys(term, options)) {
-        existingByTermKey.set(key, rule);
+      const primaryKey = replacementTermKey(term, options);
+      if (primaryKey && !exactRuleByTermKey.has(primaryKey)) {
+        exactRuleByTermKey.set(primaryKey, rule);
+      }
+      for (const key of replacementAliasKeys(term, options)) {
+        if (!aliasRuleByTermKey.has(key)) {
+          aliasRuleByTermKey.set(key, rule);
+        }
       }
     }
   }
@@ -654,11 +663,21 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
     const replacementTerm = promptReplacementTermFromAi(incoming, options);
     const keys = replacementTermKeys(replacementTerm, options);
     if (keys.length === 0) continue;
-    const existing = keys.map((key) => existingByTermKey.get(key)).find(Boolean);
+    keys.forEach((key) => incomingCoverageKeys.add(key));
+    const [primaryKey, ...aliasKeys] = keys;
+    const existing =
+      exactRuleByTermKey.get(primaryKey) ??
+      aliasRuleByTermKey.get(primaryKey) ??
+      aliasKeys
+        .map(
+          (key) => exactRuleByTermKey.get(key) ?? aliasRuleByTermKey.get(key),
+        )
+        .find(Boolean);
     if (existing) {
       if (!emittedIds.has(existing.id)) {
         rules.push({ ...existing, sourceTerms: [replacementTerm] });
         emittedIds.add(existing.id);
+        keys.forEach((key) => emittedCoverageKeys.add(key));
       }
       continue;
     }
@@ -666,11 +685,21 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
     if (emittedIds.has(id)) continue;
     rules.push({ id, sourceTerms: [replacementTerm] });
     emittedIds.add(id);
+    keys.forEach((key) => emittedCoverageKeys.add(key));
     merged += 1;
   }
 
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     if (emittedIds.has(rule.id)) continue;
+    if (
+      isSchemaCoveredDuplicateRule(rule, {
+        incomingCoverageKeys,
+        emittedCoverageKeys,
+        options,
+      })
+    ) {
+      continue;
+    }
     rules.push(rule);
     emittedIds.add(rule.id);
   }
@@ -703,17 +732,38 @@ function replacementTermKey(term, options = {}) {
 function replacementTermKeys(term, options = {}) {
   const primary = replacementTermKey(term, options);
   if (!primary) return [];
+  return [primary, ...replacementAliasKeys(term, options)];
+}
+
+function replacementAliasKeys(term, options = {}) {
   const text = normalizedTagKey(term?.text);
+  if (!text) return [];
   const category = canonicalPromptTermCategory(
     term?.category || options.defaultCategory || 'character',
   );
-  const keys = [primary];
+  const keys = [];
   if (category === 'clothing') {
     keys.push(`accessory\u001f${text}`, `clothingState\u001f${text}`);
   } else if (category === 'accessory' || category === 'clothingState') {
     keys.push(`clothing\u001f${text}`);
   }
   return [...new Set(keys)];
+}
+
+function isSchemaCoveredDuplicateRule(
+  rule,
+  { incomingCoverageKeys, emittedCoverageKeys, options = {} } = {},
+) {
+  const sourceTerms = Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : [];
+  if (sourceTerms.length === 0) return false;
+  return sourceTerms.every((term) => {
+    const keys = replacementTermKeys(term, options);
+    return (
+      keys.length > 0 &&
+      keys.some((key) => incomingCoverageKeys.has(key)) &&
+      keys.some((key) => emittedCoverageKeys.has(key))
+    );
+  });
 }
 
 function normalizePromptTerm(term, options = {}) {
