@@ -109,7 +109,7 @@ void main() {
     expect(role.stages.single.upperBody, 'blue eyes');
     expect(role.stages.single.nonRole, isEmpty);
     expect(role.stages.single.upperBody, isNot(contains('smile')));
-    expect(role.stages.single.evidenceTerms, contains('looking at viewer'));
+    expect(role.stages.single.evidenceTerms, ['blue eyes']);
 
     final assembly = normalized.mapping.roleAssemblies.single;
     expect(assembly.sourceRoleId, 'global-0');
