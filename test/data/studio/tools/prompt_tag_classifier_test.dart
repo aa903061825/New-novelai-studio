@@ -98,6 +98,22 @@ void main() {
       expect(restored.entries, isEmpty);
     });
 
+    test('cache entry fromJson parses legacy category aliases', () {
+      final clothingState = PromptTagClassificationCacheEntry.fromJson({
+        'category': 'clothing_state',
+        'source': 'manual',
+        'updatedAt': 1710000000,
+      });
+      final accessory = PromptTagClassificationCacheEntry.fromJson({
+        'category': 'accessory',
+        'source': 'legacy',
+        'updatedAt': 1710000001,
+      });
+
+      expect(clothingState.category, PromptTagCategory.clothingState);
+      expect(accessory.category, PromptTagCategory.accessory);
+    });
+
     test('merges missing classifications without replacing existing entries',
         () {
       final cache = PromptTagClassificationCache(clock: () => 1710000000)

@@ -1102,8 +1102,17 @@ const _negativeBodyWords = [
 ];
 
 PromptTagCategory _categoryFromName(String? name) {
+  final normalized = name?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return PromptTagCategory.other;
+  }
+  final normalizedKey =
+      normalized.replaceAll(RegExp(r'[_\s-]+'), '').toLowerCase();
   return PromptTagCategory.values.firstWhere(
-    (category) => category.name == name,
+    (category) =>
+        category.name == normalized ||
+        category.name.replaceAll(RegExp(r'[_\s-]+'), '').toLowerCase() ==
+            normalizedKey,
     orElse: () => PromptTagCategory.other,
   );
 }
