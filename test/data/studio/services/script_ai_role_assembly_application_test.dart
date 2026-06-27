@@ -544,6 +544,53 @@ void main() {
     },
   );
 
+  test(
+    'keeps refined accessory and clothing state prompt terms distinct when text matches',
+    () {
+      final result = application.apply(
+        mapping: RecastMapping.defaults('script-a'),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-accessory-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.accessory,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(

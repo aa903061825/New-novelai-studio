@@ -1111,6 +1111,57 @@ void main() {
   });
 
   test(
+    'keeps refined accessory and clothing state prompt terms distinct when text matches',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-accessory-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-state-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
     'does not reuse legacy rule when non-migration categories only share text',
     () {
       final replacements =

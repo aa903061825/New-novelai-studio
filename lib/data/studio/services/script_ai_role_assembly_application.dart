@@ -515,7 +515,7 @@ class ScriptAiRoleAssemblyApplication {
     return '$categoryKey\u001f$normalized';
   }
 
-  String _promptTermCompatibilityKey(
+  String _promptTermStrictKey(
     String text,
     PromptTagCategory category,
   ) {
@@ -523,10 +523,37 @@ class ScriptAiRoleAssemblyApplication {
     if (normalized.isEmpty) {
       return '';
     }
-    final categoryKey = _isLegacyClothingCompatibleCategory(category)
-        ? 'legacy-clothing-compatible'
-        : category.name;
-    return '$categoryKey\u001f$normalized';
+    return '${category.name}\u001f$normalized';
+  }
+
+  String _promptTermMergeKey(
+    Map<String, ScriptAiExtractedPromptTerm> byKey,
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final strictKey = '${category.name}\u001f$normalized';
+    if (byKey.containsKey(strictKey)) {
+      return strictKey;
+    }
+    if (_isRefinedClothingCategory(category)) {
+      final legacyKey = '${PromptTagCategory.clothing.name}\u001f$normalized';
+      return byKey.containsKey(legacyKey) ? legacyKey : '';
+    }
+    if (category == PromptTagCategory.clothing) {
+      final refinedKeys = [
+        PromptTagCategory.accessory,
+        PromptTagCategory.clothingState,
+      ]
+          .map((refined) => '${refined.name}\u001f$normalized')
+          .where(byKey.containsKey)
+          .toList();
+      return refinedKeys.length == 1 ? refinedKeys.single : '';
+    }
+    return '';
   }
 
   ScriptAiExtractedPromptTerm _preferredPromptTerm(
@@ -562,14 +589,9 @@ class ScriptAiRoleAssemblyApplication {
     };
   }
 
-  bool _isLegacyClothingCompatibleCategory(PromptTagCategory category) {
-    return switch (category) {
-      PromptTagCategory.clothing ||
-      PromptTagCategory.accessory ||
-      PromptTagCategory.clothingState =>
-        true,
-      _ => false,
-    };
+  bool _isRefinedClothingCategory(PromptTagCategory category) {
+    return category == PromptTagCategory.accessory ||
+        category == PromptTagCategory.clothingState;
   }
 
   ScriptPromptReplacementTerm _promptReplacementTermFromAi(
@@ -637,17 +659,32 @@ class ScriptAiRoleAssemblyApplication {
       if (term.text.trim().isEmpty) {
         continue;
       }
-      final key = _promptTermCompatibilityKey(term.text, term.category);
-      if (key.isEmpty) {
+      final strictKey = _promptTermStrictKey(term.text, term.category);
+      if (strictKey.isEmpty) {
         continue;
       }
-      final existing = byKey[key];
-      if (existing == null) {
-        byKey[key] = term;
-        order.add(key);
+      final existingKey = _promptTermMergeKey(
+        byKey,
+        term.text,
+        term.category,
+      );
+      if (existingKey.isEmpty) {
+        byKey[strictKey] = term;
+        order.add(strictKey);
         continue;
       }
-      byKey[key] = _preferredPromptTerm(existing, term);
+      final merged = _preferredPromptTerm(byKey[existingKey]!, term);
+      final mergedKey = _promptTermStrictKey(merged.text, merged.category);
+      if (mergedKey.isNotEmpty && mergedKey != existingKey) {
+        byKey.remove(existingKey);
+        final index = order.indexOf(existingKey);
+        if (index >= 0) {
+          order[index] = mergedKey;
+        } else if (!order.contains(mergedKey)) {
+          order.add(mergedKey);
+        }
+      }
+      byKey[mergedKey.isEmpty ? existingKey : mergedKey] = merged;
     }
     return List.unmodifiable([
       for (final key in order) byKey[key]!,
