@@ -19,8 +19,8 @@ from a Codex-produced offline schema.
 Use the role replacement categories `character`, `upperBody`, `lowerBody`,
 `upperClothing`, `lowerClothing`, `accessory`, `clothingState`, `other`, and
 top-level `scene`. The legacy snake_case string `clothing_state` may still
-appear in old AI input/output, but new offline schema examples should use
-`clothingState`.
+appear in old AI input/output as accepted input, but new offline schema and
+preferred output should use `clothingState`.
 
 ## Schema
 
@@ -99,6 +99,10 @@ appear in old AI input/output, but new offline schema examples should use
 - If a schema term matches an existing replacement rule by normalized text and
   category, the rule keeps its target/manual fields and only refreshes source
   term metadata.
+- Legacy role replacement rules that still store category `clothing` are also
+  matched by normalized text against incoming `accessory` and `clothingState`
+  schema terms. Refreshed source term metadata uses the incoming schema
+  category.
 - Missing role and scene replacement rules are appended with empty targets.
 - Existing AI extraction terms are kept unless the schema supplies the same
   normalized text/category, in which case metadata is merged.

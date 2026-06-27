@@ -533,7 +533,9 @@ function mergePromptTerms(existingTerms, incomingTerms, options = {}) {
   const order = [];
   for (const term of Array.isArray(existingTerms) ? existingTerms : []) {
     const normalized = normalizedTagKey(term?.text);
-    const category = stringValue(term?.category || options.defaultCategory || 'character');
+    const category = canonicalPromptTermCategory(
+      term?.category || options.defaultCategory || 'character',
+    );
     if (!normalized) continue;
     const key = `${category}\u001f${normalized}`;
     byKey.set(key, normalizePromptTerm(term, { defaultCategory: category }));
@@ -543,7 +545,9 @@ function mergePromptTerms(existingTerms, incomingTerms, options = {}) {
   let merged = 0;
   for (const incoming of Array.isArray(incomingTerms) ? incomingTerms : []) {
     const normalized = normalizedTagKey(incoming?.text);
-    const category = stringValue(incoming?.category || options.defaultCategory || 'character');
+    const category = canonicalPromptTermCategory(
+      incoming?.category || options.defaultCategory || 'character',
+    );
     if (!normalized) continue;
     const key = `${category}\u001f${normalized}`;
     const normalizedIncoming = normalizePromptTerm(incoming, { defaultCategory: category });
@@ -639,17 +643,18 @@ function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options 
   const existingByTermKey = new Map();
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     for (const term of rule.sourceTerms ?? []) {
-      const key = replacementTermKey(term, options);
-      if (key) existingByTermKey.set(key, rule);
+      for (const key of replacementTermKeys(term, options)) {
+        existingByTermKey.set(key, rule);
+      }
     }
   }
 
   let merged = 0;
   for (const incoming of Array.isArray(incomingTerms) ? incomingTerms : []) {
     const replacementTerm = promptReplacementTermFromAi(incoming, options);
-    const key = replacementTermKey(replacementTerm, options);
-    if (!key) continue;
-    const existing = existingByTermKey.get(key);
+    const keys = replacementTermKeys(replacementTerm, options);
+    if (keys.length === 0) continue;
+    const existing = keys.map((key) => existingByTermKey.get(key)).find(Boolean);
     if (existing) {
       if (!emittedIds.has(existing.id)) {
         rules.push({ ...existing, sourceTerms: [replacementTerm] });
@@ -689,8 +694,26 @@ function promptReplacementTermFromAi(term, options = {}) {
 function replacementTermKey(term, options = {}) {
   const text = normalizedTagKey(term?.text);
   if (!text) return '';
-  const category = stringValue(term?.category || options.defaultCategory || 'character');
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
   return `${category}\u001f${text}`;
+}
+
+function replacementTermKeys(term, options = {}) {
+  const primary = replacementTermKey(term, options);
+  if (!primary) return [];
+  const text = normalizedTagKey(term?.text);
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
+  const keys = [primary];
+  if (category === 'clothing') {
+    keys.push(`accessory\u001f${text}`, `clothingState\u001f${text}`);
+  } else if (category === 'accessory' || category === 'clothingState') {
+    keys.push(`clothing\u001f${text}`);
+  }
+  return [...new Set(keys)];
 }
 
 function normalizePromptTerm(term, options = {}) {
@@ -698,11 +721,19 @@ function normalizePromptTerm(term, options = {}) {
   return {
     id: stringValue(term?.id),
     text,
-    category: stringValue(term?.category || options.defaultCategory || 'character'),
+    category: canonicalPromptTermCategory(
+      term?.category || options.defaultCategory || 'character',
+    ),
     source_phrase: cleanTag(term?.source_phrase ?? term?.sourcePhrase ?? text),
     source_location: stringValue(term?.source_location ?? term?.sourceLocation),
     frame_indexes: sortedInts(term?.frame_indexes ?? term?.frameIndexes ?? []),
   };
+}
+
+function canonicalPromptTermCategory(category) {
+  const value = stringValue(category || 'character');
+  if (value === 'clothing_state') return 'clothingState';
+  return value;
 }
 
 function mergeCacheSuggestions(existing, incoming) {

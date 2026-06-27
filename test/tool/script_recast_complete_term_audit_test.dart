@@ -118,6 +118,16 @@ void main() {
               _term('legacy-double-bun', 'double bun', 'upperBody'),
               targetPrompt: 'single braid',
             ),
+            _rule(
+              'legacy-strap-slip-rule',
+              _term('legacy-strap-slip', 'strap slip', 'clothing'),
+              targetPrompt: 'dress slipping off shoulder',
+            ),
+            _rule(
+              'legacy-black-collar-rule',
+              _term('legacy-black-collar', 'black collar', 'clothing'),
+              targetPrompt: 'leather collar',
+            ),
           ],
           sceneRules: const [],
         ),
@@ -136,6 +146,21 @@ void main() {
                 'displayLabel': 'Role A',
                 'terms': [
                   _term('term-double-bun', 'double bun', 'upperBody'),
+                  _term(
+                    'term-inverted-nipples',
+                    'inverted nipples',
+                    'upperBody',
+                  ),
+                  _term(
+                    'term-strap-slip',
+                    'strap slip',
+                    'clothingState',
+                  ),
+                  _term(
+                    'term-black-collar',
+                    'black collar',
+                    'accessory',
+                  ),
                   _term('term-gyaru', 'gyaru', 'character'),
                 ],
               },
@@ -181,24 +206,67 @@ void main() {
     final role = (updated['aiRoleExtraction']['roles'] as List).single
         as Map<String, dynamic>;
     expect(
-      (role['prompt_terms'] as List).map((term) => term['text']),
-      ['double bun', 'gyaru'],
+      (role['prompt_terms'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((term) => '${term['text']}|${term['category']}'),
+      [
+        'double bun|upperBody',
+        'inverted nipples|upperBody',
+        'strap slip|clothingState',
+        'black collar|accessory',
+        'gyaru|character',
+      ],
     );
     final replacement = (updated['mapping']['rolePromptReplacements'] as List)
         .single as Map<String, dynamic>;
     final rules = (replacement['rules'] as List).cast<Map<String, dynamic>>();
-    expect(rules, hasLength(2));
-    expect(rules.first['id'], 'legacy-double-bun-rule');
-    expect(rules.first['targetPrompt'], 'single braid');
+    expect(rules, hasLength(5));
+    Map<String, dynamic> ruleById(String id) =>
+        rules.singleWhere((rule) => rule['id'] == id);
+    final doubleBunRule = ruleById('legacy-double-bun-rule');
+    final strapSlipRule = ruleById('legacy-strap-slip-rule');
+    final blackCollarRule = ruleById('legacy-black-collar-rule');
+    final gyaruRule = rules.singleWhere(
+      (rule) =>
+          ((rule['sourceTerms'] as List).single as Map<String, dynamic>)['text'] ==
+          'gyaru',
+    );
+    expect(doubleBunRule['targetPrompt'], 'single braid');
     expect(
-      ((rules.first['sourceTerms'] as List).single
+      ((doubleBunRule['sourceTerms'] as List).single
           as Map<String, dynamic>)['id'],
       'term-double-bun',
     );
+    expect(strapSlipRule['targetPrompt'], 'dress slipping off shoulder');
     expect(
-      ((rules.last['sourceTerms'] as List).single
-          as Map<String, dynamic>)['text'],
-      'gyaru',
+      ((strapSlipRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'clothingState'),
+    );
+    expect(blackCollarRule['targetPrompt'], 'leather collar');
+    expect(
+      ((blackCollarRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'accessory'),
+    );
+    expect(
+      ((gyaruRule['sourceTerms'] as List).single
+          as Map<String, dynamic>),
+      containsPair('text', 'gyaru'),
+    );
+    expect(
+      (rules
+              .expand(
+                (rule) => (rule['sourceTerms'] as List)
+                    .cast<Map<String, dynamic>>()
+                    .map((term) => '${term['text']}|${term['category']}'),
+              )
+              .toList()),
+      containsAll([
+        'double bun|upperBody',
+        'inverted nipples|upperBody',
+        'strap slip|clothingState',
+        'black collar|accessory',
+        'gyaru|character',
+      ]),
     );
     expect(updated['aiRoleExtraction']['scene_terms'], hasLength(1));
     expect(updated['mapping']['scenePromptReplacements'], hasLength(1));
