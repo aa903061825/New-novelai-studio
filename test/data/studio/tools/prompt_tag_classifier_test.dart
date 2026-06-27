@@ -365,5 +365,37 @@ void main() {
         PromptTagCategory.clothingState,
       );
     });
+
+    test('keeps chinese prompt syntax markers classified as promptSyntax', () {
+      expect(
+        PromptTagClassifier.classify('示例角色').category,
+        PromptTagCategory.promptSyntax,
+      );
+      expect(
+        PromptTagClassifier.classify('内容: 夜晚街道').category,
+        PromptTagCategory.promptSyntax,
+      );
+    });
+
+    test('keeps key chinese group labels readable', () {
+      expect(
+        PromptTagClassifier.groupFor(PromptTagCategory.character).label,
+        '角色区',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(PromptTagCategory.upperBody).label,
+        '上身',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(PromptTagCategory.accessory).label,
+        '饰品',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(
+          PromptTagCategory.clothingState,
+        ).label,
+        '服装状态/动作',
+      );
+    });
   });
 }
