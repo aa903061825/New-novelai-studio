@@ -1865,18 +1865,18 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             PromptTagCategory.quality,
             PromptTagCategory.artist,
             PromptTagCategory.character,
-            PromptTagCategory.upperBody,
-            PromptTagCategory.lowerBody,
-            PromptTagCategory.upperClothing,
-            PromptTagCategory.lowerClothing,
+            PromptTagCategory.clothing,
             PromptTagCategory.accessory,
             PromptTagCategory.clothingState,
-            PromptTagCategory.clothing,
             PromptTagCategory.action,
             PromptTagCategory.scene,
             PromptTagCategory.style,
             PromptTagCategory.other,
             PromptTagCategory.camera,
+            PromptTagCategory.upperBody,
+            PromptTagCategory.lowerBody,
+            PromptTagCategory.upperClothing,
+            PromptTagCategory.lowerClothing,
           ];
     for (final category in preferred) {
       if (allowed.contains(category)) {
