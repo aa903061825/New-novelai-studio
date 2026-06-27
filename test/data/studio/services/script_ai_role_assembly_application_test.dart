@@ -478,6 +478,72 @@ void main() {
     },
   );
 
+  test(
+    'prefers refined clothing-compatible prompt term when polluted legacy duplicate comes first',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-state-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-strap-slip',
+                      text: 'strap slip',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'secure straps',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(1));
+      final rule = rules.single;
+      expect(rule.id, 'legacy-state-rule');
+      expect(rule.targetPrompt, 'secure straps');
+      expect(rule.sourceTerms.single.id, 'term-strap-slip');
+      expect(
+        rule.sourceTerms.single.category,
+        PromptTagCategory.clothingState,
+      );
+    },
+  );
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(

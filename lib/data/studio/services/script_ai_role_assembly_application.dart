@@ -515,6 +515,63 @@ class ScriptAiRoleAssemblyApplication {
     return '$categoryKey\u001f$normalized';
   }
 
+  String _promptTermCompatibilityKey(
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final categoryKey = _isLegacyClothingCompatibleCategory(category)
+        ? 'legacy-clothing-compatible'
+        : category.name;
+    return '$categoryKey\u001f$normalized';
+  }
+
+  ScriptAiExtractedPromptTerm _preferredPromptTerm(
+    ScriptAiExtractedPromptTerm left,
+    ScriptAiExtractedPromptTerm right,
+  ) {
+    final preferred = _promptTermCategoryPreference(right.category) >=
+            _promptTermCategoryPreference(left.category)
+        ? right
+        : left;
+    final fallback = identical(preferred, right) ? left : right;
+    return ScriptAiExtractedPromptTerm(
+      id: preferred.id.trim().isNotEmpty ? preferred.id : fallback.id,
+      text: preferred.text.trim().isNotEmpty ? preferred.text : fallback.text,
+      category: preferred.category,
+      sourcePhrase: preferred.sourcePhrase.trim().isNotEmpty
+          ? preferred.sourcePhrase
+          : fallback.sourcePhrase,
+      sourceLocation: preferred.sourceLocation.trim().isNotEmpty
+          ? preferred.sourceLocation
+          : fallback.sourceLocation,
+      frameIndexes: List.unmodifiable(
+        ({...left.frameIndexes, ...right.frameIndexes}.toList()..sort()),
+      ),
+    );
+  }
+
+  int _promptTermCategoryPreference(PromptTagCategory category) {
+    return switch (category) {
+      PromptTagCategory.accessory || PromptTagCategory.clothingState => 1,
+      PromptTagCategory.clothing => 0,
+      _ => 0,
+    };
+  }
+
+  bool _isLegacyClothingCompatibleCategory(PromptTagCategory category) {
+    return switch (category) {
+      PromptTagCategory.clothing ||
+      PromptTagCategory.accessory ||
+      PromptTagCategory.clothingState =>
+        true,
+      _ => false,
+    };
+  }
+
   ScriptPromptReplacementTerm _promptReplacementTermFromAi(
     ScriptAiExtractedPromptTerm term,
   ) {
@@ -574,9 +631,26 @@ class ScriptAiRoleAssemblyApplication {
   List<ScriptAiExtractedPromptTerm> _nonEmptyPromptTerms(
     List<ScriptAiExtractedPromptTerm> terms,
   ) {
+    final byKey = <String, ScriptAiExtractedPromptTerm>{};
+    final order = <String>[];
+    for (final term in terms) {
+      if (term.text.trim().isEmpty) {
+        continue;
+      }
+      final key = _promptTermCompatibilityKey(term.text, term.category);
+      if (key.isEmpty) {
+        continue;
+      }
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = term;
+        order.add(key);
+        continue;
+      }
+      byKey[key] = _preferredPromptTerm(existing, term);
+    }
     return List.unmodifiable([
-      for (final term in terms)
-        if (term.text.trim().isNotEmpty) term,
+      for (final key in order) byKey[key]!,
     ]);
   }
 

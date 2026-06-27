@@ -1084,6 +1084,12 @@ void main() {
           ],
           promptTerms: [
             ScriptAiExtractedPromptTerm(
+              id: 'legacy-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothing,
+              frameIndexes: [1],
+            ),
+            ScriptAiExtractedPromptTerm(
               id: 'term-strap-slip',
               text: 'strap slip',
               category: PromptTagCategory.clothingState,

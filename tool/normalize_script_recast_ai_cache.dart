@@ -1970,6 +1970,7 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
   required ScriptAiExtractedRole role,
   required ScriptRolePromptReplacement? existing,
 }) {
+  final promptTerms = _dedupPromptTermsForReplacement(role.promptTerms);
   final rules = <ScriptPromptReplacementRule>[];
   final existingRulesByTermKey = <String, ScriptPromptReplacementRule>{};
   final emittedRuleIds = <String>{};
@@ -1984,7 +1985,7 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     }
   }
 
-  for (final term in role.promptTerms) {
+  for (final term in promptTerms) {
     final text = term.text.trim();
     if (text.isEmpty) {
       continue;
@@ -2027,7 +2028,7 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     rules.add(rule);
   }
 
-  final preview = _promptReplacementSourcePreview(role.promptTerms);
+  final preview = _promptReplacementSourcePreview(promptTerms);
   return ScriptRolePromptReplacement(
     sourceRoleId: role.sourceRoleId,
     displayLabel: existing?.displayLabel.trim().isNotEmpty == true
@@ -2111,6 +2112,88 @@ String _promptReplacementCompatibleTermKey(
     _ => category.name,
   };
   return '$categoryKey\u001f$normalized';
+}
+
+List<ScriptAiExtractedPromptTerm> _dedupPromptTermsForReplacement(
+  List<ScriptAiExtractedPromptTerm> terms,
+) {
+  final byKey = <String, ScriptAiExtractedPromptTerm>{};
+  final order = <String>[];
+  for (final term in terms) {
+    final text = term.text.trim();
+    if (text.isEmpty) {
+      continue;
+    }
+    final key = _promptTermCompatibilityKey(text, term.category);
+    if (key.isEmpty) {
+      continue;
+    }
+    final existing = byKey[key];
+    if (existing == null) {
+      byKey[key] = term;
+      order.add(key);
+      continue;
+    }
+    byKey[key] = _preferredPromptTerm(existing, term);
+  }
+  return List.unmodifiable([
+    for (final key in order) byKey[key]!,
+  ]);
+}
+
+String _promptTermCompatibilityKey(String text, PromptTagCategory category) {
+  final normalized = _normalizedEvidenceText(text);
+  if (normalized.isEmpty) {
+    return '';
+  }
+  final categoryKey = _isLegacyClothingCompatibleCategory(category)
+      ? 'legacy-clothing-compatible'
+      : category.name;
+  return '$categoryKey\u001f$normalized';
+}
+
+ScriptAiExtractedPromptTerm _preferredPromptTerm(
+  ScriptAiExtractedPromptTerm left,
+  ScriptAiExtractedPromptTerm right,
+) {
+  final preferred = _promptTermCategoryPreference(right.category) >=
+          _promptTermCategoryPreference(left.category)
+      ? right
+      : left;
+  final fallback = identical(preferred, right) ? left : right;
+  return ScriptAiExtractedPromptTerm(
+    id: preferred.id.trim().isNotEmpty ? preferred.id : fallback.id,
+    text: preferred.text.trim().isNotEmpty ? preferred.text : fallback.text,
+    category: preferred.category,
+    sourcePhrase: preferred.sourcePhrase.trim().isNotEmpty
+        ? preferred.sourcePhrase
+        : fallback.sourcePhrase,
+    sourceLocation: preferred.sourceLocation.trim().isNotEmpty
+        ? preferred.sourceLocation
+        : fallback.sourceLocation,
+    frameIndexes: _mergedToolInts(
+      left.frameIndexes,
+      right.frameIndexes,
+    ),
+  );
+}
+
+int _promptTermCategoryPreference(PromptTagCategory category) {
+  return switch (category) {
+    PromptTagCategory.accessory || PromptTagCategory.clothingState => 1,
+    PromptTagCategory.clothing => 0,
+    _ => 0,
+  };
+}
+
+bool _isLegacyClothingCompatibleCategory(PromptTagCategory category) {
+  return switch (category) {
+    PromptTagCategory.clothing ||
+    PromptTagCategory.accessory ||
+    PromptTagCategory.clothingState =>
+      true,
+    _ => false,
+  };
 }
 
 RoleAssembly _assemblyWithNormalizedAiRole(

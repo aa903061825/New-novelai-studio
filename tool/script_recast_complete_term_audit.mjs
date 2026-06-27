@@ -532,41 +532,28 @@ function mergePromptTerms(existingTerms, incomingTerms, options = {}) {
   const byKey = new Map();
   const order = [];
   for (const term of Array.isArray(existingTerms) ? existingTerms : []) {
-    const normalized = normalizedTagKey(term?.text);
-    const category = canonicalPromptTermCategory(
-      term?.category || options.defaultCategory || 'character',
-    );
-    if (!normalized) continue;
-    const key = `${category}\u001f${normalized}`;
-    byKey.set(key, normalizePromptTerm(term, { defaultCategory: category }));
-    order.push(key);
+    mergePromptTermIntoMaps({
+      byKey,
+      order,
+      term,
+      options,
+      countNew: false,
+    });
   }
 
   let merged = 0;
   for (const incoming of Array.isArray(incomingTerms) ? incomingTerms : []) {
-    const normalized = normalizedTagKey(incoming?.text);
-    const category = canonicalPromptTermCategory(
-      incoming?.category || options.defaultCategory || 'character',
-    );
-    if (!normalized) continue;
-    const key = `${category}\u001f${normalized}`;
-    const normalizedIncoming = normalizePromptTerm(incoming, { defaultCategory: category });
-    const previous = byKey.get(key);
-    if (!previous) {
-      byKey.set(key, normalizedIncoming);
-      order.push(key);
+    if (
+      mergePromptTermIntoMaps({
+        byKey,
+        order,
+        term: incoming,
+        options,
+        countNew: true,
+      })
+    ) {
       merged += 1;
-      continue;
     }
-    byKey.set(key, {
-      ...previous,
-      ...withoutEmptyStrings(normalizedIncoming),
-      id: stringValue(normalizedIncoming.id) || stringValue(previous.id),
-      frame_indexes: sortedInts([
-        ...(previous.frame_indexes ?? []),
-        ...(normalizedIncoming.frame_indexes ?? []),
-      ]),
-    });
   }
   return { terms: order.map((key) => byKey.get(key)), merged };
 }
@@ -778,6 +765,97 @@ function normalizePromptTerm(term, options = {}) {
     source_location: stringValue(term?.source_location ?? term?.sourceLocation),
     frame_indexes: sortedInts(term?.frame_indexes ?? term?.frameIndexes ?? []),
   };
+}
+
+function mergePromptTermIntoMaps({ byKey, order, term, options = {}, countNew }) {
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
+  const normalized = normalizedTagKey(term?.text);
+  if (!normalized) return false;
+  const normalizedTerm = normalizePromptTerm(term, { defaultCategory: category });
+  const strictKey = promptTermStrictKey(category, normalized);
+  const existingKey = promptTermMergeKey(byKey, category, normalized) || strictKey;
+  const previous = byKey.get(existingKey);
+  if (!previous) {
+    byKey.set(strictKey, normalizedTerm);
+    order.push(strictKey);
+    return Boolean(countNew);
+  }
+
+  const merged = mergePromptTermRecords(previous, normalizedTerm);
+  const mergedKey = promptTermStrictKey(merged.category, normalized);
+  if (mergedKey !== existingKey) {
+    byKey.delete(existingKey);
+    const orderIndex = order.indexOf(existingKey);
+    if (orderIndex >= 0) {
+      order[orderIndex] = mergedKey;
+    } else if (!order.includes(mergedKey)) {
+      order.push(mergedKey);
+    }
+  }
+  byKey.set(mergedKey, merged);
+  return false;
+}
+
+function promptTermStrictKey(category, normalizedText) {
+  return `${category}\u001f${normalizedText}`;
+}
+
+function promptTermMergeKey(byKey, category, normalizedText) {
+  const strictKey = promptTermStrictKey(category, normalizedText);
+  if (byKey.has(strictKey)) return strictKey;
+  if (isRefinedClothingCategory(category)) {
+    const legacyKey = promptTermStrictKey('clothing', normalizedText);
+    return byKey.has(legacyKey) ? legacyKey : '';
+  }
+  if (category === 'clothing') {
+    const refinedKeys = ['accessory', 'clothingState']
+      .map((refined) => promptTermStrictKey(refined, normalizedText))
+      .filter((key) => byKey.has(key));
+    return refinedKeys.length === 1 ? refinedKeys[0] : '';
+  }
+  return '';
+}
+
+function mergePromptTermRecords(previous, incoming) {
+  const preferred =
+    pickPreferredPromptTermCategory(previous.category, incoming.category) ===
+    incoming.category
+      ? incoming
+      : previous;
+  const fallback = preferred === incoming ? previous : incoming;
+  return {
+    ...fallback,
+    ...preferred,
+    id: stringValue(preferred.id) || stringValue(fallback.id),
+    source_phrase: cleanTag(preferred.source_phrase || fallback.source_phrase || preferred.text),
+    source_location: stringValue(preferred.source_location || fallback.source_location),
+    frame_indexes: sortedInts([
+      ...(previous.frame_indexes ?? []),
+      ...(incoming.frame_indexes ?? []),
+    ]),
+  };
+}
+
+function pickPreferredPromptTermCategory(leftCategory, rightCategory) {
+  const left = canonicalPromptTermCategory(leftCategory);
+  const right = canonicalPromptTermCategory(rightCategory);
+  const leftRank = promptTermCategoryPreferenceRank(left);
+  const rightRank = promptTermCategoryPreferenceRank(right);
+  if (rightRank > leftRank) return right;
+  if (leftRank > rightRank) return left;
+  return right;
+}
+
+function promptTermCategoryPreferenceRank(category) {
+  if (category === 'clothing') return 0;
+  if (category === 'accessory' || category === 'clothingState') return 1;
+  return 0;
+}
+
+function isRefinedClothingCategory(category) {
+  return category === 'accessory' || category === 'clothingState';
 }
 
 function canonicalPromptTermCategory(category) {

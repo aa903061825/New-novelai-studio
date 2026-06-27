@@ -110,7 +110,12 @@ void main() {
       const JsonEncoder.withIndent('  ').convert(
         _cacheJson(
           sourceRootPath: sourceRoot,
-          promptTerms: const [],
+          promptTerms: [
+            _term('legacy-strap-slip-prompt', 'strap slip', 'clothing'),
+            _term('refined-strap-slip-prompt', 'strap slip', 'clothingState'),
+            _term('legacy-black-collar-prompt', 'black collar', 'clothing'),
+            _term('refined-black-collar-prompt', 'black collar', 'accessory'),
+          ],
           sceneTerms: const [],
           roleRules: [
             _rule(
@@ -210,10 +215,10 @@ void main() {
           .cast<Map<String, dynamic>>()
           .map((term) => '${term['text']}|${term['category']}'),
       [
-        'double bun|upperBody',
-        'inverted nipples|upperBody',
         'strap slip|clothingState',
         'black collar|accessory',
+        'double bun|upperBody',
+        'inverted nipples|upperBody',
         'gyaru|character',
       ],
     );
@@ -306,23 +311,12 @@ void main() {
         const JsonEncoder.withIndent('  ').convert(
           _cacheJson(
             sourceRootPath: sourceRoot,
-            promptTerms: const [],
+            promptTerms: [
+              _term('legacy-strap-slip-prompt', 'strap slip', 'clothing'),
+              _term('legacy-black-collar-prompt', 'black collar', 'clothing'),
+            ],
             sceneTerms: const [],
             roleRules: [
-              _rule(
-                'legacy-double-bun-rule',
-                _term('legacy-double-bun', 'double bun', 'upperBody'),
-                targetPrompt: 'single braid',
-              ),
-              _rule(
-                'refined-inverted-nipples-rule',
-                _term(
-                  'refined-inverted-nipples',
-                  'inverted nipples',
-                  'upperBody',
-                ),
-                targetPrompt: 'flat chest',
-              ),
               _rule(
                 'refined-strap-slip-rule',
                 _term(
@@ -347,11 +341,6 @@ void main() {
                 _term('legacy-black-collar', 'black collar', 'clothing'),
                 targetPrompt: 'old legacy black collar target',
               ),
-              _rule(
-                'legacy-gyaru-rule',
-                _term('legacy-gyaru', 'gyaru', 'character'),
-                targetPrompt: 'tanned girl',
-              ),
             ],
             sceneRules: const [],
           ),
@@ -369,12 +358,6 @@ void main() {
                   'sourceRoleId': 'role-a',
                   'displayLabel': 'Role A',
                   'terms': [
-                    _term('term-double-bun', 'double bun', 'upperBody'),
-                    _term(
-                      'term-inverted-nipples',
-                      'inverted nipples',
-                      'upperBody',
-                    ),
                     _term(
                       'term-strap-slip',
                       'strap slip',
@@ -385,7 +368,6 @@ void main() {
                       'black collar',
                       'accessory',
                     ),
-                    _term('term-gyaru', 'gyaru', 'character'),
                   ],
                 },
               ],
@@ -421,25 +403,36 @@ void main() {
       final firstUpdated =
           jsonDecode(await cacheFile.readAsString(encoding: utf8))
               as Map<String, dynamic>;
+      final firstPromptTerms = (((firstUpdated['aiRoleExtraction']
+              as Map<String, dynamic>)['roles'] as List)
+          .single as Map<String, dynamic>)['prompt_terms'] as List;
       final firstRules = (((firstUpdated['mapping']
               as Map<String, dynamic>)['rolePromptReplacements'] as List)
           .single as Map<String, dynamic>)['rules'] as List;
+      expect(
+        firstPromptTerms
+            .cast<Map<String, dynamic>>()
+            .map((term) => '${term['text']}|${term['category']}')
+            .toList(),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+        ],
+      );
       final firstRuleIds = firstRules
           .cast<Map<String, dynamic>>()
           .map((rule) => rule['id'] as String)
           .toList();
-      expect(firstRules, hasLength(5));
+      expect(firstRules, hasLength(2));
       expect(firstRuleIds, isNot(contains('legacy-strap-slip-rule')));
       expect(firstRuleIds, isNot(contains('legacy-black-collar-rule')));
       expect(
-          firstRuleIds,
-          containsAll([
-            'legacy-double-bun-rule',
-            'refined-inverted-nipples-rule',
-            'refined-strap-slip-rule',
-            'refined-black-collar-rule',
-            'legacy-gyaru-rule',
-          ]));
+        firstRuleIds,
+        [
+          'refined-strap-slip-rule',
+          'refined-black-collar-rule',
+        ],
+      );
       expect(
         firstRules.cast<Map<String, dynamic>>().expand(
               (rule) => (rule['sourceTerms'] as List)
@@ -447,11 +440,8 @@ void main() {
                   .map((term) => '${term['text']}|${term['category']}'),
             ),
         [
-          'double bun|upperBody',
-          'inverted nipples|upperBody',
           'strap slip|clothingState',
           'black collar|accessory',
-          'gyaru|character',
         ],
       );
       final afterFirstApply = await cacheFile.readAsString(encoding: utf8);
