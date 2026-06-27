@@ -1216,6 +1216,113 @@ void main() {
   );
 
   test(
+    'normalizes polluted prompt terms to refined categories in cache and mapping',
+    () {
+      final normalized = RecastScriptCache.fromJson(
+        normalizer.normalizedCacheJsonForTesting({
+          'scriptId': 'script-polluted-prompt-terms',
+          'scriptName': 'Script Polluted Prompt Terms',
+          'sourceFingerprint': 'fingerprint',
+          'updatedAt': DateTime.utc(2026, 1).toIso8601String(),
+          'detectedSchema': 'v4Slotted',
+          'parseWarnings': [],
+          'scriptSnapshot': {
+            'frames': [
+              {
+                'index': 1,
+                'fileName': 'nai_1.json',
+                'parsed': {
+                  'baseCaption': '',
+                  'charCaptions': [''],
+                },
+              },
+            ],
+          },
+          'mapping': {
+            'id': 'mapping-script-polluted-prompt-terms',
+            'scriptId': 'script-polluted-prompt-terms',
+            'roleSwaps': [],
+            'artistSwap': null,
+            'rolePromptReplacements': [],
+          },
+          'aiRoleExtraction': const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            roles: [
+              ScriptAiExtractedRole(
+                sourceRoleId: 'slot-0',
+                displayName: 'Role',
+                promptTerms: [
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothingState,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-black-collar',
+                    text: 'black collar',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-black-collar',
+                    text: 'black collar',
+                    category: PromptTagCategory.accessory,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-collar-accessory',
+                    text: 'collar',
+                    category: PromptTagCategory.accessory,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-collar-state',
+                    text: 'collar',
+                    category: PromptTagCategory.clothingState,
+                    frameIndexes: [2],
+                  ),
+                ],
+              ),
+            ],
+          ).toJson(),
+        }),
+      );
+      final promptTerms = normalized.aiRoleExtraction.roles.single.promptTerms;
+      expect(
+        promptTerms.map((term) => '${term.text}|${term.category.name}'),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+          'collar|accessory',
+          'collar|clothingState',
+        ],
+      );
+      expect(promptTerms.first.frameIndexes, [1, 2]);
+      expect(promptTerms[1].frameIndexes, [1, 2]);
+
+      final sourceTerms = normalized.mapping.rolePromptReplacements.single.rules
+          .map((rule) => rule.sourceTerms.single)
+          .toList();
+      expect(
+        sourceTerms.map((term) => '${term.text}|${term.category.name}'),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+          'collar|accessory',
+          'collar|clothingState',
+        ],
+      );
+    },
+  );
+
+  test(
     'does not merge refined clothing-compatible rules through legacy alias',
     () {
       final replacements =

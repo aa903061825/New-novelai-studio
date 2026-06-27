@@ -350,6 +350,102 @@ void main() {
           'alice (wonder story), red jacket');
     });
 
+    test(
+        'merged prompt terms keep same id accessory and clothing state distinct',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-1',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final role = extraction.collapseEquivalentStages().roles.single;
+
+      expect(role.promptTerms, hasLength(2));
+      expect(
+        role.promptTerms.map((term) => term.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        role.promptTerms.map((term) => term.frameIndexes),
+        [
+          [1],
+          [2],
+        ],
+      );
+    });
+
+    test(
+        'merged prompt terms union frame evidence for matching id and category',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-1',
+            displayName: 'alice',
+            rawIdentityTags: ['alice (wonder story)'],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final role = extraction.collapseEquivalentStages().roles.single;
+
+      expect(role.promptTerms, hasLength(1));
+      expect(role.promptTerms.single.category, PromptTagCategory.accessory);
+      expect(role.promptTerms.single.frameIndexes, [1, 2]);
+    });
+
     test('ready extraction parses global-0', () {
       final extraction = ScriptAiRoleExtraction.fromJson({
         'schema_version': 1,

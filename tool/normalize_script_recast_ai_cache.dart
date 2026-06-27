@@ -278,6 +278,27 @@ bool _looksLikeRecastCache(Map<String, dynamic> json) {
       json.containsKey('scriptSnapshot');
 }
 
+@visibleForTesting
+Map<String, dynamic> normalizedCacheJsonForTesting(
+  Map<String, dynamic> cacheJson,
+) {
+  final json = Map<String, dynamic>.from(cacheJson);
+  Map<String, dynamic>? normalizedAi;
+  final ai = json['aiRoleExtraction'];
+  if (ai is Map) {
+    normalizedAi = _normalizedExtraction(
+      ai,
+      scriptSnapshot: json['scriptSnapshot'],
+    );
+    json['aiRoleExtraction'] = normalizedAi;
+  }
+  final mapping = json['mapping'];
+  if (mapping is Map && normalizedAi != null) {
+    json['mapping'] = _normalizedMapping(mapping, normalizedAi);
+  }
+  return json;
+}
+
 Map<String, dynamic> _normalizedExtraction(
   Map<dynamic, dynamic> value, {
   Object? scriptSnapshot,
@@ -285,11 +306,12 @@ Map<String, dynamic> _normalizedExtraction(
   final extraction = ScriptAiRoleExtraction.fromJson(
     Map<String, dynamic>.from(value),
   ).collapseEquivalentStages();
+  final normalizedExtraction = _extractionWithNormalizedPromptTerms(extraction);
   final evidence = _scriptSnapshotEvidence(scriptSnapshot);
   if (evidence == null) {
-    return extraction.toJson();
+    return normalizedExtraction.toJson();
   }
-  return _extractionWithFrameEvidence(extraction, evidence).toJson();
+  return _extractionWithFrameEvidence(normalizedExtraction, evidence).toJson();
 }
 
 _ScriptSnapshotEvidence? _scriptSnapshotEvidence(Object? value) {
@@ -354,6 +376,69 @@ ScriptAiRoleExtraction _extractionWithFrameEvidence(
     sceneTerms: extraction.sceneTerms,
     termCacheSuggestions: extraction.termCacheSuggestions,
     rawResponse: extraction.rawResponse,
+  );
+}
+
+ScriptAiRoleExtraction _extractionWithNormalizedPromptTerms(
+  ScriptAiRoleExtraction extraction,
+) {
+  var changed = false;
+  final roles = [
+    for (final role in extraction.roles)
+      _roleWithNormalizedPromptTerms(role, onChanged: () => changed = true),
+  ];
+  if (!changed) {
+    return extraction;
+  }
+  return ScriptAiRoleExtraction(
+    schemaVersion: extraction.schemaVersion,
+    status: extraction.status,
+    chunkId: extraction.chunkId,
+    confidence: extraction.confidence,
+    roles: List.unmodifiable(roles),
+    artistChains: extraction.artistChains,
+    strongFilterKeywords: extraction.strongFilterKeywords,
+    attentionItems: extraction.attentionItems,
+    unassignedTerms: extraction.unassignedTerms,
+    evidenceRequests: extraction.evidenceRequests,
+    sceneTerms: extraction.sceneTerms,
+    termCacheSuggestions: extraction.termCacheSuggestions,
+    rawResponse: extraction.rawResponse,
+  );
+}
+
+ScriptAiExtractedRole _roleWithNormalizedPromptTerms(
+  ScriptAiExtractedRole role, {
+  required void Function() onChanged,
+}) {
+  final nextPromptTerms = _dedupPromptTermsForReplacement(role.promptTerms);
+  if (_jsonText([
+        for (final term in nextPromptTerms) term.toJson(),
+      ]) ==
+      _jsonText([
+        for (final term in role.promptTerms) term.toJson(),
+      ])) {
+    return role;
+  }
+  onChanged();
+  return ScriptAiExtractedRole(
+    sourceRoleId: role.sourceRoleId,
+    sourceKind: role.sourceKind,
+    displayName: role.displayName,
+    roleReason: role.roleReason,
+    canonicalName: role.canonicalName,
+    franchise: role.franchise,
+    rawIdentityTags: role.rawIdentityTags,
+    variantTags: role.variantTags,
+    mergeWithRoleId: role.mergeWithRoleId,
+    confidence: role.confidence,
+    frameIndexes: role.frameIndexes,
+    appearances: role.appearances,
+    evidenceTerms: role.evidenceTerms,
+    warnings: role.warnings,
+    stages: role.stages,
+    unassignedTerms: role.unassignedTerms,
+    promptTerms: nextPromptTerms,
   );
 }
 
@@ -471,7 +556,7 @@ List<ScriptAiExtractedPromptTerm> _promptTermsWithFrameEvidence({
     addTerm(term);
   }
 
-  return List.unmodifiable([
+  return _dedupPromptTermsForReplacement([
     for (final key in order) termsByKey[key]!,
   ]);
 }
