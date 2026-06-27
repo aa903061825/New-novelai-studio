@@ -311,8 +311,8 @@ void main() {
         'heart eyes': PromptTagCategory.character,
         'short double bun hair': PromptTagCategory.character,
         'white rabbit ears': PromptTagCategory.character,
-        'pink hair ribbon': PromptTagCategory.upperBody,
-        'black choker': PromptTagCategory.upperBody,
+        'pink hair ribbon': PromptTagCategory.accessory,
+        'black choker': PromptTagCategory.accessory,
         'white rabbit tail': PromptTagCategory.lowerBody,
       };
 
@@ -363,6 +363,21 @@ void main() {
       expect(
         PromptTagClassifier.classify('completely nude').category,
         PromptTagCategory.clothingState,
+      );
+    });
+
+    test('keeps overlapping accessory terms out of upperBody', () {
+      expect(
+        PromptTagClassifier.classify('choker').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('necklace').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('headband').category,
+        PromptTagCategory.accessory,
       );
     });
 
