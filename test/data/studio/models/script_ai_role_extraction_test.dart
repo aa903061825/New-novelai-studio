@@ -111,8 +111,29 @@ void main() {
         'category': 'clothingState',
       });
 
-      expect(snake.category, PromptTagCategory.clothing);
-      expect(camel.category, PromptTagCategory.clothing);
+      expect(snake.category, PromptTagCategory.clothingState);
+      expect(camel.category, PromptTagCategory.clothingState);
+    });
+
+    test(
+        'prompt term category parsing keeps accessory and clothing state distinct',
+        () {
+      final accessory = ScriptAiExtractedPromptTerm.fromJson({
+        'text': 'black collar',
+        'category': 'accessory',
+      });
+      final snakeState = ScriptAiExtractedPromptTerm.fromJson({
+        'text': 'strap slip',
+        'category': 'clothing_state',
+      });
+      final camelState = ScriptAiExtractedPromptTerm.fromJson({
+        'text': 'no panties',
+        'category': 'clothingState',
+      });
+
+      expect(accessory.category, PromptTagCategory.accessory);
+      expect(snakeState.category, PromptTagCategory.clothingState);
+      expect(camelState.category, PromptTagCategory.clothingState);
     });
 
     test('collapseEquivalentStages preserves scene terms and role prompt terms',
