@@ -195,6 +195,8 @@ String filterRuleBlockFromCategory(PromptTagCategory category) {
     PromptTagCategory.lowerBody ||
     PromptTagCategory.upperClothing ||
     PromptTagCategory.lowerClothing ||
+    PromptTagCategory.accessory ||
+    PromptTagCategory.clothingState ||
     PromptTagCategory.clothing ||
     PromptTagCategory.negativeBody =>
       'clothing',

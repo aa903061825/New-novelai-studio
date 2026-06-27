@@ -9,6 +9,8 @@ Color promptTagCategoryColor(PromptTagCategory category) {
     PromptTagCategory.lowerBody => const Color(0xFF36CFC9),
     PromptTagCategory.upperClothing => const Color(0xFF00A676),
     PromptTagCategory.lowerClothing => const Color(0xFF2E9F9F),
+    PromptTagCategory.accessory => const Color(0xFF18A999),
+    PromptTagCategory.clothingState => const Color(0xFF0FA3B1),
     PromptTagCategory.clothing => const Color(0xFF13C2C2),
     PromptTagCategory.action => const Color(0xFFF59E0B),
     PromptTagCategory.scene => const Color(0xFF8B9DC3),
