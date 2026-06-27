@@ -326,7 +326,18 @@ class ScriptAiRoleAssemblyApplication {
     }
 
     final groupedRulesByClaimedRuleId = <String, ScriptPromptReplacementRule>{};
+    final singleRulesByClaimedRuleId = <String, ScriptPromptReplacementRule>{};
     for (final rule in existingRules) {
+      if (rule.sourceTerms.length == 1) {
+        final claimedRuleId = _aiRuleIdForPromptReplacementTerm(
+          rule.sourceTerms.single,
+          aiRuleIdsByTermKey,
+        );
+        if (claimedRuleId != null) {
+          singleRulesByClaimedRuleId.putIfAbsent(claimedRuleId, () => rule);
+        }
+        continue;
+      }
       if (rule.sourceTerms.length < 2) {
         continue;
       }
@@ -343,6 +354,7 @@ class ScriptAiRoleAssemblyApplication {
 
     final next = <ScriptPromptReplacementRule>[];
     final appliedRuleIds = <String>{};
+    final appliedExistingRuleIds = <String>{};
     final emittedGroupedRuleIds = <String>{};
     for (final term in terms) {
       final ruleId = ruleIdFor(term);
@@ -378,7 +390,11 @@ class ScriptAiRoleAssemblyApplication {
       if (aiRule == null) {
         continue;
       }
-      final existing = existingRulesById[ruleId];
+      final existing =
+          existingRulesById[ruleId] ?? singleRulesByClaimedRuleId[ruleId];
+      if (existing != null) {
+        appliedExistingRuleIds.add(existing.id);
+      }
       next.add(
         existing == null
             ? aiRule
@@ -388,6 +404,7 @@ class ScriptAiRoleAssemblyApplication {
 
     for (final existing in existingRules) {
       if (appliedRuleIds.contains(existing.id) ||
+          appliedExistingRuleIds.contains(existing.id) ||
           emittedGroupedRuleIds.contains(existing.id)) {
         continue;
       }

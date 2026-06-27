@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 void main() {
   test('normalizes AI cache and is idempotent on second dry-run', () async {
@@ -105,8 +106,9 @@ void main() {
     final role = normalized.aiRoleExtraction.roles.single;
     expect(role.stages, hasLength(1));
     expect(role.stages.single.upperBody, 'blue eyes');
-    expect(role.stages.single.nonRole, contains('smile'));
-    expect(role.stages.single.nonRole, contains('looking at viewer'));
+    expect(role.stages.single.nonRole, isEmpty);
+    expect(role.stages.single.upperBody, isNot(contains('smile')));
+    expect(role.stages.single.evidenceTerms, contains('looking at viewer'));
 
     final assembly = normalized.mapping.roleAssemblies.single;
     expect(assembly.sourceRoleId, 'global-0');
@@ -776,7 +778,8 @@ void main() {
     expect(nudeStage.frameIndexes, [1]);
     expect(nudeStage.upperBody, 'blue eyes');
     expect(nudeStage.upperClothing, 'white bridal gauntlets');
-    expect(nudeStage.nonRole, 'empty eyes');
+    expect(nudeStage.nonRole, isEmpty);
+    expect(nudeStage.upperBody, isNot(contains('empty eyes')));
     expect(leotardStage.frameIndexes, [2, 3]);
     expect(leotardStage.upperBody, 'blue eyes');
     expect(
@@ -803,34 +806,260 @@ void main() {
     expect(second.exitCode, 0, reason: second.stderr.toString());
     expect(second.stdout.toString(), contains('changed_files=0'));
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('does not synthesize semantic prompt terms from source captions',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-recast-character-prompt-terms-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}character-terms.json',
+    );
+    await cacheFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert({
+        'scriptId': 'script-character-terms',
+        'scriptName': 'Character Terms Script',
+        'sourceRootPath': 'unused',
+        'sourceFingerprint': 'fingerprint',
+        'updatedAt': '2026-01-01T00:00:00.000Z',
+        'scriptSnapshot': {
+          'id': 'script-character-terms',
+          'name': 'Character Terms Script',
+          'rootPath': 'unused',
+          'frames': [
+            _frameSnapshot(
+              1,
+              'girl, suzuna (princess connect!), double bun, gyaru, '
+              'demon girl, demon horns, demon tail, cristal wings, '
+              'white shirt, black skirt',
+            ),
+            _frameSnapshot(
+              2,
+              'girl, suzuna (princess connect!), double bun, gyaru, '
+              'demon girl, demon horns, demon tail, cristal wings, '
+              'white shirt, black skirt',
+            ),
+          ],
+          'detectedSchema': 'v4Slotted',
+          'parseWarnings': [],
+          'meta': {'frameCount': 2},
+        },
+        'mapping': RecastMapping(
+          id: 'mapping-script-character-terms',
+          scriptId: 'script-character-terms',
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'role-suzuna',
+              displayLabel: 'Suzuna',
+              sourceAppearances: [
+                RoleAssemblySourceAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [1, 2],
+                ),
+              ],
+              stages: [
+                RoleAssemblyStage(
+                  id: 'stage-main',
+                  label: 'Stage Main',
+                  frameIndexes: [1, 2],
+                  sourceParts: RecastPromptParts(
+                    identity: 'suzuna (princess connect!)',
+                    upperBody: 'demon horns, cristal wings',
+                    lowerBody: 'demon tail',
+                    upperClothing: 'white shirt',
+                    lowerClothing: 'black skirt',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ).toJson(),
+        'aiRoleExtraction': const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-suzuna',
+              displayName: 'Suzuna',
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [1, 2],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'stage-main',
+                  label: 'Stage Main',
+                  frameIndexes: [1, 2],
+                  identity: 'suzuna (princess connect!)',
+                  upperBody: 'demon horns, cristal wings',
+                  lowerBody: 'demon tail',
+                  upperClothing: 'white shirt',
+                  lowerClothing: 'black skirt',
+                ),
+              ],
+            ),
+          ],
+        ).toJson(),
+      }),
+      encoding: utf8,
+    );
+
+    final first = await _runNormalizer([
+      '--cache-dir',
+      tempDir.path,
+    ]);
+    expect(first.exitCode, 0, reason: first.stderr.toString());
+
+    final normalized = RecastScriptCache.fromJson(
+      Map<String, dynamic>.from(
+        jsonDecode(await cacheFile.readAsString(encoding: utf8)) as Map,
+      ),
+    );
+    expect(normalized.aiRoleExtraction.roles.single.promptTerms, isEmpty);
+    expect(normalized.mapping.rolePromptReplacements, isEmpty);
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('preserves existing AI prompt terms and confirmed mappings', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-recast-existing-prompt-terms-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}existing-terms.json',
+    );
+    await cacheFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert({
+        'scriptId': 'script-existing-terms',
+        'scriptName': 'Existing Terms Script',
+        'sourceRootPath': 'unused',
+        'sourceFingerprint': 'fingerprint',
+        'updatedAt': '2026-01-01T00:00:00.000Z',
+        'scriptSnapshot': {
+          'id': 'script-existing-terms',
+          'name': 'Existing Terms Script',
+          'rootPath': 'unused',
+          'frames': [
+            _frameSnapshot(
+              1,
+              'double bun, gyaru, bedroom',
+            ),
+          ],
+          'detectedSchema': 'v4Slotted',
+          'parseWarnings': [],
+          'meta': {'frameCount': 1},
+        },
+        'mapping': RecastMapping(
+          id: 'mapping-script-existing-terms',
+          scriptId: 'script-existing-terms',
+          rolePromptReplacements: const [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'role-suzuna',
+              displayLabel: 'Suzuna',
+              targetCharacterId: 'target-suzuna',
+              targetIdentityPrompt: 'target identity',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-double-bun-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-double-bun',
+                      text: 'double bun',
+                      category: PromptTagCategory.upperBody,
+                    ),
+                  ],
+                  targetPrompt: 'single braid',
+                ),
+              ],
+            ),
+          ],
+        ).toJson(),
+        'aiRoleExtraction': const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-suzuna',
+              displayName: 'Suzuna',
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [1],
+                ),
+              ],
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-double-bun',
+                  text: 'double bun',
+                  category: PromptTagCategory.upperBody,
+                  sourcePhrase: 'double bun',
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-gyaru',
+                  text: 'gyaru',
+                  category: PromptTagCategory.character,
+                  sourcePhrase: 'gyaru',
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ).toJson(),
+      }),
+      encoding: utf8,
+    );
+
+    final first = await _runNormalizer([
+      '--cache-dir',
+      tempDir.path,
+    ]);
+    expect(first.exitCode, 0, reason: first.stderr.toString());
+
+    final normalized = RecastScriptCache.fromJson(
+      Map<String, dynamic>.from(
+        jsonDecode(await cacheFile.readAsString(encoding: utf8)) as Map,
+      ),
+    );
+    expect(
+      normalized.aiRoleExtraction.roles.single.promptTerms
+          .map((term) => term.text),
+      ['double bun', 'gyaru'],
+    );
+    final replacement = normalized.mapping.rolePromptReplacements.single;
+    expect(replacement.targetCharacterId, 'target-suzuna');
+    expect(replacement.targetIdentityPrompt, 'target identity');
+    expect(replacement.rules, hasLength(2));
+    expect(replacement.rules.first.id, 'legacy-double-bun-rule');
+    expect(replacement.rules.first.targetPrompt, 'single braid');
+    expect(replacement.rules.first.sourceTerms.single.id, 'term-double-bun');
+    expect(replacement.rules.last.sourceTerms.single.text, 'gyaru');
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
   return Process.run(
-    _dartExecutable(),
+    Platform.resolvedExecutable,
     [
-      'run',
+      '--packages=.dart_tool/package_config.json',
       'tool/normalize_script_recast_ai_cache.dart',
       ...args,
     ],
     workingDirectory: Directory.current.path,
-    runInShell: Platform.isWindows,
   );
-}
-
-String _dartExecutable() {
-  final candidates = <String>[
-    if (Platform.isWindows) r'C:\flutter\bin\dart.bat',
-    if (Platform.isWindows) 'dart.bat',
-    'dart',
-  ];
-  for (final candidate in candidates) {
-    if (candidate.contains(Platform.pathSeparator) &&
-        File(candidate).existsSync()) {
-      return candidate;
-    }
-  }
-  return candidates.last;
 }
 
 Map<String, dynamic> _frameSnapshot(int index, String charCaption) {

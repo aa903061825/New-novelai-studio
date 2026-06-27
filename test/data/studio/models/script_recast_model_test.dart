@@ -284,6 +284,16 @@ void main() {
       expect(rule.toJson()['targetWeightMultiplier'], 1.2);
     });
 
+    test('target weight multiplier without target prompt is effective', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-source-weight',
+        targetWeightMultiplier: 1.2,
+      );
+
+      expect(rule.effectiveAction, ScriptPromptReplacementAction.replace);
+      expect(rule.hasEffect, isTrue);
+    });
+
     test('replace action with blank target and manual prompt is inactive', () {
       const rule = ScriptPromptReplacementRule(
         id: 'rule-blank-replace',

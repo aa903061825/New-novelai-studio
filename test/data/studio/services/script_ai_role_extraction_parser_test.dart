@@ -9,6 +9,86 @@ void main() {
   group('ScriptAiRoleExtractionParser', () {
     const parser = ScriptAiRoleExtractionParser();
 
+    test('parses scene terms and cache suggestions', () {
+      const raw = '''
+{
+  "schema_version": 1,
+  "status": "ready",
+  "roles": [
+    {
+      "source_role_id": "slot-0",
+      "display_name": "角色A",
+      "prompt_terms": [
+        {
+          "id": "term-double-bun",
+          "text": "double bun",
+          "category": "body",
+          "source_phrase": "double bun",
+          "source_location": "slot-0 prompt",
+          "frame_indexes": [1]
+        },
+        {
+          "id": "term-holding-skirt",
+          "text": "holding skirt",
+          "category": "clothing_state",
+          "source_phrase": "holding skirt",
+          "source_location": "slot-0 prompt",
+          "frame_indexes": [1]
+        }
+      ],
+      "stages": []
+    }
+  ],
+  "scene_terms": [
+    {
+      "id": "scene-bedroom",
+      "text": "bedroom",
+      "category": "scene",
+      "source_phrase": "bedroom",
+      "source_location": "base prompt",
+      "frame_indexes": [1]
+    }
+  ],
+  "term_cache_suggestions": [
+    {
+      "text": "double bun",
+      "translation": "双丸子头",
+      "category": "upperBody",
+      "source": "ai_extraction"
+    }
+  ]
+}
+''';
+
+      final extraction = parser.parse(raw);
+
+      expect(extraction.status, ScriptAiRoleExtractionStatus.ready);
+      expect(extraction.roles.single.promptTerms.map((term) => term.text), [
+        'double bun',
+        'holding skirt',
+      ]);
+      expect(extraction.sceneTerms.single.text, 'bedroom');
+      expect(extraction.termCacheSuggestions, hasLength(1));
+      expect(extraction.termCacheSuggestions.single.text, 'double bun');
+      expect(extraction.termCacheSuggestions.single.translation, '双丸子头');
+      expect(
+        extraction.termCacheSuggestions.single.category,
+        PromptTagCategory.upperBody,
+      );
+      expect(extraction.termCacheSuggestions.single.source, 'ai_extraction');
+      expect(
+        extraction.toJson()['term_cache_suggestions'],
+        [
+          {
+            'text': 'double bun',
+            'translation': '双丸子头',
+            'category': 'upperBody',
+            'source': 'ai_extraction',
+          },
+        ],
+      );
+    });
+
     test('accepts roles with prompt terms and scene terms', () {
       const raw = '''
 {

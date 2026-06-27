@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
@@ -90,6 +91,52 @@ class PromptTagClassificationCacheEntry {
   }
 }
 
+class PromptTagClassificationSuggestion {
+  final String tag;
+  final PromptTagCategory category;
+  final String source;
+  final bool negative;
+
+  const PromptTagClassificationSuggestion({
+    required this.tag,
+    required this.category,
+    this.source = 'ai_extraction',
+    this.negative = false,
+  });
+}
+
+class PromptTagClassificationCacheEvents {
+  static final PromptTagClassificationRevisionNotifier revision =
+      PromptTagClassificationRevisionNotifier();
+
+  const PromptTagClassificationCacheEvents._();
+
+  static void notifyChanged() {
+    revision.notifyChanged();
+  }
+}
+
+class PromptTagClassificationRevisionNotifier {
+  final Set<void Function()> _listeners = <void Function()>{};
+
+  int value = 0;
+
+  void addListener(void Function() listener) {
+    _listeners.add(listener);
+  }
+
+  void removeListener(void Function() listener) {
+    _listeners.remove(listener);
+  }
+
+  void notifyChanged() {
+    value += 1;
+    for (final listener in List<void Function()>.of(_listeners)) {
+      listener();
+    }
+  }
+}
+
 class PromptTagClassificationCache {
   static const String _validCompoundTagsJsonKey = '__validCompoundTags';
 
@@ -130,6 +177,60 @@ class PromptTagClassificationCache {
   Set<String> get validCompoundTagKeys =>
       Set.unmodifiable(_validCompoundTagKeys);
 
+  int mergeMissingFrom(PromptTagClassificationCache other) {
+    var merged = 0;
+    for (final entry in other._entries.entries) {
+      final existing = _entries[entry.key];
+      if (existing == null) {
+        _entries[entry.key] = entry.value;
+        merged += 1;
+        continue;
+      }
+      if (_shouldReplaceMergedEntry(existing, entry.value)) {
+        _entries[entry.key] = entry.value;
+        merged += 1;
+      }
+    }
+    final compoundCount = _validCompoundTagKeys.length;
+    _validCompoundTagKeys.addAll(other._validCompoundTagKeys);
+    final changed = merged + _validCompoundTagKeys.length - compoundCount;
+    if (changed > 0) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
+    return changed;
+  }
+
+  int mergeMissingSuggestions(
+    Iterable<PromptTagClassificationSuggestion> suggestions, {
+    bool refreshMachineEntries = false,
+  }) {
+    var merged = 0;
+    for (final suggestion in suggestions) {
+      final cleaned = _cleanTag(suggestion.tag);
+      if (cleaned.isEmpty) continue;
+      final key = _cacheKey(cleaned, negative: suggestion.negative);
+      final existing = _entries[key];
+      if (existing != null) {
+        if (!refreshMachineEntries || _isUserConfirmedSource(existing.source)) {
+          continue;
+        }
+      }
+
+      _entries[key] = PromptTagClassificationCacheEntry(
+        category: suggestion.category,
+        source: suggestion.source.trim().isEmpty
+            ? 'ai_extraction'
+            : suggestion.source.trim(),
+        updatedAt: clock(),
+      );
+      merged += 1;
+    }
+    if (merged > 0) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
+    return merged;
+  }
+
   bool isValidCompoundTag(String tag) {
     final key = _legacyCacheKey(tag);
     return key.isNotEmpty && _validCompoundTagKeys.contains(key);
@@ -138,7 +239,9 @@ class PromptTagClassificationCache {
   void confirmValidCompoundTag(String tag) {
     final key = _legacyCacheKey(tag);
     if (key.isEmpty) return;
-    _validCompoundTagKeys.add(key);
+    if (_validCompoundTagKeys.add(key)) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
   }
 
   PromptTagClassificationCacheEntry? entryFor(
@@ -172,6 +275,9 @@ class PromptTagClassificationCache {
       source: source,
       updatedAt: clock(),
     );
+    if (source != 'rules') {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
   }
 
   void clearCategory(
@@ -180,13 +286,18 @@ class PromptTagClassificationCache {
   }) {
     final cleaned = _cleanTag(tag);
     if (cleaned.isEmpty) return;
-    _entries.remove(_cacheKey(cleaned, negative: negative));
+    var changed =
+        _entries.remove(_cacheKey(cleaned, negative: negative)) != null;
 
     final legacyKey = _legacyCacheKey(cleaned);
     final legacyEntry = _entries[legacyKey];
     if (legacyEntry != null &&
         _categoryMatchesPolarity(legacyEntry.category, negative: negative)) {
       _entries.remove(legacyKey);
+      changed = true;
+    }
+    if (changed) {
+      PromptTagClassificationCacheEvents.notifyChanged();
     }
   }
 
@@ -207,6 +318,26 @@ class PromptTagClassificationCache {
 
   static String _legacyCacheKey(String tag) {
     return PromptTagProcessor.normalizeMatchKey(_cleanTag(tag));
+  }
+
+  static bool _shouldReplaceMergedEntry(
+    PromptTagClassificationCacheEntry existing,
+    PromptTagClassificationCacheEntry incoming,
+  ) {
+    if (_isManualSource(existing.source)) {
+      return false;
+    }
+    if (_isManualSource(incoming.source)) {
+      return true;
+    }
+    if (existing.source == 'rules' && incoming.source != 'rules') {
+      return true;
+    }
+    return existing.source == 'legacy' && incoming.source != 'legacy';
+  }
+
+  static bool _isManualSource(String source) {
+    return source == 'manual' || source.startsWith('manual-');
   }
 }
 
@@ -231,13 +362,8 @@ class PromptTagClassificationCacheRepository {
       return PromptTagClassificationCache();
     }
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map) {
-        return PromptTagClassificationCache();
-      }
-      return PromptTagClassificationCache.fromJson(
-        Map<String, dynamic>.from(decoded),
-      );
+      final path = file.path;
+      return Isolate.run(() => _classificationCacheFromFile(path));
     } catch (_) {
       return PromptTagClassificationCache();
     }
@@ -248,6 +374,17 @@ class PromptTagClassificationCacheRepository {
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString('${encoder.convert(cache.toJson())}\n');
   }
+}
+
+PromptTagClassificationCache _classificationCacheFromFile(String path) {
+  final source = File(path).readAsStringSync();
+  final decoded = jsonDecode(source);
+  if (decoded is! Map) {
+    return PromptTagClassificationCache();
+  }
+  return PromptTagClassificationCache.fromJson(
+    Map<String, dynamic>.from(decoded),
+  );
 }
 
 class PromptTagClassifier {
@@ -975,4 +1112,9 @@ String _cleanTag(String tag) {
     cleaned = cleaned.substring(1, cleaned.length - 1).trim();
   }
   return cleaned;
+}
+
+bool _isUserConfirmedSource(String source) {
+  final normalized = source.trim().toLowerCase();
+  return normalized.startsWith('manual') || normalized.startsWith('user');
 }

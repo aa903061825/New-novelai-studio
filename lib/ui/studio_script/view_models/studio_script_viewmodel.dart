@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
@@ -38,11 +39,23 @@ typedef StudioScriptFilterRulesSaver = Future<void> Function(
     Map<String, dynamic> filterRules);
 typedef StudioScriptAssetContextLoader = Future<ScriptRecastAssetContext>
     Function();
+typedef StudioScriptCacheSnapshotHydrator = Future<Script> Function({
+  required Map<String, dynamic> scriptSnapshot,
+  String? importPath,
+});
+typedef StudioScriptOpenTimingSink = void Function(
+  StudioScriptOpenTiming timing,
+);
 typedef StudioScriptCachesLoader = Future<List<RecastScriptCache>> Function();
 typedef StudioScriptCachesSaver = Future<void> Function(
     List<RecastScriptCache> caches);
 typedef StudioScriptCacheByScriptIdLoader = Future<RecastScriptCache?> Function(
     String scriptId);
+typedef StudioScriptCacheSnapshotByScriptIdRestorer
+    = Future<RecastScriptCacheSnapshotRestore?> Function({
+  required String scriptId,
+  String? importPath,
+});
 typedef StudioScriptCacheSaver = Future<void> Function(RecastScriptCache cache);
 typedef StudioScriptKnowledgeBaseLoader = Future<Map<String, dynamic>>
     Function();
@@ -51,6 +64,8 @@ typedef StudioScriptKnowledgeBaseSaver = Future<void> Function(
 typedef StudioScriptAiSettingProvider = String Function();
 typedef StudioScriptTagClassificationCacheSaver = Future<void> Function(
     PromptTagClassificationCache cache);
+typedef StudioScriptTranslationCacheSaver = Future<void> Function(
+    TranslationCache cache);
 
 class StudioScriptReplacementSourceTermDraft {
   final String text;
@@ -59,6 +74,16 @@ class StudioScriptReplacementSourceTermDraft {
   const StudioScriptReplacementSourceTermDraft({
     required this.text,
     required this.category,
+  });
+}
+
+class _AddedFrameReviewRuleResult {
+  final List<ScriptPromptReplacementRule> rules;
+  final String selectedRuleId;
+
+  const _AddedFrameReviewRuleResult({
+    required this.rules,
+    required this.selectedRuleId,
   });
 }
 
@@ -391,6 +416,19 @@ class StudioScriptReplacementRuleItem {
     this.selected = false,
   });
 
+  ScriptPromptReplacementAction get effectiveAction {
+    if (action == ScriptPromptReplacementAction.delete) {
+      return ScriptPromptReplacementAction.delete;
+    }
+    if (targetPrompt.trim().isNotEmpty) {
+      return ScriptPromptReplacementAction.replace;
+    }
+    if (targetWeightMultiplier != null) {
+      return ScriptPromptReplacementAction.replace;
+    }
+    return ScriptPromptReplacementAction.none;
+  }
+
   StudioScriptReplacementRuleItem copyWith({
     List<ScriptPromptReplacementTerm>? sourceTerms,
     List<String>? excludedTermIds,
@@ -514,6 +552,37 @@ class StudioScriptDiff {
   const StudioScriptDiff({required this.original, required this.recast});
 }
 
+class StudioScriptOpenTiming {
+  final String operation;
+  final String stage;
+  final Duration elapsed;
+  final bool cacheHit;
+
+  const StudioScriptOpenTiming({
+    required this.operation,
+    required this.stage,
+    required this.elapsed,
+    this.cacheHit = false,
+  });
+}
+
+Future<Script> defaultStudioScriptCacheSnapshotHydrator({
+  required Map<String, dynamic> scriptSnapshot,
+  String? importPath,
+}) {
+  return Isolate.run(() {
+    final cachedScript = Script.fromJson(scriptSnapshot);
+    final normalizedImportPath = importPath?.trim();
+    if (normalizedImportPath == null || normalizedImportPath.isEmpty) {
+      return cachedScript;
+    }
+    return rebindCachedScriptToImportDirectory(
+      cachedScript,
+      Directory(normalizedImportPath),
+    );
+  });
+}
+
 class StudioScriptViewModel extends ChangeNotifier {
   final StudioScriptDirectoryPicker? pickScriptDirectory;
   final ScriptRecastParserService parserService;
@@ -529,9 +598,13 @@ class StudioScriptViewModel extends ChangeNotifier {
   final StudioScriptCachesLoader? loadRecastCaches;
   final StudioScriptCachesSaver? saveRecastCaches;
   final StudioScriptCacheByScriptIdLoader? loadRecastCacheByScriptId;
+  final StudioScriptCacheSnapshotByScriptIdRestorer?
+      restoreRecastCacheSnapshotByScriptId;
   final StudioScriptCacheSaver? saveRecastCache;
   final StudioScriptKnowledgeBaseLoader? loadRecastKnowledgeBase;
   final StudioScriptKnowledgeBaseSaver? saveRecastKnowledgeBase;
+  final StudioScriptCacheSnapshotHydrator hydrateCachedScriptSnapshot;
+  final StudioScriptOpenTimingSink? openTimingSink;
   final ScriptAiRoleExtractionService? scriptAiRoleExtractionService;
   final ScriptRecastCacheRestoreService cacheRestoreService;
   final StudioScriptAiSettingProvider? scriptAiBaseUrlProvider;
@@ -541,6 +614,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   final StudioScriptAiSettingProvider? scriptAiProxyProvider;
   final TranslationCache translationCache;
   final PromptTagClassificationCache classificationCache;
+  final StudioScriptTranslationCacheSaver? saveTranslationCache;
   final StudioScriptTagClassificationCacheSaver? saveClassificationCache;
 
   Script? _script;
@@ -611,6 +685,8 @@ class StudioScriptViewModel extends ChangeNotifier {
   Timer? _aiRoleExtractionStreamNotifyTimer;
   Timer? _cacheSaveDebounceTimer;
   Future<void> _cacheSaveTail = Future<void>.value();
+  int _deferredAssetRefreshGeneration = 0;
+  int _scriptOpenGeneration = 0;
   List<StudioScriptRoleMappingItem> roleMappings = const [];
   List<StudioScriptRoleReplacementItem> roleReplacementMappings = const [];
   List<StudioScriptSceneReplacementItem> sceneReplacementMappings = const [];
@@ -672,6 +748,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       );
 
   bool get hasChangedSourceCache => _changedSourceCache != null;
+  int? get selectedFrameIndex => _selectedFrameIndex;
 
   bool get isAiBusy => isExtractingAiRoleEvidence || isApplyingAiRoleExtraction;
 
@@ -696,9 +773,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     this.loadRecastCaches,
     this.saveRecastCaches,
     this.loadRecastCacheByScriptId,
+    this.restoreRecastCacheSnapshotByScriptId,
     this.saveRecastCache,
     this.loadRecastKnowledgeBase,
     this.saveRecastKnowledgeBase,
+    StudioScriptCacheSnapshotHydrator? hydrateCachedScriptSnapshot,
+    this.openTimingSink,
     this.scriptAiRoleExtractionService,
     this.cacheRestoreService = const ScriptRecastCacheRestoreService(),
     this.scriptAiBaseUrlProvider,
@@ -708,8 +788,11 @@ class StudioScriptViewModel extends ChangeNotifier {
     this.scriptAiProxyProvider,
     TranslationCache? translationCache,
     PromptTagClassificationCache? classificationCache,
+    this.saveTranslationCache,
     this.saveClassificationCache,
   })  : translationCache = translationCache ?? TranslationCache(),
+        hydrateCachedScriptSnapshot = hydrateCachedScriptSnapshot ??
+            defaultStudioScriptCacheSnapshotHydrator,
         classificationCache =
             classificationCache ?? PromptTagClassificationCache();
 
@@ -732,6 +815,219 @@ class StudioScriptViewModel extends ChangeNotifier {
       await importScriptPath(path);
     } catch (error, stackTrace) {
       _recordImportFailure(error, stackTrace);
+    }
+  }
+
+  Future<void> openScriptFromExhibition({
+    required String scriptId,
+    required String sourceFolder,
+    int? frameIndex,
+  }) async {
+    final timingStopwatch = Stopwatch()..start();
+    const timingOperation = 'script-exhibition-open';
+    final normalizedScriptId = scriptId.trim();
+    final normalizedSourceFolder = sourceFolder.trim();
+    if (_currentScriptMatches(
+      scriptId: normalizedScriptId,
+      sourceFolder: normalizedSourceFolder,
+    )) {
+      _selectFrameIfAvailable(frameIndex);
+      _recordOpenTiming(
+        operation: timingOperation,
+        stage: 'already-open',
+        stopwatch: timingStopwatch,
+        cacheHit: true,
+      );
+      return;
+    }
+
+    final openGeneration = _beginScriptOpenOperation();
+    _setImportProgress('正在打开剧本工作台...', value: 0.02);
+    await _yieldImportProgressFrame();
+    if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+    final restoreSnapshotByScriptId = restoreRecastCacheSnapshotByScriptId;
+    final restoreImportPath =
+        normalizedSourceFolder.isEmpty ? null : normalizedSourceFolder;
+    if (normalizedScriptId.isNotEmpty && restoreSnapshotByScriptId != null) {
+      try {
+        _setImportProgress(importProgressLabel, value: 0.12);
+        await _yieldImportProgressFrame();
+        if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+        _setImportProgress(importProgressLabel, value: 0.28);
+        await _yieldImportProgressFrame();
+        if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+        final restored = await restoreSnapshotByScriptId(
+          scriptId: normalizedScriptId,
+          importPath: restoreImportPath,
+        );
+        _recordOpenTiming(
+          operation: timingOperation,
+          stage: 'load-cache',
+          stopwatch: timingStopwatch,
+          cacheHit: restored != null,
+        );
+        if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+        if (restored != null) {
+          _recordOpenTiming(
+            operation: timingOperation,
+            stage: 'hydrate-cache-snapshot',
+            stopwatch: timingStopwatch,
+            cacheHit: true,
+          );
+          if (await _applyHydratedCachedScriptSnapshot(
+            cache: restored.cache,
+            script: restored.script,
+            loadAssetsBeforeApply: false,
+            reportProgress: true,
+            shouldContinue: () => _isCurrentScriptOpenOperation(openGeneration),
+            timingOperation: timingOperation,
+            timingStopwatch: timingStopwatch,
+          )) {
+            if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+            _setImportProgress(importProgressLabel, value: 0.96);
+            await _yieldImportProgressFrame();
+            if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+            _clearImportProgress();
+            notifyListeners();
+            _selectFrameIfAvailable(frameIndex);
+            _scheduleDeferredAssetRefresh(restored.cache, normalizedScriptId);
+            _recordOpenTiming(
+              operation: timingOperation,
+              stage: 'complete-cache-hit',
+              stopwatch: timingStopwatch,
+              cacheHit: true,
+            );
+            return;
+          }
+        }
+      } catch (error, stackTrace) {
+        debugPrint(
+          'Failed to restore exhibition script cache directly: '
+          '$error\n$stackTrace',
+        );
+      }
+    }
+    final targetedLoader = loadRecastCacheByScriptId;
+    if (normalizedScriptId.isNotEmpty && targetedLoader != null) {
+      try {
+        _setImportProgress('正在读取剧本缓存...', value: 0.12);
+        await _yieldImportProgressFrame();
+        if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+        final cache = await targetedLoader(normalizedScriptId);
+        _recordOpenTiming(
+          operation: timingOperation,
+          stage: 'load-cache',
+          stopwatch: timingStopwatch,
+          cacheHit: cache != null,
+        );
+        if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+        if (cache != null &&
+            cacheRestoreService.cacheSnapshotHasFrames(cache.scriptSnapshot) &&
+            await _restoreCachedScriptSnapshot(
+              cache,
+              importPath: normalizedSourceFolder.isEmpty
+                  ? null
+                  : normalizedSourceFolder,
+              loadAssetsBeforeApply: false,
+              reportProgress: true,
+              shouldContinue: () =>
+                  _isCurrentScriptOpenOperation(openGeneration),
+              timingOperation: timingOperation,
+              timingStopwatch: timingStopwatch,
+            )) {
+          if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+          _setImportProgress('正在完成剧本工作台...', value: 0.96);
+          await _yieldImportProgressFrame();
+          if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+          _clearImportProgress();
+          notifyListeners();
+          _selectFrameIfAvailable(frameIndex);
+          _scheduleDeferredAssetRefresh(cache, normalizedScriptId);
+          _recordOpenTiming(
+            operation: timingOperation,
+            stage: 'complete-cache-hit',
+            stopwatch: timingStopwatch,
+            cacheHit: true,
+          );
+          return;
+        }
+      } catch (error, stackTrace) {
+        debugPrint(
+          'Failed to restore exhibition script cache: $error\n$stackTrace',
+        );
+      }
+    }
+
+    if (normalizedSourceFolder.isEmpty) {
+      _clearImportProgress();
+      notifyListeners();
+      _recordOpenTiming(
+        operation: timingOperation,
+        stage: 'empty-source-folder',
+        stopwatch: timingStopwatch,
+      );
+      return;
+    }
+    _setImportProgress('未命中缓存，正在扫描原目录...', value: 0.2);
+    await _yieldImportProgressFrame();
+    if (!_isCurrentScriptOpenOperation(openGeneration)) return;
+    await importScriptPath(normalizedSourceFolder);
+    _selectFrameIfAvailable(frameIndex);
+    _recordOpenTiming(
+      operation: timingOperation,
+      stage: 'complete-fallback-import',
+      stopwatch: timingStopwatch,
+    );
+  }
+
+  void _recordOpenTiming({
+    required String? operation,
+    required String stage,
+    Stopwatch? stopwatch,
+    bool cacheHit = false,
+  }) {
+    if (operation == null) {
+      return;
+    }
+    final timing = StudioScriptOpenTiming(
+      operation: operation,
+      stage: stage,
+      elapsed: stopwatch?.elapsed ?? Duration.zero,
+      cacheHit: cacheHit,
+    );
+    openTimingSink?.call(timing);
+    if (kDebugMode) {
+      debugPrint(
+        '[StudioScriptOpen] ${timing.operation}/${timing.stage} '
+        '${timing.elapsed.inMilliseconds}ms '
+        '${timing.cacheHit ? 'cache-hit' : 'cache-miss'}',
+      );
+    }
+  }
+
+  bool _currentScriptMatches({
+    required String scriptId,
+    required String sourceFolder,
+  }) {
+    final script = _script;
+    if (script == null) {
+      return false;
+    }
+    if (scriptId.isNotEmpty && script.id == scriptId) {
+      return true;
+    }
+    return sourceFolder.isNotEmpty &&
+        _normalizePathForComparison(script.rootPath) ==
+            _normalizePathForComparison(sourceFolder);
+  }
+
+  String _normalizePathForComparison(String path) {
+    return path.trim().replaceAll('\\', '/').toLowerCase();
+  }
+
+  void _selectFrameIfAvailable(int? frameIndex) {
+    if (frameIndex != null) {
+      selectFrame(frameIndex);
     }
   }
 
@@ -830,6 +1126,8 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   Future<void> importScriptPath(String path) async {
     try {
+      _scriptOpenGeneration += 1;
+      _deferredAssetRefreshGeneration += 1;
       await _flushPendingCurrentCacheSaveBeforeImport();
       _setImportProgress('正在检查剧本缓存...');
       final hasCacheLoader =
@@ -918,6 +1216,21 @@ class StudioScriptViewModel extends ChangeNotifier {
       final scriptId = ScriptRecastParserService.scriptIdForDirectory(
         Directory(path),
       );
+      final restoreSnapshotByScriptId = restoreRecastCacheSnapshotByScriptId;
+      if (restoreSnapshotByScriptId != null) {
+        final restored = await restoreSnapshotByScriptId(
+          scriptId: scriptId,
+          importPath: path,
+        );
+        if (restored != null &&
+            cacheRestoreService.cacheMatchesImportPath(restored.cache, path) &&
+            await _applyHydratedCachedScriptSnapshot(
+              cache: restored.cache,
+              script: restored.script,
+            )) {
+          return true;
+        }
+      }
       final cache = await targetedLoader(scriptId);
       if (cache != null &&
           cacheRestoreService.cacheMatchesImportPath(cache, path)) {
@@ -975,18 +1288,71 @@ class StudioScriptViewModel extends ChangeNotifier {
   Future<bool> _restoreCachedScriptSnapshot(
     RecastScriptCache cache, {
     String? importPath,
+    bool loadAssetsBeforeApply = true,
+    bool reportProgress = false,
+    bool Function()? shouldContinue,
+    String? timingOperation,
+    Stopwatch? timingStopwatch,
   }) async {
-    final cachedScript = Script.fromJson(cache.scriptSnapshot);
-    final script = importPath == null || importPath.trim().isEmpty
-        ? cachedScript
-        : rebindCachedScriptToImportDirectory(
-            cachedScript,
-            Directory(importPath),
-          );
+    if (reportProgress) {
+      _setImportProgress('正在恢复剧本快照...', value: 0.28);
+      await _yieldImportProgressFrame();
+      if (shouldContinue?.call() == false) return false;
+    }
+    final script = await hydrateCachedScriptSnapshot(
+      scriptSnapshot: cache.scriptSnapshot,
+      importPath: importPath,
+    );
+    if (shouldContinue?.call() == false) return false;
+    _recordOpenTiming(
+      operation: timingOperation,
+      stage: 'hydrate-cache-snapshot',
+      stopwatch: timingStopwatch,
+      cacheHit: true,
+    );
+    return _applyHydratedCachedScriptSnapshot(
+      cache: cache,
+      script: script,
+      loadAssetsBeforeApply: loadAssetsBeforeApply,
+      reportProgress: reportProgress,
+      shouldContinue: shouldContinue,
+      timingOperation: timingOperation,
+      timingStopwatch: timingStopwatch,
+    );
+  }
+
+  Future<bool> _applyHydratedCachedScriptSnapshot({
+    required RecastScriptCache cache,
+    required Script script,
+    bool loadAssetsBeforeApply = true,
+    bool reportProgress = false,
+    bool Function()? shouldContinue,
+    String? timingOperation,
+    Stopwatch? timingStopwatch,
+  }) async {
     if (script.frames.isEmpty) {
       return false;
     }
-    await _loadAssets();
+    if (loadAssetsBeforeApply) {
+      if (reportProgress) {
+        _setImportProgress('正在加载素材索引...', value: 0.42);
+        await _yieldImportProgressFrame();
+        if (shouldContinue?.call() == false) return false;
+      }
+      await _loadAssets();
+      if (shouldContinue?.call() == false) return false;
+      _recordOpenTiming(
+        operation: timingOperation,
+        stage: 'load-assets',
+        stopwatch: timingStopwatch,
+        cacheHit: true,
+      );
+    }
+    if (reportProgress) {
+      _setImportProgress('正在整理剧本结构...', value: 0.56);
+      await _yieldImportProgressFrame();
+      if (shouldContinue?.call() == false) return false;
+    }
     _ensureTemporaryArtistChainFromScript(script);
     _script = script;
     sentToProduction = false;
@@ -1009,10 +1375,73 @@ class StudioScriptViewModel extends ChangeNotifier {
     _artistSourceLabelOverride = null;
     _clearAiProgress();
     _changedSourceCache = null;
-    _applyScript(script);
-    _applyCache(cache);
+    _applyCache(cache, refreshPreview: false);
+    _recordOpenTiming(
+      operation: timingOperation,
+      stage: 'apply-cache',
+      stopwatch: timingStopwatch,
+      cacheHit: true,
+    );
+    _applyScript(script, mappingOverride: _mapping);
+    if (shouldContinue?.call() == false) return false;
+    if (reportProgress) {
+      _setImportProgress('正在生成工作台草稿...', value: 0.72);
+      await _yieldImportProgressFrame();
+      if (shouldContinue?.call() == false) return false;
+    }
+    _recordOpenTiming(
+      operation: timingOperation,
+      stage: 'apply-script',
+      stopwatch: timingStopwatch,
+      cacheHit: true,
+    );
+    if (reportProgress) {
+      _setImportProgress('正在应用缓存映射...', value: 0.84);
+      await _yieldImportProgressFrame();
+      if (shouldContinue?.call() == false) return false;
+    }
     cacheStatus = '已从缓存快速恢复本剧本';
     return true;
+  }
+
+  void _scheduleDeferredAssetRefresh(
+    RecastScriptCache cache,
+    String scriptId,
+  ) {
+    final normalizedScriptId = scriptId.trim();
+    if (normalizedScriptId.isEmpty) return;
+    _deferredAssetRefreshGeneration += 1;
+    final generation = _deferredAssetRefreshGeneration;
+    unawaited(_refreshAssetsAfterFastOpen(
+      cache: cache,
+      scriptId: normalizedScriptId,
+      generation: generation,
+    ));
+  }
+
+  Future<void> _refreshAssetsAfterFastOpen({
+    required RecastScriptCache cache,
+    required String scriptId,
+    required int generation,
+  }) async {
+    try {
+      await _loadAssets();
+      final script = _script;
+      if (script == null ||
+          script.id != scriptId ||
+          generation != _deferredAssetRefreshGeneration) {
+        return;
+      }
+      _ensureTemporaryArtistChainFromScript(script);
+      _applyCache(cache, refreshPreview: false);
+      _applyScript(script, mappingOverride: _mapping);
+      notifyListeners();
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Failed to refresh script assets after exhibition fast open: '
+        '$error\n$stackTrace',
+      );
+    }
   }
 
   Future<bool> _scriptDirectoryContainsPng(String path) async {
@@ -1141,6 +1570,19 @@ class StudioScriptViewModel extends ChangeNotifier {
       message: label,
     );
     notifyListeners();
+  }
+
+  int _beginScriptOpenOperation() {
+    _scriptOpenGeneration += 1;
+    return _scriptOpenGeneration;
+  }
+
+  bool _isCurrentScriptOpenOperation(int generation) {
+    return generation == _scriptOpenGeneration;
+  }
+
+  Future<void> _yieldImportProgressFrame() {
+    return Future<void>.delayed(Duration.zero);
   }
 
   void _clearImportProgress() {
@@ -1465,6 +1907,10 @@ class StudioScriptViewModel extends ChangeNotifier {
           proxy: scriptAiProxyProvider?.call().trim() ?? '',
           script: script,
           completedChunkExtractions: aiRoleExtractionChunks,
+          translationCache: translationCache,
+          classificationCache: classificationCache,
+          saveTranslationCache: saveTranslationCache,
+          saveClassificationCache: saveClassificationCache,
           onRequestStarted: (requestPreview) {
             if (!_isCurrentAiOperation(operationId)) {
               return;
@@ -2413,6 +2859,262 @@ class StudioScriptViewModel extends ChangeNotifier {
     };
   }
 
+  bool addSelectedFramePreviewTermsToSelectedReplacementRule({
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    return addFrameReviewTermsToSelectedReplacementRule(
+      frameIndex: _selectedFrameIndex ?? 0,
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+  }
+
+  bool addSelectedFramePreviewTermsToReplacementArea({
+    required String sourceGroupId,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    return addFrameReviewTermsToReplacementArea(
+      frameIndex: _selectedFrameIndex ?? 0,
+      sourceGroupId: _selectedFramePreviewSourceGroupId(sourceGroupId),
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+  }
+
+  bool addFrameReviewTermsToReplacementArea({
+    required int frameIndex,
+    required String sourceGroupId,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null) {
+      return false;
+    }
+    final roleReplacement = _roleReplacementForFrameGroup(
+      mapping,
+      frameIndex: frameIndex,
+      sourceGroupId: sourceGroupId,
+    );
+    if (roleReplacement != null) {
+      final incoming = _frameReviewReplacementTerms(
+        frameIndex: frameIndex,
+        sourceLocation: sourceLocation,
+        terms: terms,
+        scope: 'role',
+        ownerId: roleReplacement.sourceRoleId,
+        sourceGroupId: sourceGroupId,
+      );
+      if (incoming.isEmpty) {
+        return false;
+      }
+      return _addFrameReviewReplacementTermsToRole(
+        mapping: mapping,
+        sourceRoleId: roleReplacement.sourceRoleId,
+        sourceTerms: incoming,
+      );
+    }
+
+    final sceneGroupId = _frameReviewSceneReplacementGroupId(sourceGroupId);
+    final incoming = _frameReviewReplacementTerms(
+      frameIndex: frameIndex,
+      sourceLocation: sourceLocation,
+      terms: terms,
+      scope: 'scene',
+      ownerId: sceneGroupId,
+      sourceGroupId: sourceGroupId,
+    );
+    if (incoming.isEmpty) {
+      return false;
+    }
+    return _addFrameReviewReplacementTermsToScene(
+      mapping: mapping,
+      sceneGroupId: sceneGroupId,
+      sourceLocation: sourceLocation,
+      sourceTerms: incoming,
+    );
+  }
+
+  bool addFrameReviewTermsToRoleReplacementArea({
+    required String sourceRoleId,
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null) {
+      return false;
+    }
+    final incoming = _frameReviewReplacementTerms(
+      frameIndex: frameIndex,
+      sourceLocation: sourceLocation,
+      terms: terms,
+      scope: 'role',
+      ownerId: sourceRoleId,
+    );
+    if (incoming.isEmpty) {
+      return false;
+    }
+    return _addFrameReviewReplacementTermsToRole(
+      mapping: mapping,
+      sourceRoleId: sourceRoleId,
+      sourceTerms: incoming,
+    );
+  }
+
+  bool addSelectedFramePreviewTermsToRoleReplacementArea({
+    required String sourceRoleId,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    return addFrameReviewTermsToRoleReplacementArea(
+      sourceRoleId: sourceRoleId,
+      frameIndex: _selectedFrameIndex ?? 0,
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+  }
+
+  bool addFrameReviewTermsToSceneReplacementArea({
+    required String groupId,
+    required int frameIndex,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    final mapping = _mapping;
+    if (mapping == null) {
+      return false;
+    }
+    final incoming = _frameReviewReplacementTerms(
+      frameIndex: frameIndex,
+      sourceLocation: sourceLocation,
+      terms: terms,
+      scope: 'scene',
+      ownerId: groupId,
+    );
+    if (incoming.isEmpty) {
+      return false;
+    }
+    return _addFrameReviewReplacementTermsToSceneGroup(
+      mapping: mapping,
+      groupId: groupId,
+      label: sourceLocation,
+      sourceTerms: incoming,
+    );
+  }
+
+  bool addSelectedFramePreviewTermsToSceneReplacementArea({
+    required String groupId,
+    required String sourceLocation,
+    required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+  }) {
+    return addFrameReviewTermsToSceneReplacementArea(
+      groupId: groupId,
+      frameIndex: _selectedFrameIndex ?? 0,
+      sourceLocation: sourceLocation,
+      terms: terms,
+    );
+  }
+
+  bool _addFrameReviewReplacementTermsToRole({
+    required RecastMapping mapping,
+    required String sourceRoleId,
+    required List<ScriptPromptReplacementTerm> sourceTerms,
+  }) {
+    final roleReplacement = mapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (roleReplacement == null) {
+      return false;
+    }
+    final nextRules = _replacementRulesWithAddedFrameReviewRule(
+      rules: roleReplacement.rules,
+      scope: 'role',
+      ownerId: roleReplacement.sourceRoleId,
+      sourceTerms: sourceTerms,
+    );
+    if (nextRules == null) {
+      return false;
+    }
+    _selectedRoleReplacementRuleIdsByRole[roleReplacement.sourceRoleId] = {
+      nextRules.selectedRuleId,
+    };
+    _mapping = mapping.copyWith(
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          if (replacement.sourceRoleId == roleReplacement.sourceRoleId)
+            replacement.copyWith(rules: nextRules.rules)
+          else
+            replacement,
+      ]),
+    );
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+    return true;
+  }
+
+  bool _addFrameReviewReplacementTermsToScene({
+    required RecastMapping mapping,
+    required String sceneGroupId,
+    required String sourceLocation,
+    required List<ScriptPromptReplacementTerm> sourceTerms,
+  }) {
+    return _addFrameReviewReplacementTermsToSceneGroup(
+      mapping: mapping,
+      groupId: sceneGroupId,
+      label: sourceLocation.trim().isEmpty ? 'Frame source' : sourceLocation,
+      sourceTerms: sourceTerms,
+    );
+  }
+
+  bool _addFrameReviewReplacementTermsToSceneGroup({
+    required RecastMapping mapping,
+    required String groupId,
+    required String label,
+    required List<ScriptPromptReplacementTerm> sourceTerms,
+  }) {
+    final sceneReplacement = mapping.scenePromptReplacements
+            .where((replacement) => replacement.id == groupId)
+            .firstOrNull ??
+        ScriptScenePromptReplacement(
+          id: groupId,
+          label: label.trim().isEmpty ? 'Frame source' : label,
+        );
+    final nextRules = _replacementRulesWithAddedFrameReviewRule(
+      rules: sceneReplacement.rules,
+      scope: 'scene',
+      ownerId: sceneReplacement.id,
+      sourceTerms: sourceTerms,
+    );
+    if (nextRules == null) {
+      return false;
+    }
+    _selectedSceneReplacementRuleIdsByGroup[sceneReplacement.id] = {
+      nextRules.selectedRuleId,
+    };
+    var replaced = false;
+    _mapping = mapping.copyWith(
+      scenePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.scenePromptReplacements)
+          if (replacement.id == sceneReplacement.id)
+            _markChanged(
+              replacement.copyWith(rules: nextRules.rules),
+              () => replaced = true,
+            )
+          else
+            replacement,
+        if (!replaced) sceneReplacement.copyWith(rules: nextRules.rules),
+      ]),
+    );
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+    return true;
+  }
+
   bool addFrameReviewTermsToRoleReplacementRule({
     required String sourceRoleId,
     required String ruleId,
@@ -2424,6 +3126,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       frameIndex: frameIndex,
       sourceLocation: sourceLocation,
       terms: terms,
+      scope: 'role',
+      ownerId: sourceRoleId,
     );
     if (incoming.isEmpty) {
       return false;
@@ -2454,6 +3158,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       frameIndex: frameIndex,
       sourceLocation: sourceLocation,
       terms: terms,
+      scope: 'scene',
+      ownerId: groupId,
     );
     if (incoming.isEmpty) {
       return false;
@@ -2505,10 +3211,108 @@ class StudioScriptViewModel extends ChangeNotifier {
     return sceneTargets.single;
   }
 
+  ScriptRolePromptReplacement? _roleReplacementForFrameGroup(
+    RecastMapping mapping, {
+    required int frameIndex,
+    required String sourceGroupId,
+  }) {
+    final slotIndex = _roleSlotIndexForFrameReviewGroup(sourceGroupId);
+    if (slotIndex == null) {
+      return null;
+    }
+    final slotRoleId = 'slot-$slotIndex';
+    final replacementsBySourceRoleId = {
+      for (final replacement in mapping.rolePromptReplacements)
+        replacement.sourceRoleId: replacement,
+    };
+    final direct = replacementsBySourceRoleId[slotRoleId];
+    if (direct != null) {
+      return direct;
+    }
+    for (final assembly in mapping.roleAssemblies) {
+      if (!_roleAssemblyTargetsFrameSlot(
+        assembly,
+        slotRoleId: slotRoleId,
+        frameIndex: frameIndex,
+      )) {
+        continue;
+      }
+      final replacement = replacementsBySourceRoleId[assembly.sourceRoleId];
+      if (replacement != null) {
+        return replacement;
+      }
+    }
+    final replacementIndex = slotIndex;
+    if (replacementIndex >= 0 &&
+        replacementIndex < mapping.rolePromptReplacements.length) {
+      return mapping.rolePromptReplacements[replacementIndex];
+    }
+    if (mapping.rolePromptReplacements.length == 1) {
+      return mapping.rolePromptReplacements.single;
+    }
+    return null;
+  }
+
+  int? _roleSlotIndexForFrameReviewGroup(String sourceGroupId) {
+    final match = RegExp(r'^role-(\d+)$').firstMatch(sourceGroupId.trim());
+    final number = int.tryParse(match?.group(1) ?? '');
+    if (number == null || number <= 0) {
+      return null;
+    }
+    return number - 1;
+  }
+
+  bool _roleAssemblyTargetsFrameSlot(
+    RoleAssembly assembly, {
+    required String slotRoleId,
+    required int frameIndex,
+  }) {
+    if (assembly.sourceRoleId.trim() == slotRoleId) {
+      return true;
+    }
+    for (final appearance in assembly.sourceAppearances) {
+      if (appearance.frameIndexes.isNotEmpty &&
+          !appearance.frameIndexes.contains(frameIndex)) {
+        continue;
+      }
+      final sourceKind = appearance.sourceKind.trim();
+      if (sourceKind.isNotEmpty && sourceKind != 'slot') {
+        continue;
+      }
+      if (appearance.sourceId.trim() == slotRoleId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _selectedFramePreviewSourceGroupId(String sourceGroupId) {
+    final trimmed = sourceGroupId.trim();
+    if (trimmed.startsWith('before-')) {
+      return trimmed.substring('before-'.length);
+    }
+    return trimmed;
+  }
+
+  String _frameReviewSceneReplacementGroupId(String sourceGroupId) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(sourceGroupId);
+    if (normalized.isEmpty || normalized == 'base') {
+      return 'frame-scene';
+    }
+    return stableIdFromText(
+      prefix: 'frame-scene',
+      text: normalized,
+      label: sourceGroupId,
+    );
+  }
+
   List<ScriptPromptReplacementTerm> _frameReviewReplacementTerms({
     required int frameIndex,
     required String sourceLocation,
     required Iterable<StudioScriptReplacementSourceTermDraft> terms,
+    String? scope,
+    String? ownerId,
+    String? sourceGroupId,
   }) {
     final result = <ScriptPromptReplacementTerm>[];
     final seenKeys = <String>{};
@@ -2528,11 +3332,219 @@ class StudioScriptViewModel extends ChangeNotifier {
           text: text,
           category: term.category,
           sourceLocation: sourceLocation.trim(),
-          frameIndexes: frameIndex > 0 ? [frameIndex] : const [],
+          frameIndexes: _expandedFrameIndexesForFrameReviewTerm(
+            frameIndex: frameIndex,
+            text: text,
+            scope: scope,
+            ownerId: ownerId,
+            sourceGroupId: sourceGroupId,
+            sourceLocation: sourceLocation,
+          ),
         ),
       );
     }
     return List.unmodifiable(result);
+  }
+
+  List<int> _expandedFrameIndexesForFrameReviewTerm({
+    required int frameIndex,
+    required String text,
+    String? scope,
+    String? ownerId,
+    String? sourceGroupId,
+    String? sourceLocation,
+  }) {
+    final script = _script;
+    final key = _promptTagMatchKey(text);
+    final frames = <int>{};
+    if (script != null && key.isNotEmpty) {
+      for (final frame in script.frames) {
+        if (frame.parseStatus != ScriptFrameParseStatus.parsed) {
+          continue;
+        }
+        if (_frameReviewSourceCaptionsForFrame(
+          frame: frame,
+          scope: scope,
+          ownerId: ownerId,
+          sourceGroupId: sourceGroupId,
+          sourceLocation: sourceLocation,
+        ).any((caption) => _captionHasPromptTag(caption, key))) {
+          frames.add(frame.index);
+        }
+      }
+    }
+    if (frames.isEmpty && frameIndex > 0) {
+      frames.add(frameIndex);
+    }
+    final sorted = frames.toList()..sort();
+    return List.unmodifiable(sorted);
+  }
+
+  List<String> _frameReviewSourceCaptionsForFrame({
+    required ScriptFrame frame,
+    String? scope,
+    String? ownerId,
+    String? sourceGroupId,
+    String? sourceLocation,
+  }) {
+    if (scope == 'role') {
+      return _roleSourceCaptionsForFrame(
+        frame: frame,
+        ownerId: ownerId,
+        sourceGroupId: sourceGroupId,
+        sourceLocation: sourceLocation,
+      );
+    }
+    if (scope == 'scene') {
+      return [frame.parsed.baseCaption];
+    }
+    return [
+      frame.parsed.baseCaption,
+      ...frame.parsed.charCaptions,
+    ];
+  }
+
+  List<String> _roleSourceCaptionsForFrame({
+    required ScriptFrame frame,
+    String? ownerId,
+    String? sourceGroupId,
+    String? sourceLocation,
+  }) {
+    final slotIndexes = _roleSourceSlotIndexes(
+      ownerId: ownerId,
+      sourceGroupId: sourceGroupId,
+      sourceLocation: sourceLocation,
+    );
+    if (slotIndexes.isEmpty) {
+      return frame.parsed.charCaptions;
+    }
+    return [
+      for (final slotIndex in slotIndexes)
+        if (slotIndex >= 0 && slotIndex < frame.parsed.charCaptions.length)
+          frame.parsed.charCaptions[slotIndex],
+    ];
+  }
+
+  Set<int> _roleSourceSlotIndexes({
+    String? ownerId,
+    String? sourceGroupId,
+    String? sourceLocation,
+  }) {
+    final result = <int>{};
+    void addFromRoleGroup(String? value) {
+      final match = RegExp(r'^role-(\d+)$').firstMatch(value?.trim() ?? '');
+      final number = int.tryParse(match?.group(1) ?? '');
+      if (number != null && number > 0) {
+        result.add(number - 1);
+      }
+    }
+
+    void addFromSlotId(String? value) {
+      final match = RegExp(r'^slot-(\d+)$').firstMatch(value?.trim() ?? '');
+      final number = int.tryParse(match?.group(1) ?? '');
+      if (number != null && number >= 0) {
+        result.add(number);
+      }
+    }
+
+    void addFromLocation(String? value) {
+      final match = RegExp(r'(?:角色|Role)\s*(\d+)', caseSensitive: false)
+          .firstMatch(value?.trim() ?? '');
+      final number = int.tryParse(match?.group(1) ?? '');
+      if (number != null && number > 0) {
+        result.add(number - 1);
+      }
+    }
+
+    addFromRoleGroup(sourceGroupId);
+    addFromSlotId(ownerId);
+    addFromLocation(sourceLocation);
+
+    final mapping = _mapping;
+    if (result.isEmpty && mapping != null && ownerId != null) {
+      for (final assembly in mapping.roleAssemblies) {
+        if (assembly.sourceRoleId != ownerId) {
+          continue;
+        }
+        for (final appearance in assembly.sourceAppearances) {
+          if (appearance.sourceKind == 'slot') {
+            addFromSlotId(appearance.sourceId);
+          }
+        }
+      }
+    }
+    return Set.unmodifiable(result);
+  }
+
+  bool _captionHasPromptTag(String caption, String targetKey) {
+    if (targetKey.isEmpty) {
+      return false;
+    }
+    for (final tag in PromptTagProcessor.splitWorkshopTags(caption)) {
+      if (_promptTagMatchKey(tag) == targetKey) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _promptTagMatchKey(String tag) {
+    return PromptTagProcessor.normalizeMatchKey(
+      PromptTagProcessor.cleanTagDisplay(tag),
+    );
+  }
+
+  _AddedFrameReviewRuleResult? _replacementRulesWithAddedFrameReviewRule({
+    required List<ScriptPromptReplacementRule> rules,
+    required String scope,
+    required String ownerId,
+    required List<ScriptPromptReplacementTerm> sourceTerms,
+  }) {
+    final keys = [
+      for (final term in sourceTerms)
+        PromptTagProcessor.normalizeMatchKey(term.text),
+    ]..removeWhere((key) => key.isEmpty);
+    if (keys.isEmpty) {
+      return null;
+    }
+    final wantedKeys = keys.toSet();
+    for (final rule in rules) {
+      final ruleKeys = {
+        for (final term in rule.sourceTerms)
+          if (PromptTagProcessor.normalizeMatchKey(term.text).isNotEmpty)
+            PromptTagProcessor.normalizeMatchKey(term.text),
+      };
+      if (ruleKeys.length == wantedKeys.length &&
+          ruleKeys.containsAll(wantedKeys)) {
+        return _AddedFrameReviewRuleResult(
+          rules: rules,
+          selectedRuleId: rule.id,
+        );
+      }
+    }
+    final existingIds = {for (final rule in rules) rule.id};
+    final baseId = stableIdFromText(
+      prefix: 'frame-rule',
+      text: '$scope|$ownerId|${keys.join('|')}',
+      label: sourceTerms.map((term) => term.text).join(' '),
+    );
+    var ruleId = baseId;
+    var suffix = 2;
+    while (existingIds.contains(ruleId)) {
+      ruleId = '$baseId-$suffix';
+      suffix += 1;
+    }
+    return _AddedFrameReviewRuleResult(
+      rules: List.unmodifiable([
+        ...rules,
+        ScriptPromptReplacementRule(
+          id: ruleId,
+          sourceTerms: List.unmodifiable(sourceTerms),
+          anchorTermId: sourceTerms.first.id,
+        ),
+      ]),
+      selectedRuleId: ruleId,
+    );
   }
 
   List<ScriptPromptReplacementTerm> _replacementTermsWithAdded(
@@ -2577,8 +3589,22 @@ class StudioScriptViewModel extends ChangeNotifier {
     required String targetRuleId,
     required Iterable<String> tags,
   }) {
+    mergeRoleReplacementSourceTermsFromRules(
+      sourceRoleId: sourceRoleId,
+      sourceRuleIds: {sourceRuleId},
+      targetRuleId: targetRuleId,
+      tags: tags,
+    );
+  }
+
+  void mergeRoleReplacementSourceTermsFromRules({
+    required String sourceRoleId,
+    required Iterable<String> sourceRuleIds,
+    required String targetRuleId,
+    required Iterable<String> tags,
+  }) {
     final mapping = _mapping;
-    if (mapping == null || sourceRuleId == targetRuleId) {
+    if (mapping == null) {
       return;
     }
     final replacement = mapping.rolePromptReplacements
@@ -2589,7 +3615,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     final nextRules = _replacementRulesWithMovedSourceTerms(
       rules: replacement.rules,
-      sourceRuleId: sourceRuleId,
+      sourceRuleIds: sourceRuleIds,
       targetRuleId: targetRuleId,
       tags: tags,
     );
@@ -3117,8 +4143,22 @@ class StudioScriptViewModel extends ChangeNotifier {
     required String targetRuleId,
     required Iterable<String> tags,
   }) {
+    mergeSceneReplacementSourceTermsFromRules(
+      groupId: groupId,
+      sourceRuleIds: {sourceRuleId},
+      targetRuleId: targetRuleId,
+      tags: tags,
+    );
+  }
+
+  void mergeSceneReplacementSourceTermsFromRules({
+    required String groupId,
+    required Iterable<String> sourceRuleIds,
+    required String targetRuleId,
+    required Iterable<String> tags,
+  }) {
     final mapping = _mapping;
-    if (mapping == null || sourceRuleId == targetRuleId) {
+    if (mapping == null) {
       return;
     }
     final replacement = mapping.scenePromptReplacements
@@ -3129,7 +4169,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     final nextRules = _replacementRulesWithMovedSourceTerms(
       rules: replacement.rules,
-      sourceRuleId: sourceRuleId,
+      sourceRuleIds: sourceRuleIds,
       targetRuleId: targetRuleId,
       tags: tags,
     );
@@ -3270,27 +4310,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (rule.action == ScriptPromptReplacementAction.delete) {
       return rule;
     }
-    final existingTarget = rule.targetPrompt.trim();
-    if (existingTarget.isNotEmpty) {
-      return rule.copyWith(
-        targetWeightMultiplier: _scaledTargetWeightMultiplier(
-          rule.targetWeightMultiplier,
-          multiplier,
-        ),
-      );
-    }
-    final sourcePrompt = _replacementRuleIncludedSourcePrompt(rule);
-    if (sourcePrompt.isEmpty) {
-      return rule;
-    }
-    return _ruleWithTarget(
-      rule.copyWith(
-        targetWeightMultiplier: _scaledTargetWeightMultiplier(
-          rule.targetWeightMultiplier,
-          multiplier,
-        ),
-      ),
-      sourcePrompt,
+    return rule.copyWith(
+      targetWeightMultiplier: _targetWeightMultiplierOrNull(multiplier),
     );
   }
 
@@ -3298,25 +4319,11 @@ class StudioScriptViewModel extends ChangeNotifier {
     return multiplier.isFinite && multiplier > 0;
   }
 
-  String _replacementRuleIncludedSourcePrompt(
-      ScriptPromptReplacementRule rule) {
-    final excluded = rule.excludedTermIds.toSet();
-    return _joinPromptTags([
-      for (final term in rule.sourceTerms)
-        if (!excluded.contains(term.id) && term.text.trim().isNotEmpty)
-          term.text,
-    ]);
-  }
-
-  double? _scaledTargetWeightMultiplier(
-    double? current,
-    double multiplier,
-  ) {
-    final next = (current ?? 1.0) * multiplier;
-    if ((next - 1.0).abs() < 0.000001) {
+  double? _targetWeightMultiplierOrNull(double multiplier) {
+    if ((multiplier - 1.0).abs() < 0.000001) {
       return null;
     }
-    return next;
+    return multiplier;
   }
 
   ScriptPromptReplacementRule _ruleWithDeleted(
@@ -3537,7 +4544,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     return _replacementRulesWithMovedSourceTerms(
       rules: rules,
-      sourceRuleId: sourceRuleId,
+      sourceRuleIds: {sourceRuleId},
       targetRuleId: targetRuleId,
       tags: sourceRule.sourceTerms.map((term) => term.text),
     );
@@ -3650,7 +4657,7 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   List<ScriptPromptReplacementRule>? _replacementRulesWithMovedSourceTerms({
     required List<ScriptPromptReplacementRule> rules,
-    required String sourceRuleId,
+    required Iterable<String> sourceRuleIds,
     required String targetRuleId,
     required Iterable<String> tags,
   }) {
@@ -3659,23 +4666,40 @@ class StudioScriptViewModel extends ChangeNotifier {
         if (tag.trim().isNotEmpty)
           PromptTagProcessor.normalizeMatchKey(tag.trim()),
     }..removeWhere((key) => key.isEmpty);
-    if (wantedKeys.isEmpty || sourceRuleId == targetRuleId) {
+    final normalizedSourceRuleIds = {
+      for (final id in sourceRuleIds)
+        if (id.trim().isNotEmpty && id != targetRuleId) id,
+    };
+    if (wantedKeys.isEmpty || normalizedSourceRuleIds.isEmpty) {
       return null;
     }
-    final sourceRule =
-        rules.where((rule) => rule.id == sourceRuleId).firstOrNull;
     final targetRule =
         rules.where((rule) => rule.id == targetRuleId).firstOrNull;
-    if (sourceRule == null || targetRule == null) {
+    if (targetRule == null) {
       return null;
     }
-    final movingTerms = [
-      for (final term in sourceRule.sourceTerms)
-        if (wantedKeys.contains(
-          PromptTagProcessor.normalizeMatchKey(term.text),
-        ))
-          term,
+    final sourceRules = [
+      for (final rule in rules)
+        if (normalizedSourceRuleIds.contains(rule.id)) rule,
     ];
+    final movingTermsBySourceRuleId =
+        <String, List<ScriptPromptReplacementTerm>>{};
+    final movingTerms = <ScriptPromptReplacementTerm>[];
+    for (final sourceRule in sourceRules) {
+      final sourceMovingTerms = [
+        for (final term in sourceRule.sourceTerms)
+          if (wantedKeys.contains(
+            PromptTagProcessor.normalizeMatchKey(term.text),
+          ))
+            term,
+      ];
+      if (sourceMovingTerms.isEmpty) {
+        continue;
+      }
+      movingTermsBySourceRuleId[sourceRule.id] =
+          List.unmodifiable(sourceMovingTerms);
+      movingTerms.addAll(sourceMovingTerms);
+    }
     if (movingTerms.isEmpty) {
       return null;
     }
@@ -3697,27 +4721,14 @@ class StudioScriptViewModel extends ChangeNotifier {
     for (final id in targetRule.excludedTermIds) {
       addTargetExcluded(id);
     }
-    for (final id in sourceRule.excludedTermIds) {
-      if (movingTermIds.contains(id)) {
-        addTargetExcluded(id);
+    for (final sourceRule in sourceRules) {
+      for (final id in sourceRule.excludedTermIds) {
+        if (movingTermIds.contains(id)) {
+          addTargetExcluded(id);
+        }
       }
     }
 
-    final remainingSourceTerms = [
-      for (final term in sourceRule.sourceTerms)
-        if (!movingTermIds.contains(term.id)) term,
-    ];
-    final remainingSourceTermIds = {
-      for (final term in remainingSourceTerms) term.id,
-    };
-    final remainingExcludedIds = [
-      for (final id in sourceRule.excludedTermIds)
-        if (remainingSourceTermIds.contains(id)) id,
-    ];
-    final nextSourceAnchorTermId =
-        remainingSourceTermIds.contains(sourceRule.anchorTermId)
-            ? sourceRule.anchorTermId
-            : '';
     final nextRules = <ScriptPromptReplacementRule>[];
     for (final rule in rules) {
       if (rule.id == targetRuleId) {
@@ -3729,10 +4740,29 @@ class StudioScriptViewModel extends ChangeNotifier {
         );
         continue;
       }
-      if (rule.id == sourceRuleId) {
+      final sourceMovingTerms = movingTermsBySourceRuleId[rule.id];
+      if (sourceMovingTerms != null) {
+        final sourceMovingTermIds = {
+          for (final term in sourceMovingTerms) term.id,
+        };
+        final remainingSourceTerms = [
+          for (final term in rule.sourceTerms)
+            if (!sourceMovingTermIds.contains(term.id)) term,
+        ];
         if (remainingSourceTerms.isNotEmpty) {
+          final remainingSourceTermIds = {
+            for (final term in remainingSourceTerms) term.id,
+          };
+          final remainingExcludedIds = [
+            for (final id in rule.excludedTermIds)
+              if (remainingSourceTermIds.contains(id)) id,
+          ];
+          final nextSourceAnchorTermId =
+              remainingSourceTermIds.contains(rule.anchorTermId)
+                  ? rule.anchorTermId
+                  : '';
           nextRules.add(
-            sourceRule.copyWith(
+            rule.copyWith(
               sourceTerms: List.unmodifiable(remainingSourceTerms),
               excludedTermIds: List.unmodifiable(remainingExcludedIds),
               anchorTermId: nextSourceAnchorTermId,
@@ -4703,6 +5733,14 @@ class StudioScriptViewModel extends ChangeNotifier {
         scriptPath: script.rootPath,
       );
 
+      final shouldConfirmAiDraft =
+          aiRoleExtraction.isReady && !_aiRoleExtractionDraftDismissed;
+      if (shouldConfirmAiDraft) {
+        _aiRoleExtractionDraftDismissed = true;
+      }
+      if (shouldConfirmAiDraft) {
+        await _saveCurrentCache();
+      }
       sentToProduction = true;
       lastProductionPlanId = plan.id;
       lastProductionPlanName = plan.name;
@@ -5884,9 +6922,6 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
 
     bool shouldKeepExistingPromptTerm(ScriptAiExtractedPromptTerm term) {
-      if (_isVisibleRoleFieldCategory(term.category)) {
-        return false;
-      }
       final textKey = _promptTermTextKey(term.text);
       if (textKey.isNotEmpty && visibleTextKeys.contains(textKey)) {
         return false;
@@ -5970,11 +7005,14 @@ class StudioScriptViewModel extends ChangeNotifier {
         }
         final existing = existingByKey[key];
         final current = accumulated[key];
+        final existingFrames = _normalizedPromptTermFrameIndexes(
+          existing?.frameIndexes ?? const [],
+        );
         final nextFrames = current == null
-            ? (stageFrames.isNotEmpty
-                ? stageFrames
-                : List<int>.unmodifiable(existing?.frameIndexes ?? const []))
-            : _mergedFrameIndexes(current.frameIndexes, stageFrames);
+            ? (existingFrames.isNotEmpty ? existingFrames : stageFrames)
+            : (existingFrames.isNotEmpty
+                ? current.frameIndexes
+                : _mergedFrameIndexes(current.frameIndexes, stageFrames));
         final existingText = existing?.text.trim() ?? '';
         final nextTerm = ScriptAiExtractedPromptTerm(
           id: existing?.id ??
@@ -6046,18 +7084,6 @@ class StudioScriptViewModel extends ChangeNotifier {
       part.name,
     ];
     return parts.join(' / ');
-  }
-
-  bool _isVisibleRoleFieldCategory(PromptTagCategory category) {
-    return switch (category) {
-      PromptTagCategory.character ||
-      PromptTagCategory.upperBody ||
-      PromptTagCategory.lowerBody ||
-      PromptTagCategory.upperClothing ||
-      PromptTagCategory.lowerClothing =>
-        true,
-      _ => false,
-    };
   }
 
   String _promptTermTextKey(String text) {
@@ -7462,7 +8488,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         stage.manualParts.isEmpty;
   }
 
-  void _applyScript(Script script) {
+  void _applyScript(Script script, {RecastMapping? mappingOverride}) {
     _manualSelectedStageIdsByRole.clear();
     _selectedRoleReplacementRuleIdsByRole.clear();
     _selectedSceneReplacementRuleIdsByGroup.clear();
@@ -7471,7 +8497,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         .toList(growable: false);
     final mapping = _mappingWithRoleAssemblies(
       script,
-      RecastMapping.defaults(script.id),
+      mappingOverride ?? RecastMapping.defaults(script.id),
     );
     _mapping = mapping;
     _selectedFrameIndex = parsedFrames.isNotEmpty
@@ -7544,7 +8570,10 @@ class StudioScriptViewModel extends ChangeNotifier {
     cacheStatus = '已恢复本剧本缓存';
   }
 
-  void _applyCache(RecastScriptCache cache) {
+  void _applyCache(
+    RecastScriptCache cache, {
+    bool refreshPreview = true,
+  }) {
     _manualSelectedStageIdsByRole.clear();
     _selectedRoleReplacementRuleIdsByRole.clear();
     _selectedSceneReplacementRuleIdsByGroup.clear();
@@ -7552,12 +8581,19 @@ class StudioScriptViewModel extends ChangeNotifier {
     final restoredMapping = script == null
         ? cache.mapping
         : _mappingWithRoleAssemblies(script, cache.mapping);
-    final restoredExtraction = script == null
+    final materializedExtraction = script == null
         ? cache.aiRoleExtraction
         : _roleExtractionWithMaterializedNonRoleFields(
             extraction: cache.aiRoleExtraction,
             script: script,
           );
+    final extractionFrameRepair = script == null
+        ? (extraction: materializedExtraction, changed: false)
+        : _roleExtractionWithSourceTermFrameEvidence(
+            script: script,
+            extraction: materializedExtraction,
+          );
+    final restoredExtraction = extractionFrameRepair.extraction;
     final appliedExtractionMapping = script == null
         ? null
         : _mappingWithAppliedAiRoleExtraction(
@@ -7565,7 +8601,11 @@ class StudioScriptViewModel extends ChangeNotifier {
             mapping: restoredMapping,
             extraction: restoredExtraction,
           );
-    _mapping = appliedExtractionMapping?.mapping ?? restoredMapping;
+    final mapped = appliedExtractionMapping?.mapping ?? restoredMapping;
+    final mappingFrameRepair = script == null
+        ? (mapping: mapped, changed: false)
+        : _mappingWithSourceTermFrameEvidence(script: script, mapping: mapped);
+    _mapping = mappingFrameRepair.mapping;
     aiRoleExtraction = restoredExtraction;
     aiRoleExtractionChunks = cache.aiRoleExtractionChunks;
     _aiRoleExtractionDraftDismissed = cache.aiRoleExtractionDraftCollapsed;
@@ -7584,10 +8624,267 @@ class StudioScriptViewModel extends ChangeNotifier {
       code: OperationStatusCode.cacheRestore,
       message: analysisStatus,
     );
-    _refreshPreview();
-    if (appliedExtractionMapping?.changed ?? false) {
+    if (refreshPreview) {
+      _refreshPreview();
+    }
+    if ((appliedExtractionMapping?.changed ?? false) ||
+        extractionFrameRepair.changed ||
+        mappingFrameRepair.changed) {
       _scheduleCurrentCacheSave();
     }
+  }
+
+  ({ScriptAiRoleExtraction extraction, bool changed})
+      _roleExtractionWithSourceTermFrameEvidence({
+    required Script script,
+    required ScriptAiRoleExtraction extraction,
+  }) {
+    var changed = false;
+    final roles = [
+      for (final role in extraction.roles)
+        () {
+          final terms = _aiPromptTermsWithSourceTermFrameEvidence(
+            script: script,
+            terms: role.promptTerms,
+            sourceRoleId: role.sourceRoleId,
+            sceneScope: false,
+          );
+          if (!terms.changed) {
+            return role;
+          }
+          changed = true;
+          return ScriptAiExtractedRole(
+            sourceRoleId: role.sourceRoleId,
+            sourceKind: role.sourceKind,
+            displayName: role.displayName,
+            roleReason: role.roleReason,
+            canonicalName: role.canonicalName,
+            franchise: role.franchise,
+            rawIdentityTags: role.rawIdentityTags,
+            variantTags: role.variantTags,
+            mergeWithRoleId: role.mergeWithRoleId,
+            confidence: role.confidence,
+            frameIndexes: role.frameIndexes,
+            appearances: role.appearances,
+            evidenceTerms: role.evidenceTerms,
+            warnings: role.warnings,
+            stages: role.stages,
+            unassignedTerms: role.unassignedTerms,
+            promptTerms: terms.terms,
+          );
+        }(),
+    ];
+    final sceneTerms = _aiPromptTermsWithSourceTermFrameEvidence(
+      script: script,
+      terms: extraction.sceneTerms,
+      sourceRoleId: '',
+      sceneScope: true,
+    );
+    if (sceneTerms.changed) {
+      changed = true;
+    }
+    if (!changed) {
+      return (extraction: extraction, changed: false);
+    }
+    return (
+      extraction: ScriptAiRoleExtraction(
+        schemaVersion: extraction.schemaVersion,
+        status: extraction.status,
+        chunkId: extraction.chunkId,
+        confidence: extraction.confidence,
+        roles: List.unmodifiable(roles),
+        artistChains: extraction.artistChains,
+        strongFilterKeywords: extraction.strongFilterKeywords,
+        attentionItems: extraction.attentionItems,
+        unassignedTerms: extraction.unassignedTerms,
+        evidenceRequests: extraction.evidenceRequests,
+        sceneTerms: sceneTerms.terms,
+        rawResponse: extraction.rawResponse,
+      ),
+      changed: true,
+    );
+  }
+
+  ({RecastMapping mapping, bool changed}) _mappingWithSourceTermFrameEvidence({
+    required Script script,
+    required RecastMapping mapping,
+  }) {
+    var changed = false;
+    final roleReplacements = [
+      for (final replacement in mapping.rolePromptReplacements)
+        () {
+          final rules = _replacementRulesWithSourceTermFrameEvidence(
+            script: script,
+            rules: replacement.rules,
+            sourceRoleId: replacement.sourceRoleId,
+            sceneScope: false,
+          );
+          if (!rules.changed) {
+            return replacement;
+          }
+          changed = true;
+          return replacement.copyWith(rules: rules.rules);
+        }(),
+    ];
+    final sceneReplacements = [
+      for (final replacement in mapping.scenePromptReplacements)
+        () {
+          final rules = _replacementRulesWithSourceTermFrameEvidence(
+            script: script,
+            rules: replacement.rules,
+            sourceRoleId: '',
+            sceneScope: true,
+          );
+          if (!rules.changed) {
+            return replacement;
+          }
+          changed = true;
+          return replacement.copyWith(rules: rules.rules);
+        }(),
+    ];
+    if (!changed) {
+      return (mapping: mapping, changed: false);
+    }
+    return (
+      mapping: mapping.copyWith(
+        rolePromptReplacements: List.unmodifiable(roleReplacements),
+        scenePromptReplacements: List.unmodifiable(sceneReplacements),
+      ),
+      changed: true,
+    );
+  }
+
+  ({List<ScriptAiExtractedPromptTerm> terms, bool changed})
+      _aiPromptTermsWithSourceTermFrameEvidence({
+    required Script script,
+    required List<ScriptAiExtractedPromptTerm> terms,
+    required String sourceRoleId,
+    required bool sceneScope,
+  }) {
+    var changed = false;
+    final nextTerms = [
+      for (final term in terms)
+        () {
+          final sourceFrames = _sourceFrameIndexesForPromptTerm(
+            script: script,
+            termText: term.text,
+            sourceRoleId: sourceRoleId,
+            sceneScope: sceneScope,
+          );
+          if (sourceFrames.isEmpty ||
+              _intListsEqual(sourceFrames, term.frameIndexes)) {
+            return term;
+          }
+          changed = true;
+          return term.copyWith(frameIndexes: sourceFrames);
+        }(),
+    ];
+    return (
+      terms: changed ? List.unmodifiable(nextTerms) : terms,
+      changed: changed,
+    );
+  }
+
+  ({List<ScriptPromptReplacementRule> rules, bool changed})
+      _replacementRulesWithSourceTermFrameEvidence({
+    required Script script,
+    required List<ScriptPromptReplacementRule> rules,
+    required String sourceRoleId,
+    required bool sceneScope,
+  }) {
+    var changed = false;
+    final nextRules = [
+      for (final rule in rules)
+        () {
+          var ruleChanged = false;
+          final terms = [
+            for (final term in rule.sourceTerms)
+              () {
+                final sourceFrames = _sourceFrameIndexesForPromptTerm(
+                  script: script,
+                  termText: term.text,
+                  sourceRoleId: sourceRoleId,
+                  sceneScope: sceneScope,
+                );
+                if (sourceFrames.isEmpty ||
+                    _intListsEqual(sourceFrames, term.frameIndexes)) {
+                  return term;
+                }
+                ruleChanged = true;
+                return term.copyWith(frameIndexes: sourceFrames);
+              }(),
+          ];
+          if (!ruleChanged) {
+            return rule;
+          }
+          changed = true;
+          return rule.copyWith(sourceTerms: List.unmodifiable(terms));
+        }(),
+    ];
+    return (
+      rules: changed ? List.unmodifiable(nextRules) : rules,
+      changed: changed,
+    );
+  }
+
+  List<int> _sourceFrameIndexesForPromptTerm({
+    required Script script,
+    required String termText,
+    required String sourceRoleId,
+    required bool sceneScope,
+  }) {
+    final termKey = PromptTagProcessor.normalizeMatchKey(
+      PromptTagProcessor.cleanTagDisplay(termText),
+    );
+    if (termKey.isEmpty) {
+      return const [];
+    }
+    final frames = <int>[];
+    for (final frame in script.frames) {
+      if (frame.parseStatus != ScriptFrameParseStatus.parsed) {
+        continue;
+      }
+      final captions = sceneScope
+          ? _positiveCaptionsForSceneReplacementFrame(frame)
+          : _positiveCaptionsForReplacementSourceRole(frame, sourceRoleId);
+      if (captions.any((caption) => _captionContainsTagKey(caption, termKey))) {
+        frames.add(frame.index);
+      }
+    }
+    return List.unmodifiable(frames);
+  }
+
+  List<String> _positiveCaptionsForReplacementSourceRole(
+    ScriptFrame frame,
+    String sourceRoleId,
+  ) {
+    final scoped = _positiveCaptionsForSourceRole(frame, sourceRoleId);
+    if (scoped.isNotEmpty) {
+      return scoped;
+    }
+    if (_isBaseSourceRoleId(sourceRoleId)) {
+      return [_frameBaseCaption(frame)];
+    }
+    return frame.parsed.charCaptions;
+  }
+
+  List<String> _positiveCaptionsForSceneReplacementFrame(ScriptFrame frame) {
+    return [
+      _frameBaseCaption(frame),
+      ...frame.parsed.charCaptions,
+    ];
+  }
+
+  bool _captionContainsTagKey(String caption, String wantedKey) {
+    for (final rawTag in PromptTagProcessor.splitWorkshopTags(caption)) {
+      final key = PromptTagProcessor.normalizeMatchKey(
+        PromptTagProcessor.cleanTagDisplay(rawTag),
+      );
+      if (key == wantedKey) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void _refreshPreview() {

@@ -71,7 +71,18 @@ void main() {
     expect(systemPrompt, contains('official art'));
     expect(systemPrompt, contains('Output every stage label in Chinese'));
     expect(systemPrompt, contains('replacement table contract'));
+    expect(systemPrompt, contains('source_terms is the complete'));
+    expect(systemPrompt, contains('term_cache_suggestions'));
+    expect(
+        systemPrompt, contains('Only suggest translations or classifications'));
     expect(systemPrompt, contains('replace, merge, delete, or leave empty'));
+    expect(systemPrompt, contains('Do not hard-filter role-scoped source'));
+    expect(systemPrompt, contains('User filter/block rules'));
+    expect(
+        systemPrompt,
+        contains(
+            'identity, body, clothing, clothing_state, accessory, other, and scene'));
+    expect(systemPrompt, contains('Use other for role-scoped source terms'));
     expect(systemPrompt, contains('replacement-relevant clothing_state'));
     expect(systemPrompt, contains('no panties'));
     expect(systemPrompt, contains('bottomless'));

@@ -98,6 +98,137 @@ void main() {
       expect(restored.entries, isEmpty);
     });
 
+    test('merges missing classifications without replacing existing entries',
+        () {
+      final cache = PromptTagClassificationCache(clock: () => 1710000000)
+        ..setCategory(
+          'blue eyes',
+          PromptTagCategory.character,
+          source: 'manual',
+        )
+        ..confirmValidCompoundTag('male smile');
+      final loaded = PromptTagClassificationCache.fromJson({
+        'blue eyes': {
+          'category': PromptTagCategory.style.name,
+          'source': 'loaded',
+          'updatedAt': 1710000001,
+        },
+        'cat ears': {
+          'category': PromptTagCategory.upperBody.name,
+          'source': 'loaded',
+          'updatedAt': 1710000001,
+        },
+        '__validCompoundTags': ['tail wagging'],
+      });
+
+      final merged = cache.mergeMissingFrom(loaded);
+
+      expect(merged, 3);
+      expect(
+          cache.entryFor('blue eyes')?.category, PromptTagCategory.character);
+      expect(cache.entryFor('cat ears')?.category, PromptTagCategory.upperBody);
+      expect(cache.isValidCompoundTag('male smile'), isTrue);
+      expect(cache.isValidCompoundTag('tail wagging'), isTrue);
+    });
+
+    test('merge replaces render-only rule entries with loaded classifications',
+        () {
+      final cache = PromptTagClassificationCache(clock: () => 1710000000)
+        ..setCategory(
+          'standing',
+          PromptTagCategory.action,
+          source: 'rules',
+        );
+      final loaded = PromptTagClassificationCache.fromJson({
+        'positive:standing': {
+          'category': PromptTagCategory.artist.name,
+          'source': 'manual',
+          'updatedAt': 1710000001,
+        },
+      });
+
+      final merged = cache.mergeMissingFrom(loaded);
+
+      expect(merged, 1);
+      expect(cache.entryFor('standing')?.category, PromptTagCategory.artist);
+      expect(cache.entryFor('standing')?.source, 'manual');
+    });
+
+    test(
+        'mergeMissingSuggestions inserts misses and preserves manual classifications',
+        () {
+      final cache = PromptTagClassificationCache(clock: () => 1710000000)
+        ..setCategory(
+          'blue eyes',
+          PromptTagCategory.character,
+          source: 'manual',
+        )
+        ..setCategory(
+          'green eyes',
+          PromptTagCategory.character,
+          source: 'ai_extraction',
+        );
+
+      final merged = cache.mergeMissingSuggestions([
+        const PromptTagClassificationSuggestion(
+          tag: 'blue eyes',
+          category: PromptTagCategory.upperBody,
+          source: 'ai_extraction',
+        ),
+        const PromptTagClassificationSuggestion(
+          tag: 'red dress',
+          category: PromptTagCategory.upperClothing,
+          source: 'ai_extraction',
+        ),
+        const PromptTagClassificationSuggestion(
+          tag: 'green eyes',
+          category: PromptTagCategory.upperBody,
+          source: 'ai_extraction',
+        ),
+      ]);
+
+      expect(merged, 1);
+      expect(
+        cache.entryFor('blue eyes')?.category,
+        PromptTagCategory.character,
+      );
+      expect(
+        cache.entryFor('red dress')?.category,
+        PromptTagCategory.upperClothing,
+      );
+      expect(cache.entryFor('red dress')?.source, 'ai_extraction');
+      expect(
+        cache.entryFor('green eyes')?.category,
+        PromptTagCategory.character,
+      );
+
+      final refreshed = cache.mergeMissingSuggestions(
+        [
+          const PromptTagClassificationSuggestion(
+            tag: 'green eyes',
+            category: PromptTagCategory.upperBody,
+            source: 'ai_extraction',
+          ),
+          const PromptTagClassificationSuggestion(
+            tag: 'blue eyes',
+            category: PromptTagCategory.upperBody,
+            source: 'ai_extraction',
+          ),
+        ],
+        refreshMachineEntries: true,
+      );
+
+      expect(refreshed, 1);
+      expect(
+        cache.entryFor('green eyes')?.category,
+        PromptTagCategory.upperBody,
+      );
+      expect(
+        cache.entryFor('blue eyes')?.category,
+        PromptTagCategory.character,
+      );
+    });
+
     test('ignores legacy negative cache entries in positive prompts', () {
       final cache = PromptTagClassificationCache.fromJson({
         'demon tail': {

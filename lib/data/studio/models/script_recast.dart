@@ -683,6 +683,9 @@ class ScriptPromptReplacementRule {
     if (targetPrompt.trim().isNotEmpty) {
       return ScriptPromptReplacementAction.replace;
     }
+    if (targetWeightMultiplier != null) {
+      return ScriptPromptReplacementAction.replace;
+    }
     return ScriptPromptReplacementAction.none;
   }
 
