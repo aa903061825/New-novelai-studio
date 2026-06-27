@@ -452,6 +452,131 @@ void main() {
       expect(afterSecondApply, afterFirstApply);
     },
   );
+
+  test(
+    'does not merge refined replacement rules through legacy alias',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-refined-replacement-alias-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: [
+              _term('existing-accessory-collar-prompt', 'collar', 'accessory'),
+            ],
+            sceneTerms: const [],
+            roleRules: [
+              _rule(
+                'existing-accessory-collar-rule',
+                _term('existing-accessory-collar', 'collar', 'accessory'),
+                targetPrompt: 'silver collar',
+              ),
+            ],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-accessory-collar', 'collar', 'accessory'),
+                    _term('term-state-collar', 'collar', 'clothingState'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      Future<ProcessResult> applySchema() {
+        return Process.run(
+          'node',
+          [
+            'tool/script_recast_complete_term_audit.mjs',
+            '--cache-dir',
+            cacheDir.path,
+            '--source-root',
+            sourceRoot,
+            '--schema',
+            schemaFile.path,
+            '--apply',
+            '--backup-dir',
+            backupDir.path,
+          ],
+          workingDirectory: Directory.current.path,
+          runInShell: Platform.isWindows,
+        );
+      }
+
+      final firstApply = await applySchema();
+      expect(firstApply.exitCode, 0, reason: firstApply.stderr.toString());
+
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
+      expect(rules, hasLength(2));
+      expect(
+        rules.cast<Map<String, dynamic>>().map((rule) => rule['id'] as String),
+        [
+          'existing-accessory-collar-rule',
+          'role-role-a-collar',
+        ],
+      );
+      expect(
+        (rules.first as Map<String, dynamic>)['targetPrompt'],
+        'silver collar',
+      );
+      expect(
+        rules.cast<Map<String, dynamic>>().expand(
+              (rule) => (rule['sourceTerms'] as List)
+                  .cast<Map<String, dynamic>>()
+                  .map((term) => '${term['id']}|${term['category']}'),
+            ),
+        [
+          'term-accessory-collar|accessory',
+          'term-state-collar|clothingState',
+        ],
+      );
+
+      final afterFirstApply = await cacheFile.readAsString(encoding: utf8);
+      final secondApply = await applySchema();
+      expect(secondApply.exitCode, 0, reason: secondApply.stderr.toString());
+      final afterSecondApply = await cacheFile.readAsString(encoding: utf8);
+      expect(afterSecondApply, afterFirstApply);
+    },
+  );
 }
 
 Map<String, dynamic> _cacheJson({

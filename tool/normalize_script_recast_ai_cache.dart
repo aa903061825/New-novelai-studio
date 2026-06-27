@@ -1976,7 +1976,7 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
   final emittedRuleIds = <String>{};
   for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
     for (final term in rule.sourceTerms) {
-      for (final key in _promptReplacementLookupKeys(
+      for (final key in _promptReplacementExistingLookupKeys(
         term.text,
         term.category,
       )) {
@@ -1991,9 +1991,13 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
       continue;
     }
     ScriptPromptReplacementRule? existingRule;
-    for (final key in _promptReplacementLookupKeys(text, term.category)) {
-      existingRule = existingRulesByTermKey[key];
-      if (existingRule != null) {
+    for (final key in _promptReplacementIncomingLookupKeys(
+      text,
+      term.category,
+    )) {
+      final candidate = existingRulesByTermKey[key];
+      if (candidate != null && !emittedRuleIds.contains(candidate.id)) {
+        existingRule = candidate;
         break;
       }
     }
@@ -2079,7 +2083,7 @@ String _promptReplacementTermKey(String text, PromptTagCategory category) {
   return '${category.name}\u001f${_normalizedEvidenceText(text)}';
 }
 
-List<String> _promptReplacementLookupKeys(
+List<String> _promptReplacementExistingLookupKeys(
   String text,
   PromptTagCategory category,
 ) {
@@ -2087,31 +2091,45 @@ List<String> _promptReplacementLookupKeys(
   if (strictKey.isEmpty) {
     return const [];
   }
-  final compatibleKey = _promptReplacementCompatibleTermKey(text, category);
+  final compatibleKey = category == PromptTagCategory.clothing
+      ? _promptReplacementLegacyClothingKey(text)
+      : '';
   if (compatibleKey.isEmpty || compatibleKey == strictKey) {
     return [strictKey];
   }
   return [strictKey, compatibleKey];
 }
 
-String _promptReplacementCompatibleTermKey(
+List<String> _promptReplacementIncomingLookupKeys(
   String text,
   PromptTagCategory category,
 ) {
+  final strictKey = _promptReplacementTermKey(text, category);
+  if (strictKey.isEmpty) {
+    return const [];
+  }
+  final compatibleKey = _isRefinedLegacyClothingCategory(category)
+      ? _promptReplacementLegacyClothingKey(text)
+      : '';
+  if (compatibleKey.isEmpty || compatibleKey == strictKey) {
+    return [strictKey];
+  }
+  return [strictKey, compatibleKey];
+}
+
+String _promptReplacementLegacyClothingKey(String text) {
   final normalized = _normalizedEvidenceText(text);
   if (normalized.isEmpty) {
     return '';
   }
-  final categoryKey = switch (category) {
-    PromptTagCategory.clothing ||
-    PromptTagCategory.accessory ||
-    PromptTagCategory.clothingState ||
-    PromptTagCategory.upperClothing ||
-    PromptTagCategory.lowerClothing =>
-      'legacy-clothing-compatible',
-    _ => category.name,
-  };
-  return '$categoryKey\u001f$normalized';
+  return 'legacy-clothing-compatible\u001f$normalized';
+}
+
+bool _isRefinedLegacyClothingCategory(PromptTagCategory category) {
+  return category == PromptTagCategory.accessory ||
+      category == PromptTagCategory.clothingState ||
+      category == PromptTagCategory.upperClothing ||
+      category == PromptTagCategory.lowerClothing;
 }
 
 List<ScriptAiExtractedPromptTerm> _dedupPromptTermsForReplacement(

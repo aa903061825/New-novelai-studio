@@ -310,7 +310,7 @@ class ScriptAiRoleAssemblyApplication {
         id: ruleId,
         sourceTerms: List.unmodifiable([replacementTerm]),
       );
-      for (final key in _promptReplacementTermKeys(
+      for (final key in _promptReplacementIncomingTermKeys(
         id: replacementTerm.id,
         text: replacementTerm.text,
         category: replacementTerm.category,
@@ -433,7 +433,7 @@ class ScriptAiRoleAssemblyApplication {
     ScriptPromptReplacementTerm term,
     Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
   ) {
-    for (final key in _promptReplacementTermKeys(
+    for (final key in _promptReplacementExistingTermKeys(
       id: term.id,
       text: term.text,
       category: term.category,
@@ -450,7 +450,7 @@ class ScriptAiRoleAssemblyApplication {
     ScriptPromptReplacementTerm term,
     Map<String, String> aiRuleIdsByTermKey,
   ) {
-    for (final key in _promptReplacementTermKeys(
+    for (final key in _promptReplacementExistingTermKeys(
       id: term.id,
       text: term.text,
       category: term.category,
@@ -463,10 +463,39 @@ class ScriptAiRoleAssemblyApplication {
     return null;
   }
 
+  List<String> _promptReplacementIncomingTermKeys({
+    required String id,
+    required String text,
+    required PromptTagCategory category,
+  }) {
+    return _promptReplacementTermKeys(
+      id: id,
+      text: text,
+      category: category,
+      includeLegacyClothingCompatibility:
+          _isRefinedLegacyClothingCategory(category),
+    );
+  }
+
+  List<String> _promptReplacementExistingTermKeys({
+    required String id,
+    required String text,
+    required PromptTagCategory category,
+  }) {
+    return _promptReplacementTermKeys(
+      id: id,
+      text: text,
+      category: category,
+      includeLegacyClothingCompatibility:
+          category == PromptTagCategory.clothing,
+    );
+  }
+
   List<String> _promptReplacementTermKeys({
     required String id,
     required String text,
     required PromptTagCategory category,
+    required bool includeLegacyClothingCompatibility,
   }) {
     final keys = <String>[];
     final idKey = id.trim();
@@ -477,7 +506,9 @@ class ScriptAiRoleAssemblyApplication {
     if (strictKey.isNotEmpty) {
       keys.add('text:$strictKey');
     }
-    final compatibleKey = _promptReplacementCompatibleTermKey(text, category);
+    final compatibleKey = includeLegacyClothingCompatibility
+        ? _promptReplacementLegacyClothingKey(text)
+        : '';
     if (compatibleKey.isNotEmpty && compatibleKey != strictKey) {
       keys.add('compat:$compatibleKey');
     }
@@ -495,24 +526,19 @@ class ScriptAiRoleAssemblyApplication {
     return '${category.name}\u001f$normalized';
   }
 
-  String _promptReplacementCompatibleTermKey(
-    String text,
-    PromptTagCategory category,
-  ) {
+  String _promptReplacementLegacyClothingKey(String text) {
     final normalized = PromptTagProcessor.normalizeMatchKey(text);
     if (normalized.isEmpty) {
       return '';
     }
-    final categoryKey = switch (category) {
-      PromptTagCategory.clothing ||
-      PromptTagCategory.accessory ||
-      PromptTagCategory.clothingState ||
-      PromptTagCategory.upperClothing ||
-      PromptTagCategory.lowerClothing =>
-        'legacy-clothing-compatible',
-      _ => category.name,
-    };
-    return '$categoryKey\u001f$normalized';
+    return 'legacy-clothing-compatible\u001f$normalized';
+  }
+
+  bool _isRefinedLegacyClothingCategory(PromptTagCategory category) {
+    return category == PromptTagCategory.accessory ||
+        category == PromptTagCategory.clothingState ||
+        category == PromptTagCategory.upperClothing ||
+        category == PromptTagCategory.lowerClothing;
   }
 
   String _promptTermStrictKey(

@@ -591,6 +591,140 @@ void main() {
     },
   );
 
+  test(
+    'does not merge refined clothing-compatible rules through legacy alias',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'existing-accessory-collar-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'existing-accessory-collar',
+                      text: 'collar',
+                      category: PromptTagCategory.accessory,
+                    ),
+                  ],
+                  targetPrompt: 'silver collar',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-accessory-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.accessory,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'existing-accessory-collar-rule');
+      expect(rules.first.targetPrompt, 'silver collar');
+      expect(rules.first.sourceTerms.single.id, 'term-accessory-collar');
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
+    'does not reuse refined clothing-compatible rule for different refined category',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'existing-accessory-collar-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'existing-accessory-collar',
+                      text: 'collar',
+                      category: PromptTagCategory.accessory,
+                    ),
+                  ],
+                  targetPrompt: 'silver collar',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.sourceTerms.single.id, 'term-state-collar');
+      expect(rules.last.id, 'existing-accessory-collar-rule');
+      expect(rules.last.targetPrompt, 'silver collar');
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.clothingState,
+          PromptTagCategory.accessory,
+        ],
+      );
+    },
+  );
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(
