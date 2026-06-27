@@ -3224,6 +3224,105 @@ void main() {
     );
 
     test(
+      'AI role extraction preserves refined prompt categories when applying visible stage terms',
+      () async {
+        const extraction = ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          confidence: 0.92,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'AI Hero',
+              confidence: 0.9,
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-collar-accessory',
+                  text: 'black collar',
+                  category: PromptTagCategory.accessory,
+                  sourcePhrase: 'black collar, strap slip',
+                  sourceLocation: 'slot-0 prompt',
+                  frameIndexes: [1, 2],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-strap-slip-state',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                  sourcePhrase: 'black collar, strap slip',
+                  sourceLocation: 'slot-0 prompt',
+                  frameIndexes: [1, 2],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'main-outfit',
+                  label: 'main outfit',
+                  frameIndexes: [1, 2],
+                  identity: 'ai hero',
+                  upperBody: 'black collar',
+                  upperClothing: 'strap slip',
+                  lowerClothing: 'white skirt',
+                  confidence: 0.9,
+                ),
+              ],
+            ),
+          ],
+        );
+        final viewModel = StudioScriptViewModel(
+          scriptAiRoleExtractionService: const _FakeRoleExtractionService(
+            extraction,
+          ),
+          scriptAiBaseUrlProvider: () => 'https://script.example/v1',
+          scriptAiTokenProvider: () => 'token',
+          scriptAiModelProvider: () => 'gpt-4.1-mini',
+        );
+
+        await viewModel.importScriptPath(_fixturePath);
+        await viewModel.generateAiRoleExtraction();
+        await viewModel.applyAiRoleExtraction();
+
+        final promptTerms = viewModel.aiRoleExtraction.roles.single.promptTerms;
+        final collarTerms = promptTerms
+            .where((term) => term.text == 'black collar')
+            .toList(growable: false);
+        expect(collarTerms, hasLength(1));
+        expect(collarTerms.single.category, PromptTagCategory.accessory);
+
+        final strapSlipTerms = promptTerms
+            .where((term) => term.text == 'strap slip')
+            .toList(growable: false);
+        expect(strapSlipTerms, hasLength(1));
+        expect(
+          strapSlipTerms.single.category,
+          PromptTagCategory.clothingState,
+        );
+
+        final skirtTerms = promptTerms
+            .where((term) => term.text == 'white skirt')
+            .toList(growable: false);
+        expect(skirtTerms, hasLength(1));
+        expect(skirtTerms.single.category, PromptTagCategory.lowerClothing);
+
+        final sourceTerms = viewModel.roleReplacementMappings.single.rules
+            .expand((rule) => rule.sourceTerms)
+            .toList(growable: false);
+        final collarSourceTerms = sourceTerms
+            .where((term) => term.text == 'black collar')
+            .toList(growable: false);
+        expect(collarSourceTerms, hasLength(1));
+        expect(collarSourceTerms.single.category, PromptTagCategory.accessory);
+
+        final strapSlipSourceTerms = sourceTerms
+            .where((term) => term.text == 'strap slip')
+            .toList(growable: false);
+        expect(strapSlipSourceTerms, hasLength(1));
+        expect(
+          strapSlipSourceTerms.single.category,
+          PromptTagCategory.clothingState,
+        );
+      },
+    );
+
+    test(
       'AI role extraction applies scene replacement rules even without roles',
       () async {
         final viewModel = StudioScriptViewModel(
