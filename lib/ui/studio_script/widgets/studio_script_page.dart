@@ -8284,6 +8284,8 @@ List<_ReplacementRuleGroup> _replacementRuleGroups(
       PromptTagCategory.lowerBody,
       PromptTagCategory.upperClothing,
       PromptTagCategory.lowerClothing,
+      PromptTagCategory.accessory,
+      PromptTagCategory.clothingState,
       PromptTagCategory.clothing,
       PromptTagCategory.other,
     ],
@@ -8298,6 +8300,8 @@ List<_ReplacementRuleGroup> _replacementRuleGroups(
               category != PromptTagCategory.lowerBody &&
               category != PromptTagCategory.upperClothing &&
               category != PromptTagCategory.lowerClothing &&
+              category != PromptTagCategory.accessory &&
+              category != PromptTagCategory.clothingState &&
               category != PromptTagCategory.clothing &&
               category != PromptTagCategory.other)
         category,
@@ -8332,6 +8336,8 @@ PromptTagCategory _replacementRuleCategory(
         term.category == PromptTagCategory.lowerBody ||
         term.category == PromptTagCategory.upperClothing ||
         term.category == PromptTagCategory.lowerClothing ||
+        term.category == PromptTagCategory.accessory ||
+        term.category == PromptTagCategory.clothingState ||
         term.category == PromptTagCategory.clothing) {
       return term.category;
     }
@@ -8352,12 +8358,14 @@ String _replacementRuleCategoryLabel(
     };
   }
   return switch (category) {
-    PromptTagCategory.character => '身份',
+    PromptTagCategory.character => '角色身份',
     PromptTagCategory.upperBody => '上身',
     PromptTagCategory.lowerBody => '下身',
     PromptTagCategory.upperClothing => '上装',
     PromptTagCategory.lowerClothing => '下装',
-    PromptTagCategory.clothing => '服装状态/饰品',
+    PromptTagCategory.accessory => '饰品',
+    PromptTagCategory.clothingState => '服装状态/动作',
+    PromptTagCategory.clothing => '其它服装',
     _ => '其它角色词',
   };
 }

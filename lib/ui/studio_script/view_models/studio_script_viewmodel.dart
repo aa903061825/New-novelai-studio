@@ -6781,6 +6781,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       PromptTagCategory.lowerBody => StudioScriptRolePart.lowerBody,
       PromptTagCategory.upperClothing => StudioScriptRolePart.upperClothing,
       PromptTagCategory.lowerClothing => StudioScriptRolePart.lowerClothing,
+      PromptTagCategory.accessory => StudioScriptRolePart.upperBody,
+      PromptTagCategory.clothingState => StudioScriptRolePart.upperClothing,
       PromptTagCategory.clothing => StudioScriptRolePart.upperClothing,
       _ => null,
     };
@@ -10294,6 +10296,8 @@ StudioScriptTokenCategory _reviewCategoryForPromptCategory(
     PromptTagCategory.lowerBody => StudioScriptTokenCategory.lowerBody,
     PromptTagCategory.upperClothing => StudioScriptTokenCategory.upperClothing,
     PromptTagCategory.lowerClothing => StudioScriptTokenCategory.lowerClothing,
+    PromptTagCategory.accessory => StudioScriptTokenCategory.upperBody,
+    PromptTagCategory.clothingState => StudioScriptTokenCategory.upperClothing,
     PromptTagCategory.clothing => StudioScriptTokenCategory.upperClothing,
     PromptTagCategory.action => StudioScriptTokenCategory.action,
     PromptTagCategory.scene => StudioScriptTokenCategory.scene,

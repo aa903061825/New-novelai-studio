@@ -13487,6 +13487,87 @@ void main() {
       },
     );
 
+    testWidgets('role prompt replacement terms are grouped by precise category',
+        (tester) async {
+      late final RecastScriptCache cache;
+      await tester.runAsync(() async {
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        cache = RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: parsedScript.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(parsedScript),
+          updatedAt: DateTime.utc(2026, 6, 27),
+          mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role A',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-identity',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-gyaru',
+                        text: 'gyaru',
+                        category: PromptTagCategory.character,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-upper',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-inverted-nipples',
+                        text: 'inverted nipples',
+                        category: PromptTagCategory.upperBody,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-accessory',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-collar',
+                        text: 'black collar',
+                        category: PromptTagCategory.accessory,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-state',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-no-panties',
+                        text: 'no panties',
+                        category: PromptTagCategory.clothingState,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      });
+      final viewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => [cache],
+      );
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(_fixturePath);
+      });
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pumpAndSettle();
+
+      expect(find.text('角色身份'), findsOneWidget);
+      expect(find.text('上身'), findsOneWidget);
+      expect(find.text('饰品'), findsOneWidget);
+      expect(find.text('服装状态/动作'), findsOneWidget);
+      expect(find.text('服装状态/饰品'), findsNothing);
+    });
+
     testWidgets(
       'role replacement source tag drag can split a merged term out',
       (tester) async {
