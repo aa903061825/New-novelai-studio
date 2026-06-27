@@ -2114,6 +2114,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
       roles: List.unmodifiable([
         for (final role in extraction.roles)
@@ -6860,6 +6861,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     ).collapseEquivalentStages();
     aiRoleExtraction = _extractionWithVisibleRolePromptTerms(aiRoleExtraction);
@@ -7298,6 +7300,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: List.unmodifiable(nextSceneTerms),
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -7360,6 +7363,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         unassignedTerms: recoveredExtraction.unassignedTerms,
         evidenceRequests: recoveredExtraction.evidenceRequests,
         sceneTerms: recoveredExtraction.sceneTerms,
+        termCacheSuggestions: recoveredExtraction.termCacheSuggestions,
         rawResponse: recoveredExtraction.rawResponse,
       ).collapseEquivalentStages(),
     );
@@ -8752,6 +8756,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         unassignedTerms: extraction.unassignedTerms,
         evidenceRequests: extraction.evidenceRequests,
         sceneTerms: sceneTerms.terms,
+        termCacheSuggestions: extraction.termCacheSuggestions,
         rawResponse: extraction.rawResponse,
       ),
       changed: true,
