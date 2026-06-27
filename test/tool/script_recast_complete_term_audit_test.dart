@@ -115,6 +115,18 @@ void main() {
             _term('refined-strap-slip-prompt', 'strap slip', 'clothingState'),
             _term('legacy-black-collar-prompt', 'black collar', 'clothing'),
             _term('refined-black-collar-prompt', 'black collar', 'accessory'),
+            _term('legacy-white-shirt-prompt', 'white shirt', 'clothing'),
+            _term(
+              'refined-white-shirt-prompt',
+              'white shirt',
+              'upperClothing',
+            ),
+            _term('legacy-black-skirt-prompt', 'black skirt', 'clothing'),
+            _term(
+              'refined-black-skirt-prompt',
+              'black skirt',
+              'lowerClothing',
+            ),
           ],
           sceneTerms: const [],
           roleRules: [
@@ -132,6 +144,16 @@ void main() {
               'legacy-black-collar-rule',
               _term('legacy-black-collar', 'black collar', 'clothing'),
               targetPrompt: 'leather collar',
+            ),
+            _rule(
+              'legacy-white-shirt-rule',
+              _term('legacy-white-shirt', 'white shirt', 'clothing'),
+              targetPrompt: 'black blouse',
+            ),
+            _rule(
+              'legacy-black-skirt-rule',
+              _term('legacy-black-skirt', 'black skirt', 'clothing'),
+              targetPrompt: 'pleated skirt',
             ),
           ],
           sceneRules: const [],
@@ -165,6 +187,26 @@ void main() {
                     'term-black-collar',
                     'black collar',
                     'accessory',
+                  ),
+                  _term(
+                    'term-white-shirt',
+                    'white shirt',
+                    'upperClothing',
+                  ),
+                  _term(
+                    'term-black-skirt',
+                    'black skirt',
+                    'lowerClothing',
+                  ),
+                  _term(
+                    'term-upper-wrap',
+                    'wrap',
+                    'upperClothing',
+                  ),
+                  _term(
+                    'term-lower-wrap',
+                    'wrap',
+                    'lowerClothing',
                   ),
                   _term('term-gyaru', 'gyaru', 'character'),
                 ],
@@ -217,20 +259,26 @@ void main() {
       [
         'strap slip|clothingState',
         'black collar|accessory',
+        'white shirt|upperClothing',
+        'black skirt|lowerClothing',
         'double bun|upperBody',
         'inverted nipples|upperBody',
+        'wrap|upperClothing',
+        'wrap|lowerClothing',
         'gyaru|character',
       ],
     );
     final replacement = (updated['mapping']['rolePromptReplacements'] as List)
         .single as Map<String, dynamic>;
     final rules = (replacement['rules'] as List).cast<Map<String, dynamic>>();
-    expect(rules, hasLength(5));
+    expect(rules, hasLength(9));
     Map<String, dynamic> ruleById(String id) =>
         rules.singleWhere((rule) => rule['id'] == id);
     final doubleBunRule = ruleById('legacy-double-bun-rule');
     final strapSlipRule = ruleById('legacy-strap-slip-rule');
     final blackCollarRule = ruleById('legacy-black-collar-rule');
+    final whiteShirtRule = ruleById('legacy-white-shirt-rule');
+    final blackSkirtRule = ruleById('legacy-black-skirt-rule');
     final gyaruRule = rules.singleWhere(
       (rule) =>
           ((rule['sourceTerms'] as List).single
@@ -253,6 +301,16 @@ void main() {
       ((blackCollarRule['sourceTerms'] as List).single as Map<String, dynamic>),
       containsPair('category', 'accessory'),
     );
+    expect(whiteShirtRule['targetPrompt'], 'black blouse');
+    expect(
+      ((whiteShirtRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'upperClothing'),
+    );
+    expect(blackSkirtRule['targetPrompt'], 'pleated skirt');
+    expect(
+      ((blackSkirtRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'lowerClothing'),
+    );
     expect(
       ((gyaruRule['sourceTerms'] as List).single as Map<String, dynamic>),
       containsPair('text', 'gyaru'),
@@ -270,6 +328,10 @@ void main() {
         'inverted nipples|upperBody',
         'strap slip|clothingState',
         'black collar|accessory',
+        'white shirt|upperClothing',
+        'black skirt|lowerClothing',
+        'wrap|upperClothing',
+        'wrap|lowerClothing',
         'gyaru|character',
       ]),
     );

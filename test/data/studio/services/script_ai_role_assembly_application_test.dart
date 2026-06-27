@@ -545,6 +545,156 @@ void main() {
   );
 
   test(
+    'prefers refined upper and lower clothing prompt terms over polluted legacy duplicates',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-shirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-white-shirt',
+                      text: 'white shirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.replace,
+                  matchMode: ScriptPromptReplacementMatchMode.anchor,
+                  targetPrompt: 'black blouse',
+                  anchorTermId: 'legacy-white-shirt',
+                ),
+                ScriptPromptReplacementRule(
+                  id: 'legacy-skirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-black-skirt',
+                      text: 'black skirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.delete,
+                  matchMode: ScriptPromptReplacementMatchMode.all,
+                  targetPrompt: 'pleated skirt',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [2],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.map((rule) => rule.id), [
+        'legacy-shirt-rule',
+        'legacy-skirt-rule',
+      ]);
+      expect(rules.first.targetPrompt, 'black blouse');
+      expect(rules.first.action, ScriptPromptReplacementAction.replace);
+      expect(rules.first.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(rules.first.anchorTermId, 'legacy-white-shirt');
+      expect(rules.first.sourceTerms.single.id, 'term-white-shirt');
+      expect(
+        rules.first.sourceTerms.single.category,
+        PromptTagCategory.upperClothing,
+      );
+      expect(rules.last.targetPrompt, 'pleated skirt');
+      expect(rules.last.action, ScriptPromptReplacementAction.delete);
+      expect(rules.last.matchMode, ScriptPromptReplacementMatchMode.all);
+      expect(rules.last.sourceTerms.single.id, 'term-black-skirt');
+      expect(
+        rules.last.sourceTerms.single.category,
+        PromptTagCategory.lowerClothing,
+      );
+    },
+  );
+
+  test(
+    'keeps refined upper and lower clothing prompt terms distinct when text matches',
+    () {
+      final result = application.apply(
+        mapping: RecastMapping.defaults('script-a'),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-upper-wrap',
+                  text: 'wrap',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-lower-wrap',
+                  text: 'wrap',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.upperClothing,
+          PromptTagCategory.lowerClothing,
+        ],
+      );
+    },
+  );
+
+  test(
     'keeps refined accessory and clothing state prompt terms distinct when text matches',
     () {
       final result = application.apply(

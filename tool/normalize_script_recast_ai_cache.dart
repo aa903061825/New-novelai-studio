@@ -2283,6 +2283,8 @@ String _promptTermMergeKey(
   }
   if (category == PromptTagCategory.clothing) {
     final refinedKeys = [
+      PromptTagCategory.upperClothing,
+      PromptTagCategory.lowerClothing,
       PromptTagCategory.accessory,
       PromptTagCategory.clothingState,
     ]
@@ -2322,14 +2324,20 @@ ScriptAiExtractedPromptTerm _preferredPromptTerm(
 
 int _promptTermCategoryPreference(PromptTagCategory category) {
   return switch (category) {
-    PromptTagCategory.accessory || PromptTagCategory.clothingState => 1,
+    PromptTagCategory.upperClothing ||
+    PromptTagCategory.lowerClothing ||
+    PromptTagCategory.accessory ||
+    PromptTagCategory.clothingState =>
+      1,
     PromptTagCategory.clothing => 0,
     _ => 0,
   };
 }
 
 bool _isRefinedClothingCategory(PromptTagCategory category) {
-  return category == PromptTagCategory.accessory ||
+  return category == PromptTagCategory.upperClothing ||
+      category == PromptTagCategory.lowerClothing ||
+      category == PromptTagCategory.accessory ||
       category == PromptTagCategory.clothingState;
 }
 

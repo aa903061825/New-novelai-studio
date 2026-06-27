@@ -1277,6 +1277,42 @@ void main() {
                     frameIndexes: [2],
                   ),
                   ScriptAiExtractedPromptTerm(
+                    id: 'legacy-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.upperClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.lowerClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-upper-wrap',
+                    text: 'wrap',
+                    category: PromptTagCategory.upperClothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-lower-wrap',
+                    text: 'wrap',
+                    category: PromptTagCategory.lowerClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
                     id: 'term-collar-accessory',
                     text: 'collar',
                     category: PromptTagCategory.accessory,
@@ -1300,12 +1336,18 @@ void main() {
         [
           'strap slip|clothingState',
           'black collar|accessory',
+          'white shirt|upperClothing',
+          'black skirt|lowerClothing',
+          'wrap|upperClothing',
+          'wrap|lowerClothing',
           'collar|accessory',
           'collar|clothingState',
         ],
       );
       expect(promptTerms.first.frameIndexes, [1, 2]);
       expect(promptTerms[1].frameIndexes, [1, 2]);
+      expect(promptTerms[2].frameIndexes, [1, 2]);
+      expect(promptTerms[3].frameIndexes, [1, 2]);
 
       final sourceTerms = normalized.mapping.rolePromptReplacements.single.rules
           .map((rule) => rule.sourceTerms.single)
@@ -1315,6 +1357,10 @@ void main() {
         [
           'strap slip|clothingState',
           'black collar|accessory',
+          'white shirt|upperClothing',
+          'black skirt|lowerClothing',
+          'wrap|upperClothing',
+          'wrap|lowerClothing',
           'collar|accessory',
           'collar|clothingState',
         ],

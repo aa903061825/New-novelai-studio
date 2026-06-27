@@ -823,7 +823,12 @@ function promptTermMergeKey(byKey, category, normalizedText) {
     return byKey.has(legacyKey) ? legacyKey : '';
   }
   if (category === 'clothing') {
-    const refinedKeys = ['accessory', 'clothingState']
+    const refinedKeys = [
+      'upperClothing',
+      'lowerClothing',
+      'accessory',
+      'clothingState',
+    ]
       .map((refined) => promptTermStrictKey(refined, normalizedText))
       .filter((key) => byKey.has(key));
     return refinedKeys.length === 1 ? refinedKeys[0] : '';
@@ -863,12 +868,24 @@ function pickPreferredPromptTermCategory(leftCategory, rightCategory) {
 
 function promptTermCategoryPreferenceRank(category) {
   if (category === 'clothing') return 0;
-  if (category === 'accessory' || category === 'clothingState') return 1;
+  if (
+    category === 'upperClothing' ||
+    category === 'lowerClothing' ||
+    category === 'accessory' ||
+    category === 'clothingState'
+  ) {
+    return 1;
+  }
   return 0;
 }
 
 function isRefinedClothingCategory(category) {
-  return category === 'accessory' || category === 'clothingState';
+  return (
+    category === 'upperClothing' ||
+    category === 'lowerClothing' ||
+    category === 'accessory' ||
+    category === 'clothingState'
+  );
 }
 
 function canonicalPromptTermCategory(category) {
