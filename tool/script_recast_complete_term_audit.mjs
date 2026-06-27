@@ -588,7 +588,7 @@ function mergeRolePromptReplacementSchema(existingReplacements, rolePatches) {
     const result = mergeReplacementRules(
       replacement.rules ?? [],
       rolePatch.terms ?? [],
-      (term) => `role-${safeId(roleId)}-${safeId(term.text)}`,
+      (term) => `role-${safeId(roleId)}-${safeId(term.category)}-${safeId(term.text)}`,
     );
     replacement.rules = result.rules;
     replacement.sourcePreview = sourcePreviewForTerms(rolePatch.terms, replacement.sourcePreview);

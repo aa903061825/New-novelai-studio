@@ -2012,8 +2012,9 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
       continue;
     }
     final replacementTerm = _promptReplacementTermFromAi(term);
-    final ruleId =
-        'role-${_safeIdSegment(role.sourceRoleId)}-${replacementTerm.id}';
+    final ruleId = 'role-${_safeIdSegment(role.sourceRoleId)}-'
+        '${_safeIdSegment(replacementTerm.category.name)}-'
+        '${replacementTerm.id}';
     if (!emittedRuleIds.add(ruleId)) {
       continue;
     }

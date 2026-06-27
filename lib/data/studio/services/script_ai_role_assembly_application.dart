@@ -500,7 +500,7 @@ class ScriptAiRoleAssemblyApplication {
     final keys = <String>[];
     final idKey = id.trim();
     if (idKey.isNotEmpty) {
-      keys.add('id:$idKey');
+      keys.add('id:${category.name}:$idKey');
     }
     final strictKey = _promptReplacementStrictTermKey(text, category);
     if (strictKey.isNotEmpty) {
@@ -721,11 +721,12 @@ class ScriptAiRoleAssemblyApplication {
     String sourceRoleId,
     ScriptAiExtractedPromptTerm term,
   ) {
+    final categoryId = _safePromptTermTextId(term.category.name);
     final termId = term.id.trim();
     if (termId.isNotEmpty) {
-      return 'role-$sourceRoleId-$termId';
+      return 'role-$sourceRoleId-$categoryId-$termId';
     }
-    return 'role-$sourceRoleId-term-${_safePromptTermTextId(term.text)}';
+    return 'role-$sourceRoleId-$categoryId-term-${_safePromptTermTextId(term.text)}';
   }
 
   String _scenePromptReplacementRuleId(ScriptAiExtractedPromptTerm term) {

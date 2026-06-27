@@ -551,7 +551,7 @@ void main() {
         rules.cast<Map<String, dynamic>>().map((rule) => rule['id'] as String),
         [
           'existing-accessory-collar-rule',
-          'role-role-a-collar',
+          'role-role-a-clothingstate-collar',
         ],
       );
       expect(
@@ -575,6 +575,109 @@ void main() {
       expect(secondApply.exitCode, 0, reason: secondApply.stderr.toString());
       final afterSecondApply = await cacheFile.readAsString(encoding: utf8);
       expect(afterSecondApply, afterFirstApply);
+    },
+  );
+
+  test(
+    'generates separate fallback rule ids for same text refined categories',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-refined-fallback-id-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: const [],
+            sceneTerms: const [],
+            roleRules: const [],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-collar', 'collar', 'accessory'),
+                    _term('term-collar', 'collar', 'clothingState'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      final result = await Process.run(
+        'node',
+        [
+          'tool/script_recast_complete_term_audit.mjs',
+          '--cache-dir',
+          cacheDir.path,
+          '--source-root',
+          sourceRoot,
+          '--schema',
+          schemaFile.path,
+          '--apply',
+          '--backup-dir',
+          backupDir.path,
+        ],
+        workingDirectory: Directory.current.path,
+        runInShell: Platform.isWindows,
+      );
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
+      expect(rules, hasLength(2));
+      expect(
+        rules.cast<Map<String, dynamic>>().map((rule) => rule['id'] as String),
+        [
+          'role-role-a-accessory-collar',
+          'role-role-a-clothingstate-collar',
+        ],
+      );
+      expect(
+        rules.cast<Map<String, dynamic>>().expand(
+              (rule) => (rule['sourceTerms'] as List)
+                  .cast<Map<String, dynamic>>()
+                  .map((term) => '${term['id']}|${term['category']}'),
+            ),
+        [
+          'term-collar|accessory',
+          'term-collar|clothingState',
+        ],
+      );
     },
   );
 }

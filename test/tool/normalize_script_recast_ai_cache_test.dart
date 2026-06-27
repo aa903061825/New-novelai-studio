@@ -1162,6 +1162,60 @@ void main() {
   );
 
   test(
+    'keeps refined accessory and clothing state prompt terms distinct when id and text match',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.id),
+        [
+          'role-slot-0-accessory-term-collar',
+          'role-slot-0-clothingstate-term-collar',
+        ],
+      );
+    },
+  );
+
+  test(
     'does not merge refined clothing-compatible rules through legacy alias',
     () {
       final replacements =
@@ -1230,6 +1284,65 @@ void main() {
         rules.map((rule) => rule.sourceTerms.single.id),
         ['term-accessory-collar', 'term-state-collar'],
       );
+    },
+  );
+
+  test(
+    'does not reuse existing refined rule when incoming term has same id and text but different refined category',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'existing-accessory-collar-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'term-collar',
+                    text: 'collar',
+                    category: PromptTagCategory.accessory,
+                  ),
+                ],
+                targetPrompt: 'silver collar',
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'role-slot-0-clothingstate-term-collar');
+      expect(rules.first.sourceTerms.single.category,
+          PromptTagCategory.clothingState);
+      expect(rules.last.id, 'existing-accessory-collar-rule');
+      expect(rules.last.targetPrompt, 'silver collar');
+      expect(
+          rules.last.sourceTerms.single.category, PromptTagCategory.accessory);
     },
   );
 
