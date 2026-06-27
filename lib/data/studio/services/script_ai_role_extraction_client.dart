@@ -282,17 +282,21 @@ Role inference rules:
 
 Prompt replacement term rules:
 - prompt_terms and scene_terms are the replacement table contract. They decide what the UI can show, select, replace, merge, delete, or leave empty. Do not hide replacement-relevant terms by only returning stages or unassigned_terms.
-- For each role, return prompt_terms only for character replacement source terms: character identity, stable body/appearance, worn clothing, accessories, and replacement-relevant clothing_state.
-- Include clothing_state when the prompt describes a clothing or body-exposure state the user may replace or delete independently, such as no panties, bottomless, topless, completely nude, nude, bikini aside, panties aside, panties around one leg, shirt lift, clothes lift, open clothes, clothes pull, dress tug, or partially undressed.
+- For each role, return prompt_terms only for character replacement source terms: character identity, upper-body traits, lower-body traits, worn upper clothing, worn lower clothing, accessories, and replacement-relevant clothingState terms.
+- Valid role prompt term category strings are character, upperBody, lowerBody, upperClothing, lowerClothing, accessory, clothingState, and other.
+- Use upperBody for head/hair/face/eyes/horns/wings/chest/breasts/nipples/areola/shoulders/arms and explicit upper-body traits such as inverted nipples, large breasts, small breasts, flat chest, or cleavage.
+- Use lowerBody for waist/hips/tail/legs/thighs/feet/toes and stable lower-body traits.
+- Use accessory for detachable or decorative items such as collar, choker, necklace, hair ornament, halo, bracelet, glasses, or headband.
+- Use clothingState for clothing manipulation, body-exposure state, absence state, and garment-position terms the user may replace or delete independently, including no panties, topless, bottomless, completely nude, nude, shirt lift, dress tug, strap slip, open clothes, pulling down panties, panties aside, bikini aside, taking off top, and partially undressed.
 - Keep identity terms role-specific. Do not treat subject count or composition terms as role identity. Excluded examples include 1girl, 2girls, 1boy, solo, and multiple girls. If a generic role identity is needed, use bounded terms such as girl, boy, woman, man, loli, or child; girl is not the same source term as 1girl.
 - Put scene/environment prompt source terms in top-level scene_terms, never inside role prompt_terms.
 - scene_terms cover environment, place, time, lighting, weather, background objects, and reusable scene descriptions from both tag prompts and natural-language source phrases.
 - Subject count, composition, camera, quality terms, artist/style chains, and censor/filter keywords must not be returned in prompt_terms or scene_terms. Excluded examples include 1girl, solo, masterpiece, official art, and mosaic censoring.
 - Do not hard-filter role-scoped source prompt tags out of prompt_terms by keyword. If a source tag belongs to the role's own slot/base evidence and the user may reasonably replace, delete, merge, or leave it unchanged, preserve it in prompt_terms with the nearest category. User filter/block rules are responsible for hiding or blocking unwanted terms.
+- Pure pose/action/expression/camera/background terms such as standing, looking at viewer, smile, blush, holding, grabbing, or side view must be excluded or audited unless they directly describe a replacement-relevant clothing/body exposure state.
 - For natural-language sources, split only meaningful minimal replacement terms, keep the exact surrounding source_phrase, and preserve the frame_indexes where the phrase appears.
 - Every prompt term and scene term must include id, text, category, source_phrase, source_location, and frame_indexes when that evidence is available.
-- Valid category strings are identity, body, clothing, clothing_state, accessory, other, and scene.
-- Use other for role-scoped source terms that are not one of identity, body, clothing, clothing_state, or accessory. Do not drop them just because they do not belong in the five-field stage summary.
+- Use other for role-scoped source terms that are not one of character, upperBody, lowerBody, upperClothing, lowerClothing, accessory, or clothingState. Do not drop them just because they do not belong in the five-field stage summary.
 
 Five-field classification rules:
 - The five fields are reusable replacement fields for character identity,
@@ -331,7 +335,7 @@ Outfit stage rules:
 - Do not split stages solely by action, pose, expression, camera, lighting, background, story beat, wetness, stains, residue, or temporary quality noise.
 - Do not force state variants into the same stage when their source terms are replacement targets. Terms such as no panties, topless, bottomless, completely nude, bikini aside, panties aside, shirt lift, clothes pull/lift, open clothes, or partially undressed must be available in prompt_terms with their own frame_indexes; they may form a distinct stage only when they change the visible outfit/body-exposure state.
 - Nude/no-core-clothing can be separate from dressed, towel, nightgown, swimsuit, or uniform stages. Do not create extra nude stages solely for pose, expression, residue, anatomy, camera, lighting, or background differences.
-- When state variants share the same core outfit and do not need separate stages, keep the shared stable worn garments in the five fields and keep state-specific source terms in prompt_terms as clothing_state. Do not combine clothing_state terms into upper_clothing or lower_clothing.
+- When state variants share the same core outfit and do not need separate stages, keep the shared stable worn garments in the five fields and keep state-specific source terms in prompt_terms as clothingState. Do not combine clothingState terms into upper_clothing or lower_clothing.
 - If a term is only action/pose/camera/background/expression, keep it out of the five fields and do not output it as a stage candidate. Put only genuinely unresolved role assignment conflicts in unassigned_terms when needed.
 - Stable identity and body fields can repeat across stages.
 - Stage frame_indexes must describe where the stage appears according to evidence.
@@ -410,7 +414,7 @@ Output JSON shape:
         {
           "id": "stable term id",
           "text": "raw or normalized role source term",
-          "category": "identity, body, clothing, clothing_state, or accessory",
+          "category": "character, upperBody, lowerBody, upperClothing, lowerClothing, accessory, clothingState, or other",
           "source_phrase": "exact surrounding source phrase",
           "source_location": "slot/base/frame source location",
           "frame_indexes": [1, 2]

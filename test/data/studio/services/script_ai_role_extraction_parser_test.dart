@@ -22,16 +22,24 @@ void main() {
         {
           "id": "term-double-bun",
           "text": "double bun",
-          "category": "body",
+          "category": "upperBody",
           "source_phrase": "double bun",
           "source_location": "slot-0 prompt",
           "frame_indexes": [1]
         },
         {
-          "id": "term-holding-skirt",
-          "text": "holding skirt",
-          "category": "clothing_state",
-          "source_phrase": "holding skirt",
+          "id": "term-inverted-nipples",
+          "text": "inverted nipples",
+          "category": "upperBody",
+          "source_phrase": "inverted nipples",
+          "source_location": "slot-0 prompt",
+          "frame_indexes": [1]
+        },
+        {
+          "id": "term-strap-slip",
+          "text": "strap slip",
+          "category": "clothingState",
+          "source_phrase": "strap slip",
           "source_location": "slot-0 prompt",
           "frame_indexes": [1]
         }
@@ -65,8 +73,21 @@ void main() {
       expect(extraction.status, ScriptAiRoleExtractionStatus.ready);
       expect(extraction.roles.single.promptTerms.map((term) => term.text), [
         'double bun',
-        'holding skirt',
+        'inverted nipples',
+        'strap slip',
       ]);
+      expect(
+        extraction.roles.single.promptTerms
+            .firstWhere((term) => term.text == 'inverted nipples')
+            .category,
+        PromptTagCategory.upperBody,
+      );
+      expect(
+        extraction.roles.single.promptTerms
+            .firstWhere((term) => term.text == 'strap slip')
+            .category,
+        PromptTagCategory.clothingState,
+      );
       expect(extraction.sceneTerms.single.text, 'bedroom');
       expect(extraction.termCacheSuggestions, hasLength(1));
       expect(extraction.termCacheSuggestions.single.text, 'double bun');
@@ -101,14 +122,14 @@ void main() {
         {
           "id": "slot-0-identity-alice",
           "text": "alice (wonder story)",
-          "category": "identity",
+          "category": "character",
           "source_phrase": "alice (wonder story), brown hair",
           "frame_indexes": [1, 2, 3]
         },
         {
           "id": "slot-0-clothing-jacket",
           "text": "red jacket",
-          "category": "clothing",
+          "category": "upperClothing",
           "source_phrase": "wearing a red jacket and black skirt",
           "frame_indexes": [1, 2, 3]
         }

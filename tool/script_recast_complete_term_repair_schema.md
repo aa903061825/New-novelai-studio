@@ -16,6 +16,12 @@ It does not decide whether a source tag is a role term, clothing term, scene
 term, or action term. Classification must come from the project AI pipeline or
 from a Codex-produced offline schema.
 
+Use the role replacement categories `character`, `upperBody`, `lowerBody`,
+`upperClothing`, `lowerClothing`, `accessory`, `clothingState`, `other`, and
+top-level `scene`. The legacy snake_case string `clothing_state` may still
+appear in old AI input/output, but new offline schema examples should use
+`clothingState`.
+
 ## Schema
 
 ```json
@@ -36,6 +42,30 @@ from a Codex-produced offline schema.
               "source_phrase": "double bun",
               "source_location": "slot-0 prompt",
               "frame_indexes": [1, 2]
+            },
+            {
+              "id": "term-inverted-nipples",
+              "text": "inverted nipples",
+              "category": "upperBody",
+              "source_phrase": "inverted nipples",
+              "source_location": "slot-0 prompt",
+              "frame_indexes": [1]
+            },
+            {
+              "id": "term-strap-slip",
+              "text": "strap slip",
+              "category": "clothingState",
+              "source_phrase": "strap slip",
+              "source_location": "slot-0 prompt",
+              "frame_indexes": [1]
+            },
+            {
+              "id": "term-black-collar",
+              "text": "black collar",
+              "category": "accessory",
+              "source_phrase": "black collar",
+              "source_location": "slot-0 prompt",
+              "frame_indexes": [1]
             }
           ]
         }
