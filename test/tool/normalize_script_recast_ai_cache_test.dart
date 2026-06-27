@@ -1110,6 +1110,137 @@ void main() {
     );
   });
 
+  test('drops automatic legacy clothing duplicate covered by refined AI term',
+      () {
+    final replacements = normalizer.rolePromptReplacementsWithAiTermsForTesting(
+      existingReplacements: const [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Role',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'refined-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'existing-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                ),
+              ],
+            ),
+            ScriptPromptReplacementRule(
+              id: 'legacy-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+      roles: const [
+        ScriptAiExtractedRole(
+          sourceRoleId: 'slot-0',
+          displayName: 'Role',
+          appearances: [
+            ScriptAiRoleAppearance(
+              sourceId: 'slot-0',
+              sourceKind: 'slot',
+              frameIndexes: [1],
+            ),
+          ],
+          promptTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'term-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothingState,
+              frameIndexes: [1],
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final rules = replacements.single.rules;
+    expect(rules, hasLength(1));
+    expect(rules.single.id, 'refined-strap-slip-rule');
+    expect(rules.single.sourceTerms.single.id, 'term-strap-slip');
+    expect(
+      rules.single.sourceTerms.single.category,
+      PromptTagCategory.clothingState,
+    );
+  });
+
+  test(
+    'keeps covered legacy duplicate when target weight user state differs',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'refined-strap-slip-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'existing-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothingState,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'legacy-strap-slip-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.25,
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-strap-slip',
+                text: 'strap slip',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'refined-strap-slip-rule');
+      expect(rules.last.id, 'legacy-strap-slip-rule');
+      expect(rules.last.targetWeightMultiplier, 1.25);
+      expect(
+          rules.last.sourceTerms.single.category, PromptTagCategory.clothing);
+    },
+  );
+
   test(
     'keeps refined accessory and clothing state prompt terms distinct when text matches',
     () {
@@ -1641,7 +1772,7 @@ void main() {
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
   return Process.run(
-    Platform.resolvedExecutable,
+    _dartExecutableForToolTests(),
     [
       '--packages=.dart_tool/package_config.json',
       'tool/normalize_script_recast_ai_cache.dart',
@@ -1649,6 +1780,26 @@ Future<ProcessResult> _runNormalizer(List<String> args) {
     ],
     workingDirectory: Directory.current.path,
   );
+}
+
+String _dartExecutableForToolTests() {
+  final executable = File(Platform.resolvedExecutable);
+  final executableName =
+      executable.path.split(Platform.pathSeparator).last.toLowerCase();
+  if (executableName == 'flutter_tester' ||
+      executableName == 'flutter_tester.exe') {
+    final cacheDir = executable.parent.parent.parent.parent;
+    final dartExecutable = File(
+      '${cacheDir.path}${Platform.pathSeparator}dart-sdk'
+      '${Platform.pathSeparator}bin${Platform.pathSeparator}'
+      'dart${Platform.isWindows ? '.exe' : ''}',
+    );
+    if (dartExecutable.existsSync()) {
+      return dartExecutable.path;
+    }
+    return 'dart';
+  }
+  return Platform.resolvedExecutable;
 }
 
 Map<String, dynamic> _frameSnapshot(int index, String charCaption) {

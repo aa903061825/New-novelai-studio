@@ -2059,6 +2059,9 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
   final rules = <ScriptPromptReplacementRule>[];
   final existingRulesByTermKey = <String, ScriptPromptReplacementRule>{};
   final emittedRuleIds = <String>{};
+  final incomingCoverageKeys = <String>{};
+  final emittedCoverageKeys = <String>{};
+  final emittedRulesByCoverageKey = <String, ScriptPromptReplacementRule>{};
   final sourceTermIdRemap = _promptReplacementSourceTermIdRemap(
     existing?.rules ?? const <ScriptPromptReplacementRule>[],
     promptTerms,
@@ -2080,10 +2083,12 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
       continue;
     }
     ScriptPromptReplacementRule? existingRule;
-    for (final key in _promptReplacementIncomingLookupKeys(
+    final incomingKeys = _promptReplacementIncomingLookupKeys(
       text,
       term.category,
-    )) {
+    );
+    incomingCoverageKeys.addAll(incomingKeys);
+    for (final key in incomingKeys) {
       final candidate = existingRulesByTermKey[key];
       if (candidate != null && !emittedRuleIds.contains(candidate.id)) {
         existingRule = candidate;
@@ -2092,12 +2097,17 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     }
     if (existingRule != null) {
       if (emittedRuleIds.add(existingRule.id)) {
-        rules.add(
-          _promptReplacementRuleWithSourceTerms(
-            existingRule,
-            [_promptReplacementTermFromAi(term)],
-            sourceTermIdRemap,
-          ),
+        final refreshedRule = _promptReplacementRuleWithSourceTerms(
+          existingRule,
+          [_promptReplacementTermFromAi(term)],
+          sourceTermIdRemap,
+        );
+        rules.add(refreshedRule);
+        _recordPromptReplacementCoverage(
+          incomingKeys,
+          refreshedRule,
+          emittedCoverageKeys,
+          emittedRulesByCoverageKey,
         );
       }
       continue;
@@ -2109,16 +2119,30 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     if (!emittedRuleIds.add(ruleId)) {
       continue;
     }
-    rules.add(
-      ScriptPromptReplacementRule(
-        id: ruleId,
-        sourceTerms: [replacementTerm],
-      ),
+    final rule = ScriptPromptReplacementRule(
+      id: ruleId,
+      sourceTerms: [replacementTerm],
+    );
+    rules.add(rule);
+    _recordPromptReplacementCoverage(
+      incomingKeys,
+      rule,
+      emittedCoverageKeys,
+      emittedRulesByCoverageKey,
     );
   }
 
   for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
     if (!emittedRuleIds.add(rule.id)) {
+      continue;
+    }
+    if (_isPromptReplacementSchemaCoveredDuplicateRule(
+      rule,
+      incomingCoverageKeys: incomingCoverageKeys,
+      emittedCoverageKeys: emittedCoverageKeys,
+      emittedRulesByCoverageKey: emittedRulesByCoverageKey,
+      sourceTermIdRemap: sourceTermIdRemap,
+    )) {
       continue;
     }
     rules.add(rule);
@@ -2138,6 +2162,116 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     targetIdentityPrompt: existing?.targetIdentityPrompt ?? '',
     rules: List.unmodifiable(rules),
   );
+}
+
+void _recordPromptReplacementCoverage(
+  List<String> keys,
+  ScriptPromptReplacementRule rule,
+  Set<String> emittedCoverageKeys,
+  Map<String, ScriptPromptReplacementRule> emittedRulesByCoverageKey,
+) {
+  for (final key in keys) {
+    emittedCoverageKeys.add(key);
+    emittedRulesByCoverageKey.putIfAbsent(key, () => rule);
+  }
+}
+
+bool _isPromptReplacementSchemaCoveredDuplicateRule(
+  ScriptPromptReplacementRule rule, {
+  required Set<String> incomingCoverageKeys,
+  required Set<String> emittedCoverageKeys,
+  required Map<String, ScriptPromptReplacementRule> emittedRulesByCoverageKey,
+  required Map<String, String> sourceTermIdRemap,
+}) {
+  if (rule.sourceTerms.isEmpty) {
+    return false;
+  }
+  final covered = rule.sourceTerms.every((term) {
+    final keys = _promptReplacementExistingLookupKeys(
+      term.text,
+      term.category,
+    );
+    return keys.isNotEmpty &&
+        keys.any(incomingCoverageKeys.contains) &&
+        keys.any(emittedCoverageKeys.contains);
+  });
+  if (!covered) {
+    return false;
+  }
+  if (!_promptReplacementHasUserState(rule)) {
+    return true;
+  }
+  final candidateRules = <ScriptPromptReplacementRule>[];
+  final candidateIds = <String>{};
+  for (final term in rule.sourceTerms) {
+    for (final key in _promptReplacementExistingLookupKeys(
+      term.text,
+      term.category,
+    )) {
+      final candidate = emittedRulesByCoverageKey[key];
+      if (candidate == null || !candidateIds.add(candidate.id)) {
+        continue;
+      }
+      candidateRules.add(candidate);
+    }
+  }
+  return candidateRules.any(
+    (candidate) => _promptReplacementUserStateEquivalent(
+      rule,
+      candidate,
+      sourceTermIdRemap,
+    ),
+  );
+}
+
+bool _promptReplacementHasUserState(ScriptPromptReplacementRule rule) {
+  return _promptReplacementUserState(rule).isNotEmpty;
+}
+
+bool _promptReplacementUserStateEquivalent(
+  ScriptPromptReplacementRule left,
+  ScriptPromptReplacementRule right,
+  Map<String, String> sourceTermIdRemap,
+) {
+  return jsonEncode(_promptReplacementUserState(left, sourceTermIdRemap)) ==
+      jsonEncode(_promptReplacementUserState(right));
+}
+
+Map<String, Object> _promptReplacementUserState(
+  ScriptPromptReplacementRule rule, [
+  Map<String, String> sourceTermIdRemap = const {},
+]) {
+  final state = <String, Object>{};
+  if (rule.action != ScriptPromptReplacementAction.none) {
+    state['action'] = rule.action.name;
+  }
+  if (rule.matchMode != ScriptPromptReplacementMatchMode.any) {
+    state['matchMode'] = rule.matchMode.name;
+  }
+  final anchorTermId = rule.anchorTermId.trim();
+  if (anchorTermId.isNotEmpty) {
+    state['anchorTermId'] = sourceTermIdRemap[anchorTermId] ?? anchorTermId;
+  }
+  final excludedTermIds = [
+    for (final id in rule.excludedTermIds)
+      if (id.trim().isNotEmpty) sourceTermIdRemap[id.trim()] ?? id.trim(),
+  ]..sort();
+  if (excludedTermIds.isNotEmpty) {
+    state['excludedTermIds'] = excludedTermIds;
+  }
+  final targetPrompt = rule.targetPrompt.trim();
+  if (targetPrompt.isNotEmpty) {
+    state['targetPrompt'] = targetPrompt;
+  }
+  final targetWeightMultiplier = rule.targetWeightMultiplier;
+  if (targetWeightMultiplier != null) {
+    state['targetWeightMultiplier'] = targetWeightMultiplier;
+  }
+  final manualPhrase = rule.manualPhrase.trim();
+  if (manualPhrase.isNotEmpty) {
+    state['manualPhrase'] = manualPhrase;
+  }
+  return state;
 }
 
 ScriptPromptReplacementRule _promptReplacementRuleWithSourceTerms(
