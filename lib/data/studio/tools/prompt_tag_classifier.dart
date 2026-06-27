@@ -416,7 +416,7 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'clothing',
-      label: '服装/身体',
+      label: '鏈嶈/韬綋',
       categories: [
         PromptTagCategory.upperBody,
         PromptTagCategory.lowerBody,
@@ -437,7 +437,7 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'scene',
-      label: '场景/镜头',
+      label: '鍦烘櫙/闀滃ご',
       categories: [
         PromptTagCategory.scene,
         PromptTagCategory.camera,
@@ -452,21 +452,21 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'negative',
-      label: '负面内容',
+      label: '璐熼潰鍐呭',
       categories: [
         PromptTagCategory.negativeContent,
       ],
     ),
     PromptTagGroup(
       id: 'syntax',
-      label: '语法/权重',
+      label: '璇硶/鏉冮噸',
       categories: [
         PromptTagCategory.promptSyntax,
       ],
     ),
     PromptTagGroup(
       id: 'other',
-      label: '其它',
+      label: '鍏跺畠',
       categories: [
         PromptTagCategory.other,
       ],
@@ -492,45 +492,57 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'character',
-      label: '身份',
+      label: '韬唤',
       categories: [
         PromptTagCategory.character,
       ],
     ),
     PromptTagGroup(
       id: 'upperBody',
-      label: '上身',
+      label: '涓婅韩',
       categories: [
         PromptTagCategory.upperBody,
       ],
     ),
     PromptTagGroup(
       id: 'upperClothing',
-      label: '上装',
+      label: '涓婅',
       categories: [
         PromptTagCategory.upperClothing,
       ],
     ),
     PromptTagGroup(
       id: 'lowerBody',
-      label: '下身',
+      label: '涓嬭韩',
       categories: [
         PromptTagCategory.lowerBody,
       ],
     ),
     PromptTagGroup(
       id: 'lowerClothing',
-      label: '下装',
+      label: '涓嬭',
       categories: [
         PromptTagCategory.lowerClothing,
       ],
     ),
     PromptTagGroup(
-      id: 'clothing',
-      label: '饰品/状态',
+      id: 'accessory',
+      label: '楗板搧',
       categories: [
         PromptTagCategory.accessory,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'clothingState',
+      label: '鏈嶈鐘舵€?鍔ㄤ綔',
+      categories: [
         PromptTagCategory.clothingState,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'clothing',
+      label: '鍏跺畠鏈嶈',
+      categories: [
         PromptTagCategory.clothing,
         PromptTagCategory.negativeBody,
       ],
@@ -544,7 +556,7 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'scene',
-      label: '场景/镜头',
+      label: '鍦烘櫙/闀滃ご',
       categories: [
         PromptTagCategory.scene,
         PromptTagCategory.camera,
@@ -559,21 +571,21 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'negative',
-      label: '负面内容',
+      label: '璐熼潰鍐呭',
       categories: [
         PromptTagCategory.negativeContent,
       ],
     ),
     PromptTagGroup(
       id: 'syntax',
-      label: '语法/权重',
+      label: '璇硶/鏉冮噸',
       categories: [
         PromptTagCategory.promptSyntax,
       ],
     ),
     PromptTagGroup(
       id: 'other',
-      label: '其它',
+      label: '鍏跺畠',
       categories: [
         PromptTagCategory.other,
       ],
@@ -686,6 +698,12 @@ class PromptTagClassifier {
     if (_containsAny(key, _lowerBodyWords)) {
       return PromptTagCategory.lowerBody;
     }
+    if (_containsAny(key, _accessoryWords)) {
+      return PromptTagCategory.accessory;
+    }
+    if (_containsAny(key, _clothingStateWords)) {
+      return PromptTagCategory.clothingState;
+    }
     if (_containsAny(key, _upperClothingWords)) {
       return PromptTagCategory.upperClothing;
     }
@@ -715,15 +733,15 @@ class PromptTagClassifier {
   }
 
   static bool _isPromptSyntaxTag(String key) {
-    return RegExp(r'''^["'.!?。！？…:;=\-+_^\s]+$''').hasMatch(key) ||
+    return RegExp(r'''^["'.!?銆傦紒锛熲€?;=\-+_^\s]+$''').hasMatch(key) ||
         RegExp(r'^[-+]?\d+(?:\.\d+)?(?:::)??$').hasMatch(key) ||
         RegExp(r'^"?\d+"?\s*:').hasMatch(key) ||
         RegExp(
-          r'^"?(description|stealth pnginfo|base caption|prompt|v4 prompt|char caption|char captions|caption|comment|software|source|cfg|eta|sampler|seed|steps|height|width|scale|uncond scale|n samples|noise schedule|reference strength multiple|uc|hide debug overlay|negative momentum|centers|x|y|r|use coords|use order|controlnet strength|controlnet model|sm|sm dyn|skip cfg above sigma|skip cfg below sigma|lora unet weights|lora clip weights|generation time)"?',
+          r'^"?(description|stealth pnginfo|base caption|prompt|v4 prompt|char caption|char captions|caption|comment|software|source|cfg|eta|sampler|seed|steps|height|width|scale|uncond scale|n samples|noise schedule|reference strength multiple|uc|hide debug overlay|negative momentum|centers|x|y|r|use coords|use order|controlnet strength|controlnet model|sm|sm dyn|skip cfg above sigma|skip cfg below sigma|lora unet weights|lora clip weights|generation time)"?$',
         ).hasMatch(key) ||
         key.startsWith('character#') ||
-        key.startsWith('示例角色') ||
-        key.startsWith('内容:') ||
+        key.startsWith('绀轰緥瑙掕壊') ||
+        key.startsWith('鍐呭:') ||
         key.contains('unnamed config') ||
         key.contains('fur dataset') ||
         key.contains('inputs') ||
@@ -825,26 +843,28 @@ const _artistChainStyleWords = [
 
 const _upperBodyWords = [
   'breast',
+  'breasts',
   'nipple',
+  'nipples',
+  'inverted nipples',
+  'large breasts',
+  'small breasts',
+  'areola',
   'arm',
   'hand',
   'wrist',
   'torso',
   'shoulder',
   'choker',
-  'collar',
   'necklace',
   'ribbon',
   'hair ornament',
   'hairclip',
   'hair clip',
   'headband',
-  'large breasts',
-  'small breasts',
   'navel',
   'stomach',
   'body',
-  'nude',
   'cleft of venus',
   'cameltoe',
   'cleavage',
@@ -871,6 +891,50 @@ const _lowerBodyWords = [
   'hip',
   'hips',
   'stomach bulge',
+];
+
+const _accessoryWords = [
+  'collar',
+  'choker',
+  'necklace',
+  'earring',
+  'earrings',
+  'hair ornament',
+  'hairclip',
+  'hair clip',
+  'headband',
+  'hairband',
+  'crown',
+  'bracelet',
+  'anklet',
+  'glasses',
+  'halo',
+];
+const _clothingStateWords = [
+  'strap slip',
+  'slipping strap',
+  'no panties',
+  'topless',
+  'bottomless',
+  'completely nude',
+  'completly nude',
+  'nude',
+  'naked',
+  'shirt lift',
+  'clothes lift',
+  'dress lift',
+  'skirt lift',
+  'open clothes',
+  'open shirt',
+  'open jacket',
+  'panties aside',
+  'bikini aside',
+  'pulling down',
+  'pulled down',
+  'taking off',
+  'take off',
+  'undressing',
+  'partially undressed',
 ];
 
 const _upperClothingWords = [

@@ -327,5 +327,43 @@ void main() {
         expect(result.group.id, isNot('other'));
       }
     });
+
+    test('classifies explicit upper body traits as upperBody', () {
+      expect(
+        PromptTagClassifier.classify('inverted nipples').category,
+        PromptTagCategory.upperBody,
+      );
+      expect(
+        PromptTagClassifier.classify('large breasts').category,
+        PromptTagCategory.upperBody,
+      );
+      expect(
+        PromptTagClassifier.classify('small breasts').category,
+        PromptTagCategory.upperBody,
+      );
+    });
+
+    test('classifies accessories separately from clothing state', () {
+      expect(
+        PromptTagClassifier.classify('black collar').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('animal collar').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('strap slip').category,
+        PromptTagCategory.clothingState,
+      );
+      expect(
+        PromptTagClassifier.classify('no panties').category,
+        PromptTagCategory.clothingState,
+      );
+      expect(
+        PromptTagClassifier.classify('completely nude').category,
+        PromptTagCategory.clothingState,
+      );
+    });
   });
 }
