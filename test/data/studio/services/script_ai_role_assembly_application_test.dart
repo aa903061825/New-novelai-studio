@@ -1510,6 +1510,203 @@ void main() {
   );
 
   test(
+    'keeps stale role replacement rule that only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Heroine',
+            sourcePreview: 'red jacket',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-clothing-red-jacket',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-clothing-old-hat',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-hat',
+                    text: 'old hat',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.35,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isFalse);
+      expect(identical(result.mapping, mapping), isTrue);
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules.map((rule) => rule.id), [
+        'role-slot-0-clothing-red-jacket',
+        'role-slot-0-clothing-old-hat',
+      ]);
+      expect(rules.last.targetPrompt, isEmpty);
+      expect(rules.last.targetWeightMultiplier, 1.35);
+      expect(rules.last.effectiveAction, ScriptPromptReplacementAction.replace);
+    },
+  );
+
+  test(
+    'keeps stale scene replacement rule that only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        scenePromptReplacements: [
+          ScriptScenePromptReplacement(
+            id: 'scene-ai',
+            label: 'Scene',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'scene-night',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'night',
+                    text: 'night',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'scene-old-rain',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-rain',
+                    text: 'old rain',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+                targetWeightMultiplier: 0.8,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          sceneTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'night',
+              text: 'night',
+              category: PromptTagCategory.scene,
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isFalse);
+      expect(identical(result.mapping, mapping), isTrue);
+      final rules = result.mapping.scenePromptReplacements.single.rules;
+      expect(rules.map((rule) => rule.id), [
+        'scene-night',
+        'scene-old-rain',
+      ]);
+      expect(rules.last.targetPrompt, isEmpty);
+      expect(rules.last.targetWeightMultiplier, 0.8);
+      expect(rules.last.effectiveAction, ScriptPromptReplacementAction.replace);
+    },
+  );
+
+  test(
+    'reports mapping changed when refreshed rule only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Heroine',
+            sourcePreview: 'red jacket',
+            rules: [
+              _WeightRefreshingPromptReplacementRule(
+                id: 'role-slot-0-clothing-red-jacket',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.2,
+                refreshedWeightMultiplier: 1.8,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isTrue);
+      expect(identical(result.mapping, mapping), isFalse);
+      expect(
+        result.mapping.rolePromptReplacements.single.rules.single
+            .targetWeightMultiplier,
+        1.8,
+      );
+    },
+  );
+
+  test(
     'keeps AI stages whose ids look like local default stage ids',
     () {
       const mapping = RecastMapping(
@@ -1733,4 +1930,58 @@ void main() {
     expect(result.mapping.roleAssemblies, hasLength(1));
     expect(result.mapping.roleAssemblies.single.sourceRoleId, 'ai-role-0');
   });
+}
+
+class _WeightRefreshingPromptReplacementRule
+    extends ScriptPromptReplacementRule {
+  final double refreshedWeightMultiplier;
+
+  const _WeightRefreshingPromptReplacementRule({
+    required String id,
+    List<ScriptPromptReplacementTerm> sourceTerms = const [],
+    List<String> excludedTermIds = const [],
+    ScriptPromptReplacementAction action = ScriptPromptReplacementAction.none,
+    ScriptPromptReplacementMatchMode matchMode =
+        ScriptPromptReplacementMatchMode.any,
+    String targetPrompt = '',
+    double? targetWeightMultiplier,
+    String manualPhrase = '',
+    String anchorTermId = '',
+    required this.refreshedWeightMultiplier,
+  }) : super(
+          id: id,
+          sourceTerms: sourceTerms,
+          excludedTermIds: excludedTermIds,
+          action: action,
+          matchMode: matchMode,
+          targetPrompt: targetPrompt,
+          targetWeightMultiplier: targetWeightMultiplier,
+          manualPhrase: manualPhrase,
+          anchorTermId: anchorTermId,
+        );
+
+  @override
+  ScriptPromptReplacementRule copyWith({
+    String? id,
+    List<ScriptPromptReplacementTerm>? sourceTerms,
+    List<String>? excludedTermIds,
+    ScriptPromptReplacementAction? action,
+    ScriptPromptReplacementMatchMode? matchMode,
+    String? targetPrompt,
+    Object? targetWeightMultiplier,
+    String? manualPhrase,
+    String? anchorTermId,
+  }) {
+    return ScriptPromptReplacementRule(
+      id: id ?? this.id,
+      sourceTerms: sourceTerms ?? this.sourceTerms,
+      excludedTermIds: excludedTermIds ?? this.excludedTermIds,
+      action: action ?? this.action,
+      matchMode: matchMode ?? this.matchMode,
+      targetPrompt: targetPrompt ?? this.targetPrompt,
+      targetWeightMultiplier: refreshedWeightMultiplier,
+      manualPhrase: manualPhrase ?? this.manualPhrase,
+      anchorTermId: anchorTermId ?? this.anchorTermId,
+    );
+  }
 }

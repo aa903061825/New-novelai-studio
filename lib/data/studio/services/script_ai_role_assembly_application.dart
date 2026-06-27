@@ -739,6 +739,7 @@ class ScriptAiRoleAssemblyApplication {
   ) {
     return rule.sourceTerms.length > 1 ||
         rule.targetPrompt.trim().isNotEmpty ||
+        rule.targetWeightMultiplier != null ||
         rule.manualPhrase.trim().isNotEmpty ||
         rule.action != ScriptPromptReplacementAction.none ||
         rule.matchMode != ScriptPromptReplacementMatchMode.any ||
@@ -1333,6 +1334,7 @@ class ScriptAiRoleAssemblyApplication {
           leftRule.action != rightRule.action ||
           leftRule.matchMode != rightRule.matchMode ||
           leftRule.targetPrompt != rightRule.targetPrompt ||
+          leftRule.targetWeightMultiplier != rightRule.targetWeightMultiplier ||
           leftRule.manualPhrase != rightRule.manualPhrase ||
           leftRule.anchorTermId != rightRule.anchorTermId) {
         return false;
