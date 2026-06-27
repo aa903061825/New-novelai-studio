@@ -1,5 +1,6 @@
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 typedef ScriptAiRoleStageLabeler = String Function(
@@ -312,6 +313,7 @@ class ScriptAiRoleAssemblyApplication {
       for (final key in _promptReplacementTermKeys(
         id: replacementTerm.id,
         text: replacementTerm.text,
+        category: replacementTerm.category,
       )) {
         aiRuleIdsByTermKey.putIfAbsent(key, () => ruleId);
         aiTermsByKey.putIfAbsent(key, () => replacementTerm);
@@ -434,6 +436,7 @@ class ScriptAiRoleAssemblyApplication {
     for (final key in _promptReplacementTermKeys(
       id: term.id,
       text: term.text,
+      category: term.category,
     )) {
       final aiTerm = aiTermsByKey[key];
       if (aiTerm != null) {
@@ -450,6 +453,7 @@ class ScriptAiRoleAssemblyApplication {
     for (final key in _promptReplacementTermKeys(
       id: term.id,
       text: term.text,
+      category: term.category,
     )) {
       final ruleId = aiRuleIdsByTermKey[key];
       if (ruleId != null) {
@@ -462,17 +466,53 @@ class ScriptAiRoleAssemblyApplication {
   List<String> _promptReplacementTermKeys({
     required String id,
     required String text,
+    required PromptTagCategory category,
   }) {
     final keys = <String>[];
     final idKey = id.trim();
     if (idKey.isNotEmpty) {
       keys.add('id:$idKey');
     }
-    final textKey = PromptTagProcessor.normalizeMatchKey(text);
-    if (textKey.isNotEmpty) {
-      keys.add('text:$textKey');
+    final strictKey = _promptReplacementStrictTermKey(text, category);
+    if (strictKey.isNotEmpty) {
+      keys.add('text:$strictKey');
+    }
+    final compatibleKey = _promptReplacementCompatibleTermKey(text, category);
+    if (compatibleKey.isNotEmpty && compatibleKey != strictKey) {
+      keys.add('compat:$compatibleKey');
     }
     return keys;
+  }
+
+  String _promptReplacementStrictTermKey(
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    return '${category.name}\u001f$normalized';
+  }
+
+  String _promptReplacementCompatibleTermKey(
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final categoryKey = switch (category) {
+      PromptTagCategory.clothing ||
+      PromptTagCategory.accessory ||
+      PromptTagCategory.clothingState ||
+      PromptTagCategory.upperClothing ||
+      PromptTagCategory.lowerClothing =>
+        'legacy-clothing-compatible',
+      _ => category.name,
+    };
+    return '$categoryKey\u001f$normalized';
   }
 
   ScriptPromptReplacementTerm _promptReplacementTermFromAi(

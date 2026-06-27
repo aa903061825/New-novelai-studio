@@ -363,6 +363,64 @@ void main() {
     );
   });
 
+  test(
+    'reuses confirmed replacement rule when AI refines legacy clothing category',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-state-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-no-panties',
+                      text: 'no panties',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'black panties',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-no-panties',
+                  text: 'no panties',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rule = result.mapping.rolePromptReplacements.single.rules.single;
+      expect(rule.id, 'legacy-state-rule');
+      expect(rule.targetPrompt, 'black panties');
+      expect(rule.sourceTerms.single.id, 'term-no-panties');
+      expect(
+        rule.sourceTerms.single.category,
+        PromptTagCategory.clothingState,
+      );
+    },
+  );
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(

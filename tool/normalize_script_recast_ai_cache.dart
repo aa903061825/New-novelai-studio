@@ -1966,10 +1966,12 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
   final emittedRuleIds = <String>{};
   for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
     for (final term in rule.sourceTerms) {
-      existingRulesByTermKey.putIfAbsent(
-        _promptReplacementTermKey(term.text, term.category),
-        () => rule,
-      );
+      for (final key in _promptReplacementLookupKeys(
+        term.text,
+        term.category,
+      )) {
+        existingRulesByTermKey.putIfAbsent(key, () => rule);
+      }
     }
   }
 
@@ -1978,8 +1980,13 @@ ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
     if (text.isEmpty) {
       continue;
     }
-    final termKey = _promptReplacementTermKey(text, term.category);
-    final existingRule = existingRulesByTermKey[termKey];
+    ScriptPromptReplacementRule? existingRule;
+    for (final key in _promptReplacementLookupKeys(text, term.category)) {
+      existingRule = existingRulesByTermKey[key];
+      if (existingRule != null) {
+        break;
+      }
+    }
     if (existingRule != null) {
       if (emittedRuleIds.add(existingRule.id)) {
         rules.add(
@@ -2060,6 +2067,41 @@ String _promptReplacementSourcePreview(
 
 String _promptReplacementTermKey(String text, PromptTagCategory category) {
   return '${category.name}\u001f${_normalizedEvidenceText(text)}';
+}
+
+List<String> _promptReplacementLookupKeys(
+  String text,
+  PromptTagCategory category,
+) {
+  final strictKey = _promptReplacementTermKey(text, category);
+  if (strictKey.isEmpty) {
+    return const [];
+  }
+  final compatibleKey = _promptReplacementCompatibleTermKey(text, category);
+  if (compatibleKey.isEmpty || compatibleKey == strictKey) {
+    return [strictKey];
+  }
+  return [strictKey, compatibleKey];
+}
+
+String _promptReplacementCompatibleTermKey(
+  String text,
+  PromptTagCategory category,
+) {
+  final normalized = _normalizedEvidenceText(text);
+  if (normalized.isEmpty) {
+    return '';
+  }
+  final categoryKey = switch (category) {
+    PromptTagCategory.clothing ||
+    PromptTagCategory.accessory ||
+    PromptTagCategory.clothingState ||
+    PromptTagCategory.upperClothing ||
+    PromptTagCategory.lowerClothing =>
+      'legacy-clothing-compatible',
+    _ => category.name,
+  };
+  return '$categoryKey\u001f$normalized';
 }
 
 RoleAssembly _assemblyWithNormalizedAiRole(
