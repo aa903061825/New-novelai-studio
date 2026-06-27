@@ -315,7 +315,8 @@ void main() {
       expect(rule.hasEffect, isTrue);
     });
 
-    test('replacement term categories preserve accessory and clothingState', () {
+    test('replacement term categories preserve accessory and clothingState',
+        () {
       final mapping = RecastMapping.fromJson({
         'id': 'mapping-a',
         'scriptId': 'script-a',
@@ -359,10 +360,12 @@ void main() {
           (json['rolePromptReplacements'] as List).cast<Map<String, dynamic>>();
       final rules =
           (replacements.first['rules'] as List).cast<Map<String, dynamic>>();
-      final accessoryTerm =
-          (rules.first['sourceTerms'] as List).cast<Map<String, dynamic>>().first;
-      final stateTerm =
-          (rules.last['sourceTerms'] as List).cast<Map<String, dynamic>>().first;
+      final accessoryTerm = (rules.first['sourceTerms'] as List)
+          .cast<Map<String, dynamic>>()
+          .first;
+      final stateTerm = (rules.last['sourceTerms'] as List)
+          .cast<Map<String, dynamic>>()
+          .first;
 
       expect(terms[0].category, PromptTagCategory.accessory);
       expect(terms[1].category, PromptTagCategory.clothingState);

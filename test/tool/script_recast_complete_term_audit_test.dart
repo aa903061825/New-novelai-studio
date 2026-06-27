@@ -228,7 +228,8 @@ void main() {
     final blackCollarRule = ruleById('legacy-black-collar-rule');
     final gyaruRule = rules.singleWhere(
       (rule) =>
-          ((rule['sourceTerms'] as List).single as Map<String, dynamic>)['text'] ==
+          ((rule['sourceTerms'] as List).single
+              as Map<String, dynamic>)['text'] ==
           'gyaru',
     );
     expect(doubleBunRule['targetPrompt'], 'single braid');
@@ -248,18 +249,17 @@ void main() {
       containsPair('category', 'accessory'),
     );
     expect(
-      ((gyaruRule['sourceTerms'] as List).single
-          as Map<String, dynamic>),
+      ((gyaruRule['sourceTerms'] as List).single as Map<String, dynamic>),
       containsPair('text', 'gyaru'),
     );
     expect(
       (rules
-              .expand(
-                (rule) => (rule['sourceTerms'] as List)
-                    .cast<Map<String, dynamic>>()
-                    .map((term) => '${term['text']}|${term['category']}'),
-              )
-              .toList()),
+          .expand(
+            (rule) => (rule['sourceTerms'] as List)
+                .cast<Map<String, dynamic>>()
+                .map((term) => '${term['text']}|${term['category']}'),
+          )
+          .toList()),
       containsAll([
         'double bun|upperBody',
         'inverted nipples|upperBody',
@@ -291,8 +291,9 @@ void main() {
         }
       });
 
-      final cacheDir = Directory('${tempDir.path}${Platform.pathSeparator}cache')
-        ..createSync(recursive: true);
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
       final backupDir =
           Directory('${tempDir.path}${Platform.pathSeparator}backup');
       final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
@@ -417,12 +418,12 @@ void main() {
       final firstApply = await applySchema();
       expect(firstApply.exitCode, 0, reason: firstApply.stderr.toString());
 
-      final firstUpdated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
-          as Map<String, dynamic>;
-      final firstRules =
-          (((firstUpdated['mapping'] as Map<String, dynamic>)['rolePromptReplacements']
-                  as List)
-              .single as Map<String, dynamic>)['rules'] as List;
+      final firstUpdated =
+          jsonDecode(await cacheFile.readAsString(encoding: utf8))
+              as Map<String, dynamic>;
+      final firstRules = (((firstUpdated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
       final firstRuleIds = firstRules
           .cast<Map<String, dynamic>>()
           .map((rule) => rule['id'] as String)
@@ -430,17 +431,17 @@ void main() {
       expect(firstRules, hasLength(5));
       expect(firstRuleIds, isNot(contains('legacy-strap-slip-rule')));
       expect(firstRuleIds, isNot(contains('legacy-black-collar-rule')));
-      expect(firstRuleIds, containsAll([
-        'legacy-double-bun-rule',
-        'refined-inverted-nipples-rule',
-        'refined-strap-slip-rule',
-        'refined-black-collar-rule',
-        'legacy-gyaru-rule',
-      ]));
       expect(
-        firstRules
-            .cast<Map<String, dynamic>>()
-            .expand(
+          firstRuleIds,
+          containsAll([
+            'legacy-double-bun-rule',
+            'refined-inverted-nipples-rule',
+            'refined-strap-slip-rule',
+            'refined-black-collar-rule',
+            'legacy-gyaru-rule',
+          ]));
+      expect(
+        firstRules.cast<Map<String, dynamic>>().expand(
               (rule) => (rule['sourceTerms'] as List)
                   .cast<Map<String, dynamic>>()
                   .map((term) => '${term['text']}|${term['category']}'),
