@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:meta/meta.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
@@ -1955,6 +1956,14 @@ List<ScriptRolePromptReplacement> _rolePromptReplacementsWithAiTerms(
     }
   }
   return List.unmodifiable(next);
+}
+
+@visibleForTesting
+List<ScriptRolePromptReplacement> rolePromptReplacementsWithAiTermsForTesting({
+  required List<ScriptRolePromptReplacement> existingReplacements,
+  required List<ScriptAiExtractedRole> roles,
+}) {
+  return _rolePromptReplacementsWithAiTerms(existingReplacements, roles);
 }
 
 ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({

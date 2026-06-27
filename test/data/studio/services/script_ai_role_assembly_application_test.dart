@@ -421,6 +421,63 @@ void main() {
     },
   );
 
+  test(
+    'does not reuse legacy rule when non-migration categories only share text',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-standing-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-standing',
+                      text: 'standing',
+                      category: PromptTagCategory.character,
+                    ),
+                  ],
+                  targetPrompt: 'hero pose',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-standing',
+                  text: 'standing',
+                  category: PromptTagCategory.action,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, isNot('legacy-standing-rule'));
+      expect(rules.first.sourceTerms.single.id, 'term-standing');
+      expect(rules.first.targetPrompt, isEmpty);
+      expect(rules.last.id, 'legacy-standing-rule');
+      expect(rules.last.targetPrompt, 'hero pose');
+    },
+  );
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(

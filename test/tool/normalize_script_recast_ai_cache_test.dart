@@ -8,6 +8,7 @@ import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import '../../tool/normalize_script_recast_ai_cache.dart' as normalizer;
 
 void main() {
   test('normalizes AI cache and is idempotent on second dry-run', () async {
@@ -1049,100 +1050,51 @@ void main() {
     expect(replacement.rules.last.sourceTerms.single.text, 'gyaru');
   }, timeout: const Timeout(Duration(minutes: 3)));
 
-  test('preserves legacy clothing rule across refined AI category', () async {
-    final tempDir = await Directory.systemTemp.createTemp(
-      'script-recast-refined-category-cache-test-',
-    );
-    addTearDown(() async {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
-    });
-
-    final cacheFile = File(
-      '${tempDir.path}${Platform.pathSeparator}refined-category.json',
-    );
-    await cacheFile.writeAsString(
-      const JsonEncoder.withIndent('  ').convert({
-        'scriptId': 'script-refined-category',
-        'scriptName': 'Refined Category Script',
-        'sourceRootPath': 'unused',
-        'sourceFingerprint': 'fingerprint',
-        'updatedAt': '2026-01-01T00:00:00.000Z',
-        'scriptSnapshot': {
-          'id': 'script-refined-category',
-          'name': 'Refined Category Script',
-          'rootPath': 'unused',
-          'frames': [
-            _frameSnapshot(1, 'strap slip'),
-          ],
-          'detectedSchema': 'v4Slotted',
-          'parseWarnings': [],
-          'meta': {'frameCount': 1},
-        },
-        'mapping': RecastMapping(
-          id: 'mapping-script-refined-category',
-          scriptId: 'script-refined-category',
-          rolePromptReplacements: const [
-            ScriptRolePromptReplacement(
-              sourceRoleId: 'slot-0',
-              displayLabel: 'Role',
-              rules: [
-                ScriptPromptReplacementRule(
-                  id: 'legacy-strap-slip-rule',
-                  sourceTerms: [
-                    ScriptPromptReplacementTerm(
-                      id: 'legacy-strap-slip',
-                      text: 'strap slip',
-                      category: PromptTagCategory.clothing,
-                    ),
-                  ],
-                  targetPrompt: 'secure straps',
-                ),
-              ],
-            ),
-          ],
-        ).toJson(),
-        'aiRoleExtraction': const ScriptAiRoleExtraction(
-          status: ScriptAiRoleExtractionStatus.ready,
-          roles: [
-            ScriptAiExtractedRole(
-              sourceRoleId: 'slot-0',
-              displayName: 'Role',
-              appearances: [
-                ScriptAiRoleAppearance(
-                  sourceId: 'slot-0',
-                  sourceKind: 'slot',
-                  frameIndexes: [1],
-                ),
-              ],
-              promptTerms: [
-                ScriptAiExtractedPromptTerm(
-                  id: 'term-strap-slip',
+  test('preserves legacy clothing rule across refined AI category', () {
+    final replacements = normalizer.rolePromptReplacementsWithAiTermsForTesting(
+      existingReplacements: const [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Role',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'legacy-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-strap-slip',
                   text: 'strap slip',
-                  category: PromptTagCategory.clothingState,
-                  frameIndexes: [1],
+                  category: PromptTagCategory.clothing,
                 ),
               ],
+              targetPrompt: 'secure straps',
             ),
           ],
-        ).toJson(),
-      }),
-      encoding: utf8,
+        ),
+      ],
+      roles: const [
+        ScriptAiExtractedRole(
+          sourceRoleId: 'slot-0',
+          displayName: 'Role',
+          appearances: [
+            ScriptAiRoleAppearance(
+              sourceId: 'slot-0',
+              sourceKind: 'slot',
+              frameIndexes: [1],
+            ),
+          ],
+          promptTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'term-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothingState,
+              frameIndexes: [1],
+            ),
+          ],
+        ),
+      ],
     );
 
-    final first = await _runNormalizer([
-      '--cache-dir',
-      tempDir.path,
-    ]);
-    expect(first.exitCode, 0, reason: first.stderr.toString());
-
-    final normalized = RecastScriptCache.fromJson(
-      Map<String, dynamic>.from(
-        jsonDecode(await cacheFile.readAsString(encoding: utf8)) as Map,
-      ),
-    );
-    final rule = normalized.mapping.rolePromptReplacements.single.rules.single;
+    final rule = replacements.single.rules.single;
     expect(rule.id, 'legacy-strap-slip-rule');
     expect(rule.targetPrompt, 'secure straps');
     expect(rule.sourceTerms.single.id, 'term-strap-slip');
@@ -1150,7 +1102,7 @@ void main() {
       rule.sourceTerms.single.category,
       PromptTagCategory.clothingState,
     );
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  });
 }
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
