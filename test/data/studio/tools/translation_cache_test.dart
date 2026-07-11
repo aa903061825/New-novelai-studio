@@ -115,6 +115,57 @@ void main() {
       expect(cache.getCached('bad'), isNull);
     });
 
+    test('mergeMissingSuggestions inserts misses and preserves manual entries',
+        () {
+      final cache = TranslationCache(clock: () => 1710000000)
+        ..setManual('blue eyes', 'manual-blue')
+        ..setCached('green eyes', 'machine-green', source: 'ai_extraction');
+
+      final merged = cache.mergeMissingSuggestions([
+        const TranslationCacheSuggestion(
+          text: 'blue eyes',
+          translation: 'ai-blue',
+          source: 'ai_extraction',
+        ),
+        const TranslationCacheSuggestion(
+          text: 'red dress',
+          translation: '红裙子',
+          source: 'ai_extraction',
+        ),
+        const TranslationCacheSuggestion(
+          text: 'green eyes',
+          translation: 'refreshed-green',
+          source: 'ai_extraction',
+        ),
+      ]);
+
+      expect(merged, 1);
+      expect(cache.getCached('blue eyes'), 'manual-blue');
+      expect(cache.getCached('red dress'), '红裙子');
+      expect(cache.entryFor('red dress')!.source, 'ai_extraction');
+      expect(cache.getCached('green eyes'), 'machine-green');
+
+      final refreshed = cache.mergeMissingSuggestions(
+        [
+          const TranslationCacheSuggestion(
+            text: 'green eyes',
+            translation: 'refreshed-green',
+            source: 'ai_extraction',
+          ),
+          const TranslationCacheSuggestion(
+            text: 'blue eyes',
+            translation: 'refreshed-blue',
+            source: 'ai_extraction',
+          ),
+        ],
+        refreshMachineEntries: true,
+      );
+
+      expect(refreshed, 1);
+      expect(cache.getCached('green eyes'), 'refreshed-green');
+      expect(cache.getCached('blue eyes'), 'manual-blue');
+    });
+
     test('translation lookup falls back to cleaned weighted tags', () {
       final cache = TranslationCache();
       cache.setCached('masterpiece', '杰作', source: 'manual');

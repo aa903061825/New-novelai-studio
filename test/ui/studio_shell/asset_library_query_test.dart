@@ -8,7 +8,7 @@ void main() {
         filter: AssetLibraryFilter.all,
       ).filterItems(_items());
 
-      expect(result.map((item) => item.value), ['character', 'tag']);
+      expect(result.map((item) => item.value), ['character', 'artist']);
     });
 
     test('codex filter only returns legacy codex entries', () {
@@ -19,15 +19,13 @@ void main() {
       expect(result.map((item) => item.value), ['codex']);
     });
 
-    test('query block and custom category narrow tag results', () {
+    test('query narrows reusable asset results', () {
       final result = const AssetLibraryQuery(
-        filter: AssetLibraryFilter.tag,
+        filter: AssetLibraryFilter.artistChain,
         query: 'rain',
-        selectedBlock: 'scene',
-        selectedCustomCategory: 'weather',
       ).filterItems(_items());
 
-      expect(result.map((item) => item.value), ['tag']);
+      expect(result.map((item) => item.value), ['artist']);
     });
 
     test('batch plan filter exposes batch plan entries', () {
@@ -41,10 +39,23 @@ void main() {
     test('favorite entries are promoted before non favorites', () {
       final result = const AssetLibraryQuery(
         filter: AssetLibraryFilter.all,
-        favoriteKeys: {'tag:favorite'},
+        favoriteKeys: {'artist:favorite'},
       ).filterItems(_items());
 
-      expect(result.map((item) => item.value), ['tag', 'character']);
+      expect(result.map((item) => item.value), ['artist', 'character']);
+    });
+
+    test('favorite promotion keeps non favorite entries in source order', () {
+      final result = const AssetLibraryQuery(
+        filter: AssetLibraryFilter.artistChain,
+        favoriteKeys: {'artist:favorite-2'},
+      ).filterItems([
+        _artistItem('first', 'artist:first'),
+        _artistItem('second', 'artist:favorite-2'),
+        _artistItem('third', 'artist:plain-3'),
+      ]);
+
+      expect(result.map((item) => item.value), ['second', 'first', 'third']);
     });
   });
 }
@@ -58,12 +69,10 @@ List<AssetLibraryQueryItem<String>> _items() {
       matchesQuery: (query) => 'alice silver hair'.contains(query),
     ),
     AssetLibraryQueryItem(
-      value: 'tag',
-      kind: AssetLibraryKind.tag,
-      block: 'scene',
-      customCategory: 'weather',
-      favoriteKey: 'tag:favorite',
-      matchesQuery: (query) => 'rain street'.contains(query),
+      value: 'artist',
+      kind: AssetLibraryKind.artistChain,
+      favoriteKey: 'artist:favorite',
+      matchesQuery: (query) => 'rain watercolor wash'.contains(query),
     ),
     AssetLibraryQueryItem(
       value: 'codex',
@@ -79,4 +88,13 @@ List<AssetLibraryQueryItem<String>> _items() {
       matchesQuery: (query) => true,
     ),
   ];
+}
+
+AssetLibraryQueryItem<String> _artistItem(String value, String favoriteKey) {
+  return AssetLibraryQueryItem(
+    value: value,
+    kind: AssetLibraryKind.artistChain,
+    favoriteKey: favoriteKey,
+    matchesQuery: (_) => true,
+  );
 }

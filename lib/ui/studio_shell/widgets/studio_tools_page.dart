@@ -13,6 +13,7 @@ import 'package:novel_studio/ui/studio_core/widgets/filter_rules_library_dialog.
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_scrollbar.dart';
 
 typedef StudioRecastKnowledgeBaseLoader = Future<Map<String, dynamic>>
     Function();
@@ -1086,7 +1087,7 @@ class _TranslationCacheEntryListState
         borderRadius: StudioTokens.radiusSlot,
         border: Border.all(color: StudioTokens.border),
       ),
-      child: Scrollbar(
+      child: StudioScrollbar(
         controller: _scrollController,
         thumbVisibility: true,
         child: ListView.separated(
@@ -1591,6 +1592,8 @@ String _categoryLabel(PromptTagCategory category) {
     PromptTagCategory.lowerBody => '下身',
     PromptTagCategory.upperClothing => '上装',
     PromptTagCategory.lowerClothing => '下装',
+    PromptTagCategory.accessory => '饰品',
+    PromptTagCategory.clothingState => '服装状态',
     PromptTagCategory.clothing => '服装',
     PromptTagCategory.action => '动作',
     PromptTagCategory.scene => '场景',

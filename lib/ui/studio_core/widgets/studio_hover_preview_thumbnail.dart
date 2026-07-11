@@ -11,6 +11,7 @@ const double kStudioHoverPreviewHeight = 960;
 const double kStudioHoverPreviewPadding = 6;
 const Offset kStudioHoverPreviewOffset = Offset(54, -96);
 const double kStudioHoverPreviewViewportPadding = 12;
+const Duration kStudioHoverPreviewActivationDelay = Duration(milliseconds: 200);
 
 class StudioHoverPreviewThumbnail extends StatefulWidget {
   final Widget Function(BuildContext context, String? previewPath) builder;
@@ -20,6 +21,8 @@ class StudioHoverPreviewThumbnail extends StatefulWidget {
   final double overlayHeight;
   final double overlayPadding;
   final Offset overlayOffset;
+  final bool overlayIgnoresPointer;
+  final Duration activationDelay;
 
   const StudioHoverPreviewThumbnail({
     super.key,
@@ -30,6 +33,8 @@ class StudioHoverPreviewThumbnail extends StatefulWidget {
     this.overlayHeight = kStudioHoverPreviewHeight,
     this.overlayPadding = kStudioHoverPreviewPadding,
     this.overlayOffset = kStudioHoverPreviewOffset,
+    this.overlayIgnoresPointer = false,
+    this.activationDelay = kStudioHoverPreviewActivationDelay,
   });
 
   @override
@@ -40,14 +45,17 @@ class StudioHoverPreviewThumbnail extends StatefulWidget {
 class _StudioHoverPreviewThumbnailState
     extends State<StudioHoverPreviewThumbnail> {
   final LayerLink _previewLink = LayerLink();
+  Timer? _activationTimer;
   OverlayEntry? _previewOverlay;
   int _previewIndex = 0;
   bool _targetHovered = false;
   bool _overlayHovered = false;
+  bool _previewActivated = false;
   bool _hidePreviewScheduled = false;
 
   @override
   void dispose() {
+    _cancelActivationTimer();
     _hidePreview();
     super.dispose();
   }
@@ -57,6 +65,11 @@ class _StudioHoverPreviewThumbnailState
     super.didUpdateWidget(oldWidget);
     if (_previewIndex >= widget.previewPaths.length) {
       _previewIndex = 0;
+    }
+    if (_currentPreviewPath == null) {
+      _cancelActivationTimer();
+      _hidePreview();
+      return;
     }
     if (oldWidget.previewPaths.join('\n') != widget.previewPaths.join('\n')) {
       _previewOverlay?.markNeedsBuild();
@@ -71,10 +84,13 @@ class _StudioHoverPreviewThumbnailState
       child: MouseRegion(
         onEnter: (_) {
           _targetHovered = true;
-          _showPreview();
+          _schedulePreviewActivation();
         },
         onExit: (_) {
           _targetHovered = false;
+          if (!_previewActivated) {
+            _cancelActivationTimer();
+          }
           _scheduleHidePreview();
         },
         child: CompositedTransformTarget(
@@ -91,7 +107,10 @@ class _StudioHoverPreviewThumbnailState
   }
 
   void _handlePreviewScroll(PointerSignalEvent signal) {
-    if (signal is! PointerScrollEvent || _currentPreviewPath == null) {
+    if (!_previewActivated ||
+        signal is! PointerScrollEvent ||
+        _currentPreviewPath == null ||
+        widget.previewPaths.length < 2) {
       return;
     }
     GestureBinding.instance.pointerSignalResolver.register(signal, (event) {
@@ -115,6 +134,28 @@ class _StudioHoverPreviewThumbnailState
     _previewOverlay?.markNeedsBuild();
   }
 
+  void _schedulePreviewActivation() {
+    if (_currentPreviewPath == null || _previewActivated) return;
+    _cancelActivationTimer();
+    if (widget.activationDelay <= Duration.zero) {
+      _activatePreview();
+      return;
+    }
+    _activationTimer = Timer(widget.activationDelay, _activatePreview);
+  }
+
+  void _activatePreview() {
+    _activationTimer = null;
+    if (!mounted || !_targetHovered || _currentPreviewPath == null) return;
+    _previewActivated = true;
+    _showPreview();
+  }
+
+  void _cancelActivationTimer() {
+    _activationTimer?.cancel();
+    _activationTimer = null;
+  }
+
   void _showPreview() {
     if (_currentPreviewPath == null || _previewOverlay != null) return;
     final overlay = Overlay.of(context);
@@ -136,44 +177,47 @@ class _StudioHoverPreviewThumbnailState
             child: SizedBox(
               width: geometry.size.width,
               height: geometry.size.height,
-              child: MouseRegion(
-                onEnter: (_) {
-                  _overlayHovered = true;
-                },
-                onExit: (_) {
-                  _overlayHovered = false;
-                  _scheduleHidePreview();
-                },
-                child: Listener(
-                  behavior: HitTestBehavior.opaque,
-                  onPointerSignal: _handlePreviewScroll,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: Container(
-                      key: widget.overlayKey,
-                      width: geometry.size.width,
-                      height: geometry.size.height,
-                      padding: EdgeInsets.all(widget.overlayPadding),
-                      decoration: BoxDecoration(
-                        color: StudioTokens.surface2,
-                        borderRadius: StudioTokens.radiusCard,
-                        border: Border.all(color: StudioTokens.primary),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x44000000),
-                            blurRadius: 18,
-                            offset: Offset(0, 10),
+              child: IgnorePointer(
+                ignoring: widget.overlayIgnoresPointer,
+                child: MouseRegion(
+                  onEnter: (_) {
+                    _overlayHovered = true;
+                  },
+                  onExit: (_) {
+                    _overlayHovered = false;
+                    _scheduleHidePreview();
+                  },
+                  child: Listener(
+                    behavior: HitTestBehavior.opaque,
+                    onPointerSignal: _handlePreviewScroll,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        key: widget.overlayKey,
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        padding: EdgeInsets.all(widget.overlayPadding),
+                        decoration: BoxDecoration(
+                          color: StudioTokens.surface2,
+                          borderRadius: StudioTokens.radiusCard,
+                          border: Border.all(color: StudioTokens.primary),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x44000000),
+                              blurRadius: 18,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: StudioTokens.radiusSlot,
+                          child: Image.file(
+                            File(previewPath),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const SizedBox.shrink();
+                            },
                           ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: StudioTokens.radiusSlot,
-                        child: Image.file(
-                          File(previewPath),
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const SizedBox.shrink();
-                          },
                         ),
                       ),
                     ),
@@ -268,8 +312,10 @@ class _StudioHoverPreviewThumbnailState
   }
 
   void _hidePreview() {
+    _cancelActivationTimer();
     _previewOverlay?.remove();
     _previewOverlay = null;
+    _previewActivated = false;
     _overlayHovered = false;
   }
 }

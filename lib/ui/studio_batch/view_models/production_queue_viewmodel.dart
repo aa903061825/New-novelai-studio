@@ -57,6 +57,36 @@ class ProductionQueueExecutionSettings {
   });
 }
 
+class _ProductionQueueTaskStats {
+  static const empty = _ProductionQueueTaskStats(
+    totalTasks: 0,
+    completedTasks: 0,
+    failedTasks: 0,
+    abnormalTasks: 0,
+    runningTasks: 0,
+    queuedTasks: 0,
+    hasRestoredUnfinishedWork: false,
+  );
+
+  final int totalTasks;
+  final int completedTasks;
+  final int failedTasks;
+  final int abnormalTasks;
+  final int runningTasks;
+  final int queuedTasks;
+  final bool hasRestoredUnfinishedWork;
+
+  const _ProductionQueueTaskStats({
+    required this.totalTasks,
+    required this.completedTasks,
+    required this.failedTasks,
+    required this.abnormalTasks,
+    required this.runningTasks,
+    required this.queuedTasks,
+    required this.hasRestoredUnfinishedWork,
+  });
+}
+
 class ProductionQueueViewModel extends ChangeNotifier {
   List<ProductionPlan> _plans;
   final ProductionQueueExecutionSettings settings;
@@ -71,6 +101,8 @@ class ProductionQueueViewModel extends ChangeNotifier {
   bool _isExecuting = false;
   bool _pauseRequested = false;
   bool _isPaused = false;
+  ProductionPlan? _selectedPlanStatsPlan;
+  _ProductionQueueTaskStats? _selectedPlanStats;
   late bool _useOriginalModel;
   late bool _useOriginalSize;
   late bool _useOriginalSampler;
@@ -92,6 +124,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
   late String _outputDirectory;
   int _executionEpoch = 0;
   Future<void> _executionSettingsSaveQueue = Future<void>.value();
+  Future<void> _rerunQueueMutation = Future<void>.value();
 
   ProductionQueueViewModel({
     required List<ProductionPlan> plans,
@@ -134,16 +167,15 @@ class ProductionQueueViewModel extends ChangeNotifier {
 
   ProductionTask? get selectedTask => _selectedTask;
 
-  int get totalTasks => selectedPlan?.tasks.length ?? 0;
+  int get totalTasks => _statsForSelectedPlan.totalTasks;
 
-  int get completedTasks => _count(ProductionTaskStatus.completed);
+  int get completedTasks => _statsForSelectedPlan.completedTasks;
 
-  int get failedTasks => _count(ProductionTaskStatus.failed);
+  int get failedTasks => _statsForSelectedPlan.failedTasks;
 
-  int get abnormalTasks =>
-      selectedPlan?.tasks.where(_isAbnormalTask).length ?? 0;
+  int get abnormalTasks => _statsForSelectedPlan.abnormalTasks;
 
-  int get runningTasks => _count(ProductionTaskStatus.running);
+  int get runningTasks => _statsForSelectedPlan.runningTasks;
 
   bool get hasFailedTasks => failedTasks > 0;
 
@@ -162,11 +194,11 @@ class ProductionQueueViewModel extends ChangeNotifier {
   bool get canResume =>
       !_isExecuting &&
       selectedPlan != null &&
-      selectedPlan!.tasks
-          .any((task) => task.status == ProductionTaskStatus.queued) &&
-      (_isPaused || _hasRestoredUnfinishedWork(selectedPlan!));
+      _statsForSelectedPlan.queuedTasks > 0 &&
+      (_isPaused || _statsForSelectedPlan.hasRestoredUnfinishedWork);
 
-  bool get canClearCurrentPlan => !_isExecuting && totalTasks > 0;
+  bool get canClearCurrentPlan =>
+      !_isExecuting && _statsForSelectedPlan.totalTasks > 0;
 
   bool get canRenameSelectedPlan => !_isExecuting && selectedPlan != null;
 
@@ -406,10 +438,38 @@ class ProductionQueueViewModel extends ChangeNotifier {
     if (service == null) return;
     final lastUsedSettings = await service.loadLastExecutionSettings();
     _setPlans(
-      await service.loadPlans(),
+      await service.loadPlansReadOnly(),
       fallbackExecutionSettings: lastUsedSettings,
     );
     notifyListeners();
+  }
+
+  Future<bool> loadAndFocusProductionTask({
+    required String planId,
+    required String taskId,
+  }) async {
+    final service = queueService;
+    final lastUsedSettings =
+        service == null ? null : await service.loadLastExecutionSettings();
+    final loadedPlans =
+        service == null ? plans : await service.loadPlansReadOnly();
+    return _focusProductionTaskInPlans(
+      loadedPlans,
+      planId: planId,
+      taskId: taskId,
+      fallbackExecutionSettings: lastUsedSettings,
+    );
+  }
+
+  bool focusProductionTask({
+    required String planId,
+    required String taskId,
+  }) {
+    return _focusProductionTaskInPlans(
+      plans,
+      planId: planId,
+      taskId: taskId,
+    );
   }
 
   Future<void> start() async {
@@ -447,6 +507,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
             },
             shouldContinue: () =>
                 _executionEpoch == runEpoch && !_pauseRequested,
+            shouldAcceptResult: () => _executionEpoch == runEpoch,
           );
         } catch (error) {
           if (_executionEpoch != runEpoch) return;
@@ -538,6 +599,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
           return _replaceTaskInPlan(executionPlan.id, updatedTask);
         },
         shouldContinue: () => _executionEpoch == runEpoch && !_pauseRequested,
+        shouldAcceptResult: () => _executionEpoch == runEpoch,
       );
       if (_executionEpoch != runEpoch) return;
       await _saveUpdatedPlan(
@@ -570,7 +632,16 @@ class ProductionQueueViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<ProductionTask?> queueRerunTask(ProductionTask task) async {
+  Future<ProductionTask?> queueRerunTask(ProductionTask task) {
+    final operation = _rerunQueueMutation.then((_) => _queueRerunTaskNow(task));
+    _rerunQueueMutation = operation.then<void>(
+      (_) {},
+      onError: (_) {},
+    );
+    return operation;
+  }
+
+  Future<ProductionTask?> _queueRerunTaskNow(ProductionTask task) async {
     final plan = selectedPlan;
     if (plan == null || plan.tasks.isEmpty) return null;
     final sourceTask = plan.tasks.firstWhere(
@@ -595,13 +666,20 @@ class ProductionQueueViewModel extends ChangeNotifier {
       clearRating: true,
       clearRatedAt: true,
     );
-    final insertionIndex = _quickRerunInsertionIndex(plan, sourceTask.id);
+    final insertionIndex = _quickRerunInsertionIndex(plan, sourceTask);
     final tasks = [...plan.tasks]..insert(insertionIndex, rerunTask);
     await _saveUpdatedPlan(
       plan.copyWith(tasks: tasks, updatedAt: queuedAt),
       selectedTaskId: rerunTask.id,
     );
     notifyListeners();
+    return rerunTask;
+  }
+
+  Future<ProductionTask?> quickRerunTask(ProductionTask task) async {
+    final rerunTask = await queueRerunTask(task);
+    if (rerunTask == null || _isExecuting) return rerunTask;
+    await start();
     return rerunTask;
   }
 
@@ -636,6 +714,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
           return _replaceTaskInPlan(executionPlan.id, updatedTask);
         },
         shouldContinue: () => _executionEpoch == runEpoch && !_pauseRequested,
+        shouldAcceptResult: () => _executionEpoch == runEpoch,
       );
       if (_executionEpoch != runEpoch) return;
       await _saveUpdatedPlan(result.plan, selectedTaskId: task.id);
@@ -681,9 +760,56 @@ class ProductionQueueViewModel extends ChangeNotifier {
     }
   }
 
-  int _count(ProductionTaskStatus status) {
-    return selectedPlan?.tasks.where((task) => task.status == status).length ??
-        0;
+  _ProductionQueueTaskStats get _statsForSelectedPlan {
+    final plan = selectedPlan;
+    final cachedPlan = _selectedPlanStatsPlan;
+    final cachedStats = _selectedPlanStats;
+    if (identical(cachedPlan, plan) && cachedStats != null) {
+      return cachedStats;
+    }
+    final stats = _taskStatsForPlan(plan);
+    _selectedPlanStatsPlan = plan;
+    _selectedPlanStats = stats;
+    return stats;
+  }
+
+  _ProductionQueueTaskStats _taskStatsForPlan(ProductionPlan? plan) {
+    if (plan == null) return _ProductionQueueTaskStats.empty;
+    var completedTasks = 0;
+    var failedTasks = 0;
+    var abnormalTasks = 0;
+    var runningTasks = 0;
+    var queuedTasks = 0;
+    var hasPriorRunEvidence = false;
+    for (final task in plan.tasks) {
+      switch (task.status) {
+        case ProductionTaskStatus.completed:
+          completedTasks += 1;
+        case ProductionTaskStatus.failed:
+          failedTasks += 1;
+        case ProductionTaskStatus.running:
+          runningTasks += 1;
+        case ProductionTaskStatus.queued:
+          queuedTasks += 1;
+        case ProductionTaskStatus.skipped:
+          break;
+      }
+      if (_isAbnormalTask(task)) {
+        abnormalTasks += 1;
+      }
+      if (!hasPriorRunEvidence && _hasPriorRunEvidence(task)) {
+        hasPriorRunEvidence = true;
+      }
+    }
+    return _ProductionQueueTaskStats(
+      totalTasks: plan.tasks.length,
+      completedTasks: completedTasks,
+      failedTasks: failedTasks,
+      abnormalTasks: abnormalTasks,
+      runningTasks: runningTasks,
+      queuedTasks: queuedTasks,
+      hasRestoredUnfinishedWork: queuedTasks > 0 && hasPriorRunEvidence,
+    );
   }
 
   bool _isAbnormalTask(ProductionTask task) {
@@ -716,18 +842,75 @@ class ProductionQueueViewModel extends ChangeNotifier {
     await executor.delay(delay);
   }
 
-  int _quickRerunInsertionIndex(ProductionPlan plan, String sourceTaskId) {
+  int _quickRerunInsertionIndex(
+    ProductionPlan plan,
+    ProductionTask sourceTask,
+  ) {
     final runningIndex = plan.tasks.indexWhere(
       (task) => task.status == ProductionTaskStatus.running,
     );
-    if (runningIndex >= 0) return runningIndex + 1;
+    if (runningIndex >= 0) {
+      return _afterQueuedRerunBlock(plan.tasks, runningIndex + 1);
+    }
+    final sourceGroupEnd = _sourceTaskGroupEndIndex(plan.tasks, sourceTask);
+    if (sourceGroupEnd >= 0) return sourceGroupEnd + 1;
     final queuedIndex = plan.tasks.indexWhere(
       (task) => task.status == ProductionTaskStatus.queued,
     );
-    if (queuedIndex >= 0) return queuedIndex;
-    final sourceIndex =
-        plan.tasks.indexWhere((task) => task.id == sourceTaskId);
-    return sourceIndex < 0 ? plan.tasks.length : sourceIndex + 1;
+    if (queuedIndex >= 0) {
+      return _afterQueuedRerunBlock(plan.tasks, queuedIndex);
+    }
+    return plan.tasks.length;
+  }
+
+  int _afterQueuedRerunBlock(List<ProductionTask> tasks, int startIndex) {
+    var insertionIndex = startIndex.clamp(0, tasks.length).toInt();
+    while (insertionIndex < tasks.length &&
+        _isQueuedRerunTask(tasks[insertionIndex])) {
+      insertionIndex += 1;
+    }
+    return insertionIndex;
+  }
+
+  int _sourceTaskGroupEndIndex(
+    List<ProductionTask> tasks,
+    ProductionTask sourceTask,
+  ) {
+    var endIndex = -1;
+    for (var index = 0; index < tasks.length; index += 1) {
+      final task = tasks[index];
+      if (_isSameProductionTaskGroup(task, sourceTask)) {
+        endIndex = index;
+      }
+    }
+    return endIndex;
+  }
+
+  bool _isQueuedRerunTask(ProductionTask task) {
+    return task.status == ProductionTaskStatus.queued &&
+        task.id.contains('-rerun');
+  }
+
+  bool _isSameProductionTaskGroup(
+    ProductionTask task,
+    ProductionTask sourceTask,
+  ) {
+    if (task.id == sourceTask.id) return true;
+    if (task.planId != sourceTask.planId ||
+        task.taskType != sourceTask.taskType) {
+      return false;
+    }
+    if (task.taskType == ProductionTaskType.scriptRecastFrame &&
+        sourceTask.source.frameIndex != null) {
+      final source = task.source;
+      final target = sourceTask.source;
+      return source.scriptId == target.scriptId &&
+          source.recastRunId == target.recastRunId &&
+          source.mappingConfigFingerprint == target.mappingConfigFingerprint &&
+          source.frameIndex == target.frameIndex &&
+          source.sourceFileName == target.sourceFileName;
+    }
+    return task.id.startsWith('${sourceTask.id}-rerun');
   }
 
   ProductionTask _resetTaskForRestart(ProductionTask task, DateTime resetAt) {
@@ -894,10 +1077,11 @@ class ProductionQueueViewModel extends ChangeNotifier {
     final normalizedPlans =
         _isExecuting ? nextPlans : _normalizeIdleRunningTasks(nextPlans);
     _plans = List.unmodifiable(normalizedPlans);
-    _selectedTask = _findTask(previousSelectedTaskId) ??
-        (plans.isEmpty || plans.first.tasks.isEmpty
+    final currentPlan = selectedPlan;
+    _selectedTask = _findTaskInPlan(currentPlan, previousSelectedTaskId) ??
+        (currentPlan == null || currentPlan.tasks.isEmpty
             ? null
-            : plans.first.tasks.first);
+            : currentPlan.tasks.first);
     if (!_isExecuting && !preserveCurrentExecutionSettings) {
       final planSettings = _initialPlanExecutionSettings(
         plans,
@@ -909,8 +1093,58 @@ class ProductionQueueViewModel extends ChangeNotifier {
     }
     if (!_isExecuting && !_pauseRequested) {
       final plan = selectedPlan;
-      _isPaused = plan != null && _hasRestoredUnfinishedWork(plan);
+      _isPaused = _taskStatsForPlan(plan).hasRestoredUnfinishedWork;
     }
+  }
+
+  bool _focusProductionTaskInPlans(
+    List<ProductionPlan> sourcePlans, {
+    required String planId,
+    required String taskId,
+    ProductionPlanExecutionSettings? fallbackExecutionSettings,
+  }) {
+    final normalizedPlanId = planId.trim();
+    final normalizedTaskId = taskId.trim();
+    if (normalizedPlanId.isEmpty || normalizedTaskId.isEmpty) {
+      return false;
+    }
+
+    final focusedPlans = _plansWithFocusedPlan(sourcePlans, normalizedPlanId);
+    if (focusedPlans.isEmpty || focusedPlans.first.id != normalizedPlanId) {
+      return false;
+    }
+    final hasTask =
+        focusedPlans.first.tasks.any((task) => task.id == normalizedTaskId);
+    if (!hasTask) {
+      return false;
+    }
+
+    _setPlans(
+      focusedPlans,
+      selectedTaskId: normalizedTaskId,
+      fallbackExecutionSettings: fallbackExecutionSettings,
+    );
+    notifyListeners();
+    return true;
+  }
+
+  List<ProductionPlan> _plansWithFocusedPlan(
+    List<ProductionPlan> sourcePlans,
+    String planId,
+  ) {
+    final targetIndex = sourcePlans.indexWhere((plan) => plan.id == planId);
+    if (targetIndex < 0) {
+      return sourcePlans;
+    }
+    if (targetIndex == 0) {
+      return sourcePlans;
+    }
+    final target = sourcePlans[targetIndex];
+    return [
+      target,
+      for (var index = 0; index < sourcePlans.length; index += 1)
+        if (index != targetIndex) sourcePlans[index],
+    ];
   }
 
   List<ProductionPlan> _normalizeIdleRunningTasks(List<ProductionPlan> plans) {
@@ -936,13 +1170,6 @@ class ProductionQueueViewModel extends ChangeNotifier {
     ];
   }
 
-  bool _hasRestoredUnfinishedWork(ProductionPlan plan) {
-    final hasQueued =
-        plan.tasks.any((task) => task.status == ProductionTaskStatus.queued);
-    if (!hasQueued) return false;
-    return plan.tasks.any(_hasPriorRunEvidence);
-  }
-
   bool _hasPriorRunEvidence(ProductionTask task) {
     return task.status == ProductionTaskStatus.completed ||
         task.status == ProductionTaskStatus.failed ||
@@ -955,12 +1182,10 @@ class ProductionQueueViewModel extends ChangeNotifier {
         task.completedAt != null;
   }
 
-  ProductionTask? _findTask(String? taskId) {
-    if (taskId == null) return null;
-    for (final plan in plans) {
-      for (final task in plan.tasks) {
-        if (task.id == taskId) return task;
-      }
+  ProductionTask? _findTaskInPlan(ProductionPlan? plan, String? taskId) {
+    if (plan == null || taskId == null) return null;
+    for (final task in plan.tasks) {
+      if (task.id == taskId) return task;
     }
     return null;
   }

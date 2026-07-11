@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -15,8 +16,8 @@ typedef ProductionImageSave = Future<String> Function(
 typedef ProductionScopedImageSave = Future<String> Function(
   Uint8List bytes,
   String fileName,
-  String productionPlanId,
-  String? outputDirectory,
+  ProductionPlan plan,
+  ProductionTask task,
 );
 typedef ProductionClock = DateTime Function();
 typedef ProductionDelay = Future<void> Function(Duration duration);
@@ -82,6 +83,7 @@ class ProductionExecutorService {
     Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
+    ProductionShouldContinue? shouldAcceptResult,
   }) async {
     final result = await _runMatchingTasks(
       plan,
@@ -93,6 +95,7 @@ class ProductionExecutorService {
       onTaskUpdate: onTaskUpdate,
       shouldRun: (task) => task.status == ProductionTaskStatus.queued,
       shouldContinue: shouldContinue,
+      shouldAcceptResult: shouldAcceptResult,
     );
     return result.plan;
   }
@@ -175,6 +178,7 @@ class ProductionExecutorService {
     Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
+    ProductionShouldContinue? shouldAcceptResult,
   }) {
     return _runMatchingTasks(
       plan,
@@ -186,6 +190,7 @@ class ProductionExecutorService {
       onTaskUpdate: onTaskUpdate,
       shouldRun: (task) => task.id == taskId,
       shouldContinue: shouldContinue,
+      shouldAcceptResult: shouldAcceptResult,
     );
   }
 
@@ -196,6 +201,7 @@ class ProductionExecutorService {
     Duration retryOn429Delay = Duration.zero,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
+    ProductionShouldContinue? shouldAcceptResult,
   }) {
     return _runMatchingTasks(
       plan,
@@ -207,6 +213,7 @@ class ProductionExecutorService {
       onTaskUpdate: onTaskUpdate,
       shouldRun: _isAbnormalTask,
       shouldContinue: shouldContinue,
+      shouldAcceptResult: shouldAcceptResult,
     );
   }
 
@@ -259,6 +266,7 @@ class ProductionExecutorService {
     required ProductionTaskUpdate? onTaskUpdate,
     required bool Function(ProductionTask task) shouldRun,
     ProductionShouldContinue? shouldContinue,
+    ProductionShouldContinue? shouldAcceptResult,
   }) async {
     final changedTaskIds = <String>[];
     final updatedTasks = <ProductionTask>[];
@@ -299,6 +307,7 @@ class ProductionExecutorService {
           retryOn429Delay: effectiveRetryOn429Delay,
           onTaskUpdate: onTaskUpdate,
           shouldContinue: shouldContinue,
+          shouldAcceptResult: shouldAcceptResult,
         ),
       );
       hasRunPreviousTask = true;
@@ -328,6 +337,7 @@ class ProductionExecutorService {
     required Duration retryOn429Delay,
     ProductionTaskUpdate? onTaskUpdate,
     ProductionShouldContinue? shouldContinue,
+    ProductionShouldContinue? shouldAcceptResult,
   }) async {
     final effectiveMaxRetries = max(1, maxRetries);
     var currentTask = task;
@@ -344,20 +354,20 @@ class ProductionExecutorService {
         clearCompletedAt: true,
         clearError: true,
       );
-      await onTaskUpdate?.call(runningTask);
+      await _notifyTaskUpdate(onTaskUpdate, runningTask);
 
       try {
         final bytes =
             await requestImage(plan.requestPayloadForTask(runningTask));
+        final acceptsResult =
+            shouldAcceptResult?.call() ?? shouldContinue?.call() ?? true;
+        if (!acceptsResult) {
+          return currentTask;
+        }
         final fileName = _outputFileName(runningTask);
         final outputPath = savePlanImage == null
             ? await saveImage(bytes, fileName)
-            : await savePlanImage!(
-                bytes,
-                fileName,
-                plan.id,
-                plan.executionSettings?.outputDirectory,
-              );
+            : await savePlanImage!(bytes, fileName, plan, runningTask);
         final completedAt = now();
         final completedTask = runningTask.copyWith(
           status: ProductionTaskStatus.completed,
@@ -366,7 +376,7 @@ class ProductionExecutorService {
           completedAt: completedAt,
           clearError: true,
         );
-        await onTaskUpdate?.call(completedTask);
+        await _notifyTaskUpdate(onTaskUpdate, completedTask);
         return completedTask;
       } catch (error) {
         final failedAt = now();
@@ -382,7 +392,7 @@ class ProductionExecutorService {
           updatedAt: failedAt,
           completedAt: failedAt,
         );
-        await onTaskUpdate?.call(currentTask);
+        await _notifyTaskUpdate(onTaskUpdate, currentTask);
         if (!shouldRetry) {
           return currentTask;
         }
@@ -462,6 +472,20 @@ class ProductionExecutorService {
       return suggested;
     }
     return '${task.id}.png';
+  }
+}
+
+Future<void> _notifyTaskUpdate(
+  ProductionTaskUpdate? onTaskUpdate,
+  ProductionTask task,
+) async {
+  if (onTaskUpdate == null) return;
+  try {
+    await onTaskUpdate(task);
+  } on FileSystemException {
+    // Progress persistence failures should not convert a completed image
+    // request into a generation failure. The final plan save still has a
+    // chance to persist the returned task state.
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 void main() {
   group('ScriptRecastCacheRestoreService', () {
@@ -46,6 +47,52 @@ void main() {
       expect(
         service.bestExactCache([newerIdle, olderReady]),
         same(olderReady),
+      );
+    });
+
+    test('chooses cache with user mappings before newer empty mapping cache',
+        () {
+      final script = _script();
+      final newerEmptyMapping = _cache(
+        script,
+        updatedAt: DateTime.utc(2026, 6, 2),
+        aiRoleExtraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [ScriptAiExtractedRole(displayName: 'cached alice')],
+        ),
+      );
+      final olderMapped = _cache(
+        script,
+        updatedAt: DateTime.utc(2026, 6, 1),
+        mapping: RecastMapping(
+          id: 'mapping-${script.id}',
+          scriptId: script.id,
+          rolePromptReplacements: const [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Heroine',
+              targetCharacterId: 'target-character',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'rule-blue-eyes',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'blue-eyes',
+                      text: 'blue eyes',
+                      category: PromptTagCategory.upperBody,
+                    ),
+                  ],
+                  targetPrompt: 'green eyes',
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        service.bestExactCache([newerEmptyMapping, olderMapped]),
+        same(olderMapped),
       );
     });
 
@@ -138,6 +185,7 @@ RecastScriptCache _cache(
   Script script, {
   DateTime? updatedAt,
   String? sourceContentFingerprint,
+  RecastMapping? mapping,
   ScriptAiRoleExtraction aiRoleExtraction = const ScriptAiRoleExtraction(),
   bool aiRoleExtractionDraftCollapsed = false,
   Map<String, dynamic>? scriptSnapshot,
@@ -151,7 +199,7 @@ RecastScriptCache _cache(
     sourceContentFingerprint:
         sourceContentFingerprint ?? service.sourceContentFingerprint(script),
     updatedAt: updatedAt ?? DateTime.utc(2026, 6, 1),
-    mapping: RecastMapping.defaults(script.id),
+    mapping: mapping ?? RecastMapping.defaults(script.id),
     aiRoleExtraction: aiRoleExtraction,
     aiRoleExtractionDraftCollapsed: aiRoleExtractionDraftCollapsed,
     scriptSnapshot: scriptSnapshot ?? script.toJson(),

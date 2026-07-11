@@ -11,19 +11,25 @@ import 'package:novel_studio/data/studio/models/generation_payload_document.dart
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
-import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_scrollbar.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_wheel_zoom.dart';
 import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:waterfall_flow/waterfall_flow.dart';
 
 class StudioBatchPage extends StatefulWidget {
   final ProductionQueueViewModel viewModel;
+  final bool skipInitialLoad;
+  final bool deferInitialLoad;
 
   const StudioBatchPage({
     super.key,
     required this.viewModel,
+    this.skipInitialLoad = false,
+    this.deferInitialLoad = false,
   });
 
   @override
@@ -34,15 +40,28 @@ class _StudioBatchPageState extends State<StudioBatchPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(widget.viewModel.load());
+    if (!widget.skipInitialLoad) {
+      _loadViewModel();
+    }
   }
 
   @override
   void didUpdateWidget(StudioBatchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.viewModel != widget.viewModel) {
-      unawaited(widget.viewModel.load());
+    if (oldWidget.viewModel != widget.viewModel && !widget.skipInitialLoad) {
+      _loadViewModel();
     }
+  }
+
+  void _loadViewModel() {
+    if (!widget.deferInitialLoad) {
+      unawaited(widget.viewModel.load());
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(widget.viewModel.load());
+    });
   }
 
   @override
@@ -1305,6 +1324,81 @@ class _BatchGenerationSettings {
   }
 }
 
+class _ProductionTaskGroup {
+  final String id;
+  final List<ProductionTask> tasks;
+
+  const _ProductionTaskGroup({
+    required this.id,
+    required this.tasks,
+  });
+
+  ProductionTask get primaryTask => tasks.first;
+
+  int get variantCount => tasks.length;
+
+  String get title => _variantTitle(primaryTask.title, variantCount);
+
+  bool containsTaskId(String? taskId) =>
+      taskId != null && tasks.any((task) => task.id == taskId);
+
+  ProductionTask displayTask(String? selectedTaskId) {
+    if (selectedTaskId != null) {
+      for (final task in tasks) {
+        if (task.id == selectedTaskId) return task;
+      }
+    }
+    return tasks.last;
+  }
+}
+
+final Expando<List<_ProductionTaskGroup>> _productionTaskGroupsCache =
+    Expando<List<_ProductionTaskGroup>>('production-task-groups');
+
+List<_ProductionTaskGroup> _productionTaskGroups(List<ProductionTask> tasks) {
+  final cached = _productionTaskGroupsCache[tasks];
+  if (cached != null) return cached;
+  final orderedKeys = <String>[];
+  final grouped = <String, List<ProductionTask>>{};
+  for (final task in tasks) {
+    final key = _productionTaskGroupKey(task);
+    grouped.putIfAbsent(key, () {
+      orderedKeys.add(key);
+      return <ProductionTask>[];
+    }).add(task);
+  }
+  final groups = [
+    for (final key in orderedKeys)
+      _ProductionTaskGroup(
+        id: grouped[key]!.first.id,
+        tasks: List.unmodifiable(grouped[key]!),
+      ),
+  ];
+  _productionTaskGroupsCache[tasks] = groups;
+  return groups;
+}
+
+String _productionTaskGroupKey(ProductionTask task) {
+  if (task.taskType == ProductionTaskType.scriptRecastFrame &&
+      task.source.frameIndex != null) {
+    final source = task.source;
+    return [
+      task.planId,
+      task.taskType.name,
+      source.scriptId ?? '',
+      source.recastRunId ?? '',
+      source.mappingConfigFingerprint ?? '',
+      source.frameIndex,
+      source.sourceFileName ?? '',
+    ].join('|');
+  }
+  return '${task.planId}|${task.id}';
+}
+
+String _variantTitle(String title, int count) {
+  return count > 1 ? '$title x$count' : title;
+}
+
 class _TaskListPanel extends StatelessWidget {
   final ProductionQueueViewModel viewModel;
   final bool expandList;
@@ -1317,6 +1411,7 @@ class _TaskListPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tasks = viewModel.selectedPlan?.tasks ?? const <ProductionTask>[];
+    final groups = _productionTaskGroups(tasks);
     return StudioPanel(
       key: const ValueKey('studio-production-task-list-panel'),
       color: StudioTokens.surface2,
@@ -1328,7 +1423,7 @@ class _TaskListPanel extends StatelessWidget {
             title: '帧任务',
           ),
           const SizedBox(height: 12),
-          if (tasks.isEmpty)
+          if (groups.isEmpty)
             _TaskListBody(
               expand: expandList,
               child: Center(
@@ -1345,16 +1440,21 @@ class _TaskListPanel extends StatelessWidget {
                 shrinkWrap: !expandList,
                 physics:
                     expandList ? null : const NeverScrollableScrollPhysics(),
-                itemCount: tasks.length,
+                itemCount: groups.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  final task = tasks[index];
+                  final group = groups[index];
+                  final selected = group.containsTaskId(
+                    viewModel.selectedTask?.id,
+                  );
+                  final task = group.displayTask(viewModel.selectedTask?.id);
                   return _TaskRow(
                     task: task,
-                    selected: task.id == viewModel.selectedTask?.id,
+                    title: group.title,
+                    selected: selected,
                     onSelect: () => viewModel.selectTask(task),
                     onRerun: () {
-                      unawaited(viewModel.queueRerunTask(task));
+                      unawaited(viewModel.quickRerunTask(task));
                     },
                   );
                 },
@@ -1383,12 +1483,14 @@ class _TaskListBody extends StatelessWidget {
 
 class _TaskRow extends StatelessWidget {
   final ProductionTask task;
+  final String title;
   final bool selected;
   final VoidCallback onSelect;
   final VoidCallback onRerun;
 
   const _TaskRow({
     required this.task,
+    required this.title,
     required this.selected,
     required this.onSelect,
     required this.onRerun,
@@ -1422,7 +1524,7 @@ class _TaskRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      task.title,
+                      title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge,
@@ -1529,7 +1631,7 @@ class _ProductionResultsPanel extends StatelessWidget {
                 selectedTaskId: selectedTask?.id,
                 scrollable: expandBody,
                 onQuickRerun: (task) {
-                  unawaited(viewModel.queueRerunTask(task));
+                  unawaited(viewModel.quickRerunTask(task));
                 },
                 onOpen: (task) {
                   viewModel.selectTask(task);
@@ -1537,6 +1639,7 @@ class _ProductionResultsPanel extends StatelessWidget {
                     context,
                     viewModel: viewModel,
                     task: task,
+                    tasks: tasks,
                   );
                 },
               ),
@@ -1564,52 +1667,261 @@ class _ProductionResultWaterfall extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = tasks.map(_productionGeneratedImageItem).toList();
-    return StudioGeneratedImageGallery(
-      key: const ValueKey('studio-production-results-waterfall'),
-      items: items,
-      selectedId: selectedTaskId,
-      columnWidth: 250,
-      scrollable: scrollable,
-      cardKeyPrefix: 'studio-production-result-card',
-      imageOverlayBuilder: (context, item) {
-        final task = item.source as ProductionTask;
-        return StudioIconButton(
-          key: ValueKey('studio-production-quick-rerun-${task.id}'),
-          icon: Icons.replay,
-          tooltip: '插队重跑',
-          onPressed: () => onQuickRerun(task),
+    final groups = _productionTaskGroups(tasks);
+    if (groups.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 250;
+        final columns = max(1, width ~/ 250);
+        return WaterfallFlow.builder(
+          key: const ValueKey('studio-production-results-waterfall'),
+          primary: false,
+          shrinkWrap: !scrollable,
+          physics: scrollable
+              ? const AlwaysScrollableScrollPhysics()
+              : const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverWaterfallFlowDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+          ),
+          itemCount: groups.length,
+          itemBuilder: (context, index) {
+            final group = groups[index];
+            return _ProductionResultGroupCard(
+              group: group,
+              selected: group.containsTaskId(selectedTaskId),
+              selectedTaskId: selectedTaskId,
+              onOpen: onOpen,
+              onQuickRerun: onQuickRerun,
+            );
+          },
         );
-      },
-      onOpen: (context, item) {
-        final task = item.source as ProductionTask;
-        onOpen(task);
       },
     );
   }
 }
 
-StudioGeneratedImageItem _productionGeneratedImageItem(ProductionTask task) {
-  final outputPath = task.outputImagePath?.trim();
-  return StudioGeneratedImageItem(
-    id: task.id,
-    name: task.title,
-    imagePath: outputPath == null || outputPath.isEmpty ? null : outputPath,
-    source: task,
-    placeholder: _resultPreviewTitle(task),
-  );
+class _ProductionResultGroupCard extends StatelessWidget {
+  final _ProductionTaskGroup group;
+  final bool selected;
+  final String? selectedTaskId;
+  final ValueChanged<ProductionTask> onOpen;
+  final ValueChanged<ProductionTask> onQuickRerun;
+
+  const _ProductionResultGroupCard({
+    required this.group,
+    required this.selected,
+    required this.selectedTaskId,
+    required this.onOpen,
+    required this.onQuickRerun,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final task = group.displayTask(selectedTaskId);
+    return _ProductionResultCardSurface(
+      key: ValueKey('studio-production-result-card-${group.id}'),
+      group: group,
+      task: task,
+      previewPath: null,
+      selected: selected,
+      onOpen: () => onOpen(task),
+      onQuickRerun: () => onQuickRerun(task),
+    );
+  }
+}
+
+class _ProductionResultCardSurface extends StatelessWidget {
+  final _ProductionTaskGroup group;
+  final ProductionTask task;
+  final String? previewPath;
+  final bool selected;
+  final VoidCallback onOpen;
+  final VoidCallback onQuickRerun;
+
+  const _ProductionResultCardSurface({
+    super.key,
+    required this.group,
+    required this.task,
+    required this.previewPath,
+    required this.selected,
+    required this.onOpen,
+    required this.onQuickRerun,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color:
+          selected ? StudioTokens.primary.withAlpha(18) : StudioTokens.surface2,
+      shape: RoundedRectangleBorder(
+        borderRadius: StudioTokens.radiusCard,
+        side: BorderSide(
+          color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              children: [
+                _ProductionResultCardImage(
+                  task: task,
+                  previewPath: previewPath,
+                  imageKey: ValueKey(
+                    'studio-production-result-image-${group.id}',
+                  ),
+                ),
+                if (task.source.frameIndex != null)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: _ProductionFrameBadge(
+                      key: ValueKey(
+                        'studio-production-result-frame-badge-${group.id}',
+                      ),
+                      frameIndex: task.source.frameIndex!,
+                    ),
+                  ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: StudioIconButton(
+                    key: ValueKey('studio-production-quick-rerun-${group.id}'),
+                    icon: Icons.replay,
+                    tooltip: '\u63d2\u961f\u91cd\u8dd1',
+                    onPressed: onQuickRerun,
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Text(
+                group.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductionFrameBadge extends StatelessWidget {
+  final int frameIndex;
+
+  const _ProductionFrameBadge({
+    super.key,
+    required this.frameIndex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(180),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withAlpha(42)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        child: Text(
+          '$frameIndex',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductionResultCardImage extends StatelessWidget {
+  final ProductionTask task;
+  final String? previewPath;
+  final Key imageKey;
+
+  const _ProductionResultCardImage({
+    required this.task,
+    required this.previewPath,
+    required this.imageKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final path = previewPath ?? task.outputImagePath?.trim();
+    final cacheRevision = _imageCacheRevision(task);
+    final outputFile = _existingOutputFile(
+      path,
+      cacheRevision: cacheRevision,
+    );
+    return AspectRatio(
+      aspectRatio: _taskAspectRatio(task),
+      child: ColoredBox(
+        color: StudioTokens.surfaceBase,
+        child: outputFile == null
+            ? _ResultPreviewPlaceholder(
+                icon: _resultPreviewIcon(task.status),
+                title: _resultPreviewTitle(task),
+                subtitle: path?.isNotEmpty == true ? path : task.error,
+              )
+            : _ProductionFileImage(
+                key: imageKey,
+                file: outputFile,
+                fit: BoxFit.cover,
+                cacheRevision: cacheRevision,
+                maxDecodeExtent: _productionCardMaxDecodeExtent,
+                errorBuilder: (context, error, stackTrace) {
+                  return _ResultPreviewPlaceholder(
+                    icon: Icons.broken_image_outlined,
+                    title: '\u7ed3\u679c\u56fe\u7247\u65e0\u6cd5\u8bfb\u53d6',
+                    subtitle: path,
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+double _taskAspectRatio(ProductionTask task) {
+  final parameters = _mapValue(task.payload['parameters']);
+  final width =
+      _intValue(parameters['width']) ?? _intValue(task.payload['width']);
+  final height =
+      _intValue(parameters['height']) ?? _intValue(task.payload['height']);
+  if (width != null && width > 0 && height != null && height > 0) {
+    return width / height;
+  }
+  return 1;
 }
 
 class _ProductionFileImage extends StatefulWidget {
   final File file;
   final BoxFit fit;
   final String cacheRevision;
+  final int maxDecodeExtent;
   final ImageErrorWidgetBuilder errorBuilder;
 
   const _ProductionFileImage({
+    super.key,
     required this.file,
     required this.fit,
     required this.cacheRevision,
+    required this.maxDecodeExtent,
     required this.errorBuilder,
   });
 
@@ -1628,7 +1940,8 @@ class _ProductionFileImageState extends State<_ProductionFileImage> {
   void didUpdateWidget(_ProductionFileImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.file.path != widget.file.path ||
-        oldWidget.cacheRevision != widget.cacheRevision) {
+        oldWidget.cacheRevision != widget.cacheRevision ||
+        oldWidget.maxDecodeExtent != widget.maxDecodeExtent) {
       _evictCurrentFile();
     }
   }
@@ -1638,16 +1951,25 @@ class _ProductionFileImageState extends State<_ProductionFileImage> {
     return Image(
       key: ValueKey(
           'production-image-${widget.file.path}-${widget.cacheRevision}'),
-      image: FileImage(widget.file),
+      image: _imageProvider(),
       fit: widget.fit,
       errorBuilder: widget.errorBuilder,
+    );
+  }
+
+  ImageProvider<Object> _imageProvider() {
+    return ResizeImage(
+      FileImage(widget.file),
+      width: widget.maxDecodeExtent,
+      height: widget.maxDecodeExtent,
+      policy: ResizeImagePolicy.fit,
     );
   }
 
   void _evictCurrentFile() {
     try {
       unawaited(
-        FileImage(widget.file).evict().catchError((_) => false),
+        _imageProvider().evict().catchError((_) => false),
       );
     } catch (_) {
       // Bad or transient file paths should fall back to the card placeholder.
@@ -1655,16 +1977,35 @@ class _ProductionFileImageState extends State<_ProductionFileImage> {
   }
 }
 
-File? _existingOutputFile(String? outputPath) {
+final Map<String, File?> _existingOutputFileCache = {};
+
+File? _existingOutputFile(
+  String? outputPath, {
+  String cacheRevision = '',
+}) {
   final trimmed = outputPath?.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
+  final cacheKey = '$trimmed\n$cacheRevision';
+  if (_existingOutputFileCache.containsKey(cacheKey)) {
+    return _existingOutputFileCache[cacheKey];
+  }
   try {
     final file = File(trimmed);
-    return file.existsSync() ? file : null;
+    final result = file.existsSync() ? file : null;
+    if (_existingOutputFileCache.length > 512) {
+      _existingOutputFileCache.clear();
+    }
+    _existingOutputFileCache[cacheKey] = result;
+    return result;
   } catch (_) {
+    _existingOutputFileCache[cacheKey] = null;
     return null;
   }
 }
+
+const _productionCardMaxDecodeExtent = 768;
+const _productionDetailMaxDecodeExtent = 1024;
+const _productionZoomMaxDecodeExtent = 2048;
 
 Future<void> _revealExistingFileInManager(
   BuildContext context,
@@ -1689,11 +2030,23 @@ String _imageCacheRevision(ProductionTask task) {
   ].join(':');
 }
 
+List<ProductionTask> _productionTaskVariantsFor(
+  List<ProductionTask> tasks,
+  ProductionTask task,
+) {
+  for (final group in _productionTaskGroups(tasks)) {
+    if (group.containsTaskId(task.id)) return group.tasks;
+  }
+  return [task];
+}
+
 void _showProductionResultDetails(
   BuildContext context, {
   required ProductionQueueViewModel viewModel,
   required ProductionTask task,
+  required List<ProductionTask> tasks,
 }) {
+  final variants = _productionTaskVariantsFor(tasks, task);
   showDialog<void>(
     context: context,
     builder: (context) {
@@ -1707,11 +2060,12 @@ void _showProductionResultDetails(
         ),
         child: StudioResizableImagePreviewWindow(
           windowKey: const ValueKey('studio-production-result-detail-window'),
-          child: Scrollbar(
+          child: StudioScrollbar(
             child: SingleChildScrollView(
               child: _ProductionResultDetailContent(
                 viewModel: viewModel,
                 task: task,
+                variants: variants,
               ),
             ),
           ),
@@ -1721,23 +2075,76 @@ void _showProductionResultDetails(
   );
 }
 
-class _ProductionResultDetailContent extends StatelessWidget {
+class _ProductionResultDetailContent extends StatefulWidget {
   final ProductionQueueViewModel viewModel;
   final ProductionTask task;
+  final List<ProductionTask> variants;
 
   const _ProductionResultDetailContent({
     required this.viewModel,
     required this.task,
+    required this.variants,
   });
 
   @override
+  State<_ProductionResultDetailContent> createState() =>
+      _ProductionResultDetailContentState();
+}
+
+class _ProductionResultDetailContentState
+    extends State<_ProductionResultDetailContent> {
+  late int _variantIndex;
+
+  ProductionTask get _task => _variants[_variantIndex];
+
+  List<ProductionTask> get _variants =>
+      widget.variants.isEmpty ? [widget.task] : widget.variants;
+
+  @override
+  void initState() {
+    super.initState();
+    _variantIndex = _initialVariantIndex();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProductionResultDetailContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.id != widget.task.id ||
+        oldWidget.variants.length != widget.variants.length) {
+      _variantIndex = _initialVariantIndex();
+    }
+  }
+
+  int _initialVariantIndex() {
+    final variants = _variants;
+    final index = variants.indexWhere((task) => task.id == widget.task.id);
+    return index < 0 ? 0 : index;
+  }
+
+  void _switchVariant(int delta) {
+    final variants = _variants;
+    if (variants.length < 2) return;
+    setState(() {
+      _variantIndex = (_variantIndex + delta) % variants.length;
+      if (_variantIndex < 0) _variantIndex = variants.length - 1;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = _task;
+    final variants = _variants;
+    final viewModel = widget.viewModel;
     final positivePromptGroups = _positivePromptGroups(task.payload);
     final negativePromptGroups = _negativePromptGroups(task.payload);
     final positivePrompt = _positivePrompt(task.payload);
     final negativePrompt = _negativePrompt(task.payload);
     final parameterGroups = _visibleParameterGroups(task.payload);
-    final outputFile = _existingOutputFile(task.outputImagePath);
+    final cacheRevision = _imageCacheRevision(task);
+    final outputFile = _existingOutputFile(
+      task.outputImagePath,
+      cacheRevision: cacheRevision,
+    );
     final metadata = KeyedSubtree(
       key: const ValueKey('studio-production-result-detail-metadata'),
       child: Column(
@@ -1749,7 +2156,7 @@ class _ProductionResultDetailContent extends StatelessWidget {
             children: [
               StudioChip(
                 icon: Icons.movie_filter_outlined,
-                label: '甯?${task.source.frameIndex ?? '-'}',
+                label: '? ${task.source.frameIndex ?? '-'}',
               ),
               StudioChip(
                 icon: Icons.description_outlined,
@@ -1769,10 +2176,10 @@ class _ProductionResultDetailContent extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          _DetailLine('任务', task.id),
-          _DetailLine('脚本', task.source.scriptId ?? '-'),
+          _DetailLine('??', task.id),
+          _DetailLine('??', task.source.scriptId ?? '-'),
           _DetailLine('Run', task.source.recastRunId ?? '-'),
-          _DetailLine('输出', task.outputImagePath ?? '-'),
+          _DetailLine('??', task.outputImagePath ?? '-'),
         ],
       ),
     );
@@ -1782,15 +2189,32 @@ class _ProductionResultDetailContent extends StatelessWidget {
       children: [
         _PanelHeading(
           icon: Icons.image_outlined,
-          title: task.title,
+          title: _variantTitle(task.title, variants.length),
           trailing: StudioIconButton(
             icon: Icons.close,
-            tooltip: '关闭',
+            tooltip: '??',
             onPressed: () => Navigator.of(context).pop(),
           ),
         ),
         const SizedBox(height: 12),
-        _TaskResultPreview(task: task),
+        _TaskResultPreview(
+          task: task,
+          variantCount: variants.length,
+          onVariantScroll: _switchVariant,
+        ),
+        if (variants.length > 1) ...[
+          const SizedBox(height: 8),
+          _ProductionVariantDots(
+            groupId: variants.first.id,
+            count: variants.length,
+            index: _variantIndex,
+            onSelect: (index) {
+              setState(() {
+                _variantIndex = index;
+              });
+            },
+          ),
+        ],
         if (outputFile != null) ...[
           const SizedBox(height: 10),
           Align(
@@ -1801,14 +2225,15 @@ class _ProductionResultDetailContent extends StatelessWidget {
                 _revealExistingFileInManager(context, outputFile),
               ),
               icon: const Icon(Icons.folder_open_outlined),
-              label: const Text('在资源管理器中显示'),
+              label: const Text(
+                  '\u5728\u8d44\u6e90\u7ba1\u7406\u5668\u4e2d\u663e\u793a'),
             ),
           ),
         ],
         const SizedBox(height: 12),
         _PromptTagBlock(
           key: const ValueKey('studio-production-positive-prompt'),
-          title: '正向提示词',
+          title: '\u6b63\u5411\u63d0\u793a\u8bcd',
           text: positivePrompt.isEmpty ? '-' : positivePrompt,
           groups: positivePromptGroups,
           tagKey: const ValueKey('studio-production-positive-prompt-tags'),
@@ -1817,7 +2242,7 @@ class _ProductionResultDetailContent extends StatelessWidget {
           const SizedBox(height: 12),
           _PromptTagBlock(
             key: const ValueKey('studio-production-negative-prompt'),
-            title: '负向提示词',
+            title: '\u8d1f\u5411\u63d0\u793a\u8bcd',
             text: negativePrompt,
             groups: negativePromptGroups,
             tagKey: const ValueKey('studio-production-negative-prompt-tags'),
@@ -1838,16 +2263,72 @@ class _ProductionResultDetailContent extends StatelessWidget {
   }
 }
 
+class _ProductionVariantDots extends StatelessWidget {
+  final String groupId;
+  final int count;
+  final int index;
+  final ValueChanged<int> onSelect;
+
+  const _ProductionVariantDots({
+    required this.groupId,
+    required this.count,
+    required this.index,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Wrap(
+        key: const ValueKey('studio-production-result-variant-dots'),
+        spacing: 7,
+        runSpacing: 7,
+        children: [
+          for (var dotIndex = 0; dotIndex < count; dotIndex += 1)
+            GestureDetector(
+              key: ValueKey(
+                'studio-production-result-variant-dot-$groupId-$dotIndex',
+              ),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onSelect(dotIndex),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: dotIndex == index ? 22 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: dotIndex == index
+                      ? StudioTokens.primary
+                      : StudioTokens.textMuted.withAlpha(120),
+                  borderRadius: StudioTokens.radiusPill,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TaskResultPreview extends StatelessWidget {
   final ProductionTask task;
+  final int variantCount;
+  final ValueChanged<int>? onVariantScroll;
 
-  const _TaskResultPreview({required this.task});
+  const _TaskResultPreview({
+    required this.task,
+    this.variantCount = 1,
+    this.onVariantScroll,
+  });
 
   @override
   Widget build(BuildContext context) {
     final outputPath = task.outputImagePath?.trim();
     final hasOutputPath = outputPath != null && outputPath.isNotEmpty;
-    final outputFile = _existingOutputFile(outputPath);
+    final cacheRevision = _imageCacheRevision(task);
+    final outputFile = _existingOutputFile(
+      outputPath,
+      cacheRevision: cacheRevision,
+    );
     final imageExists = outputFile != null;
     final onTap = imageExists
         ? () => _showProductionImageZoomDialog(context, task)
@@ -1863,35 +2344,41 @@ class _TaskResultPreview extends StatelessWidget {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onTap,
-            child: DecoratedBox(
-              key: const ValueKey('studio-production-result-preview'),
-              decoration: BoxDecoration(
-                color: StudioTokens.surfaceBase,
-                borderRadius: StudioTokens.radiusCard,
-                border: Border.all(color: StudioTokens.border),
-              ),
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: ClipRRect(
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerSignal: _handlePointerSignal,
+              child: DecoratedBox(
+                key: const ValueKey('studio-production-result-preview'),
+                decoration: BoxDecoration(
+                  color: StudioTokens.surfaceBase,
                   borderRadius: StudioTokens.radiusCard,
-                  child: imageExists
-                      ? _ProductionFileImage(
-                          file: outputFile,
-                          fit: BoxFit.contain,
-                          cacheRevision: _imageCacheRevision(task),
-                          errorBuilder: (context, error, stackTrace) {
-                            return _ResultPreviewPlaceholder(
-                              icon: Icons.broken_image_outlined,
-                              title: '结果图片无法读取',
-                              subtitle: outputPath,
-                            );
-                          },
-                        )
-                      : _ResultPreviewPlaceholder(
-                          icon: _resultPreviewIcon(task.status),
-                          title: _resultPreviewTitle(task),
-                          subtitle: hasOutputPath ? outputPath : task.error,
-                        ),
+                  border: Border.all(color: StudioTokens.border),
+                ),
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: ClipRRect(
+                    borderRadius: StudioTokens.radiusCard,
+                    child: imageExists
+                        ? _ProductionFileImage(
+                            file: outputFile,
+                            fit: BoxFit.contain,
+                            cacheRevision: cacheRevision,
+                            maxDecodeExtent: _productionDetailMaxDecodeExtent,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _ResultPreviewPlaceholder(
+                                icon: Icons.broken_image_outlined,
+                                title:
+                                    '\u7ed3\u679c\u56fe\u7247\u65e0\u6cd5\u8bfb\u53d6',
+                                subtitle: outputPath,
+                              );
+                            },
+                          )
+                        : _ResultPreviewPlaceholder(
+                            icon: _resultPreviewIcon(task.status),
+                            title: _resultPreviewTitle(task),
+                            subtitle: hasOutputPath ? outputPath : task.error,
+                          ),
+                  ),
                 ),
               ),
             ),
@@ -1900,13 +2387,32 @@ class _TaskResultPreview extends StatelessWidget {
       ),
     );
   }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    final onScroll = onVariantScroll;
+    if (event is! PointerScrollEvent || variantCount < 2 || onScroll == null) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      final scrollEvent = event as PointerScrollEvent;
+      final delta = scrollEvent.scrollDelta.dy == 0
+          ? scrollEvent.scrollDelta.dx
+          : scrollEvent.scrollDelta.dy;
+      if (delta == 0) return;
+      onScroll(delta > 0 ? 1 : -1);
+    });
+  }
 }
 
 void _showProductionImageZoomDialog(
   BuildContext context,
   ProductionTask task,
 ) {
-  final outputFile = _existingOutputFile(task.outputImagePath);
+  final cacheRevision = _imageCacheRevision(task);
+  final outputFile = _existingOutputFile(
+    task.outputImagePath,
+    cacheRevision: cacheRevision,
+  );
   if (outputFile == null) return;
   showDialog<void>(
     context: context,
@@ -1922,7 +2428,7 @@ void _showProductionImageZoomDialog(
             Positioned.fill(
               child: _ProductionZoomableFileImage(
                 file: outputFile,
-                cacheRevision: _imageCacheRevision(task),
+                cacheRevision: cacheRevision,
               ),
             ),
             Positioned(
@@ -1973,9 +2479,16 @@ class _ProductionZoomableFileImageState
   static const double _maxScale = 8;
 
   final TransformationController _controller = TransformationController();
+  late final StudioWheelZoomController _wheelZoom = StudioWheelZoomController(
+    transformationController: _controller,
+    minScale: _minScale,
+    maxScale: _maxScale,
+    requireControlModifier: true,
+  );
 
   @override
   void dispose() {
+    _wheelZoom.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -1986,7 +2499,7 @@ class _ProductionZoomableFileImageState
       builder: (context, constraints) {
         return Listener(
           key: const ValueKey('studio-production-zoomable-image-viewer'),
-          onPointerSignal: _handlePointerSignal,
+          onPointerSignal: _wheelZoom.handlePointerSignal,
           child: InteractiveViewer(
             transformationController: _controller,
             minScale: _minScale,
@@ -1999,6 +2512,7 @@ class _ProductionZoomableFileImageState
                 file: widget.file,
                 fit: BoxFit.contain,
                 cacheRevision: widget.cacheRevision,
+                maxDecodeExtent: _productionZoomMaxDecodeExtent,
                 errorBuilder: (context, error, stackTrace) {
                   return _ResultPreviewPlaceholder(
                     icon: Icons.broken_image_outlined,
@@ -2012,29 +2526,6 @@ class _ProductionZoomableFileImageState
         );
       },
     );
-  }
-
-  void _handlePointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent) return;
-    final delta = event.scrollDelta.dy;
-    if (delta == 0) return;
-    _scaleAt(event.localPosition, delta < 0 ? 1.12 : 0.88);
-  }
-
-  void _scaleAt(Offset focalPoint, double scaleFactor) {
-    final currentScale = _controller.value.getMaxScaleOnAxis();
-    final nextScale =
-        (currentScale * scaleFactor).clamp(_minScale, _maxScale).toDouble();
-    if (nextScale <= _minScale + 0.01) {
-      _controller.value = Matrix4.identity();
-      return;
-    }
-    final effectiveScale = nextScale / currentScale;
-    final next = _controller.value.clone()
-      ..translateByDouble(focalPoint.dx, focalPoint.dy, 0, 1)
-      ..scaleByDouble(effectiveScale, effectiveScale, 1, 1)
-      ..translateByDouble(-focalPoint.dx, -focalPoint.dy, 0, 1);
-    _controller.value = next;
   }
 }
 

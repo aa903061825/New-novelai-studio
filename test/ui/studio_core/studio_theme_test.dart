@@ -136,6 +136,38 @@ void main() {
       );
     });
 
+    test('styles scrollbars with subtle studio chrome', () {
+      final theme = StudioTheme.build();
+      final scrollbarTheme = theme.scrollbarTheme;
+
+      expect(scrollbarTheme.radius, const Radius.circular(999));
+      expect(scrollbarTheme.thickness!.resolve(const {}), 5);
+      expect(
+        scrollbarTheme.thickness!.resolve({WidgetState.hovered}),
+        8,
+      );
+      expect(scrollbarTheme.mainAxisMargin, 8);
+      expect(scrollbarTheme.crossAxisMargin, 4);
+      expect(scrollbarTheme.minThumbLength, 44);
+      expect(scrollbarTheme.interactive, isTrue);
+      expect(
+        scrollbarTheme.thumbColor!.resolve(const {}),
+        StudioTokens.borderStrong.withAlpha(154),
+      );
+      expect(
+        scrollbarTheme.thumbColor!.resolve({WidgetState.hovered}),
+        StudioTokens.textMuted.withAlpha(220),
+      );
+      expect(
+        scrollbarTheme.trackColor!.resolve({WidgetState.hovered}),
+        StudioTokens.surface4.withAlpha(96),
+      );
+      expect(
+        scrollbarTheme.trackBorderColor!.resolve({WidgetState.hovered}),
+        StudioTokens.border.withAlpha(90),
+      );
+    });
+
     testWidgets('StudioButton exposes a visible hovered state', (tester) async {
       await tester.pumpWidget(
         MaterialApp(

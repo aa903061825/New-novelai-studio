@@ -354,6 +354,63 @@ void main() {
     );
   });
 
+  test('read-only load tolerates concurrent deterministic plan saves',
+      () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final largePrompt = List.filled(16384, 'prompt-fragment').join(',');
+    List<ProductionPlan> plansForGeneration(int generation) {
+      return [
+        for (var index = 0; index < 12; index += 1)
+          ProductionPlan(
+            id: 'plan-$index',
+            name: 'Plan $index',
+            tasks: [
+              ProductionTask.manualSingleFrame(
+                id: 'task-$generation-$index',
+                planId: 'plan-$index',
+                title: 'Manual $index',
+                payload: {
+                  'input': '$generation-$index-$largePrompt',
+                  'parameters': {'seed': generation * 1000 + index},
+                },
+                createdAt: DateTime.utc(2026, 5, 25),
+                updatedAt: DateTime.utc(2026, 5, 25, 0, generation),
+              ),
+            ],
+            createdAt: DateTime.utc(2026, 5, 25),
+            updatedAt: DateTime.utc(2026, 5, 25, 0, generation),
+          ),
+      ];
+    }
+
+    await service.savePlans(plansForGeneration(0));
+
+    var writerDone = false;
+    final loadErrors = <Object>[];
+    final writer = () async {
+      try {
+        for (var generation = 1; generation <= 6; generation += 1) {
+          await service.savePlans(plansForGeneration(generation));
+        }
+      } finally {
+        writerDone = true;
+      }
+    }();
+
+    while (!writerDone) {
+      try {
+        await service.loadPlansReadOnly();
+      } catch (error) {
+        loadErrors.add(error);
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+    await writer;
+
+    expect(loadErrors, isEmpty);
+    expect((await service.loadPlansReadOnly()).length, 12);
+  });
+
   test('saves and loads last-used production execution settings', () async {
     final service = ProductionQueueService(workspaceService: workspaceService);
     const settings = ProductionPlanExecutionSettings(

@@ -64,6 +64,10 @@ class ScriptPromptReplacementEngine {
       return _RuleApplication.unchanged(tags);
     }
 
+    if (_isSourceWeightMultiplierRule(rule)) {
+      return _applySourceWeightMultiplier(tags, tagKeys, keysToRemove, rule);
+    }
+
     final remaining = <String>[];
     int? insertionIndex;
     for (var index = 0; index < tags.length; index += 1) {
@@ -85,6 +89,38 @@ class ScriptPromptReplacementEngine {
 
     final next = [...remaining];
     next.insertAll(insertionIndex ?? next.length, replacementTags);
+    return _RuleApplication.changed(next);
+  }
+
+  bool _isSourceWeightMultiplierRule(ScriptPromptReplacementRule rule) {
+    return rule.targetWeightMultiplier != null &&
+        rule.targetPrompt.trim().isEmpty;
+  }
+
+  _RuleApplication _applySourceWeightMultiplier(
+    List<String> tags,
+    List<String> tagKeys,
+    Set<String> keysToScale,
+    ScriptPromptReplacementRule rule,
+  ) {
+    final multiplier = rule.targetWeightMultiplier;
+    if (multiplier == null || (multiplier - 1.0).abs() < 0.000001) {
+      return _RuleApplication.unchanged(tags);
+    }
+    var changed = false;
+    final next = <String>[];
+    for (var index = 0; index < tags.length; index += 1) {
+      final tag = tags[index];
+      if (!keysToScale.contains(tagKeys[index])) {
+        next.add(tag);
+        continue;
+      }
+      next.add(_tagWithScaledWeight(tag, multiplier));
+      changed = true;
+    }
+    if (!changed) {
+      return _RuleApplication.unchanged(tags);
+    }
     return _RuleApplication.changed(next);
   }
 
@@ -257,6 +293,22 @@ class ScriptPromptReplacementEngine {
       return tag.trim();
     }
     return PromptTagProcessor.formatInlineWeightTag(tag, weight);
+  }
+
+  String _tagWithScaledWeight(String rawTag, double multiplier) {
+    final analysis = PromptTagProcessor.analyzeWorkshopTags(rawTag);
+    if (analysis.isEmpty) {
+      return rawTag.trim();
+    }
+    final tag = analysis.first;
+    final displayText = tag.displayText.trim();
+    if (displayText.isEmpty) {
+      return rawTag.trim();
+    }
+    return _tagWithEffectiveWeight(
+      displayText,
+      (tag.weight ?? 1.0) * multiplier,
+    );
   }
 }
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 typedef TranslationClock = int Function();
 
 enum TranslationSource { empty, cache, cleanedCache, localDictionary, miss }
@@ -12,6 +14,20 @@ class TranslationResult {
   const TranslationResult({
     required this.text,
     required this.source,
+  });
+}
+
+class TranslationCacheSuggestion {
+  final String text;
+  final String translation;
+  final String source;
+  final String mode;
+
+  const TranslationCacheSuggestion({
+    required this.text,
+    required this.translation,
+    this.source = 'ai_extraction',
+    this.mode = 'en2zh',
   });
 }
 
@@ -143,6 +159,43 @@ class TranslationCache {
     }
     if (merged > 0) {
       _reverseLookupBySourceMode.clear();
+    }
+    return merged;
+  }
+
+  int mergeMissingSuggestions(
+    Iterable<TranslationCacheSuggestion> suggestions, {
+    bool refreshMachineEntries = false,
+  }) {
+    var merged = 0;
+    for (final suggestion in suggestions) {
+      final trimmedText = suggestion.text.trim();
+      final trimmedTranslation = suggestion.translation.trim();
+      if (trimmedText.isEmpty ||
+          trimmedTranslation.isEmpty ||
+          looksLikeAiRefusal(trimmedTranslation)) {
+        continue;
+      }
+
+      final key = cacheKey(trimmedText, mode: suggestion.mode);
+      final existing = _entries[key];
+      final existingTranslation = _usableTranslation(existing);
+      if (existingTranslation != null) {
+        if (!refreshMachineEntries ||
+            _isUserConfirmedSource(existing?.source ?? '')) {
+          continue;
+        }
+      }
+
+      _entries[key] = TranslationCacheEntry(
+        translation: trimmedTranslation,
+        source: suggestion.source.trim().isEmpty
+            ? 'ai_extraction'
+            : suggestion.source.trim(),
+        ts: _clock(),
+      );
+      _reverseLookupBySourceMode.remove(suggestion.mode);
+      merged += 1;
     }
     return merged;
   }
@@ -384,11 +437,7 @@ class TranslationCacheRepository {
       return TranslationCache();
     }
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map) {
-        return TranslationCache();
-      }
-      return TranslationCache.fromJson(decoded.cast<String, dynamic>());
+      return compute(_translationCacheFromFile, file.path);
     } catch (_) {
       return TranslationCache();
     }
@@ -399,4 +448,18 @@ class TranslationCacheRepository {
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString('${encoder.convert(cache.toJson())}\n');
   }
+}
+
+TranslationCache _translationCacheFromFile(String path) {
+  final source = File(path).readAsStringSync();
+  final decoded = jsonDecode(source);
+  if (decoded is! Map) {
+    return TranslationCache();
+  }
+  return TranslationCache.fromJson(decoded.cast<String, dynamic>());
+}
+
+bool _isUserConfirmedSource(String source) {
+  final normalized = source.trim().toLowerCase();
+  return normalized.startsWith('manual') || normalized.startsWith('user');
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/models/vibe_config_v4.dart';
@@ -50,5 +51,31 @@ void main() {
     expect(File(config.sourceImagePath!).readAsBytesSync(), sourceBytes);
     expect(config.toJson().keys, isNot(contains('image_b64')));
     expect(config.toJson()['source_image_path'], config.sourceImagePath);
+  });
+
+  test('VibeSourceImageStore externalizes lazy legacy V4 image strings',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('vibe-store-test-');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final store = VibeSourceImageStore(rootDirectory: tempDir);
+    final sourceBytes = Uint8List.fromList(const [9, 8, 7, 6]);
+    final config = VibeConfigV4(
+      fileName: 'lazy-legacy.png',
+      vibeB64: 'vibe',
+      referenceStrength: 0.2,
+      legacyImageB64: base64Encode(sourceBytes),
+    );
+
+    final changed = await store.externalizeV4Vibes(
+      configUuid: 'config-123',
+      vibes: [config],
+    );
+
+    expect(changed, isTrue);
+    expect(config.imageBytes, isNull);
+    expect(config.legacyImageB64, isNull);
+    expect(config.sourceImagePath, isNotNull);
+    expect(File(config.sourceImagePath!).readAsBytesSync(), sourceBytes);
+    expect(config.toJson().keys, isNot(contains('image_b64')));
   });
 }

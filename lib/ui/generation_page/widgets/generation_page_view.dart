@@ -4,6 +4,7 @@ import 'package:novel_studio/ui/generation_page/view_models/generation_page_view
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_drawer_shell.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:novel_studio/ui/studio_workbench/widgets/generation_preview_panel.dart';
@@ -109,8 +110,8 @@ class _WorkbenchLayout extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(width: 280, child: drawer),
-              const SizedBox(width: 12),
+              SizedBox(width: studioAssetDrawerWidth, child: drawer),
+              const SizedBox(width: studioAssetDrawerGap),
               Expanded(
                 flex: 6,
                 child: Column(
@@ -127,7 +128,7 @@ class _WorkbenchLayout extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: studioAssetDrawerGap),
               Expanded(
                 flex: 5,
                 child: Column(

@@ -250,6 +250,42 @@ void main() {
           'artist:png, file fast path');
     });
 
+    test('parses webp frames only when metadata is present', () async {
+      final service = ScriptRecastParserService();
+      final directory = await Directory.systemTemp.createTemp(
+        'script-recast-webp-metadata-',
+      );
+      addTearDown(() async {
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      });
+      await File('${directory.path}/p000.webp').writeAsBytes(
+        _webpWithMetadata(jsonEncode({
+          'Description': 'artist:webp, metadata frame',
+          'Comment': {
+            'seed': 445566,
+            'steps': 28,
+          },
+        })),
+      );
+      await File('${directory.path}/p001.webp').writeAsBytes(
+        _webpWithMetadata('{}'),
+      );
+
+      final script = await service.parseDirectory(directory);
+
+      expect(script.frames, hasLength(1));
+      expect(script.frames.single.fileName, 'p000.webp');
+      expect(script.frames.single.sourceImagePath,
+          endsWith('${Platform.pathSeparator}p000.webp'));
+      expect(
+        script.frames.single.parsed.baseCaption,
+        'artist:webp, metadata frame',
+      );
+      expect(script.frames.single.parsed.generationParams['seed'], 445566);
+    });
+
     test('reports discovery and per-frame parsing progress', () async {
       final service = ScriptRecastParserService();
       final directory = await Directory.systemTemp.createTemp(
@@ -369,6 +405,7 @@ void main() {
       expect(script.frames, isEmpty);
       expect(script.parseWarnings.single, contains('prompt-bearing JSON'));
       expect(script.parseWarnings.single, contains('PNG'));
+      expect(script.parseWarnings.single, contains('WEBP'));
       expect(script.meta['frameCount'], 0);
     });
 
@@ -486,8 +523,35 @@ Uint8List _pngChunk(String type, Uint8List data) {
   ]);
 }
 
+Uint8List _webpWithMetadata(String metadata) {
+  final payload = Uint8List.fromList([
+    ...ascii.encode('Exif'),
+    0,
+    0,
+    ...utf8.encode(metadata),
+  ]);
+  final chunk = Uint8List.fromList([
+    ...ascii.encode('EXIF'),
+    ..._uint32Little(payload.length),
+    ...payload,
+    if (payload.length.isOdd) 0,
+  ]);
+  final riffSize = 4 + chunk.length;
+  return Uint8List.fromList([
+    ...ascii.encode('RIFF'),
+    ..._uint32Little(riffSize),
+    ...ascii.encode('WEBP'),
+    ...chunk,
+  ]);
+}
+
 Uint8List _uint32(int value) {
   final data = ByteData(4)..setUint32(0, value);
+  return data.buffer.asUint8List();
+}
+
+Uint8List _uint32Little(int value) {
+  final data = ByteData(4)..setUint32(0, value, Endian.little);
   return data.buffer.asUint8List();
 }
 

@@ -64,6 +64,8 @@ class PromptTagEditor extends StatefulWidget {
   final bool initialGroupedLayout;
   final PromptTagLayoutMode? initialLayoutMode;
   final bool preferTranslatedLabels;
+  final bool copyDraggedTagsWithAlt;
+  final bool enableKeyboardPaste;
 
   const PromptTagEditor({
     super.key,
@@ -93,6 +95,8 @@ class PromptTagEditor extends StatefulWidget {
     this.initialGroupedLayout = false,
     this.initialLayoutMode,
     this.preferTranslatedLabels = false,
+    this.copyDraggedTagsWithAlt = false,
+    this.enableKeyboardPaste = false,
   });
 
   @override
@@ -126,6 +130,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   bool _selectionMoved = false;
   bool _selectionAdditive = false;
   bool _selectionStartedOnDraggableTag = false;
+  bool _tagDragInProgress = false;
   bool _showTranslations = true;
   late PromptTagLayoutMode _layoutMode = _initialLayoutMode();
   bool _submittingInput = false;
@@ -139,6 +144,9 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   @override
   void initState() {
     super.initState();
+    PromptTagClassificationCacheEvents.revision.addListener(
+      _handleClassificationCacheChanged,
+    );
     _syncSelectionController();
   }
 
@@ -166,11 +174,21 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   @override
   void dispose() {
     _doubleTapDragSuppressionTimer?.cancel();
+    PromptTagClassificationCacheEvents.revision.removeListener(
+      _handleClassificationCacheChanged,
+    );
     _unregisterSelectionController();
     _controller.dispose();
     _focusNode.dispose();
     _selectionFocusNode.dispose();
     super.dispose();
+  }
+
+  void _handleClassificationCacheChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   void _syncSelectionController() {
@@ -190,6 +208,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           selectionGroupId: widget.selectionGroupId,
           snapshots: _selectionSnapshots,
           removeIndexes: _deleteIndexes,
+          copyDraggedTagsWithAlt: widget.copyDraggedTagsWithAlt,
         ),
       );
   }
@@ -387,6 +406,14 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           _copyTags(_selectedTags());
           return KeyEventResult.handled;
         }
+        if ((HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed) &&
+            event.logicalKey == LogicalKeyboardKey.keyV &&
+            widget.enableKeyboardPaste &&
+            widget.enabled) {
+          unawaited(_pasteTagsFromClipboard());
+          return KeyEventResult.handled;
+        }
         return KeyEventResult.ignored;
       },
       child: Stack(
@@ -406,7 +433,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
               child: _selectionDropTarget(content),
             ),
           ),
-          if (rect != null && _selectionMoved)
+          if (!_tagDragInProgress && rect != null && _selectionMoved)
             Positioned(
               left: rect.left,
               top: rect.top,
@@ -414,6 +441,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
               height: rect.height,
               child: IgnorePointer(
                 child: DecoratedBox(
+                  key: const ValueKey('prompt-tag-editor-selection-rectangle'),
                   decoration: BoxDecoration(
                     color: StudioTokens.primary.withAlpha(28),
                     borderRadius: const BorderRadius.only(
@@ -628,17 +656,18 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       builder: (context, candidates, rejected) {
         final selected = _isSelected(index);
         final highlight = widget.highlightForTag?.call(item.displayLabel);
+        final category = classifyPromptTagForPresentation(
+          item.displayLabel,
+          negative: widget.negative,
+          cache: _classificationCacheOrNull(),
+        ).category;
         final chip = PromptTagChip(
           label: item.displayLabel,
           weightLabel: item.weightLabel,
           weight: item.weight,
           translation: translation,
           translationFirst: showTranslatedAsPrimary,
-          category: classifyPromptTagForPresentation(
-            item.displayLabel,
-            negative: widget.negative,
-            cache: _classificationCacheOrNull(),
-          ).category,
+          category: category,
           dense: widget.dense,
           enabled: widget.enabled,
           variant: PromptTagChipVariant.editor,
@@ -673,16 +702,40 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
         if (!_canDragTags) {
           return chip;
         }
-        final dragData = _dragDataForIndex(index);
+        final baseDragData = _dragDataForIndex(index);
+        final dragData = baseDragData.tags.isNotEmpty
+            ? baseDragData.withPreviewItems([
+                PromptTagDragPreviewItem(
+                  label: item.displayLabel,
+                  translation: translation,
+                  translationFirst: showTranslatedAsPrimary,
+                  weightLabel: item.weightLabel,
+                  weight: item.weight,
+                  category: category,
+                  variant: PromptTagChipVariant.editor,
+                  selected: selected,
+                  highlighted: highlight != null,
+                  highlightTooltip: highlight?.tooltip,
+                ),
+              ])
+            : baseDragData;
         return Draggable<PromptTagDragData>(
           data: dragData,
           dragAnchorStrategy: pointerDragAnchorStrategy,
           feedback: PromptTagDragFeedback(
             tags: dragData.tags,
+            previewItems: dragData.previewItems,
             dense: widget.dense,
           ),
           maxSimultaneousDrags: _isDragSuppressedForDoubleTap(index) ? 0 : null,
-          onDragStarted: () => _beginDraggingIndexes(dragData.indexes),
+          onDragStarted: () {
+            setState(() {
+              _tagDragInProgress = true;
+            });
+          },
+          onDragEnd: (_) {
+            _tagDragInProgress = false;
+          },
           childWhenDragging: Opacity(opacity: 0.45, child: chip),
           child: chip,
         );
@@ -1125,10 +1178,16 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     final activeSelected = _activeSelectedIndexes;
     final indexes =
         activeSelected.contains(index) ? activeSelected.toSet() : <int>{index};
-    return _dragDataForIndexes(indexes);
+    return _dragDataForIndexes(
+      indexes,
+      preserveSelectionOnDrop: activeSelected.contains(index),
+    );
   }
 
-  PromptTagDragData _dragDataForIndexes(Set<int> indexes) {
+  PromptTagDragData _dragDataForIndexes(
+    Set<int> indexes, {
+    bool preserveSelectionOnDrop = false,
+  }) {
     final tags = promptTagsForIndexes(_tags, indexes);
     final controller = widget.selectionController;
     if (controller != null) {
@@ -1138,6 +1197,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
         localIndexes: indexes,
         localTags: tags,
         localRemove: _removeDraggedIndexes,
+        copyOnlyResolver: _isAltCopyDrag,
       );
     }
     return PromptTagDragData(
@@ -1145,7 +1205,9 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       sourceFieldIds: {_sharedSelectionFieldId},
       indexes: indexes,
       tags: tags,
+      preserveSelectionOnDrop: preserveSelectionOnDrop,
       removeFromSource: _removeDraggedIndexes,
+      copyOnlyResolver: _isAltCopyDrag,
     );
   }
 
@@ -1156,8 +1218,13 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     if (!_canDragTags || data.tags.every((tag) => tag.trim().isEmpty)) {
       return;
     }
-    if (data.originId == _dragOriginId) {
-      _moveDraggedIndexes(data.indexes, insertIndex);
+    final copyOnly = data.copyOnly;
+    if (data.originId == _dragOriginId && !copyOnly) {
+      _moveDraggedIndexes(
+        data.indexes,
+        insertIndex,
+        preserveSelection: data.preserveSelectionOnDrop,
+      );
       return;
     }
     final current = _tags;
@@ -1179,22 +1246,29 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     };
     setState(() {
       _replaceLocalValue(value);
-      if (widget.selectionController == null) {
+      if (widget.selectionController == null && data.preserveSelectionOnDrop) {
         _selectedIndexes
           ..clear()
           ..addAll(insertedIndexes);
+      } else if (widget.selectionController == null) {
+        _selectedIndexes.clear();
       }
       _clearSelectionInteractionStateOnly();
     });
     void applyDropChanges() {
       widget.onChanged(value);
-      if (widget.removeDroppedTagsFromSource?.call(data) ?? true) {
+      if (data.preserveSelectionOnDrop) {
+        widget.selectionController?.setFieldSelection(
+          _sharedSelectionFieldId,
+          insertedIndexes,
+        );
+      } else {
+        widget.selectionController?.clear();
+      }
+      if (!copyOnly &&
+          (widget.removeDroppedTagsFromSource?.call(data) ?? true)) {
         data.removeFromSource?.call(data.indexes);
       }
-      widget.selectionController?.setFieldSelection(
-        _sharedSelectionFieldId,
-        insertedIndexes,
-      );
     }
 
     final batch = widget.onDroppedTagsBatch;
@@ -1205,7 +1279,61 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
   }
 
-  void _moveDraggedIndexes(Set<int> indexes, int? insertIndex) {
+  bool _isAltCopyDrag() {
+    return widget.copyDraggedTagsWithAlt &&
+        HardwareKeyboard.instance.isAltPressed;
+  }
+
+  Future<void> _pasteTagsFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted || !widget.enabled) {
+      return;
+    }
+    final incoming = _parseInput(data?.text ?? '');
+    if (incoming.isEmpty) {
+      return;
+    }
+    _insertPastedTags(incoming);
+  }
+
+  void _insertPastedTags(List<String> incoming) {
+    final current = _tags;
+    final selected = _activeSelectedIndexes
+        .where((index) => index >= 0 && index < current.length)
+        .toList()
+      ..sort();
+    final selectedSet = selected.toSet();
+    final target = selected.isEmpty ? current.length : selected.first;
+    final remaining = [
+      for (final (index, tag) in current.indexed)
+        if (!selectedSet.contains(index)) tag,
+    ];
+    final next = [...remaining]..insertAll(target, incoming);
+    final value = joinPromptTags(next);
+    final insertedIndexes = {
+      for (var offset = 0; offset < incoming.length; offset++) target + offset,
+    };
+    setState(() {
+      _replaceLocalValue(value);
+      if (widget.selectionController == null) {
+        _selectedIndexes
+          ..clear()
+          ..addAll(insertedIndexes);
+      }
+      _clearSelectionInteractionStateOnly();
+    });
+    widget.onChanged(value);
+    widget.selectionController?.setFieldSelection(
+      _sharedSelectionFieldId,
+      insertedIndexes,
+    );
+  }
+
+  void _moveDraggedIndexes(
+    Set<int> indexes,
+    int? insertIndex, {
+    required bool preserveSelection,
+  }) {
     final current = _tags;
     final selected = indexes
         .where((index) => index >= 0 && index < current.length)
@@ -1232,17 +1360,23 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     };
     setState(() {
       _replaceLocalValue(value);
-      if (widget.selectionController == null) {
+      if (widget.selectionController == null && preserveSelection) {
         _selectedIndexes
           ..clear()
           ..addAll(movedIndexes);
+      } else if (widget.selectionController == null) {
+        _selectedIndexes.clear();
       }
       _clearSelectionInteractionStateOnly();
     });
-    widget.selectionController?.setFieldSelection(
-      _sharedSelectionFieldId,
-      movedIndexes,
-    );
+    if (preserveSelection) {
+      widget.selectionController?.setFieldSelection(
+        _sharedSelectionFieldId,
+        movedIndexes,
+      );
+    } else {
+      widget.selectionController?.clear();
+    }
     widget.onChanged(value);
   }
 
@@ -1320,6 +1454,12 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           _markTagTapForDoubleTapDragSuppression(tappedIndex);
         });
       }
+      return;
+    }
+    if (_tagDragInProgress &&
+        _selectionStartedOnDraggableTag &&
+        _selectionMoved) {
+      setState(_clearSelectionInteractionStateOnly);
       return;
     }
     final rect = _rectFrom(start, current);
@@ -1531,27 +1671,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     _selectionMoved = false;
     _selectionAdditive = false;
     _selectionStartedOnDraggableTag = false;
-  }
-
-  void _beginDraggingIndexes(Set<int> indexes) {
-    final validIndexes =
-        indexes.where((index) => index >= 0 && index < _tags.length).toSet();
-    if (validIndexes.isEmpty) {
-      return;
-    }
-    _selectionFocusNode.requestFocus();
-    final controller = widget.selectionController;
-    if (controller != null) {
-      controller.setFieldSelection(_sharedSelectionFieldId, validIndexes);
-      setState(_clearSelectionInteractionStateOnly);
-      return;
-    }
-    setState(() {
-      _selectedIndexes
-        ..clear()
-        ..addAll(validIndexes);
-      _clearSelectionInteractionStateOnly();
-    });
+    _tagDragInProgress = false;
   }
 
   List<String> _selectedTags() {

@@ -165,9 +165,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Cyber Princess.json'), findsOneWidget);
-    expect(find.text('400+.json'), findsOneWidget);
-    expect(find.text('Blue Archive.json'), findsOneWidget);
-    expect(find.text('Use'), findsNWidgets(3));
+    expect(find.text('Use'), findsWidgets);
 
     await tester.enterText(
       find.byKey(const ValueKey('config-presets-search-field')),

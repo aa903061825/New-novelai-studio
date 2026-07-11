@@ -59,18 +59,8 @@ class PreciseReferenceConfig {
     final strength = parseDouble(json['strength'], 1.0).clamp(0.0, 1.0);
     final fidelity = parseDouble(json['fidelity'], 1.0).clamp(0.0, 1.0);
 
-    var normalizedImageB64 = json['image_b64'] ?? '';
-    if (normalizedImageB64 is String && normalizedImageB64.isNotEmpty) {
-      try {
-        final normalizedBytes =
-            _normalizeImage(base64Decode(normalizedImageB64));
-        normalizedImageB64 = base64Encode(normalizedBytes);
-      } catch (_) {
-        // Keep original value for backward compatibility when normalization fails.
-      }
-    }
-
-    final imageB64 = normalizedImageB64 is String ? normalizedImageB64 : '';
+    final imageB64Value = json['image_b64'];
+    final imageB64 = imageB64Value is String ? imageB64Value : '';
 
     return PreciseReferenceConfig(
       imageB64: imageB64,

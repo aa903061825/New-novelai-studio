@@ -10,7 +10,26 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:saver_gallery/saver_gallery.dart';
 
+typedef FileManagerProcessStarter = Future<void> Function(
+  String executable,
+  List<String> arguments, {
+  required ProcessStartMode mode,
+});
+
 class FileService {
+  final FileManagerProcessStarter _startProcess;
+
+  FileService({FileManagerProcessStarter? startProcess})
+      : _startProcess = startProcess ?? _defaultStartProcess;
+
+  static Future<void> _defaultStartProcess(
+    String executable,
+    List<String> arguments, {
+    required ProcessStartMode mode,
+  }) async {
+    await Process.start(executable, arguments, mode: mode);
+  }
+
   Future<String> resolvePictureSavePath(
     String fileName,
     String saveDir,
@@ -77,31 +96,71 @@ class FileService {
       throw StateError('File does not exist: ${file.path}');
     }
     if (Platform.isWindows) {
-      await Process.start(
+      await _startDetached(
         'explorer.exe',
-        ['/select,${file.path}'],
-        mode: ProcessStartMode.detached,
+        ['/select,', file.path],
       );
       return;
     }
     if (Platform.isMacOS) {
-      await Process.start(
+      await _startDetached(
         'open',
         ['-R', file.path],
-        mode: ProcessStartMode.detached,
       );
       return;
     }
     if (Platform.isLinux) {
-      await Process.start(
+      await _startDetached(
         'xdg-open',
         [file.parent.path],
-        mode: ProcessStartMode.detached,
       );
       return;
     }
     throw UnsupportedError(
       'Opening the file location is not supported on this platform.',
+    );
+  }
+
+  Future<void> openDirectoryInFileManager(String path) async {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Directory path is empty.');
+    }
+    final directory = Directory(trimmed).absolute;
+    if (!await directory.exists()) {
+      throw StateError('Directory does not exist: ${directory.path}');
+    }
+    if (Platform.isWindows) {
+      await _startDetached(
+        'explorer.exe',
+        [directory.path],
+      );
+      return;
+    }
+    if (Platform.isMacOS) {
+      await _startDetached(
+        'open',
+        [directory.path],
+      );
+      return;
+    }
+    if (Platform.isLinux) {
+      await _startDetached(
+        'xdg-open',
+        [directory.path],
+      );
+      return;
+    }
+    throw UnsupportedError(
+      'Opening the directory is not supported on this platform.',
+    );
+  }
+
+  Future<void> _startDetached(String executable, List<String> arguments) {
+    return _startProcess(
+      executable,
+      arguments,
+      mode: ProcessStartMode.detached,
     );
   }
 

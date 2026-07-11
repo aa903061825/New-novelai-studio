@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_reveal.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_metric_card.dart';
@@ -31,12 +34,13 @@ class StudioHomePage extends StatefulWidget {
 }
 
 class _StudioHomePageState extends State<StudioHomePage> {
-  late Future<_StudioHomeSnapshot> _snapshotFuture;
+  Future<_StudioHomeSnapshot>? _snapshotFuture;
+  Timer? _snapshotLoadTimer;
 
   @override
   void initState() {
     super.initState();
-    _snapshotFuture = _loadSnapshot();
+    _scheduleSnapshotLoad(_homeSnapshotInitialDelay);
   }
 
   @override
@@ -44,8 +48,14 @@ class _StudioHomePageState extends State<StudioHomePage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.catalogService != widget.catalogService ||
         oldWidget.galleryService != widget.galleryService) {
-      _snapshotFuture = _loadSnapshot();
+      _scheduleSnapshotLoad(_homeSnapshotRefreshDelay);
     }
+  }
+
+  @override
+  void dispose() {
+    _snapshotLoadTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -57,8 +67,9 @@ class _StudioHomePageState extends State<StudioHomePage> {
           future: _snapshotFuture,
           builder: (context, snapshot) {
             final data = snapshot.data;
-            final isLoading = snapshot.connectionState != ConnectionState.done;
-            final hasError = snapshot.hasError;
+            final isLoading = _snapshotFuture == null ||
+                snapshot.connectionState != ConnectionState.done;
+            final hasError = _snapshotFuture != null && snapshot.hasError;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(StudioTokens.pagePadding),
@@ -68,15 +79,19 @@ class _StudioHomePageState extends State<StudioHomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _HomeHero(
-                        prompt: widget.payloadConfig.overridePrompt,
-                        fragmentCount:
-                            widget.workbenchAssetService.fragments.length,
-                        onContinue: () => widget.onNavigate(
-                          StudioShellSection.workbench,
-                        ),
-                        onOpenAssets: () => widget.onNavigate(
-                          StudioShellSection.assets,
+                      StudioReveal(
+                        key: const ValueKey('home-hero-reveal'),
+                        beginOffset: const Offset(0, 0.06),
+                        child: _HomeHero(
+                          prompt: widget.payloadConfig.overridePrompt,
+                          fragmentCount:
+                              widget.workbenchAssetService.fragments.length,
+                          onContinue: () => widget.onNavigate(
+                            StudioShellSection.workbench,
+                          ),
+                          onOpenAssets: () => widget.onNavigate(
+                            StudioShellSection.assets,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -88,35 +103,50 @@ class _StudioHomePageState extends State<StudioHomePage> {
                           onRetry: _reload,
                         )
                       else
-                        _MetricStrip(
-                          isLoading: isLoading,
-                          assetCount: data?.assetCount ?? 0,
-                          galleryCount: data?.galleryCount ?? 0,
-                          workbenchCount:
-                              widget.workbenchAssetService.fragments.length,
-                          batchCount:
-                              widget.payloadConfig.settings.numberOfRequests,
+                        StudioReveal(
+                          key: const ValueKey('home-metrics-reveal'),
+                          delay: const Duration(milliseconds: 120),
+                          beginOffset: const Offset(0, 0.055),
+                          child: _MetricStrip(
+                            isLoading: isLoading,
+                            assetCount: data?.assetCount ?? 0,
+                            galleryCount: data?.galleryCount ?? 0,
+                            workbenchCount:
+                                widget.workbenchAssetService.fragments.length,
+                            batchCount:
+                                widget.payloadConfig.settings.numberOfRequests,
+                          ),
                         ),
                       const SizedBox(height: 18),
                       LayoutBuilder(
                         builder: (context, constraints) {
                           final isWide = constraints.maxWidth >= 980;
-                          final recentPanel = _RecentGalleryPanel(
-                            records: data?.recentRecords ?? const [],
-                            isLoading: isLoading,
-                            onOpenGallery: () => widget.onNavigate(
-                              StudioShellSection.gallery,
+                          final recentPanel = StudioReveal(
+                            key: const ValueKey('home-recent-reveal'),
+                            delay: const Duration(milliseconds: 220),
+                            beginOffset: const Offset(0, 0.055),
+                            child: _RecentGalleryPanel(
+                              records: data?.recentRecords ?? const [],
+                              isLoading: isLoading,
+                              onOpenGallery: () => widget.onNavigate(
+                                StudioShellSection.gallery,
+                              ),
                             ),
                           );
-                          final actionPanel = _ActionPanel(
-                            onWorkbench: () => widget.onNavigate(
-                              StudioShellSection.workbench,
-                            ),
-                            onBatch: () => widget.onNavigate(
-                              StudioShellSection.batch,
-                            ),
-                            onSettings: () => widget.onNavigate(
-                              StudioShellSection.settings,
+                          final actionPanel = StudioReveal(
+                            key: const ValueKey('home-actions-reveal'),
+                            delay: const Duration(milliseconds: 300),
+                            beginOffset: const Offset(0, 0.055),
+                            child: _ActionPanel(
+                              onWorkbench: () => widget.onNavigate(
+                                StudioShellSection.workbench,
+                              ),
+                              onBatch: () => widget.onNavigate(
+                                StudioShellSection.batch,
+                              ),
+                              onSettings: () => widget.onNavigate(
+                                StudioShellSection.settings,
+                              ),
                             ),
                           );
                           if (!isWide) {
@@ -150,21 +180,39 @@ class _StudioHomePageState extends State<StudioHomePage> {
   }
 
   Future<_StudioHomeSnapshot> _loadSnapshot() async {
-    final summary = await widget.catalogService.loadSummary();
-    final records = await widget.galleryService.loadCreativeRecords();
+    final cachedSummary = await widget.catalogService.loadCachedSummary();
+    final summary = cachedSummary ?? await widget.catalogService.loadSummary();
+    final gallerySummary =
+        await widget.galleryService.loadCreativeRecordSummary(
+      recentLimit: 4,
+    );
     return _StudioHomeSnapshot(
       assetCount: summary.totalAssetCount,
-      galleryCount: records.length,
-      recentRecords: records.take(4).toList(growable: false),
+      galleryCount: gallerySummary.totalCount,
+      recentRecords: gallerySummary.recentRecords,
     );
   }
 
+  void _scheduleSnapshotLoad(Duration delay) {
+    _snapshotLoadTimer?.cancel();
+    _snapshotLoadTimer = Timer(delay, () {
+      if (!mounted) return;
+      setState(() {
+        _snapshotFuture = _loadSnapshot();
+      });
+    });
+  }
+
   void _reload() {
+    _snapshotLoadTimer?.cancel();
     setState(() {
       _snapshotFuture = _loadSnapshot();
     });
   }
 }
+
+const _homeSnapshotInitialDelay = Duration(milliseconds: 420);
+const _homeSnapshotRefreshDelay = Duration(milliseconds: 120);
 
 class _HomeHero extends StatelessWidget {
   final String prompt;

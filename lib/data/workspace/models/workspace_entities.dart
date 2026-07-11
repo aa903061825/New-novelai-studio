@@ -547,6 +547,7 @@ class TagEntry {
   final String zh;
   final String block;
   final String category;
+  final Map<String, String> sections;
   final List<String> aliases;
   final List<String> imageRefs;
   final SourceRef source;
@@ -558,6 +559,7 @@ class TagEntry {
     this.zh = '',
     required this.block,
     this.category = '',
+    this.sections = const {},
     this.aliases = const [],
     this.imageRefs = const [],
     this.source = const SourceRef(type: 'manual'),
@@ -573,6 +575,7 @@ class TagEntry {
       zh: _stringValue(map['zh'] ?? map['name_zh'], 'tag.zh'),
       block: _stringValue(map['block'], 'tag.block'),
       category: _stringValue(map['category'], 'tag.category'),
+      sections: _stringMap(map['sections'], 'tag.sections'),
       aliases: _stringList(map['aliases'], 'tag.aliases'),
       imageRefs: _stringList(map['imageRefs'], 'tag.imageRefs'),
       source: map['source'] == null
@@ -588,6 +591,8 @@ class TagEntry {
         if (zh.isNotEmpty) 'zh': zh,
         'block': block,
         if (category.isNotEmpty) 'category': category,
+        if (_sanitizeWorkspaceStringMap(sections).isNotEmpty)
+          'sections': _sanitizeWorkspaceStringMap(sections),
         if (_sanitizeWorkspaceStringList(aliases).isNotEmpty)
           'aliases': _sanitizeWorkspaceStringList(aliases),
         if (_sanitizeWorkspaceStringList(imageRefs).isNotEmpty)
@@ -757,6 +762,7 @@ class ArtistChain {
   final String prompt;
   final List<String> styleTags;
   final List<String> imageRefs;
+  final Map<String, String> sections;
   final Map<String, String> translations;
   final SourceRef source;
   final String note;
@@ -772,6 +778,7 @@ class ArtistChain {
     this.prompt = '',
     this.styleTags = const [],
     this.imageRefs = const [],
+    this.sections = const {},
     this.translations = const {},
     this.source = const SourceRef(type: 'manual'),
     this.note = '',
@@ -790,6 +797,7 @@ class ArtistChain {
       prompt: _stringValue(map['prompt'], 'artistChain.prompt'),
       styleTags: _stringList(map['styleTags'], 'artistChain.styleTags'),
       imageRefs: _stringList(map['imageRefs'], 'artistChain.imageRefs'),
+      sections: _stringMap(map['sections'], 'artistChain.sections'),
       translations: _stringMap(map['translations'], 'artistChain.translations'),
       source: map['source'] == null
           ? const SourceRef(type: 'manual')
@@ -819,6 +827,7 @@ class ArtistChain {
     String? prompt,
     List<String>? styleTags,
     List<String>? imageRefs,
+    Map<String, String>? sections,
     Map<String, String>? translations,
     SourceRef? source,
     String? note,
@@ -834,6 +843,7 @@ class ArtistChain {
       prompt: prompt ?? this.prompt,
       styleTags: styleTags ?? this.styleTags,
       imageRefs: imageRefs ?? this.imageRefs,
+      sections: sections ?? this.sections,
       translations: translations ?? this.translations,
       source: source ?? this.source,
       note: note ?? this.note,
@@ -855,6 +865,8 @@ class ArtistChain {
           'styleTags': _sanitizeWorkspaceStringList(styleTags),
         if (_sanitizeWorkspaceStringList(imageRefs).isNotEmpty)
           'imageRefs': _sanitizeWorkspaceStringList(imageRefs),
+        if (_sanitizeWorkspaceStringMap(sections).isNotEmpty)
+          'sections': _sanitizeWorkspaceStringMap(sections),
         if (_sanitizeWorkspaceStringMap(translations).isNotEmpty)
           'translations': _sanitizeWorkspaceStringMap(translations),
         'source': source.toJson(),

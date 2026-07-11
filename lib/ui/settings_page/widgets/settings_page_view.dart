@@ -10,11 +10,65 @@ import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 import 'package:provider/provider.dart';
 
-class SettingsPageView extends StatelessWidget {
+class SettingsPageView extends StatefulWidget {
   final Widget? knowledgeAndRulesSection;
-  final SettingsPageViewmodel viewmodel = SettingsPageViewmodel();
+  final WidgetBuilder? knowledgeAndRulesBuilder;
 
-  SettingsPageView({super.key, this.knowledgeAndRulesSection});
+  const SettingsPageView({
+    super.key,
+    this.knowledgeAndRulesSection,
+    this.knowledgeAndRulesBuilder,
+  });
+
+  @override
+  State<SettingsPageView> createState() => _SettingsPageViewState();
+}
+
+class _SettingsPageViewState extends State<SettingsPageView> {
+  final SettingsPageViewmodel viewmodel = SettingsPageViewmodel();
+  final ScrollController _scrollController = ScrollController();
+  bool _buildKnowledgeAndRulesSection = false;
+
+  bool get _hasKnowledgeAndRulesSection =>
+      widget.knowledgeAndRulesSection != null ||
+      widget.knowledgeAndRulesBuilder != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_handleSettingsScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsPageView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_hasKnowledgeAndRulesSection && _buildKnowledgeAndRulesSection) {
+      _buildKnowledgeAndRulesSection = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_handleSettingsScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _handleSettingsScroll() {
+    if (_buildKnowledgeAndRulesSection || !_hasKnowledgeAndRulesSection) {
+      return;
+    }
+    if (!_scrollController.hasClients) {
+      return;
+    }
+    final position = _scrollController.position;
+    if (position.pixels < 280 && position.extentAfter > 720) {
+      return;
+    }
+    setState(() {
+      _buildKnowledgeAndRulesSection = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,17 +105,24 @@ class SettingsPageView extends StatelessWidget {
         _buildLanguageTile(context),
       ],
     );
-    final naiApiSection = _buildNaiApiSettingsSection(context);
-    final aiSection = _buildAiSettingsSection(context);
-    final cacheSection = _buildCachePackageSection(context);
-    final knowledgeSection = knowledgeAndRulesSection == null
-        ? null
-        : KeyedSubtree(
-            key: const ValueKey('settings-knowledge-and-rules-section'),
-            child: knowledgeAndRulesSection!,
-          );
+    final knowledgeSection =
+        !_buildKnowledgeAndRulesSection || !_hasKnowledgeAndRulesSection
+            ? null
+            : KeyedSubtree(
+                key: const ValueKey('settings-knowledge-and-rules-section'),
+                child: widget.knowledgeAndRulesBuilder?.call(context) ??
+                    widget.knowledgeAndRulesSection!,
+              );
+    final sections = <Widget>[
+      profileSection,
+      _buildCachePackageSection(context),
+      _buildNaiApiSettingsSection(context),
+      _buildAiSettingsSection(context),
+      if (knowledgeSection != null) knowledgeSection,
+    ];
 
     return SingleChildScrollView(
+      controller: _scrollController,
       padding:
           EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 28),
       child: Center(
@@ -72,13 +133,7 @@ class SettingsPageView extends StatelessWidget {
             children: [
               _buildSettingsHeader(context),
               const SizedBox(height: 18),
-              _buildSectionColumn([
-                profileSection,
-                cacheSection,
-                naiApiSection,
-                aiSection,
-                if (knowledgeSection != null) knowledgeSection,
-              ]),
+              _buildSectionColumn(sections),
             ],
           ),
         ),

@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "NAI_NEW",
-  "project_id": "965bb0f1-c6a6-40a4-8bdc-1be86217953a"
-}

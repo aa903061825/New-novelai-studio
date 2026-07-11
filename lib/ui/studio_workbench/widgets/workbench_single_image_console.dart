@@ -10,6 +10,11 @@ import 'package:novel_studio/ui/generation_page/view_models/generation_page_view
 import 'package:novel_studio/ui/generation_page/widgets/info_card.dart';
 import 'package:novel_studio/ui/i2i_config/widgets/i2i_config_view.dart';
 import 'package:novel_studio/ui/i2i_tab/view_models/i2i_tab_viewmodel.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_animated_presence.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_sequence.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_scope.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_generated_image_gallery.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
@@ -99,11 +104,28 @@ class WorkbenchCreativeInputsPanel extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _CharacterSection(viewmodel: parametersViewmodel),
+                      StudioMotionSequenceRegion(
+                        region: StudioMotionRegion.editor,
+                        child: _CharacterSection(
+                          viewmodel: parametersViewmodel,
+                        ),
+                      ),
                       const Divider(height: 24),
-                      _ReferenceInputSection(viewmodel: parametersViewmodel),
+                      StudioMotionSequenceRegion(
+                        region: StudioMotionRegion.editor,
+                        order: 1,
+                        child: _ReferenceInputSection(
+                          viewmodel: parametersViewmodel,
+                        ),
+                      ),
                       const Divider(height: 24),
-                      _PromptControlSection(viewmodel: parametersViewmodel),
+                      StudioMotionSequenceRegion(
+                        region: StudioMotionRegion.editor,
+                        order: 2,
+                        child: _PromptControlSection(
+                          viewmodel: parametersViewmodel,
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -144,11 +166,14 @@ class WorkbenchSingleImageConsole extends StatelessWidget {
             transferViewModel: transferViewModel,
           ),
           const SizedBox(height: 12),
-          _ExecutionSection(
-            viewmodel: generationViewmodel,
-            parametersViewmodel: parametersViewmodel,
-            workbenchAssetService: workbenchAssetService,
-            transferViewModel: transferViewModel,
+          StudioMotionSequenceRegion(
+            region: StudioMotionRegion.controls,
+            child: _ExecutionSection(
+              viewmodel: generationViewmodel,
+              parametersViewmodel: parametersViewmodel,
+              workbenchAssetService: workbenchAssetService,
+              transferViewModel: transferViewModel,
+            ),
           ),
           const Divider(height: 24),
           Expanded(
@@ -805,19 +830,26 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
                 onTap: _toggleVibeEnabled,
               ),
             ),
-            if (_vibeEnabled) ...[
-              const SizedBox(height: 8),
-              KeyedSubtree(
-                key: const ValueKey('workbench-vibe-editor'),
-                child: VibeConfigV4ListView(
-                  viewmodel: VibeConfigV4ListViewmodel(),
-                  vibeEnabled: viewmodel.vibeEnabled,
-                  onVibeEnabledChanged: viewmodel.setVibeEnabled,
-                  compact: true,
-                  showEnabledSwitch: false,
-                ),
+            StudioAnimatedPresence(
+              key: const ValueKey('workbench-vibe-presence'),
+              visible: _vibeEnabled,
+              builder: (context) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  KeyedSubtree(
+                    key: const ValueKey('workbench-vibe-editor'),
+                    child: VibeConfigV4ListView(
+                      viewmodel: VibeConfigV4ListViewmodel(),
+                      vibeEnabled: viewmodel.vibeEnabled,
+                      onVibeEnabledChanged: viewmodel.setVibeEnabled,
+                      compact: true,
+                      showEnabledSwitch: false,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
             const SizedBox(height: 14),
             _ReferenceSectionHeader(
               icon: Icons.compare_outlined,
@@ -842,20 +874,27 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
                 onTap: _toggleI2iEnabled,
               ),
             ),
-            if (_i2iEnabled) ...[
-              const SizedBox(height: 8),
-              KeyedSubtree(
-                key: const ValueKey('workbench-i2i-editor'),
-                child: I2iConfigView(
-                  key: const ValueKey('workbench-i2i-config-view'),
-                  viewmodel: I2iTabViewmodel().createI2iViewmodel(),
-                  compact: true,
-                  showPromptOverride: false,
-                  showSizeControl: false,
-                  showPresetControl: false,
-                ),
+            StudioAnimatedPresence(
+              key: const ValueKey('workbench-i2i-presence'),
+              visible: _i2iEnabled,
+              builder: (context) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  KeyedSubtree(
+                    key: const ValueKey('workbench-i2i-editor'),
+                    child: I2iConfigView(
+                      key: const ValueKey('workbench-i2i-config-view'),
+                      viewmodel: I2iTabViewmodel().createI2iViewmodel(),
+                      compact: true,
+                      showPromptOverride: false,
+                      showSizeControl: false,
+                      showPresetControl: false,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ],
         );
       },
@@ -1092,80 +1131,89 @@ class _CharacterTileCard extends StatelessWidget {
       },
       builder: (context, candidates, rejected) {
         final dropActive = candidates.isNotEmpty;
-        return SizedBox(
-          width: width,
-          height: 172,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: ValueKey('workbench-character-card-$index'),
-              borderRadius: _characterCardRadius,
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: dropActive || selected
-                      ? StudioTokens.surface2
-                      : StudioTokens.surface3,
-                  borderRadius: _characterCardRadius,
-                  border: Border.all(
-                    color: dropActive || selected
-                        ? StudioTokens.primary
-                        : character.enabled
-                            ? StudioTokens.border
-                            : StudioTokens.border.withValues(alpha: 0.5),
-                    width: dropActive || selected ? 2 : 1,
+        return StudioInteractiveSurface(
+          borderRadius: _characterCardRadius,
+          hoverScale: 1.014,
+          hoverBorderColor: StudioTokens.primary.withValues(alpha: 0.36),
+          hoverOverlayColor: StudioTokens.primary.withValues(alpha: 0.025),
+          child: SizedBox(
+            width: width,
+            height: 172,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                key: ValueKey('workbench-character-card-$index'),
+                borderRadius: _characterCardRadius,
+                onTap: onTap,
+                child: AnimatedContainer(
+                  duration: StudioMotionScope.duration(
+                    context,
+                    StudioMotionTokens.fast,
                   ),
-                ),
-                child: Opacity(
-                  opacity: character.enabled ? 1 : 0.52,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            character.enabled
-                                ? Icons.person_outline
-                                : Icons.person_off_outlined,
-                            size: 18,
-                            color: selected
-                                ? StudioTokens.primary
-                                : StudioTokens.textMuted,
-                          ),
-                          const Spacer(),
-                          Icon(
-                            selected ? Icons.expand_less : Icons.expand_more,
-                            size: 18,
-                            color: StudioTokens.textMuted,
-                          ),
-                        ],
-                      ),
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            '${index + 1}',
-                            style: textTheme.displaySmall?.copyWith(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: dropActive || selected
+                        ? StudioTokens.surface2
+                        : StudioTokens.surface3,
+                    borderRadius: _characterCardRadius,
+                    border: Border.all(
+                      color: dropActive || selected
+                          ? StudioTokens.primary
+                          : character.enabled
+                              ? StudioTokens.border
+                              : StudioTokens.border.withValues(alpha: 0.5),
+                      width: dropActive || selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Opacity(
+                    opacity: character.enabled ? 1 : 0.52,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              character.enabled
+                                  ? Icons.person_outline
+                                  : Icons.person_off_outlined,
+                              size: 18,
                               color: selected
                                   ? StudioTokens.primary
-                                  : StudioTokens.textPrimary,
-                              fontWeight: FontWeight.w800,
+                                  : StudioTokens.textMuted,
+                            ),
+                            const Spacer(),
+                            Icon(
+                              selected ? Icons.expand_less : Icons.expand_more,
+                              size: 18,
+                              color: StudioTokens.textMuted,
+                            ),
+                          ],
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              '${index + 1}',
+                              style: textTheme.displaySmall?.copyWith(
+                                color: selected
+                                    ? StudioTokens.primary
+                                    : StudioTokens.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      Text(
-                        name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: StudioTokens.textPrimary,
-                          fontWeight: FontWeight.w700,
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: StudioTokens.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1435,7 +1483,10 @@ class _CharacterPromptDropTarget extends StatelessWidget {
           key: ValueKey(
             'workbench-character-prompt-drop-$characterIndex-$targetIndex',
           ),
-          duration: const Duration(milliseconds: 120),
+          duration: StudioMotionScope.duration(
+            context,
+            StudioMotionTokens.fast,
+          ),
           margin: const EdgeInsets.only(bottom: 6),
           height: active ? 32 : 18,
           decoration: BoxDecoration(
@@ -1751,8 +1802,10 @@ class _RandomnessSection extends StatelessWidget {
           value: config.randomSeed,
           onChanged: viewmodel.setRandomSeedEnabled,
         ),
-        if (!config.randomSeed)
-          KeyedSubtree(
+        StudioAnimatedPresence(
+          key: const ValueKey('workbench-seed-presence'),
+          visible: !config.randomSeed,
+          builder: (context) => KeyedSubtree(
             key: ValueKey('seed-${config.seed}'),
             child: TextFormField(
               key: const ValueKey('workbench-seed-field'),
@@ -1765,6 +1818,7 @@ class _RandomnessSection extends StatelessWidget {
               onChanged: viewmodel.setSeed,
             ),
           ),
+        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(Icons.add),

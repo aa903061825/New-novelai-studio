@@ -157,6 +157,7 @@ class RecastScriptCache {
   final bool aiRoleExtractionDraftCollapsed;
   final String scriptBlockWords;
   final Map<String, dynamic> knowledgeSnapshot;
+  final List<String> exhibitionCategoryNames;
   final Map<String, dynamic> scriptSnapshot;
 
   const RecastScriptCache({
@@ -173,6 +174,7 @@ class RecastScriptCache {
     this.aiRoleExtractionDraftCollapsed = false,
     this.scriptBlockWords = '',
     this.knowledgeSnapshot = const {},
+    this.exhibitionCategoryNames = const [],
     this.scriptSnapshot = const {},
   });
 
@@ -209,32 +211,52 @@ class RecastScriptCache {
       scriptBlockWords: json['scriptBlockWords'] as String? ?? '',
       knowledgeSnapshot:
           Map<String, dynamic>.from(json['knowledgeSnapshot'] as Map? ?? {}),
+      exhibitionCategoryNames: _normalizedStringList(
+        json['exhibitionCategoryNames'] ?? json['categoryNames'],
+      ),
       scriptSnapshot:
           Map<String, dynamic>.from(json['scriptSnapshot'] as Map? ?? {}),
     );
   }
 
-  Map<String, dynamic> toJson() => {
-        'scriptId': scriptId,
-        'scriptName': scriptName,
-        'sourceRootPath': sourceRootPath,
-        'sourceFingerprint': sourceFingerprint,
-        if (sourceContentFingerprint.trim().isNotEmpty)
-          'sourceContentFingerprint': sourceContentFingerprint,
-        'updatedAt': updatedAt.toUtc().toIso8601String(),
-        'mapping': mapping.toJson(),
-        if (aiRoleExtraction.status != ScriptAiRoleExtractionStatus.idle)
-          'aiRoleExtraction': aiRoleExtraction.toJson(),
-        if (aiRoleExtractionChunks.isNotEmpty)
-          'aiRoleExtractionChunks':
-              aiRoleExtractionChunks.map((entry) => entry.toJson()).toList(),
-        if (aiRoleExtractionDraftCollapsed)
-          'aiRoleExtractionDraftCollapsed': true,
-        if (scriptBlockWords.trim().isNotEmpty)
-          'scriptBlockWords': scriptBlockWords,
-        if (scriptSnapshot.isNotEmpty)
-          'scriptSnapshot': stableJsonValue(scriptSnapshot),
-      };
+  Map<String, dynamic> toJson() {
+    final categories = _normalizedStringList([
+      ...exhibitionCategoryNames,
+      ..._legacyCategoryNamesFromScriptSnapshot(scriptSnapshot),
+    ]);
+    return {
+      'scriptId': scriptId,
+      'scriptName': scriptName,
+      'sourceRootPath': sourceRootPath,
+      if (categories.isNotEmpty) 'exhibitionCategoryNames': categories,
+      'sourceFingerprint': sourceFingerprint,
+      if (sourceContentFingerprint.trim().isNotEmpty)
+        'sourceContentFingerprint': sourceContentFingerprint,
+      'updatedAt': updatedAt.toUtc().toIso8601String(),
+      'mapping': mapping.toJson(),
+      if (aiRoleExtraction.status != ScriptAiRoleExtractionStatus.idle)
+        'aiRoleExtraction': aiRoleExtraction.toJson(),
+      if (aiRoleExtractionChunks.isNotEmpty)
+        'aiRoleExtractionChunks':
+            aiRoleExtractionChunks.map((entry) => entry.toJson()).toList(),
+      if (aiRoleExtractionDraftCollapsed)
+        'aiRoleExtractionDraftCollapsed': true,
+      if (scriptBlockWords.trim().isNotEmpty)
+        'scriptBlockWords': scriptBlockWords,
+      if (scriptSnapshot.isNotEmpty)
+        'scriptSnapshot': stableJsonValue(scriptSnapshot),
+    };
+  }
+}
+
+class RecastScriptCacheSnapshotRestore {
+  final RecastScriptCache cache;
+  final Script script;
+
+  const RecastScriptCacheSnapshotRestore({
+    required this.cache,
+    required this.script,
+  });
 }
 
 List<RecastRoleCandidate> confirmedKnowledgeCandidatesFromBase(
@@ -288,6 +310,25 @@ const Object _unset = Object();
 List<String> _stringList(dynamic value) {
   if (value is! List) return const [];
   return value.whereType<String>().toList(growable: false);
+}
+
+List<String> _normalizedStringList(dynamic value) {
+  if (value is! Iterable) return const [];
+  final namesByKey = <String, String>{};
+  for (final item in value) {
+    final normalized = item.toString().trim();
+    if (normalized.isEmpty) continue;
+    namesByKey.putIfAbsent(normalized.toLowerCase(), () => normalized);
+  }
+  return List.unmodifiable(namesByKey.values);
+}
+
+List<String> _legacyCategoryNamesFromScriptSnapshot(
+  Map<String, dynamic> scriptSnapshot,
+) {
+  final meta = scriptSnapshot['meta'];
+  if (meta is! Map) return const [];
+  return _normalizedStringList(meta['legacyCategoryNames']);
 }
 
 List<int> _intList(dynamic value) {

@@ -3,7 +3,8 @@ import path from 'node:path';
 
 const cacheDir = path.join(
   process.env.APPDATA ?? '',
-  'Novel Studio',\n  'Novel Studio',
+  'Novel Studio',
+  'Novel Studio',
   'novel_studio',
   'script_recast',
   'cache',

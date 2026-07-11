@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:adaptive_theme/adaptive_theme.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,12 +10,12 @@ import 'package:novel_studio/data/models/command_status.dart';
 import 'package:novel_studio/data/models/generation_runtime_state.dart';
 import 'package:novel_studio/data/models/global_generation_params.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/config_service.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
 import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
 import 'package:novel_studio/data/studio/services/production_queue_service.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
-import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
 import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
@@ -37,12 +39,14 @@ import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dar
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
 import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_scrollbar.dart';
 import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_shell/models/studio_startup_open_request.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:get_it/get_it.dart';
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   ErrorWidget.builder = (_) => const SizedBox.shrink();
   await EasyLocalization.ensureInitialized();
@@ -66,10 +70,8 @@ void main() async {
   GetIt.instance.registerLazySingleton(
     () => StudioBatchPlanService(workspaceService: workspaceService),
   );
-  final promptWorkshopTranslationCache =
-      await PromptWorkshopBridge.loadTranslationCache();
-  final promptTagClassificationCache =
-      await PromptWorkshopBridge.loadTagClassificationCache();
+  final promptWorkshopTranslationCache = TranslationCache();
+  final promptTagClassificationCache = PromptTagClassificationCache();
   GetIt.instance.registerSingleton<TranslationCache>(
     promptWorkshopTranslationCache,
   );
@@ -107,19 +109,12 @@ void main() async {
   configService.packageInfo = await PackageInfo.fromPlatform();
   final savedConfig = await configService.loadSavedConfig();
   final payloadConfig = PayloadConfig.fromJson(savedConfig);
-  final externalizedV4VibeImages =
-      await configService.externalizeV4VibeSourceImages(payloadConfig);
-  final normalizedSavedConfig =
-      externalizedV4VibeImages ? payloadConfig.toJson() : savedConfig;
-  if (externalizedV4VibeImages) {
-    await configService.saveConfig(normalizedSavedConfig);
-  }
   AppDisplaySettings.setTextScale(payloadConfig.settings.uiTextScale);
   AppDisplaySettings.setImagePreviewDialogHeight(
     payloadConfig.settings.imagePreviewDialogHeight,
     persist: false,
   );
-  final batchPayloadConfig = PayloadConfig.fromJson(normalizedSavedConfig);
+  final batchPayloadConfig = PayloadConfig.fromJson(savedConfig);
   AppDisplaySettings.configureImagePreviewDialogHeightPersistence((height) {
     payloadConfig.settings.imagePreviewDialogHeight = height;
     batchPayloadConfig.settings.imagePreviewDialogHeight = height;
@@ -153,14 +148,6 @@ void main() async {
       translationCache: promptWorkshopTranslationCache,
       settingsProvider: () => payloadConfig.settings,
       translationCacheReloader: PromptWorkshopBridge.loadTranslationCache,
-    ),
-  );
-  GetIt.instance.registerLazySingleton(
-    () => AssetTagCachePrewarmService(
-      catalogService: GetIt.I<StudioAssetCatalogService>(),
-      translationService: GetIt.I<PromptTranslationService>(),
-      translationCache: promptWorkshopTranslationCache,
-      classificationCache: promptTagClassificationCache,
     ),
   );
   GetIt.instance.registerLazySingleton(() => workbenchCommandStatus);
@@ -239,6 +226,8 @@ void main() async {
       loadRecastCaches: workspaceService.loadRecastScriptCaches,
       saveRecastCaches: workspaceService.saveRecastScriptCaches,
       loadRecastCacheByScriptId: workspaceService.loadRecastScriptCache,
+      restoreRecastCacheSnapshotByScriptId:
+          workspaceService.restoreRecastScriptCacheSnapshot,
       saveRecastCache: workspaceService.saveRecastScriptCache,
       loadRecastKnowledgeBase: workspaceService.loadRecastKnowledgeBase,
       saveRecastKnowledgeBase: workspaceService.saveRecastKnowledgeBase,
@@ -253,6 +242,7 @@ void main() async {
       scriptAiProxyProvider: () => payloadConfig.settings.proxy,
       translationCache: promptWorkshopTranslationCache,
       classificationCache: promptTagClassificationCache,
+      saveTranslationCache: PromptWorkshopBridge.saveTranslationCache,
       saveClassificationCache: PromptWorkshopBridge.saveTagClassificationCache,
     ),
   );
@@ -288,17 +278,73 @@ void main() async {
     ),
   );
 
+  final startupOpenRequest = StudioStartupOpenRequest.fromArgs(args);
   final appWithLocales = EasyLocalization(
     supportedLocales: const [Locale('en'), Locale('zh', 'CN')],
     path: 'assets/l10n',
-    child: const MyApp(),
+    child: MyApp(startupOpenRequest: startupOpenRequest),
   );
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(
+      _externalizeV4VibeImagesAfterStartup(
+        configService: configService,
+        payloadConfig: payloadConfig,
+        batchPayloadConfig: batchPayloadConfig,
+      ),
+    );
+    unawaited(
+      _loadPromptWorkshopCachesAfterStartup(
+        translationCache: promptWorkshopTranslationCache,
+        classificationCache: promptTagClassificationCache,
+      ),
+    );
+  });
 
   runApp(appWithLocales);
 }
 
+Future<void> _externalizeV4VibeImagesAfterStartup({
+  required ConfigService configService,
+  required PayloadConfig payloadConfig,
+  required PayloadConfig batchPayloadConfig,
+}) async {
+  await Future<void>.delayed(_startupMaintenanceDelay);
+  final changed = await configService.externalizeV4VibeSourceImages(
+    payloadConfig,
+  );
+  if (!changed) {
+    return;
+  }
+  batchPayloadConfig.setScriptVibeConfigV4List(payloadConfig.vibeConfigListV4);
+  await configService.saveConfig(payloadConfig.toJson());
+}
+
+Future<void> _loadPromptWorkshopCachesAfterStartup({
+  required TranslationCache translationCache,
+  required PromptTagClassificationCache classificationCache,
+}) async {
+  await Future<void>.delayed(_promptWorkshopCacheStartupDelay);
+  final results = await Future.wait<Object>([
+    PromptWorkshopBridge.loadTranslationCache(),
+    PromptWorkshopBridge.loadTagClassificationCache(),
+  ]);
+  translationCache.mergeMissingFrom(results[0] as TranslationCache);
+  classificationCache.mergeMissingFrom(
+    results[1] as PromptTagClassificationCache,
+  );
+}
+
+const _startupMaintenanceDelay = Duration(seconds: 15);
+const _promptWorkshopCacheStartupDelay = Duration(milliseconds: 4200);
+
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final StudioStartupOpenRequest? startupOpenRequest;
+
+  const MyApp({
+    super.key,
+    this.startupOpenRequest,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -313,6 +359,7 @@ class MyApp extends StatelessWidget {
         builder: (context, textScale, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: theme,
+          scrollBehavior: const StudioScrollBehavior(),
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
           locale: context.locale,
@@ -327,7 +374,10 @@ class MyApp extends StatelessWidget {
               ),
             );
           },
-          home: NavigationView(viewModel: NavigationViewModel()),
+          home: NavigationView(
+            viewModel: NavigationViewModel(),
+            startupOpenRequest: startupOpenRequest,
+          ),
         ),
       ),
     );

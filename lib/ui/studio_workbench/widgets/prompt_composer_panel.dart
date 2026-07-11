@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_scope.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
@@ -64,14 +67,26 @@ class PromptComposerPanel extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Column(
                     children: [
-                      _PromptBlockDraggable(
-                        service: service,
-                        fragment: service.fragments[index],
-                        child: _PromptBlockRow(
+                      StudioStaggeredReveal(
+                        key: ValueKey(
+                          'prompt-block-reveal-${service.fragments[index].id}',
+                        ),
+                        index: index,
+                        columns: 1,
+                        maxStaggeredItems: 8,
+                        duration: const Duration(milliseconds: 190),
+                        itemDelay: const Duration(milliseconds: 22),
+                        beginOffset: const Offset(0, 0.026),
+                        beginScale: 0.985,
+                        child: _PromptBlockDraggable(
                           service: service,
                           fragment: service.fragments[index],
-                          canMoveUp: index > 0,
-                          canMoveDown: index < service.fragments.length - 1,
+                          child: _PromptBlockRow(
+                            service: service,
+                            fragment: service.fragments[index],
+                            canMoveUp: index > 0,
+                            canMoveDown: index < service.fragments.length - 1,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -107,7 +122,10 @@ class _PromptDropTarget extends StatelessWidget {
         final active = candidates.isNotEmpty;
         return AnimatedContainer(
           key: ValueKey('prompt-drop-target-$index'),
-          duration: const Duration(milliseconds: 120),
+          duration: StudioMotionScope.duration(
+            context,
+            StudioMotionTokens.fast,
+          ),
           margin: const EdgeInsets.only(bottom: 6),
           height: active ? 32 : 18,
           decoration: BoxDecoration(

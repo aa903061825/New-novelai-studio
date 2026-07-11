@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/stable_id.dart';
 
 Future<void> main(List<String> args) async {
@@ -349,6 +350,8 @@ ScriptAiRoleExtraction _extractionWithFrameEvidence(
     attentionItems: extraction.attentionItems,
     unassignedTerms: extraction.unassignedTerms,
     evidenceRequests: extraction.evidenceRequests,
+    sceneTerms: extraction.sceneTerms,
+    termCacheSuggestions: extraction.termCacheSuggestions,
     rawResponse: extraction.rawResponse,
   );
 }
@@ -366,6 +369,18 @@ ScriptAiExtractedRole _roleWithFrameEvidence(
     return role;
   }
   var changed = false;
+  final nextPromptTerms = _promptTermsWithFrameEvidence(
+    role: role,
+    captionsByFrame: captionsByFrame,
+  );
+  if (_jsonText([
+        for (final term in nextPromptTerms) term.toJson(),
+      ]) !=
+      _jsonText([
+        for (final term in role.promptTerms) term.toJson(),
+      ])) {
+    changed = true;
+  }
   final stages = <ScriptAiExtractedStage>[];
   for (final stage in role.stages) {
     final splitStages = _stagesSplitByFrameEvidence(
@@ -410,7 +425,54 @@ ScriptAiExtractedRole _roleWithFrameEvidence(
     ),
     stages: List.unmodifiable(uniqueStages),
     unassignedTerms: role.unassignedTerms,
+    promptTerms: nextPromptTerms,
   );
+}
+
+List<ScriptAiExtractedPromptTerm> _promptTermsWithFrameEvidence({
+  required ScriptAiExtractedRole role,
+  required Map<int, List<String>> captionsByFrame,
+}) {
+  final termsByKey = <String, ScriptAiExtractedPromptTerm>{};
+  final order = <String>[];
+
+  void addTerm(ScriptAiExtractedPromptTerm term) {
+    final text = term.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    final category = term.category;
+    final key = '${category.name}\u001f${_normalizedEvidenceText(text)}';
+    final existing = termsByKey[key];
+    if (existing == null) {
+      termsByKey[key] = term;
+      order.add(key);
+      return;
+    }
+    termsByKey[key] = ScriptAiExtractedPromptTerm(
+      id: existing.id.trim().isNotEmpty ? existing.id : term.id,
+      text: existing.text.trim().isNotEmpty ? existing.text : term.text,
+      category: existing.category,
+      sourcePhrase: existing.sourcePhrase.trim().isNotEmpty
+          ? existing.sourcePhrase
+          : term.sourcePhrase,
+      sourceLocation: existing.sourceLocation.trim().isNotEmpty
+          ? existing.sourceLocation
+          : term.sourceLocation,
+      frameIndexes: _mergedToolInts(
+        existing.frameIndexes,
+        term.frameIndexes,
+      ),
+    );
+  }
+
+  for (final term in role.promptTerms) {
+    addTerm(term);
+  }
+
+  return List.unmodifiable([
+    for (final key in order) termsByKey[key]!,
+  ]);
 }
 
 Map<int, List<String>> _roleCaptionsByFrame(
@@ -757,6 +819,11 @@ List<String> _mergedToolStrings(List<String> left, List<String> right) {
     result.add(trimmed);
   }
   return List.unmodifiable(result);
+}
+
+List<int> _mergedToolInts(List<int> left, List<int> right) {
+  final values = {...left, ...right}.toList()..sort();
+  return List.unmodifiable(values);
 }
 
 List<dynamic> _dynamicList(Object? value) {
@@ -1832,12 +1899,167 @@ Map<String, dynamic> _normalizedMapping(
     changed = true;
     appliedRoleIds.add(sourceRoleId);
   }
+  final nextRolePromptReplacements = _rolePromptReplacementsWithAiTerms(
+    mapping.rolePromptReplacements,
+    extraction.roles,
+  );
+  if (_jsonText([
+        for (final replacement in nextRolePromptReplacements)
+          replacement.toJson(),
+      ]) !=
+      _jsonText([
+        for (final replacement in mapping.rolePromptReplacements)
+          replacement.toJson(),
+      ])) {
+    changed = true;
+  }
   if (!changed) {
     return Map<String, dynamic>.from(value);
   }
   return mapping
-      .copyWith(roleAssemblies: List.unmodifiable(nextAssemblies))
+      .copyWith(
+        roleAssemblies: List.unmodifiable(nextAssemblies),
+        rolePromptReplacements: nextRolePromptReplacements,
+      )
       .toJson();
+}
+
+List<ScriptRolePromptReplacement> _rolePromptReplacementsWithAiTerms(
+  List<ScriptRolePromptReplacement> existingReplacements,
+  List<ScriptAiExtractedRole> roles,
+) {
+  final existingByRoleId = <String, ScriptRolePromptReplacement>{
+    for (final replacement in existingReplacements)
+      if (replacement.sourceRoleId.trim().isNotEmpty)
+        replacement.sourceRoleId.trim(): replacement,
+  };
+  final next = <ScriptRolePromptReplacement>[];
+  final appliedRoleIds = <String>{};
+  for (final role in roles) {
+    final sourceRoleId = role.sourceRoleId.trim();
+    if (sourceRoleId.isEmpty || role.promptTerms.isEmpty) {
+      continue;
+    }
+    final existing = existingByRoleId[sourceRoleId];
+    next.add(
+      _rolePromptReplacementWithAiTerms(
+        role: role,
+        existing: existing,
+      ),
+    );
+    appliedRoleIds.add(sourceRoleId);
+  }
+  for (final replacement in existingReplacements) {
+    if (!appliedRoleIds.contains(replacement.sourceRoleId.trim())) {
+      next.add(replacement);
+    }
+  }
+  return List.unmodifiable(next);
+}
+
+ScriptRolePromptReplacement _rolePromptReplacementWithAiTerms({
+  required ScriptAiExtractedRole role,
+  required ScriptRolePromptReplacement? existing,
+}) {
+  final rules = <ScriptPromptReplacementRule>[];
+  final existingRulesByTermKey = <String, ScriptPromptReplacementRule>{};
+  final emittedRuleIds = <String>{};
+  for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
+    for (final term in rule.sourceTerms) {
+      existingRulesByTermKey.putIfAbsent(
+        _promptReplacementTermKey(term.text, term.category),
+        () => rule,
+      );
+    }
+  }
+
+  for (final term in role.promptTerms) {
+    final text = term.text.trim();
+    if (text.isEmpty) {
+      continue;
+    }
+    final termKey = _promptReplacementTermKey(text, term.category);
+    final existingRule = existingRulesByTermKey[termKey];
+    if (existingRule != null) {
+      if (emittedRuleIds.add(existingRule.id)) {
+        rules.add(
+          existingRule.copyWith(
+            sourceTerms: [_promptReplacementTermFromAi(term)],
+          ),
+        );
+      }
+      continue;
+    }
+    final replacementTerm = _promptReplacementTermFromAi(term);
+    final ruleId =
+        'role-${_safeIdSegment(role.sourceRoleId)}-${replacementTerm.id}';
+    if (!emittedRuleIds.add(ruleId)) {
+      continue;
+    }
+    rules.add(
+      ScriptPromptReplacementRule(
+        id: ruleId,
+        sourceTerms: [replacementTerm],
+      ),
+    );
+  }
+
+  for (final rule in existing?.rules ?? const <ScriptPromptReplacementRule>[]) {
+    if (!emittedRuleIds.add(rule.id)) {
+      continue;
+    }
+    rules.add(rule);
+  }
+
+  final preview = _promptReplacementSourcePreview(role.promptTerms);
+  return ScriptRolePromptReplacement(
+    sourceRoleId: role.sourceRoleId,
+    displayLabel: existing?.displayLabel.trim().isNotEmpty == true
+        ? existing!.displayLabel
+        : role.displayName.trim().isEmpty
+            ? role.sourceRoleId
+            : role.displayName,
+    sourcePreview:
+        preview.trim().isEmpty ? existing?.sourcePreview ?? '' : preview,
+    targetCharacterId: existing?.targetCharacterId,
+    targetIdentityPrompt: existing?.targetIdentityPrompt ?? '',
+    rules: List.unmodifiable(rules),
+  );
+}
+
+ScriptPromptReplacementTerm _promptReplacementTermFromAi(
+  ScriptAiExtractedPromptTerm term,
+) {
+  return ScriptPromptReplacementTerm(
+    id: term.id.trim().isEmpty
+        ? 'term-${_safeIdSegment(term.text)}'
+        : term.id.trim(),
+    text: term.text.trim(),
+    category: term.category,
+    sourcePhrase: term.sourcePhrase.trim(),
+    sourceLocation: term.sourceLocation.trim(),
+    frameIndexes: List.unmodifiable(term.frameIndexes),
+  );
+}
+
+String _promptReplacementSourcePreview(
+  List<ScriptAiExtractedPromptTerm> terms,
+) {
+  final seen = <String>{};
+  final parts = <String>[];
+  for (final term in terms) {
+    final text = term.text.trim();
+    final key = _normalizedEvidenceText(text);
+    if (key.isEmpty || !seen.add(key)) {
+      continue;
+    }
+    parts.add(text);
+  }
+  return parts.join(', ');
+}
+
+String _promptReplacementTermKey(String text, PromptTagCategory category) {
+  return '${category.name}\u001f${_normalizedEvidenceText(text)}';
 }
 
 RoleAssembly _assemblyWithNormalizedAiRole(

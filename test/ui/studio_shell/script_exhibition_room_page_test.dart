@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -6,11 +9,13 @@ import 'package:get_it/get_it.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/services/script_exhibition_image_organizer_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
 import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:novel_studio/ui/core/app_display_settings.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
@@ -31,6 +36,98 @@ class _PreviewCaptureService extends StudioAssetCaptureService {
   }
 }
 
+class _ThrowingOffscreenScriptExhibitionItem extends ScriptExhibitionItem {
+  _ThrowingOffscreenScriptExhibitionItem({
+    required super.id,
+    required int frameIndex,
+    required super.updatedAt,
+  }) : super(
+          scriptId: 'script-window',
+          scriptTitle: 'Window Test',
+          sourceFolder: r'C:\stories\window',
+          versionId: 'version-window',
+          versionLabel: 'Window',
+          sourceKind: ScriptExhibitionItemSourceKind.generated,
+          frameIndex: frameIndex,
+          sourceFileName: 'frame-$frameIndex.json',
+          title: 'Frame $frameIndex',
+          subtitle: 'Window item',
+          prompt: 'window test frame $frameIndex',
+          imagePath: '',
+          statusLabel: 'Ready',
+        );
+
+  @override
+  String get imagePath => throw StateError('Offscreen item was materialized.');
+}
+
+class _CountingScriptCoverItem extends ScriptExhibitionItem {
+  _CountingScriptCoverItem({
+    required super.id,
+    required super.scriptId,
+    required super.scriptTitle,
+    required super.sourceFolder,
+    required super.versionId,
+    required super.versionLabel,
+    required int frameIndex,
+    required super.updatedAt,
+    required super.imagePath,
+    required this.onImagePathRead,
+  })  : _imagePath = imagePath,
+        super(
+          sourceKind: ScriptExhibitionItemSourceKind.generated,
+          frameIndex: frameIndex,
+          sourceFileName: 'cover-$frameIndex.png',
+          title: 'Cover $frameIndex',
+          subtitle: 'Cover item',
+          prompt: 'cover prompt $frameIndex',
+          statusLabel: 'Ready',
+        );
+
+  final String _imagePath;
+  final VoidCallback onImagePathRead;
+
+  @override
+  String get imagePath {
+    onImagePathRead();
+    return _imagePath;
+  }
+}
+
+class _OrganizeScriptImagesViewModel extends ScriptExhibitionRoomViewModel {
+  _OrganizeScriptImagesViewModel({
+    required this.preview,
+    required this.result,
+  }) : super(
+          loadScripts: () async => [_script()],
+          loadProductionPlans: () async => const [],
+          loadGalleryRecords: () async => const [],
+        );
+
+  final ScriptExhibitionImageOrganizationPreview preview;
+  final ScriptExhibitionImageOrganizationResult result;
+  int previewCallCount = 0;
+  int organizeCallCount = 0;
+  ScriptExhibitionImageOrganizationPreview? organizedPreview;
+
+  @override
+  Future<ScriptExhibitionImageOrganizationPreview>
+      previewScriptImageOrganization(ScriptExhibitionScript script) async {
+    previewCallCount += 1;
+    return preview;
+  }
+
+  @override
+  Future<ScriptExhibitionImageOrganizationResult> organizeScriptImages(
+    ScriptExhibitionScript script, {
+    ScriptExhibitionImageOrganizationPreview? preview,
+  }) async {
+    organizeCallCount += 1;
+    organizedPreview = preview;
+    return result;
+  }
+}
+
 void main() {
   setUp(() async {
     await GetIt.I.reset();
@@ -48,7 +145,49 @@ void main() {
     await GetIt.I.reset();
   });
 
-  testWidgets('browses versions, previews an image, and sends focus', (
+  testWidgets('script import failures stay inside the exhibition page', (
+    tester,
+  ) async {
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      importScriptFolder: () async {
+        throw const FormatException('empty import folder');
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: ScriptExhibitionRoomPage(
+            viewModel: viewModel,
+            onSendToScriptWorkbench: (_) {},
+            onSendToWorkbench: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-import-script')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.textContaining('导入剧本失败'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-room-page')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('browses versions, previews an image, and reruns a frame', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -57,6 +196,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final sentScriptFocuses = <ScriptExhibitionFocus>[];
     final sentWorkbenchFocuses = <ScriptExhibitionFocus>[];
+    final rerunFocuses = <ScriptExhibitionFocus>[];
     final viewModel = ScriptExhibitionRoomViewModel(
       loadScripts: () async => [_script()],
       loadProductionPlans: () async => [_plan()],
@@ -71,6 +211,7 @@ void main() {
           viewModel: viewModel,
           onSendToScriptWorkbench: sentScriptFocuses.add,
           onSendToWorkbench: sentWorkbenchFocuses.add,
+          onQuickRerunProductionTask: rerunFocuses.add,
         ),
       ),
     );
@@ -86,9 +227,7 @@ void main() {
     );
     expect(find.text('雨夜档案'), findsWidgets);
 
-    await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
-    );
+    viewModel.selectScript('script-1');
     await tester.pumpAndSettle();
 
     expect(
@@ -120,18 +259,23 @@ void main() {
       const ValueKey('script-exhibition-item-production-plan-1-task-1'),
     );
     expect(generatedCard, findsOneWidget);
+    expect(
+      find.descendant(of: generatedCard, matching: find.text('1')),
+      findsOneWidget,
+    );
     expect(find.text('新图: 入口雨幕'), findsOneWidget);
 
     await tester.tap(
       find.byKey(
         const ValueKey(
-          'script-exhibition-send-workbench-production-plan-1-task-1',
+          'script-exhibition-rerun-production-plan-1-task-1',
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(sentWorkbenchFocuses, hasLength(1));
-    expect(sentWorkbenchFocuses.single.imagePath, r'C:\out\frame-01.png');
+    expect(sentWorkbenchFocuses, isEmpty);
+    expect(rerunFocuses, hasLength(1));
+    expect(rerunFocuses.single.imagePath, r'C:\out\frame-01.png');
     expect(sentScriptFocuses, hasLength(1));
 
     await tester.tap(generatedCard);
@@ -152,19 +296,211 @@ void main() {
     expect(find.text('generated heroine'), findsWidgets);
 
     await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-preview-send')),
+      find.byKey(const ValueKey('script-exhibition-preview-rerun')),
     );
     await tester.pumpAndSettle();
 
-    expect(sentWorkbenchFocuses, hasLength(2));
-    expect(sentWorkbenchFocuses.last.scriptId, 'script-1');
-    expect(sentWorkbenchFocuses.last.sourceFolder, r'C:\stories\rain');
-    expect(sentWorkbenchFocuses.last.frameIndex, 1);
-    expect(sentWorkbenchFocuses.last.productionPlanId, 'plan-1');
-    expect(sentWorkbenchFocuses.last.imagePath, r'C:\out\frame-01.png');
+    expect(sentWorkbenchFocuses, isEmpty);
+    expect(rerunFocuses, hasLength(2));
+    expect(rerunFocuses.last.scriptId, 'script-1');
+    expect(rerunFocuses.last.sourceFolder, r'C:\stories\rain');
+    expect(rerunFocuses.last.frameIndex, 1);
+    expect(rerunFocuses.last.productionPlanId, 'plan-1');
+    expect(rerunFocuses.last.imagePath, r'C:\out\frame-01.png');
   });
 
-  testWidgets('original image preview keeps prompt untranslated by default', (
+  testWidgets('generated detail cards preserve file image aspect ratio',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final tempDir = Directory.systemTemp.createTempSync(
+      'script-exhibition-generated-image-height-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}generated.png',
+    )..writeAsBytesSync(_pngBytes);
+    final now = DateTime.parse('2026-06-02T08:00:00Z');
+    final plan = ProductionPlan(
+      id: 'plan-height',
+      name: 'Height Stable',
+      createdAt: now,
+      updatedAt: now,
+      tasks: [
+        ProductionTask.scriptRecastFrame(
+          id: 'task-1',
+          planId: 'plan-height',
+          title: 'Generated frame',
+          scriptId: 'script-1',
+          scriptName: '闆ㄥ妗ｆ',
+          scriptPath: r'C:\stories\rain',
+          recastRunId: 'run-height',
+          frameIndex: 1,
+          sourceFileName: '001.json',
+          payload: const {'input': 'generated prompt'},
+          status: ProductionTaskStatus.completed,
+          outputImagePath: imageFile.path,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [plan],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    viewModel.selectScript('script-1');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-version-production-plan-height'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final image = tester.widget<Image>(
+      find.byKey(
+        const ValueKey('script-exhibition-image-production-plan-height-task-1'),
+      ),
+    );
+    expect(image.height, isNull);
+    final aspectRatio = tester.widget<AspectRatio>(
+      find.ancestor(
+        of: find.byKey(
+          const ValueKey(
+            'script-exhibition-image-production-plan-height-task-1',
+          ),
+        ),
+        matching: find.byType(AspectRatio),
+      ),
+    );
+    expect(aspectRatio.aspectRatio, 1);
+  });
+
+  testWidgets('organize script images previews counts before applying', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const preview = ScriptExhibitionImageOrganizationPreview(
+      moves: [
+        ScriptExhibitionImageMovePlan(
+          sourcePath: r'C:\generated\loose\move-a.png',
+          destinationPath: r'C:\generated\Rain Archive\Version\001.png',
+          productionPlanId: 'plan-organize',
+          taskId: 'task-a',
+        ),
+        ScriptExhibitionImageMovePlan(
+          sourcePath: r'C:\generated\loose\move-b.png',
+          destinationPath: r'C:\generated\Rain Archive\Version\002.png',
+          productionPlanId: 'plan-organize',
+          taskId: 'task-b',
+        ),
+      ],
+      orphanImagePaths: [
+        r'C:\generated\loose\orphan-a.png',
+        r'C:\generated\loose\orphan-b.png',
+        r'C:\generated\loose\orphan-c.png',
+      ],
+      productionPlans: [],
+      galleryRecords: [],
+    );
+    const result = ScriptExhibitionImageOrganizationResult(
+      movedImagePaths: [
+        r'C:\generated\Rain Archive\Version\001.png',
+        r'C:\generated\Rain Archive\Version\002.png',
+      ],
+      deletedOrphanImagePaths: [
+        r'C:\generated\loose\orphan-a.png',
+        r'C:\generated\loose\orphan-b.png',
+        r'C:\generated\loose\orphan-c.png',
+      ],
+      failedImagePaths: [],
+      updatedProductionPlans: [],
+      updatedGalleryRecords: [],
+    );
+    final viewModel = _OrganizeScriptImagesViewModel(
+      preview: preview,
+      result: result,
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: ScriptExhibitionRoomPage(
+            viewModel: viewModel,
+            onSendToScriptWorkbench: (_) {},
+            onSendToWorkbench: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    viewModel.selectScript('script-1');
+    await tester.pumpAndSettle();
+    final organizeButton = tester.widget<IconButton>(
+      find.byKey(
+        const ValueKey('script-exhibition-organize-script-images-script-1'),
+      ),
+    );
+    expect(organizeButton.onPressed, isNotNull);
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-organize-script-images-script-1'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final dialog = find.byType(AlertDialog);
+    expect(dialog, findsOneWidget);
+    expect(
+      find.descendant(of: dialog, matching: find.textContaining('2')),
+      findsWidgets,
+    );
+    expect(
+      find.descendant(of: dialog, matching: find.textContaining('3')),
+      findsWidgets,
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-confirm-organize-script-images'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(viewModel.previewCallCount, 1);
+    expect(viewModel.organizeCallCount, 1);
+    expect(viewModel.organizedPreview, same(preview));
+  });
+
+  testWidgets('original image preview translates prompt by default', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -209,7 +545,198 @@ void main() {
         ),
       ),
     );
-    expect(tagDisplay.defaultTranslated, isFalse);
+    expect(tagDisplay.defaultTranslated, isTrue);
+  });
+
+  testWidgets('original image preview shows parsed generation parameters', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(
+          generationParams: const {
+            'seed': 1554536533,
+            'steps': 28,
+            'sampler': 'k_euler_ancestral',
+            'scale': 4,
+            'cfg_rescale': 0.4,
+            'width': 832,
+            'height': 1216,
+            'noise_schedule': 'karras',
+          },
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-item-original-script-1-source-task-1',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Seed 1554536533'), findsOneWidget);
+    expect(find.text('Steps 28'), findsOneWidget);
+    expect(find.text('Sampler k_euler_ancestral'), findsOneWidget);
+    expect(find.text('Scale 4'), findsOneWidget);
+    expect(find.text('CFG 0.4'), findsOneWidget);
+    expect(find.text('Size 832x1216'), findsOneWidget);
+    expect(find.text('Noise karras'), findsOneWidget);
+  });
+
+  testWidgets('original image preview shows metadata-loaded parameters', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final imagePath = '${Uri.base.toFilePath()}assets/appicon.png';
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(
+          sourceFileName: '001.png',
+          sourcePath: imagePath,
+          sourceKind: TokenizerScriptSourceKind.image,
+          defaultImagePath: imagePath,
+          generationParams: const {
+            'v4_prompt': {
+              'caption': {'base_caption': 'library entrance, rainy night'},
+            },
+          },
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      loadImageGenerationParams: (_) async => const {
+        'seed': 512780596,
+        'steps': 28,
+        'sampler': 'k_euler_ancestral',
+        'scale': 4,
+        'cfg_rescale': 0.4,
+        'width': 832,
+        'height': 1216,
+        'noise_schedule': 'karras',
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-item-original-script-1-source-task-1',
+        ),
+      ),
+    );
+
+    await _pumpUntilFound(tester, find.text('Seed 512780596'));
+
+    expect(find.text('Steps 28'), findsOneWidget);
+    expect(find.text('Sampler k_euler_ancestral'), findsOneWidget);
+    expect(find.text('Scale 4'), findsOneWidget);
+    expect(find.text('CFG 0.4'), findsOneWidget);
+    expect(find.text('Size 832x1216'), findsOneWidget);
+    expect(find.text('Noise karras'), findsOneWidget);
+  });
+
+  testWidgets('original image preview explains missing scalar metadata', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final imagePath = '${Uri.base.toFilePath()}assets/appicon.png';
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(
+          sourceFileName: '001.png',
+          sourcePath: imagePath,
+          sourceKind: TokenizerScriptSourceKind.image,
+          defaultImagePath: imagePath,
+          generationParams: const {
+            'v4_prompt': {
+              'caption': {'base_caption': 'soft lighting, light rays'},
+            },
+          },
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      loadImageGenerationParams: (_) async => const {
+        'v4_prompt': {
+          'caption': {'base_caption': 'soft lighting, light rays'},
+        },
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-item-original-script-1-source-task-1',
+        ),
+      ),
+    );
+
+    await _pumpUntilFound(tester, find.text('未找到 Seed/Steps 元数据'));
+
+    expect(find.text('Seed 512780596'), findsNothing);
+    expect(find.text('Steps 28'), findsNothing);
   });
 
   testWidgets('renders shelf scripts as full cover wall cards', (tester) async {
@@ -251,6 +778,17 @@ void main() {
       ),
       findsOneWidget,
     );
+    final coverImage = tester.widget<Image>(
+      find.byKey(
+        const ValueKey('script-exhibition-script-cover-image-script-1'),
+      ),
+    );
+    expect(coverImage.image, isA<ResizeImage>());
+    final coverProvider = coverImage.image as ResizeImage;
+    expect(coverProvider.width, isNotNull);
+    expect(coverProvider.height, isNotNull);
+    expect(coverProvider.width, lessThanOrEqualTo(1024));
+    expect(coverProvider.height, lessThanOrEqualTo(1024));
     expect(find.text('新图封面'), findsOneWidget);
     expect(find.text('原始剧本 1 / 新图 1 / 需处理 0'), findsOneWidget);
     expect(
@@ -270,6 +808,792 @@ void main() {
     expect(sentScriptFocuses.single.scriptId, 'script-1');
   });
 
+  testWidgets('script workbench send shows pending state and blocks duplicates',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final sentScriptFocuses = <ScriptExhibitionFocus>[];
+    var pendingSend = Completer<void>();
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      renameScriptRecord: (_, __) async {},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (focus) async {
+            sentScriptFocuses.add(focus);
+            await pendingSend.future;
+          },
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final shelfSend = find.byKey(
+      const ValueKey('script-exhibition-send-script-script-1'),
+    );
+    await tester.tap(shelfSend);
+    await tester.pump();
+
+    expect(sentScriptFocuses, hasLength(1));
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(of: shelfSend, matching: find.byType(IconButton)),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(shelfSend);
+    await tester.pump();
+    expect(sentScriptFocuses, hasLength(1));
+
+    pendingSend.complete();
+    await tester.pumpAndSettle();
+
+    final detailSend = find.byKey(
+      const ValueKey('script-exhibition-detail-send-script-workbench'),
+    );
+    if (detailSend.evaluate().isEmpty) {
+      await tester.tap(
+        find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      );
+      await tester.pumpAndSettle();
+    }
+    pendingSend = Completer<void>();
+    await tester.tap(detailSend);
+    await tester.pump();
+
+    expect(
+      tester.widget<FilledButton>(detailSend).onPressed,
+      isNull,
+    );
+    expect(
+      find.descendant(
+        of: detailSend,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(detailSend);
+    await tester.pump();
+    expect(sentScriptFocuses, hasLength(2));
+
+    pendingSend.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<FilledButton>(detailSend).onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('script shelf cards use bounded row-column reveal wrappers', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final reveal = find.ancestor(
+      of: card,
+      matching: find.byType(StudioStaggeredReveal),
+    );
+    expect(reveal, findsOneWidget);
+    expect(
+        tester.widget<StudioStaggeredReveal>(reveal).columns, greaterThan(1));
+  });
+
+  testWidgets('script drag feedback uses a same-size card preview', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      renameScriptRecord: (_, __) async {},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final dragHandle = find.byKey(
+      const ValueKey('script-exhibition-drag-handle-script-1'),
+    );
+    final cardSize = tester.getSize(card);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(dragHandle));
+    await tester.pump();
+    await gesture.moveBy(const Offset(80, 40));
+    await tester.pump();
+
+    final feedback = find.byKey(
+      const ValueKey('script-exhibition-drag-feedback-card-script-1'),
+    );
+    expect(feedback, findsOneWidget);
+    expect(tester.getSize(feedback), cardSize);
+    expect(
+      find.descendant(
+        of: feedback,
+        matching: find.byKey(
+          const ValueKey('script-exhibition-script-cover-image-script-1'),
+        ),
+      ),
+      findsNothing,
+    );
+    expect(find.text('1 个剧本'), findsNothing);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('script card body drag starts dragging without marquee', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(card));
+    await tester.pump();
+    await gesture.moveBy(const Offset(80, 40));
+    await tester.pump();
+
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-drag-feedback-card-script-1'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-marquee-overlay')),
+      findsNothing,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1'});
+  });
+
+  testWidgets('marquee starts from the shelf edge gutter and aligns to cards', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final card = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final cardRect = tester.getRect(card);
+    final start = Offset(cardRect.left - 16, cardRect.top + 24);
+    final end = cardRect.center;
+    expect(start.dx, lessThan(cardRect.left));
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(start);
+    await tester.pump();
+    await gesture.moveTo(end);
+    await tester.pump();
+
+    final overlayFinder = find.byKey(
+      const ValueKey('script-exhibition-marquee-overlay'),
+    );
+    expect(overlayFinder, findsOneWidget);
+    final overlayPaint = tester.widget<CustomPaint>(overlayFinder);
+    final overlay = (overlayPaint.painter as dynamic).overlay as dynamic;
+    final overlayOrigin = tester.getTopLeft(overlayFinder);
+    final marqueeGlobal = (overlay.marqueeRect as Rect).shift(overlayOrigin);
+    final selectedGlobal =
+        ((overlay.selectedRects as List).single as Rect).shift(overlayOrigin);
+
+    expect(marqueeGlobal.left, closeTo(start.dx, 0.5));
+    expect(marqueeGlobal.top, closeTo(start.dy, 0.5));
+    expect(selectedGlobal.left, closeTo(cardRect.left, 0.5));
+    expect(selectedGlobal.top, closeTo(cardRect.top, 0.5));
+    expect(selectedGlobal.right, closeTo(cardRect.right, 0.5));
+    expect(selectedGlobal.bottom, closeTo(cardRect.bottom, 0.5));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1'});
+  });
+
+  testWidgets('marquee starts from the gap between script cards', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(),
+        _script().copyWith(
+          scriptId: 'script-2',
+          name: 'Gap Neighbor',
+          sourceFolder: r'C:\stories\gap-neighbor',
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final firstCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final secondCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-2'),
+    );
+    final firstRect = tester.getRect(firstCard);
+    final secondRect = tester.getRect(secondCard);
+    final start = Offset(
+      (firstRect.right + secondRect.left) / 2,
+      firstRect.top + 24,
+    );
+    final end = firstRect.center;
+    expect(start.dx, greaterThan(firstRect.right));
+    expect(start.dx, lessThan(secondRect.left));
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(start);
+    await tester.pump();
+    await gesture.moveTo(end);
+    await tester.pump();
+
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-drag-feedback-card-script-1'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-marquee-overlay')),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1'});
+  });
+
+  testWidgets('marquee starts from the gap between script rows', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final scripts = [
+      for (var index = 0; index < 16; index += 1)
+        _script().copyWith(
+          scriptId: 'script-$index',
+          name: 'Row Gap Script $index',
+          sourceFolder: 'C:\\stories\\row-gap\\$index',
+        ),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    String? topScriptId;
+    String? bottomScriptId;
+    Rect? topRect;
+    Rect? bottomRect;
+    for (var upperIndex = 0; upperIndex < scripts.length; upperIndex += 1) {
+      final upperFinder = find.byKey(
+        ValueKey('script-exhibition-script-card-script-$upperIndex'),
+      );
+      if (upperFinder.evaluate().isEmpty) {
+        continue;
+      }
+      final upperRect = tester.getRect(upperFinder);
+      for (var lowerIndex = upperIndex + 1;
+          lowerIndex < scripts.length;
+          lowerIndex += 1) {
+        final lowerFinder = find.byKey(
+          ValueKey('script-exhibition-script-card-script-$lowerIndex'),
+        );
+        if (lowerFinder.evaluate().isEmpty) {
+          continue;
+        }
+        final lowerRect = tester.getRect(lowerFinder);
+        final sameColumn = (upperRect.left - lowerRect.left).abs() < 1;
+        final gap = lowerRect.top - upperRect.bottom;
+        if (sameColumn && gap > 4 && gap < 32) {
+          topScriptId = 'script-$upperIndex';
+          bottomScriptId = 'script-$lowerIndex';
+          topRect = upperRect;
+          bottomRect = lowerRect;
+          break;
+        }
+      }
+      if (topScriptId != null) {
+        break;
+      }
+    }
+    expect(topScriptId, isNotNull);
+    expect(bottomScriptId, isNotNull);
+    final selectedBottomScriptId = bottomScriptId!;
+    final currentTopRect = topRect!;
+    final currentBottomRect = bottomRect!;
+    final start = Offset(
+      currentTopRect.left + 24,
+      (currentTopRect.bottom + currentBottomRect.top) / 2,
+    );
+    final end = currentBottomRect.center;
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(start);
+    await tester.pump();
+    await gesture.moveTo(end);
+    await tester.pump();
+
+    expect(
+      find.byKey(
+        ValueKey('script-exhibition-drag-feedback-card-${topScriptId!}'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-marquee-overlay')),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {selectedBottomScriptId});
+  });
+
+  testWidgets('marquee selection stays aligned after scrolling the shelf', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final scripts = [
+      for (var index = 0; index < 60; index += 1)
+        _script().copyWith(
+          scriptId: 'script-$index',
+          name: 'Scrolled Script $index',
+          sourceFolder: 'C:\\stories\\scrolled\\$index',
+        ),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final initiallyVisibleCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-0'),
+    );
+    final initialTop = tester.getTopLeft(initiallyVisibleCard).dy;
+    final scrollView = find.byKey(
+      const ValueKey('script-exhibition-scroll-view'),
+    );
+    await tester.drag(scrollView, const Offset(0, -160));
+    await tester.pump();
+    await tester.pump();
+    final scrolledTop = tester.getTopLeft(initiallyVisibleCard).dy;
+    expect(scrolledTop, lessThan(initialTop - 80));
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-marquee-mode-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    String? firstScriptId;
+    Rect? firstRect;
+    Rect? secondRect;
+    for (var leftIndex = 0; leftIndex < scripts.length; leftIndex += 1) {
+      final leftFinder = find.byKey(
+        ValueKey('script-exhibition-script-card-script-$leftIndex'),
+      );
+      if (leftFinder.evaluate().isEmpty) {
+        continue;
+      }
+      final leftRect = tester.getRect(leftFinder);
+      if (leftRect.top < 120 || leftRect.bottom > 940) {
+        continue;
+      }
+      for (var rightIndex = leftIndex + 1;
+          rightIndex < scripts.length;
+          rightIndex += 1) {
+        final rightFinder = find.byKey(
+          ValueKey('script-exhibition-script-card-script-$rightIndex'),
+        );
+        if (rightFinder.evaluate().isEmpty) {
+          continue;
+        }
+        final rightRect = tester.getRect(rightFinder);
+        final sameRow = (leftRect.top - rightRect.top).abs() < 1;
+        final gap = rightRect.left - leftRect.right;
+        if (sameRow && gap > 4 && gap < 32) {
+          firstScriptId = 'script-$leftIndex';
+          firstRect = leftRect;
+          secondRect = rightRect;
+          break;
+        }
+      }
+      if (firstScriptId != null) {
+        break;
+      }
+    }
+    expect(firstScriptId, isNotNull);
+    final currentFirstRect = firstRect!;
+    final currentSecondRect = secondRect!;
+    final start = Offset(
+      (currentFirstRect.right + currentSecondRect.left) / 2,
+      currentFirstRect.top + 24,
+    );
+    final end = currentFirstRect.center;
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(start);
+    await tester.pump();
+    await gesture.moveTo(end);
+    await tester.pump();
+
+    final overlayFinder = find.byKey(
+      const ValueKey('script-exhibition-marquee-overlay'),
+    );
+    expect(overlayFinder, findsOneWidget);
+    final overlayPaint = tester.widget<CustomPaint>(overlayFinder);
+    final overlay = (overlayPaint.painter as dynamic).overlay as dynamic;
+    expect(overlay.selectedRects, hasLength(1));
+    final overlayOrigin = tester.getTopLeft(overlayFinder);
+    final selectedGlobal =
+        ((overlay.selectedRects as List).single as Rect).shift(overlayOrigin);
+
+    expect(selectedGlobal.left, closeTo(currentFirstRect.left, 0.5));
+    expect(selectedGlobal.top, closeTo(currentFirstRect.top, 0.5));
+    expect(selectedGlobal.right, closeTo(currentFirstRect.right, 0.5));
+    expect(selectedGlobal.bottom, closeTo(currentFirstRect.bottom, 0.5));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {firstScriptId});
+  });
+
+  testWidgets('ctrl marquee adds to the existing script selection', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(),
+        _script().copyWith(
+          scriptId: 'script-2',
+          name: 'Branch Archive',
+          sourceFolder: r'C:\stories\branch',
+        ),
+        _script().copyWith(
+          scriptId: 'script-3',
+          name: 'Other Archive',
+          sourceFolder: r'C:\stories\other',
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    viewModel.replaceShelfSelection({'script-1'});
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-marquee-mode-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    var controlPressed = false;
+    addTearDown(() async {
+      if (controlPressed) {
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      }
+    });
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    controlPressed = true;
+    final secondCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-2'),
+    );
+    final secondRect = tester.getRect(secondCard);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(secondRect.topLeft + const Offset(8, 8));
+    await tester.pump();
+    await gesture.moveTo(secondRect.bottomRight - const Offset(8, 8));
+    await tester.pump();
+    await gesture.up();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    controlPressed = false;
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1', 'script-2'});
+  });
+
+  testWidgets('marquee keeps selected scripts when the shelf scrolls mid-drag',
+      (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final scripts = [
+      for (var index = 0; index < 60; index += 1)
+        _script().copyWith(
+          scriptId: 'script-$index',
+          name: 'Scrollable Script $index',
+          sourceFolder: 'C:\\stories\\scrollable\\$index',
+        ),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-marquee-mode-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    String? selectedScriptId;
+    Rect? selectedRect;
+    for (var index = 0; index < scripts.length; index += 1) {
+      final card = find.byKey(
+        ValueKey('script-exhibition-script-card-script-$index'),
+      );
+      if (card.evaluate().isEmpty) continue;
+      final rect = tester.getRect(card);
+      if (rect.top >= 120 && rect.bottom <= 940) {
+        selectedScriptId = 'script-$index';
+        selectedRect = rect;
+        break;
+      }
+    }
+    expect(selectedScriptId, isNotNull);
+    final firstRect = selectedRect!;
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(firstRect.topLeft + const Offset(8, 8));
+    await tester.pump();
+    await gesture.moveTo(firstRect.bottomRight - const Offset(8, 8));
+    await tester.pump();
+
+    final overlayPaint = tester.widget<CustomPaint>(
+      find.byKey(const ValueKey('script-exhibition-marquee-overlay')),
+    );
+    final overlay = (overlayPaint.painter as dynamic).overlay as dynamic;
+    expect(overlay.selectedRects, isNotEmpty);
+
+    final scrollView = find.byKey(
+      const ValueKey('script-exhibition-scroll-view'),
+    );
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(scrollView),
+        scrollDelta: const Offset(0, 720),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, contains(selectedScriptId));
+  });
+
   testWidgets('large version shelves build only visible waterfall cards', (
     tester,
   ) async {
@@ -282,6 +1606,9 @@ void main() {
       loadProductionPlans: () async => [_largePlan()],
       loadGalleryRecords: () async => const [],
     );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -299,9 +1626,25 @@ void main() {
       find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-version-production-large')),
+    await _pumpUntil(
+      tester,
+      () =>
+          viewModel.selectedScript?.versions.any(
+            (version) => version.id == 'production-large',
+          ) ??
+          false,
     );
+    expect(
+      viewModel.selectedScript?.versions.any(
+        (version) => version.id == 'production-large',
+      ),
+      isTrue,
+    );
+    final largeProductionVersion = find.byKey(
+      const ValueKey('script-exhibition-version-production-large'),
+    );
+    await _pumpUntilFound(tester, largeProductionVersion);
+    await tester.tap(largeProductionVersion);
     await tester.pumpAndSettle();
 
     expect(
@@ -318,7 +1661,164 @@ void main() {
     );
   });
 
-  testWidgets('sends production-only images to the single-image workbench', (
+  testWidgets('keeps detail controls pinned while scrolling the waterfall', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [_largePlan()],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    final largeProductionVersion = find.byKey(
+      const ValueKey('script-exhibition-version-production-large'),
+    );
+    await _pumpUntilFound(tester, largeProductionVersion);
+    await tester.tap(largeProductionVersion);
+    await tester.pumpAndSettle();
+
+    final scrollView = find.byKey(
+      const ValueKey('script-exhibition-scroll-view'),
+    );
+    await tester.drag(scrollView, const Offset(0, -900));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final allCategory = find.byKey(
+      const ValueKey('script-exhibition-category-all'),
+    );
+    final detailTitle = find.byKey(
+      const ValueKey('script-exhibition-detail-title-script-1'),
+    );
+    final itemSortMenu = find.byKey(
+      const ValueKey('script-exhibition-item-sort-menu'),
+    );
+
+    expect(detailTitle, findsOneWidget);
+    expect(itemSortMenu, findsOneWidget);
+    final categoryBottom = tester.getBottomLeft(allCategory).dy;
+    final detailTop = tester.getTopLeft(detailTitle).dy;
+    final sortBottom = tester.getBottomLeft(itemSortMenu).dy;
+    expect(detailTop, greaterThanOrEqualTo(categoryBottom - 1));
+    expect(sortBottom, lessThan(tester.view.physicalSize.height));
+  });
+
+  testWidgets('large detail boards do not materialize offscreen image paths', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.parse('2026-06-02T08:00:00Z');
+    final items = [
+      for (var index = 0; index < 40; index += 1)
+        if (index < 12)
+          _scriptExhibitionDetailItem(index, now)
+        else
+          _ThrowingOffscreenScriptExhibitionItem(
+            id: 'window-item-$index',
+            frameIndex: index,
+            updatedAt: now,
+          ),
+    ];
+    final script = ScriptExhibitionScript(
+      scriptId: 'script-window',
+      title: 'Window Test',
+      sourceFolder: r'C:\stories\window',
+      updatedAt: now,
+      versions: [
+        ScriptExhibitionVersion(
+          id: 'version-window',
+          label: 'Window',
+          description: 'Large generated version',
+          updatedAt: now,
+          items: items,
+        ),
+      ],
+      status: ScriptExhibitionScriptStatus.active,
+      originalCount: 0,
+      generatedImageCount: items.length,
+      imageLikeItemCount: items.length,
+      hasImage: true,
+      coverItem: items.first,
+      pendingCount: 0,
+      firstNeedsActionItem: null,
+    );
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    )
+      ..snapshot = ScriptExhibitionSnapshot(
+        scripts: [script],
+        totalImageCount: items.length,
+        generatedImageCount: items.length,
+        needsActionCount: 0,
+      )
+      ..selectedScriptId = 'script-window'
+      ..selectedVersionId = 'version-window'
+      ..isLoading = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-item-window-item-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-item-window-item-12')),
+      findsNothing,
+    );
+
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-item-window-item-12')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('reruns production-only images instead of sending to workbench', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -328,6 +1828,7 @@ void main() {
 
     final sentScriptFocuses = <ScriptExhibitionFocus>[];
     final sentWorkbenchFocuses = <ScriptExhibitionFocus>[];
+    final rerunFocuses = <ScriptExhibitionFocus>[];
     final viewModel = ScriptExhibitionRoomViewModel(
       loadScripts: () async => const [],
       loadProductionPlans: () async => [_planWithoutScriptPath()],
@@ -341,6 +1842,7 @@ void main() {
           viewModel: viewModel,
           onSendToScriptWorkbench: sentScriptFocuses.add,
           onSendToWorkbench: sentWorkbenchFocuses.add,
+          onQuickRerunProductionTask: rerunFocuses.add,
         ),
       ),
     );
@@ -362,16 +1864,17 @@ void main() {
     await tester.pumpAndSettle();
 
     final button = tester.widget<FilledButton>(
-      find.byKey(const ValueKey('script-exhibition-preview-send')),
+      find.byKey(const ValueKey('script-exhibition-preview-rerun')),
     );
     expect(button.onPressed, isNotNull);
 
     await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-preview-send')),
+      find.byKey(const ValueKey('script-exhibition-preview-rerun')),
     );
     await tester.pumpAndSettle();
     expect(sentScriptFocuses, isEmpty);
-    expect(sentWorkbenchFocuses.single.imagePath, r'C:\out\frame-01.png');
+    expect(sentWorkbenchFocuses, isEmpty);
+    expect(rerunFocuses.single.imagePath, r'C:\out\frame-01.png');
   });
 
   testWidgets('preview opens fit-to-window, enters fullscreen, and navigates', (
@@ -408,9 +1911,36 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
+    expect(
       find.byKey(
         const ValueKey('script-exhibition-item-production-plan-2-task-1'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-item-production-plan-2-task-2'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-item-production-plan-2-task-3'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-variant-indicator-production-plan-2-task-2',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-item-production-plan-2-task-2'),
       ),
     );
     await tester.pumpAndSettle();
@@ -419,8 +1949,46 @@ void main() {
       find.byKey(const ValueKey('script-exhibition-zoomable-image-viewer')),
       findsOneWidget,
     );
+    expect(find.textContaining('1/2'), findsOneWidget);
+    expect(find.text('first generated frame'), findsNothing);
+    expect(find.text('same frame rerun'), findsWidgets);
+    expect(find.text('other frame'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('1/2'), findsOneWidget);
     expect(find.text('first generated frame'), findsWidgets);
-    expect(find.text('second generated frame'), findsNothing);
+    expect(find.text('same frame rerun'), findsNothing);
+    expect(find.text('other frame'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2/2'), findsOneWidget);
+    expect(find.text('first generated frame'), findsNothing);
+    expect(find.text('same frame rerun'), findsNothing);
+    expect(find.text('other frame'), findsWidgets);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1/2'), findsOneWidget);
+    expect(find.text('first generated frame'), findsNothing);
+    expect(find.text('same frame rerun'), findsWidgets);
+    expect(find.text('other frame'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1/2'), findsOneWidget);
+    expect(find.text('first generated frame'), findsWidgets);
+    expect(find.text('same frame rerun'), findsNothing);
+    expect(find.text('other frame'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1/2'), findsOneWidget);
+    expect(find.text('first generated frame'), findsNothing);
+    expect(find.text('same frame rerun'), findsWidgets);
+    expect(find.text('other frame'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey('script-exhibition-preview-fullscreen-toggle')),
@@ -440,20 +2008,169 @@ void main() {
       ),
       findsNothing,
     );
-    expect(find.text('first generated frame'), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-2',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(
+          find.byKey(const ValueKey('script-exhibition-zoomable-image-viewer')),
+        ),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-1',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(
+          find.byKey(const ValueKey('script-exhibition-zoomable-image-viewer')),
+        ),
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-2',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-1',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-2',
+        ),
+      ),
+      findsOneWidget,
+    );
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('2/2'), findsOneWidget);
-    expect(find.text('second generated frame'), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-3',
+        ),
+      ),
+      findsOneWidget,
+    );
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('1/2'), findsOneWidget);
-    expect(find.text('first generated frame'), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'studio-generated-image-viewer-image-production-plan-2-task-2',
+        ),
+      ),
+      findsOneWidget,
+    );
   });
+
+  testWidgets(
+    'preview delete keeps details visible while confirming one image deletion',
+    (tester) async {
+      tester.view.physicalSize = const Size(1320, 980);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final deletedItems = <ScriptExhibitionItem>[];
+      final viewModel = ScriptExhibitionRoomViewModel(
+        loadScripts: () async => [_script()],
+        loadProductionPlans: () async => [_plan()],
+        loadGalleryRecords: () async => const [],
+        deleteItemRecord: (item, {bool deleteLocalFiles = false}) async {
+          deletedItems.add(item);
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: StudioTheme.build(),
+          home: ScriptExhibitionRoomPage(
+            viewModel: viewModel,
+            onSendToScriptWorkbench: (_) {},
+            onSendToWorkbench: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+            const ValueKey('script-exhibition-version-production-plan-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          const ValueKey('script-exhibition-item-production-plan-1-task-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final preview = find.byKey(
+        const ValueKey('script-exhibition-fullscreen-preview'),
+      );
+      expect(preview, findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('script-exhibition-preview-delete')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(preview, findsOneWidget);
+      expect(find.text('删除图片'), findsWidgets);
+      expect(find.textContaining('只会移除当前帧的当前图片'), findsOneWidget);
+      expect(find.textContaining('不会删除整条版本'), findsOneWidget);
+
+      await tester.tap(find.text('取消').last);
+      await tester.pumpAndSettle();
+
+      expect(preview, findsOneWidget);
+      expect(deletedItems, isEmpty);
+    },
+  );
 
   testWidgets(
     'windowed preview translates tags and reserves readable prompt space',
@@ -624,6 +2341,82 @@ void main() {
       'script-alpha',
       'script-beta',
     ]);
+  });
+
+  testWidgets('searches the script shelf and clears the query', (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(),
+        _script().copyWith(
+          scriptId: 'script-2',
+          name: 'Branch Archive',
+          sourceFolder: r'C:\stories\branch',
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('script-exhibition-search')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-2')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('script-exhibition-search')),
+      'branch',
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.scriptSearchQuery, 'branch');
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-2')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-clear-search')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.scriptSearchQuery, isEmpty);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-2')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('imports a script folder from the room header', (tester) async {
@@ -1060,7 +2853,11 @@ void main() {
         scripts = const [];
         plans = const [];
       },
-      deleteVersionRecord: (script, version) async {
+      deleteVersionRecord: (
+        script,
+        version, {
+        bool deleteLocalFiles = false,
+      }) async {
         deletedVersions.add('${script.scriptId}:${version.id}');
         plans = [
           for (final plan in plans)
@@ -1121,6 +2918,178 @@ void main() {
       find.byKey(
         const ValueKey('script-exhibition-version-production-plan-1'),
       ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('delete version dialog can request local image deletion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [_script()];
+    var plans = [_plan()];
+    bool? requestedDeleteLocalFiles;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteVersionRecord: (
+        script,
+        version, {
+        bool deleteLocalFiles = false,
+      }) async {
+        requestedDeleteLocalFiles = deleteLocalFiles;
+        plans = [
+          for (final plan in plans)
+            if (version.id == 'production-${plan.id}')
+              plan.copyWith(tasks: const [])
+            else
+              plan,
+        ].where((plan) => plan.tasks.isNotEmpty).toList(growable: false);
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final productionVersion = find.byKey(
+      const ValueKey('script-exhibition-version-production-plan-1'),
+    );
+    await tester.tapAt(
+      tester.getCenter(productionVersion),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除版本'));
+    await tester.pumpAndSettle();
+
+    final localDelete = find.byKey(
+      const ValueKey('script-exhibition-delete-version-local-files'),
+    );
+    expect(localDelete, findsOneWidget);
+
+    await tester.tap(localDelete);
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-confirm-delete-version')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestedDeleteLocalFiles, isTrue);
+  });
+
+  testWidgets('selects multiple version chips for batch deletion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var plans = [_plan(), _planWithTwoCompletedImages()];
+    final deletedVersions = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteVersionRecord: (
+        script,
+        version, {
+        bool deleteLocalFiles = false,
+      }) async {
+        deletedVersions.add(
+          '${script.scriptId}:${version.id}:$deleteLocalFiles',
+        );
+        plans = [
+          for (final plan in plans)
+            if (version.id == 'production-${plan.id}')
+              plan.copyWith(tasks: const [])
+            else
+              plan,
+        ].where((plan) => plan.tasks.isNotEmpty).toList(growable: false);
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-version-select-production-plan-1'),
+      ),
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-version-select-production-plan-2'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('已选 2 个版本'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-delete-selected-versions')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('将删除 2 个版本'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+            'script-exhibition-delete-selected-versions-local-files'),
+      ),
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-confirm-delete-selected-versions'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedVersions, [
+      'script-1:production-plan-1:true',
+      'script-1:production-plan-2:true',
+    ]);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-version-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-version-production-plan-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-version-production-plan-2')),
       findsNothing,
     );
   });
@@ -1198,6 +3167,95 @@ void main() {
     expect(find.text('雨夜档案'), findsNothing);
   });
 
+  testWidgets('marquee mode starts selection from script cards', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script(),
+        _script().copyWith(
+          scriptId: 'script-2',
+          name: 'Branch Archive',
+          sourceFolder: r'C:\stories\branch',
+        ),
+      ],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var selectionNotifications = 0;
+    void countSelectionNotification() {
+      selectionNotifications += 1;
+    }
+
+    viewModel.addListener(countSelectionNotification);
+    addTearDown(() => viewModel.removeListener(countSelectionNotification));
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-marquee-mode-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    final firstCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-1'),
+    );
+    final secondCard = find.byKey(
+      const ValueKey('script-exhibition-script-card-script-2'),
+    );
+    final firstRect = tester.getRect(firstCard);
+    final secondRect = tester.getRect(secondCard);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(firstRect.topLeft + const Offset(8, 8));
+    await tester.pump();
+    await gesture.moveTo(secondRect.bottomRight - const Offset(8, 8));
+    await tester.pump();
+
+    expect(viewModel.selectedScriptIds, isEmpty);
+    expect(selectionNotifications, 0);
+    final overlayPaint = tester.widget<CustomPaint>(
+      find.byKey(const ValueKey('script-exhibition-marquee-overlay')),
+    );
+    final overlay = (overlayPaint.painter as dynamic).overlay as dynamic;
+    expect(overlay.selectedRects, hasLength(2));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, {'script-1', 'script-2'});
+    expect(selectionNotifications, 1);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-clear-selection')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-clear-selection')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedScriptIds, isEmpty);
+  });
+
   testWidgets('marquee selects scripts and drops them onto a category', (
     tester,
   ) async {
@@ -1258,6 +3316,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-marquee-mode-toggle')),
+    );
+    await tester.pumpAndSettle();
+
     final firstCard = find.byKey(
       const ValueKey('script-exhibition-script-card-script-1'),
     );
@@ -1282,17 +3345,131 @@ void main() {
     final categoryCard = find.byKey(
       const ValueKey('script-exhibition-category-custom:收藏馆区'),
     );
+    final firstDragHandle = find.byKey(
+      const ValueKey('script-exhibition-drag-handle-script-1'),
+    );
     await tester.dragFrom(
-      tester.getCenter(firstCard),
-      tester.getCenter(categoryCard) - tester.getCenter(firstCard),
+      tester.getCenter(firstDragHandle),
+      tester.getCenter(categoryCard) - tester.getCenter(firstDragHandle),
       touchSlopY: 0,
     );
     await tester.pumpAndSettle();
 
     expect(assignments, ['script-1:收藏馆区', 'script-2:收藏馆区']);
-    expect(find.text('雨夜档案'), findsWidgets);
-    expect(find.text('旁支档案'), findsOneWidget);
+    expect(viewModel.selectedScriptIds, isEmpty);
+    expect(viewModel.selectedCategoryId,
+        ScriptExhibitionRoomViewModel.allCategoryId);
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-1',
+      'script-2',
+      'script-3',
+    ]);
+    expect(
+        viewModel.categories
+            .singleWhere((category) => category.title == '收藏馆区')
+            .count,
+        2);
+
+    await tester.tap(categoryCard);
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedCategoryId, 'custom:收藏馆区');
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-1',
+      'script-2',
+    ]);
     expect(find.text('留档档案'), findsNothing);
+  });
+
+  testWidgets('dragging one unselected script card assigns it to a category',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var scripts = [
+      _script(),
+      _script().copyWith(
+        scriptId: 'script-2',
+        name: 'Branch Archive',
+        sourceFolder: r'C:\stories\branch',
+      ),
+    ];
+    final assignments = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+      customCategories: const [
+        ScriptExhibitionUserCategory(
+          id: 'custom:QAQ',
+          title: 'QAQ',
+          description: 'Manual shelf',
+          tags: ['Manual'],
+        ),
+      ],
+      assignScriptCategory: (script, categoryName) async {
+        assignments.add('${script.scriptId}:$categoryName');
+        scripts = [
+          for (final existing in scripts)
+            existing.scriptId == script.scriptId
+                ? existing.copyWith(categoryNames: [
+                    ...existing.categoryNames,
+                    categoryName,
+                  ])
+                : existing,
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final categoryCard = find.byKey(
+      const ValueKey('script-exhibition-category-custom:QAQ'),
+    );
+
+    final firstDragHandle = find.byKey(
+      const ValueKey('script-exhibition-drag-handle-script-1'),
+    );
+    await tester.dragFrom(
+      tester.getCenter(firstDragHandle),
+      tester.getCenter(categoryCard) - tester.getCenter(firstDragHandle),
+      touchSlopY: 0,
+    );
+    await tester.pumpAndSettle();
+
+    expect(assignments, ['script-1:QAQ']);
+    expect(viewModel.selectedScriptIds, isEmpty);
+    expect(viewModel.selectedCategoryId,
+        ScriptExhibitionRoomViewModel.allCategoryId);
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-1',
+      'script-2',
+    ]);
+    expect(
+        viewModel.categories
+            .singleWhere((category) => category.title == 'QAQ')
+            .count,
+        1);
+
+    await tester.tap(categoryCard);
+    await tester.pumpAndSettle();
+
+    expect(viewModel.selectedCategoryId, 'custom:QAQ');
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-1',
+    ]);
   });
 
   testWidgets('right-click deletes a custom category without deleting scripts',
@@ -1627,12 +3804,14 @@ void main() {
 
     var records = [_galleryRecord()];
     final deletedItems = <ScriptExhibitionItem>[];
+    final deleteLocalFilesValues = <bool>[];
     final viewModel = ScriptExhibitionRoomViewModel(
       loadScripts: () async => [_script()],
       loadProductionPlans: () async => const [],
       loadGalleryRecords: () async => records,
-      deleteItemRecord: (item) async {
+      deleteItemRecord: (item, {bool deleteLocalFiles = false}) async {
         deletedItems.add(item);
+        deleteLocalFilesValues.add(deleteLocalFiles);
         records = records
             .where((record) => record.id != item.galleryRecordId)
             .toList(growable: false);
@@ -1668,12 +3847,21 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    final localDelete = find.byKey(
+      const ValueKey('script-exhibition-delete-item-local-files'),
+    );
+    expect(localDelete, findsOneWidget);
+    await tester.tap(localDelete);
+    await tester.pumpAndSettle();
+
     await tester.tap(
       find.byKey(const ValueKey('script-exhibition-confirm-delete-item')),
     );
     await tester.pumpAndSettle();
 
     expect(deletedItems.single.galleryRecordId, 'gallery-1');
+    expect(deleteLocalFilesValues, [isTrue]);
     expect(find.byKey(itemKey), findsNothing);
   });
 
@@ -1964,16 +4152,284 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('script shelf expands large script lists near scroll end', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final scripts = [
+      for (var index = 0; index < 60; index += 1)
+        _script().copyWith(
+          scriptId: 'script-$index',
+          name: 'Script $index',
+          sourceFolder: 'C:\\stories\\bulk\\$index',
+        ),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    Finder scriptCards() => find.byWidgetPredicate((widget) {
+          final key = widget.key;
+          return key is ValueKey<String> &&
+              key.value.startsWith('script-exhibition-script-card-');
+        });
+
+    final initialCount = scriptCards().evaluate().length;
+    expect(initialCount, greaterThanOrEqualTo(12));
+    expect(initialCount, lessThan(60));
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-40')),
+      findsNothing,
+    );
+
+    final scrollView = find.byKey(
+      const ValueKey('script-exhibition-scroll-view'),
+    );
+    for (var attempt = 0; attempt < 6; attempt += 1) {
+      await tester.drag(scrollView, const Offset(0, -900));
+      await tester.pump();
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('script-exhibition-script-card-script-40'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+
+    expect(scriptCards().evaluate().length, greaterThan(initialCount));
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-40')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('keeps the category strip pinned while scrolling the shelf', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final scripts = [
+      for (var index = 0; index < 48; index += 1)
+        _script().copyWith(
+          scriptId: 'script-$index',
+          name: 'Script $index',
+          sourceFolder: 'C:\\stories\\sticky\\$index',
+        ),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => scripts,
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    await tester.runAsync(() async {
+      await viewModel.load();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final allCategory = find.byKey(
+      const ValueKey('script-exhibition-category-all'),
+    );
+    final initialTop = tester.getTopLeft(allCategory).dy;
+    expect(initialTop, greaterThan(0));
+
+    final scrollView = find.byKey(
+      const ValueKey('script-exhibition-scroll-view'),
+    );
+    await tester.drag(scrollView, const Offset(0, -900));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(allCategory, findsOneWidget);
+    final pinnedTop = tester.getTopLeft(allCategory).dy;
+    expect(pinnedTop, lessThan(initialTop));
+    expect(pinnedTop, lessThanOrEqualTo(1));
+  });
+
+  testWidgets('script shelf enables cover image paths in small batches', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.parse('2026-06-02T08:00:00Z');
+    final readCoverIndexes = <int>{};
+    final scripts = [
+      for (var index = 0; index < 20; index += 1)
+        () {
+          final scriptId = 'cover-script-$index';
+          final item = _CountingScriptCoverItem(
+            id: 'cover-item-$index',
+            scriptId: scriptId,
+            scriptTitle: 'Cover Script $index',
+            sourceFolder: 'C:\\stories\\cover\\$index',
+            versionId: 'cover-version-$index',
+            versionLabel: 'Cover',
+            frameIndex: index,
+            updatedAt: now,
+            imagePath: 'C:\\covers\\cover-$index.png',
+            onImagePathRead: () => readCoverIndexes.add(index),
+          );
+          return ScriptExhibitionScript(
+            scriptId: scriptId,
+            title: 'Cover Script $index',
+            sourceFolder: 'C:\\stories\\cover\\$index',
+            updatedAt: now,
+            versions: [
+              ScriptExhibitionVersion(
+                id: 'cover-version-$index',
+                label: 'Cover',
+                description: 'Cover batch test',
+                updatedAt: now,
+                items: [item],
+              ),
+            ],
+            status: ScriptExhibitionScriptStatus.active,
+            originalCount: 0,
+            generatedImageCount: 1,
+            imageLikeItemCount: 1,
+            hasImage: true,
+            coverItem: item,
+            pendingCount: 0,
+            firstNeedsActionItem: null,
+          );
+        }(),
+    ];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    )
+      ..snapshot = ScriptExhibitionSnapshot(
+        scripts: scripts,
+        totalImageCount: scripts.length,
+        generatedImageCount: scripts.length,
+        needsActionCount: 0,
+      )
+      ..isLoading = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(readCoverIndexes, {0, 1, 2, 3});
+
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump();
+    expect(readCoverIndexes.containsAll({0, 1, 2, 3, 4, 5}), isTrue);
+    expect(readCoverIndexes.length, lessThanOrEqualTo(12));
+
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump();
+    expect(readCoverIndexes.containsAll({0, 1, 2, 3, 4, 5}), isTrue);
+  });
 }
 
-TokenizerScript _script() {
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  await _pumpUntil(tester, () => finder.evaluate().isNotEmpty,
+      timeout: timeout);
+  expect(finder, findsOneWidget);
+}
+
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() isReady, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final end = tester.binding.clock.fromNowBy(timeout);
+  while (tester.binding.clock.now().isBefore(end)) {
+    if (isReady()) {
+      return;
+    }
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
+ScriptExhibitionItem _scriptExhibitionDetailItem(
+    int index, DateTime updatedAt) {
+  return ScriptExhibitionItem(
+    id: 'window-item-$index',
+    scriptId: 'script-window',
+    scriptTitle: 'Window Test',
+    sourceFolder: r'C:\stories\window',
+    versionId: 'version-window',
+    versionLabel: 'Window',
+    sourceKind: ScriptExhibitionItemSourceKind.generated,
+    frameIndex: index,
+    sourceFileName: 'frame-$index.json',
+    title: 'Frame $index',
+    subtitle: 'Window item',
+    prompt: 'window test frame $index',
+    imagePath: '',
+    statusLabel: 'Ready',
+    updatedAt: updatedAt,
+  );
+}
+
+TokenizerScript _script({
+  Map<String, dynamic> generationParams = const {},
+  String sourceFileName = '001.json',
+  String sourcePath = r'C:\stories\rain\001.json',
+  TokenizerScriptSourceKind sourceKind = TokenizerScriptSourceKind.json,
+  String defaultImagePath = r'C:\stories\rain\001.png',
+}) {
   final now = DateTime.parse('2026-06-01T09:00:00Z');
-  const source = TokenizerSourceFile(
+  final source = TokenizerSourceFile(
     fileId: 'source-1',
-    fileName: '001.json',
-    path: r'C:\stories\rain\001.json',
-    kind: TokenizerScriptSourceKind.json,
-    defaultImagePath: r'C:\stories\rain\001.png',
+    fileName: sourceFileName,
+    path: sourcePath,
+    kind: sourceKind,
+    defaultImagePath: defaultImagePath,
   );
   return TokenizerScript(
     scriptId: 'script-1',
@@ -1983,12 +4439,12 @@ TokenizerScript _script() {
     createdAt: now,
     updatedAt: now,
     status: TokenizerScriptStatus.ready,
-    sourceFiles: const [source],
+    sourceFiles: [source],
     sampleFileIds: const ['source-1'],
     characterIdentities: const [],
     styleStages: const [],
     knowledgeCandidates: const [],
-    imageTasks: const [
+    imageTasks: [
       TokenizerImageTask(
         taskId: 'source-task-1',
         sourceFile: source,
@@ -1999,9 +4455,10 @@ TokenizerScript _script() {
         finalPrompt: 'library entrance, rainy night',
         artistEvidence: [],
         characterSlotMatches: [],
+        generationParams: generationParams,
         confidence: 0.9,
         reviewStatus: TokenizerTaskReviewStatus.confirmed,
-        details: TokenizerParseDetails(),
+        details: const TokenizerParseDetails(),
       ),
     ],
   );
@@ -2218,18 +4675,34 @@ ProductionPlan _planWithTwoCompletedImages() {
       ProductionTask.scriptRecastFrame(
         id: 'task-2',
         planId: 'plan-2',
-        title: 'Second',
+        title: 'Same Frame Rerun',
+        scriptId: 'script-1',
+        scriptName: '雨夜档案',
+        scriptPath: r'C:\stories\rain',
+        recastRunId: 'run-2',
+        frameIndex: 1,
+        sourceFileName: '001-rerun.json',
+        payload: const {'input': 'same frame rerun, green eyes'},
+        status: ProductionTaskStatus.completed,
+        outputImagePath: r'C:\out\frame-01-rerun.png',
+        createdAt: now.add(const Duration(minutes: 1)),
+        updatedAt: now.add(const Duration(minutes: 1)),
+      ),
+      ProductionTask.scriptRecastFrame(
+        id: 'task-3',
+        planId: 'plan-2',
+        title: 'Other Frame',
         scriptId: 'script-1',
         scriptName: '雨夜档案',
         scriptPath: r'C:\stories\rain',
         recastRunId: 'run-2',
         frameIndex: 2,
         sourceFileName: '002.json',
-        payload: const {'input': 'second generated frame, green eyes'},
+        payload: const {'input': 'other frame, amber eyes'},
         status: ProductionTaskStatus.completed,
         outputImagePath: r'C:\out\frame-02.png',
-        createdAt: now,
-        updatedAt: now,
+        createdAt: now.add(const Duration(minutes: 2)),
+        updatedAt: now.add(const Duration(minutes: 2)),
       ),
     ],
   );
@@ -2328,3 +4801,7 @@ StudioGalleryRecord _galleryRecord({
     ),
   );
 }
+
+final _pngBytes = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l7G6GQAAAABJRU5ErkJggg==',
+);

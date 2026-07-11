@@ -1,8 +1,89 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_evidence_builder.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 void main() {
+  test('builds complete source term evidence without local semantic filtering',
+      () {
+    final translationCache = TranslationCache(clock: () => 1710000000)
+      ..setManual('double bun', '双丸子头');
+    final classificationCache = PromptTagClassificationCache(
+      clock: () => 1710000000,
+    )..setCategory(
+        'double bun',
+        PromptTagCategory.upperBody,
+        source: 'manual',
+      );
+    final script = _script([
+      _frame(
+        1,
+        baseCaption: 'bedroom, demon girl, wings, looking at viewer',
+        charCaptions: ['double bun, gyaru, shirt lift, holding skirt'],
+        negativeBase: 'bad anatomy',
+      ),
+    ]);
+
+    final chunk = ScriptAiRoleEvidenceBuilder(
+      translationCache: translationCache,
+      classificationCache: classificationCache,
+    ).buildChunks(script: script).single;
+
+    final terms = (chunk['source_terms'] as List).cast<Map<String, dynamic>>();
+    expect(terms.map((term) => term['text']), [
+      'bedroom',
+      'demon girl',
+      'wings',
+      'looking at viewer',
+      'double bun',
+      'gyaru',
+      'shirt lift',
+      'holding skirt',
+      'bad anatomy',
+    ]);
+
+    expect(_sourceTerm(terms, 'bedroom'), {
+      'text': 'bedroom',
+      'normalized': 'bedroom',
+      'source_id': 'base',
+      'source_kind': 'base',
+      'polarity': 'positive',
+      'frame_indexes': [1],
+      'source_phrase': 'bedroom, demon girl, wings, looking at viewer',
+      'cached_translation': '',
+      'cached_category': '',
+      'needs_translation': true,
+      'needs_category': true,
+    });
+    expect(_sourceTerm(terms, 'double bun'), {
+      'text': 'double bun',
+      'normalized': 'double bun',
+      'source_id': 'slot-0',
+      'source_kind': 'slot',
+      'polarity': 'positive',
+      'frame_indexes': [1],
+      'source_phrase': 'double bun, gyaru, shirt lift, holding skirt',
+      'cached_translation': '双丸子头',
+      'cached_category': 'upperBody',
+      'needs_translation': false,
+      'needs_category': false,
+    });
+    expect(_sourceTerm(terms, 'bad anatomy'), {
+      'text': 'bad anatomy',
+      'normalized': 'bad anatomy',
+      'source_id': 'negative-base',
+      'source_kind': 'negative',
+      'polarity': 'negative',
+      'frame_indexes': [1],
+      'source_phrase': 'bad anatomy',
+      'cached_translation': '',
+      'cached_category': '',
+      'needs_translation': true,
+      'needs_category': true,
+    });
+  });
+
   test('builds raw tag evidence chunks from slot base and negative captions',
       () {
     final script = Script(
@@ -476,6 +557,13 @@ Map<String, dynamic> _evidence(Map<String, dynamic> source, String tag) {
   final evidence =
       (source['tag_evidence'] as List).cast<Map<String, dynamic>>();
   return evidence.singleWhere((item) => item['tag'] == tag);
+}
+
+Map<String, dynamic> _sourceTerm(
+  List<Map<String, dynamic>> terms,
+  String text,
+) {
+  return terms.singleWhere((term) => term['text'] == text);
 }
 
 void _expectNoOldCatalogKeys(Map<String, dynamic> chunk) {

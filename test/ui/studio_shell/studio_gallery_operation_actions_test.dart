@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
@@ -48,10 +50,12 @@ class _TrackingGalleryOperationViewmodel extends GenerationPageViewmodel {
   final List<StudioDirectorToolOptions> directorOptions = [];
   final List<String> inpaintRecordIds = [];
   final List<String> inpaintMaskPaths = [];
+  Completer<void>? enhanceCompleter;
 
   @override
   Future<void> enhanceGalleryRecord(StudioGalleryRecord record) async {
     enhancedRecordIds.add(record.id);
+    await enhanceCompleter?.future;
   }
 
   @override
@@ -129,6 +133,57 @@ void main() {
     await GetIt.I.reset();
   });
 
+  testWidgets('gallery operations show feedback before async work finishes', (
+    tester,
+  ) async {
+    final tempDir = Directory(
+      '${Directory.current.path}${Platform.pathSeparator}'
+      'build${Platform.pathSeparator}gallery_operation_feedback_test',
+    );
+    tempDir.createSync(recursive: true);
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    final imageFile = _writePngFixture(tempDir, 'feedback.png');
+    final viewModel = _TrackingGalleryOperationViewmodel()
+      ..enhanceCompleter = Completer<void>();
+    final record = _record(
+      id: 'feedback-1',
+      prompt: 'feedback prompt',
+      title: 'feedback.png',
+      imagePath: imageFile.path,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioGalleryPage(
+          viewModel: viewModel,
+          galleryService: _FakeGalleryService([record]),
+          payloadConfig: GetIt.I<PayloadConfig>(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('gallery-detail-enhance')),
+    );
+    await tester.tap(find.byKey(const ValueKey('gallery-detail-enhance')));
+    await tester.pump();
+
+    expect(viewModel.enhancedRecordIds, ['feedback-1']);
+    expect(find.text('正在提交增强...'), findsOneWidget);
+
+    viewModel.enhanceCompleter!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('已开始增强'), findsOneWidget);
+  });
+
   testWidgets(
     'operation lineage and actions are visible for readable gallery images',
     (tester) async {
@@ -198,6 +253,18 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey('gallery-card-more-missing-image')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-details-operation-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-use-as-i2i-operation-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-restore-operation-1')),
         findsNothing,
       );
       expect(
@@ -216,6 +283,21 @@ void main() {
         find.byKey(const ValueKey('gallery-card-inpaint-operation-1')),
         findsNothing,
       );
+
+      await tester.tap(
+        find.byKey(const ValueKey('gallery-card-more-operation-1')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('gallery-card-menu-useAsI2i-operation-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('gallery-card-menu-restore-operation-1')),
+        findsOneWidget,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
 
       await tester.ensureVisible(
         find.byKey(const ValueKey('gallery-detail-enhance')),

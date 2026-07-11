@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:novel_studio/data/models/prompt_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
 import 'package:novel_studio/data/services/config_service.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_exhibition_recast_summary.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
@@ -34,6 +36,11 @@ import 'package:novel_studio/ui/navigation/widgets/navigation_view.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_shell/models/studio_startup_open_request.dart';
+import 'package:novel_studio/ui/studio_shell/models/studio_shell_section.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/asset_library_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/script_exhibition_room_page.dart';
+import 'package:novel_studio/ui/studio_shell/widgets/studio_shell_view.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -71,6 +78,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     return const StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
@@ -86,6 +94,16 @@ class _FakeCatalogService extends StudioAssetCatalogService {
       recipes: [],
       tags: [],
     );
+  }
+
+  @override
+  Future<StudioAssetCatalogSummary?> loadCachedSummary() async {
+    return (await loadSnapshot()).summary;
+  }
+
+  @override
+  Future<StudioAssetCatalogSummary> loadSummary() async {
+    return (await loadSnapshot()).summary;
   }
 
   @override
@@ -105,6 +123,7 @@ class _AssetNavigationCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     return const StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
@@ -136,10 +155,67 @@ class _AssetNavigationCatalogService extends StudioAssetCatalogService {
   }
 
   @override
+  Future<StudioAssetCatalogSummary?> loadCachedSummary() async {
+    return (await loadSnapshot()).summary;
+  }
+
+  @override
+  Future<StudioAssetCatalogSummary> loadSummary() async {
+    return (await loadSnapshot()).summary;
+  }
+
+  @override
   Future<Set<String>> loadAssetFavoriteKeys() async => const {};
 
   @override
   Future<void> setAssetFavorite(String key, bool isFavorite) async {}
+}
+
+class _CountingAssetNavigationCatalogService
+    extends _AssetNavigationCatalogService {
+  int snapshotRequestCount = 0;
+
+  @override
+  Future<StudioAssetCatalogCacheLoadResult> loadSnapshotWithCache({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool checkStaleness = true,
+    bool persistCacheBeforeReturn = true,
+  }) async {
+    snapshotRequestCount += 1;
+    return StudioAssetCatalogCacheLoadResult(
+      snapshot: await loadSnapshot(
+        includeLegacyCodex: includeLegacyCodex,
+        legacyCodexLimit: legacyCodexLimit,
+        legacyCodexQuery: legacyCodexQuery,
+        legacyCodexCategoryKey: legacyCodexCategoryKey,
+      ),
+      fromCache: false,
+      isStale: false,
+    );
+  }
+}
+
+class _CountingHomeCatalogService extends _AssetNavigationCatalogService {
+  _CountingHomeCatalogService({this.cachedSummary});
+
+  final StudioAssetCatalogSummary? cachedSummary;
+  int cachedSummaryRequestCount = 0;
+  int summaryRequestCount = 0;
+
+  @override
+  Future<StudioAssetCatalogSummary?> loadCachedSummary() async {
+    cachedSummaryRequestCount += 1;
+    return cachedSummary;
+  }
+
+  @override
+  Future<StudioAssetCatalogSummary> loadSummary() async {
+    summaryRequestCount += 1;
+    return (await loadSnapshot()).summary;
+  }
 }
 
 class _FakeGalleryService extends StudioGalleryService {
@@ -155,14 +231,49 @@ class _FakeGalleryService extends StudioGalleryService {
   }
 
   @override
+  Future<List<StudioGalleryRecord>> loadRecastRecords() async {
+    return [
+      for (final record in records)
+        if (record.provenance != null) record,
+    ];
+  }
+
+  @override
+  Future<StudioGalleryCreativeSummary> loadCreativeRecordSummary({
+    int recentLimit = 4,
+  }) async {
+    final creativeRecords = await loadCreativeRecords();
+    return StudioGalleryCreativeSummary(
+      totalCount: creativeRecords.length,
+      recentRecords: creativeRecords.take(recentLimit).toList(growable: false),
+    );
+  }
+
+  @override
   Future<void> saveRecords(List<StudioGalleryRecord> records) async {
     this.records = List.unmodifiable(records);
   }
 
   @override
-  Future<void> removeRecord(String id) async {
+  Future<void> removeRecord(String id, {bool deleteImageFile = false}) async {
     records = List.unmodifiable(
       records.where((record) => record.id != id),
+    );
+  }
+}
+
+class _CountingHomeGalleryService extends _FakeGalleryService {
+  int creativeSummaryLoadCount = 0;
+
+  @override
+  Future<StudioGalleryCreativeSummary> loadCreativeRecordSummary({
+    int recentLimit = 4,
+  }) async {
+    creativeSummaryLoadCount += 1;
+    final records = await super.loadCreativeRecords();
+    return StudioGalleryCreativeSummary(
+      totalCount: records.length,
+      recentRecords: records.take(recentLimit).toList(growable: false),
     );
   }
 }
@@ -178,13 +289,48 @@ class _FakeTokenizerScriptService extends TokenizerScriptService {
 }
 
 class _FakeWorkspaceService extends WorkspaceService {
-  _FakeWorkspaceService({List<RecastScriptCache> caches = const []})
-      : caches = List.unmodifiable(caches);
+  _FakeWorkspaceService({
+    List<RecastScriptCache> caches = const [],
+    List<RecastExhibitionScript> summaryScripts = const [],
+    Directory? root,
+  })  : _root = root,
+        caches = List.unmodifiable(caches),
+        summaryScripts = List.unmodifiable(summaryScripts);
 
+  final Directory? _root;
   List<RecastScriptCache> caches;
+  List<RecastExhibitionScript> summaryScripts;
+  int summaryLoadCount = 0;
+
+  @override
+  Directory? get root => _root;
 
   @override
   Future<List<RecastScriptCache>> loadRecastScriptCaches() async => caches;
+
+  @override
+  Future<RecastScriptCache?> loadRecastScriptCache(String scriptId) async {
+    final normalized = scriptId.trim();
+    for (final cache in caches) {
+      if (cache.scriptId == normalized) {
+        return cache;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<List<RecastExhibitionScript>> loadRecastExhibitionSummaries() async {
+    summaryLoadCount += 1;
+    return summaryScripts;
+  }
+
+  @override
+  Future<List<String>> loadScriptExhibitionCategories() async => const [];
+
+  @override
+  Future<Map<String, List<String>>>
+      loadScriptExhibitionCategoryAssignments() async => const {};
 
   @override
   Future<void> saveRecastScriptCache(RecastScriptCache cache) async {
@@ -250,11 +396,27 @@ class _SendReadyScriptViewModel extends StudioScriptViewModel {
 
 class _RecordingScriptViewModel extends StudioScriptViewModel {
   final importedPaths = <String>[];
+  final openedExhibitionScripts = <({String scriptId, String sourceFolder})>[];
   int? selectedFrame;
 
   @override
   Future<void> importScriptPath(String path) async {
     importedPaths.add(path);
+  }
+
+  @override
+  Future<void> openScriptFromExhibition({
+    required String scriptId,
+    required String sourceFolder,
+    int? frameIndex,
+  }) async {
+    openedExhibitionScripts.add((
+      scriptId: scriptId,
+      sourceFolder: sourceFolder,
+    ));
+    if (frameIndex != null) {
+      selectedFrame = frameIndex;
+    }
   }
 
   @override
@@ -282,6 +444,16 @@ class _RecordingWorkbenchTransferViewModel extends WorkbenchTransferViewModel {
     importedFileNames.add(fileName);
     importedBytes.add(Uint8List.fromList(bytes));
   }
+
+  @override
+  Future<void> importFile(
+    BuildContext context,
+    File file, {
+    bool showFeedback = true,
+  }) async {
+    importedFileNames.add(file.uri.pathSegments.last);
+    importedBytes.add(Uint8List.fromList(file.readAsBytesSync()));
+  }
 }
 
 PayloadConfig _payload() {
@@ -294,6 +466,14 @@ PayloadConfig _payload() {
     overridePrompt: '',
     useOverridePrompt: false,
     useCharacterPromptWithOverride: false,
+  );
+}
+
+Uint8List _transparentPngBytes() {
+  return Uint8List.fromList(
+    base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2Kc9wAAAABJRU5ErkJggg==',
+    ),
   );
 }
 
@@ -312,6 +492,34 @@ Widget _buildNavigationApp({NavigationViewModel? viewModel}) {
         supportedLocales: context.supportedLocales,
         localizationsDelegates: context.localizationDelegates,
         home: NavigationView(viewModel: viewModel ?? NavigationViewModel()),
+      ),
+    ),
+  );
+}
+
+Widget _buildStudioShellApp({
+  NavigationViewModel? viewModel,
+  void Function(StudioShellSection section)? debugOnCreatePage,
+  StudioStartupOpenRequest? startupOpenRequest,
+}) {
+  return EasyLocalization(
+    supportedLocales: const [Locale('en')],
+    path: 'assets/l10n',
+    assetLoader: const _NavigationAssetLoader(),
+    fallbackLocale: const Locale('en'),
+    startLocale: const Locale('en'),
+    saveLocale: false,
+    child: Builder(
+      builder: (context) => MaterialApp(
+        theme: StudioTheme.build(),
+        locale: context.locale,
+        supportedLocales: context.supportedLocales,
+        localizationsDelegates: context.localizationDelegates,
+        home: StudioShellView(
+          viewModel: viewModel ?? NavigationViewModel(),
+          debugOnCreatePage: debugOnCreatePage,
+          startupOpenRequest: startupOpenRequest,
+        ),
       ),
     ),
   );
@@ -402,6 +610,12 @@ void main() {
     await tester.pumpWidget(_buildNavigationApp());
     await tester.pump();
 
+    expect(
+      find.byKey(const ValueKey('studio-page-cache-host')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsOneWidget);
+
     final navKeys = find
         .byWidgetPredicate(
           (widget) =>
@@ -426,7 +640,7 @@ void main() {
     expect(find.byKey(const ValueKey('studio-nav-tools')), findsNothing);
   });
 
-  testWidgets('batch navigation uses registered deterministic production queue',
+  testWidgets('desktop main navigation exposes animated tab indicator',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
@@ -436,11 +650,501 @@ void main() {
     await tester.pumpWidget(_buildNavigationApp());
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
+    expect(
+      find.byKey(const ValueKey('studio-side-nav-selection-indicator')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-side-nav-selection-liquid-pulse')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-bottom-nav-selection-indicator')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
     await tester.pump();
 
+    expect(
+      find.byKey(const ValueKey('studio-side-nav-selection-indicator')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('compact main navigation exposes animated tab indicator',
+      (tester) async {
+    tester.view.physicalSize = const Size(760, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('studio-bottom-nav-selection-indicator')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-bottom-nav-selection-liquid-pulse')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-side-nav-selection-indicator')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('studio-bottom-nav-selection-indicator')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'home data load waits until after startup and uses cached summary',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const cachedSummary = StudioAssetCatalogSummary(
+      characterCount: 3,
+      outfitCount: 2,
+      artistChainCount: 1,
+      recipeCount: 4,
+      tagCount: 5,
+      recipeCountsByBlock: {},
+      tagCountsByBlock: {},
+    );
+    final catalogService =
+        _CountingHomeCatalogService(cachedSummary: cachedSummary);
+    final galleryService = _CountingHomeGalleryService();
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    await GetIt.I.unregister<StudioGalleryService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(catalogService);
+    GetIt.I.registerSingleton<StudioGalleryService>(galleryService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    expect(catalogService.cachedSummaryRequestCount, 0);
+    expect(catalogService.summaryRequestCount, 0);
+    expect(galleryService.creativeSummaryLoadCount, 0);
+
+    await tester.pump(const Duration(milliseconds: 410));
+
+    expect(catalogService.cachedSummaryRequestCount, 0);
+    expect(catalogService.summaryRequestCount, 0);
+    expect(galleryService.creativeSummaryLoadCount, 0);
+
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump();
+
+    expect(catalogService.cachedSummaryRequestCount, 1);
+    expect(catalogService.summaryRequestCount, 0);
+    expect(galleryService.creativeSummaryLoadCount, 1);
+  });
+
+  testWidgets('asset navigation mounts the first heavy page on the click frame',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalogService = _CountingAssetNavigationCatalogService();
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(catalogService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('studio-page-pending-assets')),
+      findsNothing,
+    );
+    expect(find.byType(AssetLibraryPage), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(
+        find.byKey(const ValueKey('studio-page-cache-host')), findsOneWidget);
+    expect(find.text('Library Character'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-home')).first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pump();
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(
+      find.byKey(const ValueKey('studio-page-pending-assets')),
+      findsNothing,
+    );
+    await tester.pumpAndSettle();
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(find.text('Library Character'), findsOneWidget);
+  });
+
+  testWidgets('asset navigation starts loading on the first selected frame',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalogService = _CountingAssetNavigationCatalogService();
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(catalogService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('studio-page-pending-assets')),
+      findsNothing,
+    );
+    expect(find.byType(AssetLibraryPage), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('Library Character'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('studio-page-transition')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('asset navigation hover does not mount heavy target before click',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalogService = _CountingAssetNavigationCatalogService();
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(catalogService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+      location: tester.getCenter(
+        find.byKey(const ValueKey('studio-nav-assets')).first,
+      ),
+    );
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 0);
+    expect(find.byType(AssetLibraryPage), findsNothing);
+    expect(
+      find.byType(AssetLibraryPage, skipOffstage: false),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 1);
+    expect(find.byType(AssetLibraryPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('studio-page-pending-assets')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('studio shell does not idle prewarm during startup',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalogService = _CountingAssetNavigationCatalogService();
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(catalogService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 0);
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 3600));
+    await tester.pump();
+
+    expect(catalogService.snapshotRequestCount, 0);
+    expect(find.byType(AssetLibraryPage), findsNothing);
+    expect(
+      find.byType(AssetLibraryPage, skipOffstage: false),
+      findsNothing,
+    );
+  });
+
+  testWidgets('studio shell startup does not prewarm production-backed pages',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(),
+    ]);
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 3600));
+
+    expect(productionService.loadCount, 0);
+    expect(productionService.readOnlyLoadCount, 0);
+  });
+
+  testWidgets('studio shell does not prewarm script exhibition summaries',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceRoot =
+        Directory.systemTemp.createTempSync('script-exhibition-warmup-test-');
+    addTearDown(() {
+      if (workspaceRoot.existsSync()) {
+        workspaceRoot.deleteSync(recursive: true);
+      }
+    });
+    final workspaceService = _FakeWorkspaceService(root: workspaceRoot);
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(workspaceService);
+
+    final created = <StudioShellSection>[];
+    await tester.pumpWidget(
+      _buildStudioShellApp(debugOnCreatePage: created.add),
+    );
+    await tester.pump();
+
+    expect(workspaceService.summaryLoadCount, 0);
+    expect(find.byType(ScriptExhibitionRoomPage), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 751));
+    await tester.pump();
+
+    expect(workspaceService.summaryLoadCount, 0);
+    expect(created, isNot(contains(StudioShellSection.scriptExhibition)));
+    expect(find.byType(ScriptExhibitionRoomPage), findsNothing);
+    expect(
+      find.byType(ScriptExhibitionRoomPage, skipOffstage: false),
+      findsNothing,
+    );
+  });
+
+  testWidgets('script exhibition first navigation loads on the click frame',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceRoot = Directory.systemTemp
+        .createTempSync('script-exhibition-click-nav-test-');
+    addTearDown(() {
+      if (workspaceRoot.existsSync()) {
+        workspaceRoot.deleteSync(recursive: true);
+      }
+    });
+    final workspaceService = _FakeWorkspaceService(root: workspaceRoot);
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(workspaceService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('script-exhibition-room-page')),
+        findsOneWidget);
+    expect(workspaceService.summaryLoadCount, 1);
+    expect(
+      find.byKey(const ValueKey('studio-page-pending-scriptExhibition')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('script exhibition reloads when re-entering cached page',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceRoot = Directory.systemTemp
+        .createTempSync('script-exhibition-reenter-refresh-test-');
+    addTearDown(() {
+      if (workspaceRoot.existsSync()) {
+        workspaceRoot.deleteSync(recursive: true);
+      }
+    });
+    final image = File('${workspaceRoot.path}${Platform.pathSeparator}001.png');
+    image.writeAsBytesSync([1, 2, 3]);
+    final workspaceService = _FakeWorkspaceService(root: workspaceRoot);
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(workspaceService);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(workspaceService.summaryLoadCount, 1);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-draggable-script-fresh')),
+      findsNothing,
+    );
+
+    workspaceService.summaryScripts = [
+      RecastExhibitionScript(
+        scriptId: 'script-fresh',
+        scriptName: 'Fresh visible script',
+        sourceRootPath: workspaceRoot.path,
+        updatedAt: DateTime.parse('2026-06-28T09:00:00Z'),
+        detectedSchema: ScriptSchema.unknown,
+        frames: [
+          RecastExhibitionFrame(
+            index: 1,
+            fileName: '001.png',
+            sourcePath: image.path,
+            sourceImagePath: image.path,
+          ),
+        ],
+        frameCount: 1,
+        summaryOnly: true,
+      ),
+    ];
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-home')).first);
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 10; i += 1) {
+      final page = tester.widget<ScriptExhibitionRoomPage>(
+        find.byType(ScriptExhibitionRoomPage).first,
+      );
+      if (page.viewModel.snapshot.scripts
+          .any((script) => script.scriptId == 'script-fresh')) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    expect(workspaceService.summaryLoadCount, 2);
+    final page = tester.widget<ScriptExhibitionRoomPage>(
+      find.byType(ScriptExhibitionRoomPage).first,
+    );
+    expect(page.viewModel.loadError, isNull);
+    expect(
+      page.viewModel.snapshot.scripts.map((script) => script.scriptId),
+      contains('script-fresh'),
+    );
+    expect(
+      page.viewModel.visibleScripts.map((script) => script.scriptId),
+      contains('script-fresh'),
+    );
+    expect(
+      find.byKey(const ValueKey('script-exhibition-draggable-script-fresh')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('studio shell reuses cached stable pages across navigation',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final created = <StudioShellSection, int>{};
+    await tester.pumpWidget(
+      _buildStudioShellApp(
+        debugOnCreatePage: (section) {
+          created.update(section, (value) => value + 1, ifAbsent: () => 1);
+        },
+      ),
+    );
+    await tester.pump();
+
+    Future<void> open(StudioShellSection section) async {
+      await tester
+          .tap(find.byKey(ValueKey('studio-nav-${section.name}')).first);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    await open(StudioShellSection.assets);
+    await open(StudioShellSection.workbench);
+    await open(StudioShellSection.script);
+    await open(StudioShellSection.gallery);
+    await open(StudioShellSection.assets);
+    await open(StudioShellSection.workbench);
+    await open(StudioShellSection.script);
+
+    expect(created[StudioShellSection.assets], 1);
+    expect(created[StudioShellSection.workbench], 1);
+    expect(created[StudioShellSection.script], 1);
+    expect(created[StudioShellSection.gallery], 1);
+  });
+
+  testWidgets('batch navigation uses registered deterministic production queue',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final batchViewModel = ProductionQueueViewModel(plans: [_productionPlan()]);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.account_tree_outlined).first);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
     expect(find.text('Injected Recast Queue'), findsOneWidget);
-    expect(find.text('Frame 1'), findsOneWidget);
+    expect(batchViewModel.selectedTask?.title, 'Frame 1');
   });
 
   testWidgets('batch navigation refreshes persisted queue settings',
@@ -478,9 +1182,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('studio-nav-batch')).first);
     await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(productionService.loadCount, 1);
+    expect(productionService.loadCount, 0);
+    expect(productionService.readOnlyLoadCount, 1);
     expect(batchViewModel.batchModel, 'persisted-model');
     expect(batchViewModel.batchSampler, 'persisted-sampler');
     expect(batchViewModel.requestIntervalSeconds, 17);
@@ -523,12 +1229,13 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const ValueKey('studio-nav-script')).first);
-    await tester.pump();
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('script-send-production')));
     await tester.pumpAndSettle();
 
     expect(scriptViewModel.sendCount, 1);
-    expect(productionService.loadCount, greaterThanOrEqualTo(1));
+    expect(productionService.loadCount, 0);
+    expect(productionService.readOnlyLoadCount, 1);
     expect(requestedPayloads, isEmpty);
     expect(batchViewModel.completedTasks, 0);
     expect(batchViewModel.selectedTask?.status, ProductionTaskStatus.queued);
@@ -547,6 +1254,15 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const ValueKey('studio-nav-settings')).first);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('settings-knowledge-and-rules-section')),
+      findsNothing,
+    );
+
+    await tester.drag(
+        find.byType(SingleChildScrollView), const Offset(0, -900));
     await tester.pumpAndSettle();
 
     expect(
@@ -621,6 +1337,192 @@ void main() {
     expect(batchViewModel.selectedTask?.id, 'injected-task-1');
   });
 
+  testWidgets('script exhibition refreshes after batch task completes',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final outputDirectory = await Directory.systemTemp.createTemp(
+      'script-exhibition-live-production-',
+    );
+    addTearDown(() async {
+      if (await outputDirectory.exists()) {
+        await outputDirectory.delete(recursive: true);
+      }
+    });
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(
+        outputImagePath: '',
+        status: ProductionTaskStatus.queued,
+      ),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: productionService.plans,
+      queueService: productionService,
+      executorService: ProductionExecutorService(
+        queueService: productionService,
+        requestImage: (_) async => _transparentPngBytes(),
+        saveImage: (bytes, fileName) async {
+          final file = File(
+            '${outputDirectory.path}${Platform.pathSeparator}$fileName',
+          );
+          await file.writeAsBytes(bytes);
+          return file.path;
+        },
+        now: () => DateTime.utc(2026, 6, 2, 9),
+      ),
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-version-production-plan-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final productionImage = find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.key ==
+              const ValueKey(
+                  'script-exhibition-image-production-plan-1-task-1'),
+    );
+    expect(productionImage, findsNothing);
+
+    await batchViewModel.start();
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pumpAndSettle();
+
+    expect(batchViewModel.selectedTask?.status, ProductionTaskStatus.completed);
+    expect(productionImage, findsOneWidget);
+    expect(productionService.readOnlyLoadCount, greaterThanOrEqualTo(2));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('script exhibition pending item opens its batch production task',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final productionService = _FakeProductionQueueService([
+      _productionPlan(),
+      _exhibitionProductionPlan(
+        outputImagePath: '',
+        status: ProductionTaskStatus.queued,
+      ),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: [_productionPlan()],
+      queueService: productionService,
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-metric-needs-action')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-detail-open-production')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('studio-batch-queue-panel')),
+      findsOneWidget,
+    );
+    expect(batchViewModel.selectedPlan?.id, 'plan-1');
+    expect(batchViewModel.selectedTask?.id, 'task-1');
+    expect(batchViewModel.selectedTask?.status, ProductionTaskStatus.queued);
+    expect(batchViewModel.isExecuting, isFalse);
+  });
+
+  testWidgets('script exhibition rerun gives immediate queue feedback',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: [_productionPlan()],
+      queueService: productionService,
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-version-production-plan-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-rerun-production-plan-1-task-1'),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('已加入重跑队列，原图会保留'), findsOneWidget);
+    expect(
+      batchViewModel.selectedTask?.id,
+      startsWith('task-1-rerun'),
+    );
+  });
+
   testWidgets('script exhibition detail sends script to script workbench',
       (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -656,10 +1558,58 @@ void main() {
         const ValueKey('script-exhibition-detail-send-script-workbench'),
       ),
     );
+    await tester.pump();
     await tester.idle();
 
-    expect(scriptViewModel.importedPaths, [r'C:\stories\rain']);
+    expect(scriptViewModel.importedPaths, isEmpty);
+    expect(scriptViewModel.openedExhibitionScripts, [
+      (scriptId: 'script-1', sourceFolder: r'C:\stories\rain'),
+    ]);
     expect(scriptViewModel.selectedFrame, isNull);
+  });
+
+  testWidgets('startup open request opens cached script in script workbench',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final navigationViewModel = NavigationViewModel();
+    final scriptViewModel = _RecordingScriptViewModel();
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(
+        caches: [
+          _exhibitionRecastCache(
+            scriptId: 'script-startup',
+            rootPath: r'C:\stories\startup',
+          ),
+        ],
+      ),
+    );
+    await GetIt.I.unregister<StudioScriptViewModel>();
+    GetIt.I.registerSingleton<StudioScriptViewModel>(scriptViewModel);
+
+    await tester.pumpWidget(
+      _buildStudioShellApp(
+        viewModel: navigationViewModel,
+        startupOpenRequest: const StudioStartupOpenRequest(
+          scriptId: 'script-startup',
+          frameIndex: 3,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.idle();
+    await tester.pumpAndSettle();
+
+    expect(navigationViewModel.currentPageIndex, 3);
+    expect(scriptViewModel.importedPaths, isEmpty);
+    expect(scriptViewModel.openedExhibitionScripts, [
+      (scriptId: 'script-startup', sourceFolder: r'C:\stories\startup'),
+    ]);
+    expect(scriptViewModel.selectedFrame, 3);
   });
 
   testWidgets(
@@ -727,7 +1677,7 @@ void main() {
     );
   });
 
-  testWidgets('script exhibition image sends to single-image workbench',
+  testWidgets('script exhibition image reruns instead of sending to workbench',
       (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
     tester.view.devicePixelRatio = 1;
@@ -752,6 +1702,13 @@ void main() {
     );
     imageFile.writeAsBytesSync(pngBytes);
 
+    final productionService = _FakeProductionQueueService([
+      _exhibitionProductionPlan(outputImagePath: imageFile.path),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: [_productionPlan()],
+      queueService: productionService,
+    );
     final scriptViewModel = _RecordingScriptViewModel();
     final workbenchViewModel = _RecordingWorkbenchTransferViewModel(
       payloadConfig: GetIt.I<PayloadConfig>(),
@@ -761,11 +1718,9 @@ void main() {
       _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
     );
     await GetIt.I.unregister<ProductionQueueService>();
-    GetIt.I.registerSingleton<ProductionQueueService>(
-      _FakeProductionQueueService([
-        _exhibitionProductionPlan(outputImagePath: imageFile.path),
-      ]),
-    );
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
     await GetIt.I.unregister<StudioScriptViewModel>();
     GetIt.I.registerSingleton<StudioScriptViewModel>(scriptViewModel);
     await GetIt.I.unregister<WorkbenchTransferViewModel>();
@@ -791,15 +1746,18 @@ void main() {
     await tester.tap(
       find.byKey(
         const ValueKey(
-          'script-exhibition-send-workbench-production-plan-1-task-1',
+          'script-exhibition-rerun-production-plan-1-task-1',
         ),
       ),
     );
+    await tester.pump();
 
-    expect(navigationViewModel.currentPageIndex, 1);
-    expect(workbenchViewModel.importedFileNames, ['frame-01.png']);
-    expect(workbenchViewModel.importedBytes.single, pngBytes);
+    expect(navigationViewModel.currentPageIndex, isNot(1));
+    expect(workbenchViewModel.importedFileNames, isEmpty);
+    expect(workbenchViewModel.importedBytes, isEmpty);
     expect(scriptViewModel.importedPaths, isEmpty);
+    expect(batchViewModel.selectedTask?.id, startsWith('task-1-rerun'));
+    expect(find.text('已加入重跑队列，原图会保留'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -964,6 +1922,7 @@ ProductionPlan _exhibitionProductionPlan({
   String scriptId = 'script-1',
   String scriptName = '雨夜档案',
   String scriptPath = r'C:\stories\rain',
+  ProductionTaskStatus status = ProductionTaskStatus.completed,
 }) {
   final now = DateTime.utc(2026, 6, 2, 8);
   return ProductionPlan(
@@ -985,7 +1944,7 @@ ProductionPlan _exhibitionProductionPlan({
         payload: const {
           'input': 'library entrance, generated heroine',
         },
-        status: ProductionTaskStatus.completed,
+        status: status,
         outputImagePath: outputImagePath,
         createdAt: now,
         updatedAt: now,

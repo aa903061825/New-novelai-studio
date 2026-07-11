@@ -153,6 +153,7 @@ class StudioTheme {
         labelStyle: textTheme.labelLarge,
         unselectedLabelStyle: textTheme.labelLarge,
       ),
+      scrollbarTheme: _scrollbarTheme(),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: StudioTokens.primary,
         foregroundColor: StudioTokens.onPrimary,
@@ -162,6 +163,50 @@ class StudioTheme {
         highlightElevation: 0,
         shape: const StadiumBorder(),
       ),
+    );
+  }
+
+  static ScrollbarThemeData _scrollbarTheme() {
+    return ScrollbarThemeData(
+      interactive: true,
+      radius: const Radius.circular(StudioTokens.radiusPillValue),
+      thickness: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.dragged)) {
+          return 8;
+        }
+        return 5;
+      }),
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.dragged)) {
+          return StudioTokens.primary.withAlpha(230);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return StudioTokens.textMuted.withAlpha(220);
+        }
+        return StudioTokens.borderStrong.withAlpha(154);
+      }),
+      trackVisibility: WidgetStateProperty.resolveWith((states) {
+        return states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.dragged);
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.dragged)) {
+          return StudioTokens.surface4.withAlpha(96);
+        }
+        return Colors.transparent;
+      }),
+      trackBorderColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.dragged)) {
+          return StudioTokens.border.withAlpha(90);
+        }
+        return Colors.transparent;
+      }),
+      mainAxisMargin: 8,
+      crossAxisMargin: 4,
+      minThumbLength: 44,
     );
   }
 

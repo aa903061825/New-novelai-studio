@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -41,12 +42,61 @@ class WorkbenchTransferViewModel extends ChangeNotifier {
     if (!context.mounted) return;
     try {
       final file = result.files.single;
+      final path = file.path?.trim();
+      if (path != null && path.isNotEmpty) {
+        await importFile(context, File(path));
+        return;
+      }
       final bytes = file.bytes;
       if (bytes == null) {
         throw const FormatException('Selected import file is empty.');
       }
       await importBytes(context, file.name, bytes);
     } catch (error) {
+      if (!context.mounted) return;
+      showErrorBar(
+        context,
+        '${context.tr('workbench_import_failed')}: $error',
+      );
+    }
+  }
+
+  Future<void> importFile(
+    BuildContext context,
+    File file, {
+    bool showFeedback = true,
+  }) async {
+    try {
+      final fileName = _fileName(file);
+      final lowerName = fileName.toLowerCase();
+      if (lowerName.endsWith('.json')) {
+        try {
+          importText(await file.readAsString());
+          _refreshWorkbenchAssetService();
+          if (!showFeedback || !context.mounted) return;
+          showInfoBar(context, context.tr('workbench_import_succeeded'));
+          return;
+        } on FormatException {
+          // Fall through: NovelAI metadata JSON is also JSON, but not a
+          // workbench transfer document.
+        }
+      }
+
+      final parsed = await metadataImportService.parseFile(file);
+      final summary = metadataImportService.applyParsed(
+        payloadConfig,
+        fileName,
+        parsed,
+      );
+      _refreshWorkbenchAssetService();
+      notifyListeners();
+      if (!showFeedback || !context.mounted) return;
+      showInfoBar(
+        context,
+        '已导入 ${summary.fileName}，${summary.fieldsLoaded} 个参数，${summary.charactersLoaded} 个角色',
+      );
+    } catch (error) {
+      if (!showFeedback) rethrow;
       if (!context.mounted) return;
       showErrorBar(
         context,
@@ -105,5 +155,11 @@ class WorkbenchTransferViewModel extends ChangeNotifier {
   void _refreshWorkbenchAssetService() {
     if (!GetIt.I.isRegistered<StudioWorkbenchAssetService>()) return;
     GetIt.I<StudioWorkbenchAssetService>().refreshFromPayload();
+  }
+
+  String _fileName(File file) {
+    final segments = file.uri.pathSegments;
+    if (segments.isEmpty) return file.path;
+    return Uri.decodeComponent(segments.last);
   }
 }

@@ -542,9 +542,11 @@ PromptTagCategory promptTagCategoryFromReplacementValue(
       return PromptTagCategory.character;
     case 'body':
       return PromptTagCategory.upperBody;
-    case 'clothing':
     case 'clothingstate':
+      return PromptTagCategory.clothingState;
     case 'accessory':
+      return PromptTagCategory.accessory;
+    case 'clothing':
       return PromptTagCategory.clothing;
     case 'scene':
       return PromptTagCategory.scene;
@@ -681,6 +683,9 @@ class ScriptPromptReplacementRule {
       return ScriptPromptReplacementAction.delete;
     }
     if (targetPrompt.trim().isNotEmpty) {
+      return ScriptPromptReplacementAction.replace;
+    }
+    if (targetWeightMultiplier != null) {
       return ScriptPromptReplacementAction.replace;
     }
     return ScriptPromptReplacementAction.none;

@@ -88,6 +88,50 @@ void main() {
     expect(rawJson.toString(), isNot(contains('private-output')));
   });
 
+  test('removeRecord keeps the gallery image file by default', () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final imageFile = File(
+      [tempDir.path, 'kept-gallery-image.png'].join(Platform.pathSeparator),
+    );
+    await imageFile.writeAsBytes(base64Decode(_tinyPngBase64));
+    final record = await service.saveSnapshot(
+      config: _payload(prompt: 'kept prompt', apiKey: 'pst-export', proxy: ''),
+      title: 'kept-gallery-image.png',
+      imagePath: imageFile.path,
+      id: 'record-keep-file',
+      createdAt: DateTime.parse('2026-05-22T10:45:00Z'),
+    );
+
+    await service.removeRecord(record.id);
+
+    expect(await service.loadRecords(), isEmpty);
+    expect(await imageFile.exists(), isTrue);
+  });
+
+  test('removeRecord deletes the gallery image file when requested', () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final imageFile = File(
+      [tempDir.path, 'deleted-gallery-image.png'].join(Platform.pathSeparator),
+    );
+    await imageFile.writeAsBytes(base64Decode(_tinyPngBase64));
+    final record = await service.saveSnapshot(
+      config: _payload(
+        prompt: 'deleted prompt',
+        apiKey: 'pst-export',
+        proxy: '',
+      ),
+      title: 'deleted-gallery-image.png',
+      imagePath: imageFile.path,
+      id: 'record-delete-file',
+      createdAt: DateTime.parse('2026-05-22T10:50:00Z'),
+    );
+
+    await service.removeRecord(record.id, deleteImageFile: true);
+
+    expect(await service.loadRecords(), isEmpty);
+    expect(await imageFile.exists(), isFalse);
+  });
+
   test('restoreToWorkbench applies creative state and preserves local settings',
       () async {
     final service = StudioGalleryService(workspaceService: workspaceService);
@@ -438,6 +482,159 @@ void main() {
       'creative-record',
     ]);
     expect(creativeRecords.map((record) => record.id), ['creative-record']);
+  });
+
+  test('loadRecastRecords returns only script provenance records', () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    await service.saveSnapshot(
+      config: _payload(
+        prompt: 'standalone creative prompt',
+        apiKey: 'pst-creative',
+        proxy: '',
+      ),
+      title: 'standalone.png',
+      imagePath: r'C:\outputs\standalone.png',
+      info: 'standalone creative prompt',
+      createdAt: DateTime.parse('2026-05-22T10:30:00Z'),
+      id: 'creative-record',
+    );
+    await service.saveRecastFrameSnapshot(
+      payload: {
+        'input': 'script recast prompt',
+        'parameters': {'seed': 1234},
+      },
+      title: 'nai_1.png',
+      imagePath: r'C:\outputs\nai_1.png',
+      info: 'script recast prompt',
+      provenance: const StudioRecastProvenance(
+        scriptId: 'script-1',
+        scriptName: 'Pilot',
+        scriptPath: r'C:\scripts\pilot',
+        recastRunId: 'run-1',
+        productionPlanId: 'plan-1',
+        productionPlanFingerprint: 'plan-fingerprint',
+        taskId: 'task-1',
+        frameIndex: 1,
+        sourceFileName: 'nai_1.json',
+        payloadFingerprint: 'payload-fingerprint',
+        mappingConfigFingerprint: 'mapping-fingerprint',
+        outputImagePath: r'C:\outputs\nai_1.png',
+      ),
+      createdAt: DateTime.parse('2026-05-22T10:31:00Z'),
+      id: 'script-record',
+    );
+
+    final recastRecords = await service.loadRecastRecords();
+
+    expect(recastRecords.map((record) => record.id), ['script-record']);
+    expect(recastRecords.single.provenance?.taskId, 'task-1');
+  });
+
+  test('loadRecastRecords hydrates lightweight records without full document',
+      () async {
+    final recordsFile = File(
+      [
+        tempDir.path,
+        ...WorkspacePaths.galleryRecords.split('/'),
+      ].join(Platform.pathSeparator),
+    );
+    await recordsFile.parent.create(recursive: true);
+    await recordsFile.writeAsString(jsonEncode([
+      {
+        'id': 'creative-record',
+        'createdAt': '2026-05-22T10:30:00Z',
+        'title': 'standalone.png',
+        'info': 'standalone creative prompt',
+        'document': {'kind': 'malformed'},
+      },
+      {
+        'id': 'script-record',
+        'createdAt': '2026-05-22T10:31:00Z',
+        'title': 'nai_1.png',
+        'imagePath': r'C:\outputs\nai_1.png',
+        'info': 'script recast prompt',
+        'provenance': {
+          'scriptId': 'script-1',
+          'scriptName': 'Pilot',
+          'scriptPath': r'C:\scripts\pilot',
+          'recastRunId': 'run-1',
+          'productionPlanId': 'plan-1',
+          'productionPlanFingerprint': 'plan-fingerprint',
+          'taskId': 'task-1',
+          'frameIndex': 1,
+          'sourceFileName': 'nai_1.json',
+          'payloadFingerprint': 'payload-fingerprint',
+          'mappingConfigFingerprint': 'mapping-fingerprint',
+          'outputImagePath': r'C:\outputs\nai_1.png',
+        },
+        'document': {
+          'kind': 'malformed',
+          'payload': {
+            'i2i_config': 'not needed by script exhibition',
+          },
+        },
+      },
+    ]));
+    final service = StudioGalleryService(workspaceService: workspaceService);
+
+    final recastRecords = await service.loadRecastRecords();
+
+    expect(recastRecords.map((record) => record.id), ['script-record']);
+    expect(recastRecords.single.provenance?.taskId, 'task-1');
+    expect(recastRecords.single.document.payload, isEmpty);
+  });
+
+  test('loadCreativeRecordSummary counts creative records and limits recent',
+      () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    await service.saveSnapshot(
+      config: _payload(prompt: 'old', apiKey: 'pst-export', proxy: ''),
+      id: 'creative-old',
+      createdAt: DateTime.parse('2026-05-22T10:00:00Z'),
+    );
+    await service.saveRecastFrameSnapshot(
+      payload: {
+        'input': 'script recast prompt',
+        'parameters': {'seed': 1234},
+      },
+      title: 'nai_1.png',
+      imagePath: r'C:\outputs\nai_1.png',
+      info: 'script recast prompt',
+      provenance: const StudioRecastProvenance(
+        scriptId: 'script-1',
+        scriptName: 'Pilot',
+        scriptPath: r'C:\scripts\pilot',
+        recastRunId: 'run-1',
+        productionPlanId: 'plan-1',
+        productionPlanFingerprint: 'plan-fingerprint',
+        taskId: 'task-1',
+        frameIndex: 1,
+        sourceFileName: 'nai_1.json',
+        payloadFingerprint: 'payload-fingerprint',
+        mappingConfigFingerprint: 'mapping-fingerprint',
+        outputImagePath: r'C:\outputs\nai_1.png',
+      ),
+      id: 'script-record',
+      createdAt: DateTime.parse('2026-05-22T10:01:00Z'),
+    );
+    await service.saveSnapshot(
+      config: _payload(prompt: 'middle', apiKey: 'pst-export', proxy: ''),
+      id: 'creative-middle',
+      createdAt: DateTime.parse('2026-05-22T10:02:00Z'),
+    );
+    await service.saveSnapshot(
+      config: _payload(prompt: 'newest', apiKey: 'pst-export', proxy: ''),
+      id: 'creative-newest',
+      createdAt: DateTime.parse('2026-05-22T10:03:00Z'),
+    );
+
+    final summary = await service.loadCreativeRecordSummary(recentLimit: 2);
+
+    expect(summary.totalCount, 3);
+    expect(
+      summary.recentRecords.map((record) => record.id),
+      ['creative-newest', 'creative-middle'],
+    );
   });
 }
 

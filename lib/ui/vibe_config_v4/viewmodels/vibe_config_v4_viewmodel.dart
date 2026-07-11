@@ -16,7 +16,14 @@ class VibeConfigV4Viewmodel extends ChangeNotifier {
   String get fileName => config.fileName;
   Uint8List? get imageBytes => config.imageBytes;
   String? get sourceImagePath => config.sourceImagePath;
+  double get infoExtracted => config.infoExtracted;
   double get referenceStrength => config.referenceStrength;
+
+  setInfoExtracted(double value) {
+    config.infoExtracted = value.clamp(0.0, 1.0).toDouble();
+    notifyListeners();
+    configService.saveConfig(payloadConfig.toJson());
+  }
 
   setReferenceStrength(double value) {
     config.referenceStrength = value;

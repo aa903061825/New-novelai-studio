@@ -14,6 +14,7 @@ import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
 import 'package:novel_studio/data/studio/services/production_queue_service.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
+import 'package:novel_studio/data/studio/services/script_recast_asset_context_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_production_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_capture_service.dart';
@@ -22,12 +23,18 @@ import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_animated_presence.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_drawer_motion.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_asset_capture_host.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_drawer_shell.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
@@ -201,6 +208,216 @@ void main() {
       expect(viewModel.importProgressValue, isNull);
     });
 
+    test('a slower earlier import cannot replace a newer script', () async {
+      final parser = _ControllableParserService();
+      final viewModel = StudioScriptViewModel(
+        parserService: parser,
+        loadCharacters: () async => const [],
+        loadArtistChains: () async => const [],
+        loadVibes: () async => const [],
+      );
+      final firstScript = _singleFrameScript(
+        id: 'script-a',
+        name: 'Script A',
+        rootPath: 'script-a',
+        baseCaption: 'first script prompt',
+      );
+      final secondScript = _singleFrameScript(
+        id: 'script-b',
+        name: 'Script B',
+        rootPath: 'script-b',
+        baseCaption: 'second script prompt',
+      );
+
+      final firstImport = viewModel.importScriptPath('script-a');
+      await parser.waitUntilStarted('script-a');
+      final secondImport = viewModel.importScriptPath('script-b');
+      await parser.waitUntilStarted('script-b');
+
+      parser.complete('script-b', secondScript);
+      await secondImport;
+      expect(viewModel.diff.original, contains('second script prompt'));
+
+      parser.complete('script-a', firstScript);
+      await firstImport;
+
+      expect(viewModel.folderStatus, contains('Script B'));
+      expect(viewModel.diff.original, contains('second script prompt'));
+      expect(viewModel.diff.original, isNot(contains('first script prompt')));
+    });
+
+    test('disposing the view model invalidates a pending script import',
+        () async {
+      final parser = _ControllableParserService();
+      final viewModel = StudioScriptViewModel(
+        parserService: parser,
+        loadCharacters: () async => const [],
+        loadArtistChains: () async => const [],
+        loadVibes: () async => const [],
+      );
+      final import = viewModel.importScriptPath('disposed-script');
+      await parser.waitUntilStarted('disposed-script');
+
+      viewModel.dispose();
+      parser.complete(
+        'disposed-script',
+        _singleFrameScript(
+          id: 'disposed-script',
+          name: 'Disposed Script',
+          rootPath: 'disposed-script',
+          baseCaption: 'stale disposed prompt',
+        ),
+      );
+
+      await expectLater(import, completes);
+      expect(viewModel.folderStatus, isNot(contains('Disposed Script')));
+      expect(viewModel.diff.original, isNot(contains('stale disposed prompt')));
+    });
+
+    test(
+      'disposing while exhibition cache restore fails does not notify',
+      () async {
+        final restoreStarted = Completer<void>();
+        final restoreResult = Completer<RecastScriptCacheSnapshotRestore?>();
+        final viewModel = StudioScriptViewModel(
+          restoreRecastCacheSnapshotByScriptId: ({
+            required String scriptId,
+            String? importPath,
+          }) {
+            restoreStarted.complete();
+            return restoreResult.future;
+          },
+        );
+
+        final open = viewModel.openScriptFromExhibition(
+          scriptId: 'disposed-cache-script',
+          sourceFolder: 'disposed-cache-source',
+        );
+        await restoreStarted.future;
+
+        viewModel.dispose();
+        restoreResult.completeError(StateError('cache restore exploded'));
+
+        await expectLater(open, completes);
+      },
+    );
+
+    test(
+      'disposing while a direct cache apply stops does not enter fallback',
+      () async {
+        final script = _singleFrameScript(
+          id: 'disposed-direct-cache-script',
+          name: 'Disposed Direct Cache Script',
+          rootPath: 'disposed-direct-cache-source',
+          baseCaption: 'disposed direct cache prompt',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _testSourceFingerprint(script),
+          updatedAt: DateTime.utc(2026, 7, 10),
+          mapping: RecastMapping.defaults(script.id),
+          scriptSnapshot: const {},
+        );
+        late final StudioScriptViewModel viewModel;
+        var disposalScheduled = false;
+        viewModel = StudioScriptViewModel(
+          restoreRecastCacheSnapshotByScriptId: ({
+            required String scriptId,
+            String? importPath,
+          }) async {
+            return RecastScriptCacheSnapshotRestore(
+              cache: cache,
+              script: script,
+            );
+          },
+        );
+        viewModel.addListener(() {
+          if (!disposalScheduled &&
+              viewModel.importProgressLabel.contains('正在整理剧本结构')) {
+            disposalScheduled = true;
+            scheduleMicrotask(viewModel.dispose);
+          }
+        });
+
+        await expectLater(
+          viewModel.openScriptFromExhibition(
+            scriptId: script.id,
+            sourceFolder: script.rootPath,
+          ),
+          completes,
+        );
+        expect(disposalScheduled, isTrue);
+      },
+    );
+
+    test(
+      'disposing while a targeted cache restore stops does not enter fallback',
+      () async {
+        final script = _singleFrameScript(
+          id: 'disposed-targeted-cache-script',
+          name: 'Disposed Targeted Cache Script',
+          rootPath: 'disposed-targeted-cache-source',
+          baseCaption: 'disposed targeted cache prompt',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _testSourceFingerprint(script),
+          updatedAt: DateTime.utc(2026, 7, 10),
+          mapping: RecastMapping.defaults(script.id),
+          scriptSnapshot: script.toJson(),
+        );
+        late final StudioScriptViewModel viewModel;
+        var disposalScheduled = false;
+        viewModel = StudioScriptViewModel(
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        viewModel.addListener(() {
+          if (!disposalScheduled &&
+              viewModel.importProgressLabel.contains('正在恢复剧本快照')) {
+            disposalScheduled = true;
+            scheduleMicrotask(viewModel.dispose);
+          }
+        });
+
+        await expectLater(
+          viewModel.openScriptFromExhibition(
+            scriptId: script.id,
+            sourceFolder: script.rootPath,
+          ),
+          completes,
+        );
+        expect(disposalScheduled, isTrue);
+      },
+    );
+
+    test('folder picker result is ignored after the view model is disposed',
+        () async {
+      final pickerResult = Completer<String?>();
+      final parser = _FakeParserService([
+        _singleFrameScript(
+          id: 'disposed-picker-script',
+          name: 'Disposed Picker Script',
+          rootPath: 'disposed-picker-source',
+          baseCaption: 'disposed picker prompt',
+        ),
+      ]);
+      final viewModel = StudioScriptViewModel(
+        pickScriptDirectory: () => pickerResult.future,
+        parserService: parser,
+      );
+
+      final import = viewModel.importScriptFolder();
+      viewModel.dispose();
+      pickerResult.complete('disposed-picker-source');
+
+      await expectLater(import, completes);
+      expect(parser.parseCount, 0);
+    });
+
     testWidgets('renders import progress in the script header', (tester) async {
       final viewModel = StudioScriptViewModel()
         ..isImportingScript = true
@@ -213,11 +430,45 @@ void main() {
         find.byKey(const ValueKey('script-import-progress-banner')),
         findsOneWidget,
       );
-      expect(find.textContaining('1/3'), findsOneWidget);
+      expect(find.textContaining('1/3'), findsWidgets);
       final indicator = tester.widget<LinearProgressIndicator>(
         find.byKey(const ValueKey('script-import-progress-bar')),
       );
       expect(indicator.value, closeTo(1 / 3, 0.001));
+    });
+
+    testWidgets('hides heavy script workspace while import is running',
+        (tester) async {
+      final viewModel = StudioScriptViewModel()
+        ..isImportingScript = true
+        ..importProgressLabel = '正在打开剧本工作台...'
+        ..importProgressValue = 0.28
+        ..frameCount = 144
+        ..parsedCount = 144
+        ..timeline = [
+          for (var index = 1; index <= 144; index++)
+            StudioScriptTimelineItem(
+              frameIndex: index,
+              label: '$index帧',
+              selected: index == 1,
+            ),
+        ];
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('script-import-queue-panel')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('script-layout-main-workspace')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('script-layout-bottom-timeline')),
+        findsNothing,
+      );
     });
 
     test('saves a parsed PNG script snapshot for the next import', () async {
@@ -461,6 +712,340 @@ void main() {
       expect(viewModel.folderStatus, contains('single cache script'));
     });
 
+    test('restores PNG cache snapshot through direct snapshot restore',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'studio-script-direct-cache-loader-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+      await File(
+        '${tempDir.path}${Platform.pathSeparator}p000.png',
+      ).writeAsBytes(const [137, 80, 78, 71]);
+      final script = _singleFrameScript(
+        id: ScriptRecastParserService.scriptIdForDirectory(tempDir),
+        name: 'direct cache script',
+        rootPath: tempDir.path,
+        baseCaption: 'artist:direct-cache, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: tempDir.path,
+        sourceFingerprint: 'fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 27, 12),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: const {},
+      );
+      var directRestoreCalls = 0;
+      var mapHydratorCalls = 0;
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (_) async {
+          throw StateError('Full cache loader should not be used.');
+        },
+        loadRecastCaches: () async {
+          throw StateError('Bulk cache loader should not be used.');
+        },
+        restoreRecastCacheSnapshotByScriptId: ({
+          required String scriptId,
+          String? importPath,
+        }) async {
+          directRestoreCalls += 1;
+          expect(scriptId, script.id);
+          expect(importPath, tempDir.path);
+          return RecastScriptCacheSnapshotRestore(
+            cache: cache,
+            script: script,
+          );
+        },
+        hydrateCachedScriptSnapshot: ({
+          required Map<String, dynamic> scriptSnapshot,
+          String? importPath,
+        }) {
+          mapHydratorCalls += 1;
+          throw StateError('Map snapshot hydrator should not be used.');
+        },
+      );
+
+      await viewModel.importScriptPath(tempDir.path);
+
+      expect(directRestoreCalls, 1);
+      expect(mapHydratorCalls, 0);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.folderStatus, contains('direct cache script'));
+    });
+
+    test('opens exhibition script from cache without parsing directory',
+        () async {
+      final script = _singleFrameScript(
+        id: 'script-exhibition-fast-open',
+        name: 'Exhibition Fast Open',
+        rootPath: r'C:\scripts\exhibition-fast-open',
+        baseCaption: 'artist:fast-cache, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _testSourceFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 20, 8),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      );
+      var targetedLoadCount = 0;
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (scriptId) async {
+          targetedLoadCount += 1;
+          return scriptId == script.id ? cache : null;
+        },
+      );
+
+      await viewModel.openScriptFromExhibition(
+        scriptId: script.id,
+        sourceFolder: script.rootPath,
+        frameIndex: 1,
+      );
+
+      expect(targetedLoadCount, 1);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.folderStatus, contains('Exhibition Fast Open'));
+      expect(viewModel.selectedFrameIndex, 1);
+    });
+
+    test('opens exhibition cache before asset context finishes loading',
+        () async {
+      final script = _singleFrameScript(
+        id: 'script-exhibition-no-asset-block',
+        name: 'Exhibition No Asset Block',
+        rootPath: r'C:\scripts\exhibition-no-asset-block',
+        baseCaption: 'artist:slow-assets, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _testSourceFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 20, 10),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      );
+      final pendingAssetContext = Completer<ScriptRecastAssetContext>();
+      var assetContextLoadCount = 0;
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (scriptId) async {
+          return scriptId == script.id ? cache : null;
+        },
+        loadAssetContext: () {
+          assetContextLoadCount += 1;
+          return pendingAssetContext.future;
+        },
+      );
+
+      await expectLater(
+        viewModel
+            .openScriptFromExhibition(
+              scriptId: script.id,
+              sourceFolder: script.rootPath,
+              frameIndex: 1,
+            )
+            .timeout(const Duration(milliseconds: 80)),
+        completes,
+      );
+
+      expect(assetContextLoadCount, 1);
+      expect(viewModel.isImportingScript, isFalse);
+      expect(viewModel.importProgressLabel, isEmpty);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.selectedFrameIndex, 1);
+
+      pendingAssetContext.complete(
+        ScriptRecastAssetContext(
+          characters: const [],
+          outfits: const [],
+          artistChains: const [],
+          filterRules: const FilterRuleConfig(),
+          filterMetadata: const ScriptRecastFilterMetadata.empty(),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    });
+
+    test('opens exhibition cache through async snapshot hydrator with timings',
+        () async {
+      final script = _singleFrameScript(
+        id: 'script-exhibition-hydrator',
+        name: 'Exhibition Hydrator',
+        rootPath: r'C:\scripts\exhibition-hydrator',
+        baseCaption: 'artist:hydrator, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _testSourceFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 20, 11),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      );
+      final hydrateStarted = Completer<void>();
+      final hydratedScript = Completer<Script>();
+      final hydrateCalls = <({Map<String, dynamic> snapshot, String? path})>[];
+      final timings = <StudioScriptOpenTiming>[];
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (scriptId) async {
+          return scriptId == script.id ? cache : null;
+        },
+        hydrateCachedScriptSnapshot: ({
+          required Map<String, dynamic> scriptSnapshot,
+          String? importPath,
+        }) {
+          hydrateCalls.add((snapshot: scriptSnapshot, path: importPath));
+          if (!hydrateStarted.isCompleted) {
+            hydrateStarted.complete();
+          }
+          return hydratedScript.future;
+        },
+        openTimingSink: timings.add,
+      );
+
+      final openFuture = viewModel.openScriptFromExhibition(
+        scriptId: script.id,
+        sourceFolder: script.rootPath,
+        frameIndex: 1,
+      );
+      await hydrateStarted.future.timeout(const Duration(milliseconds: 80));
+
+      expect(hydrateCalls.single.path, script.rootPath);
+      expect(viewModel.isImportingScript, isTrue);
+
+      hydratedScript.complete(script);
+      await openFuture.timeout(const Duration(milliseconds: 250));
+
+      expect(viewModel.isImportingScript, isFalse);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.selectedFrameIndex, 1);
+      expect(
+        timings.map((timing) => timing.stage),
+        containsAllInOrder([
+          'load-cache',
+          'hydrate-cache-snapshot',
+          'apply-cache',
+          'complete-cache-hit',
+        ]),
+      );
+    });
+
+    test('opens exhibition cache through direct snapshot restore', () async {
+      final script = _singleFrameScript(
+        id: 'script-exhibition-direct-restore',
+        name: 'Exhibition Direct Restore',
+        rootPath: r'C:\scripts\exhibition-direct-restore',
+        baseCaption: 'artist:direct-restore, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _testSourceFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 27, 11),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: const {},
+      );
+      var directRestoreCalls = 0;
+      var mapHydratorCalls = 0;
+      final timings = <StudioScriptOpenTiming>[];
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        loadRecastCacheByScriptId: (_) async {
+          throw StateError('Full cache loader should not be used.');
+        },
+        restoreRecastCacheSnapshotByScriptId: ({
+          required String scriptId,
+          String? importPath,
+        }) async {
+          directRestoreCalls += 1;
+          expect(scriptId, script.id);
+          expect(importPath, script.rootPath);
+          return RecastScriptCacheSnapshotRestore(
+            cache: cache,
+            script: script,
+          );
+        },
+        hydrateCachedScriptSnapshot: ({
+          required Map<String, dynamic> scriptSnapshot,
+          String? importPath,
+        }) {
+          mapHydratorCalls += 1;
+          throw StateError('Map snapshot hydrator should not be used.');
+        },
+        openTimingSink: timings.add,
+      );
+
+      await viewModel.openScriptFromExhibition(
+        scriptId: script.id,
+        sourceFolder: script.rootPath,
+        frameIndex: 1,
+      );
+
+      expect(directRestoreCalls, 1);
+      expect(mapHydratorCalls, 0);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.folderStatus, contains('Exhibition Direct Restore'));
+      expect(viewModel.selectedFrameIndex, 1);
+      expect(
+        timings.map((timing) => timing.stage),
+        containsAllInOrder([
+          'load-cache',
+          'hydrate-cache-snapshot',
+          'apply-cache',
+          'complete-cache-hit',
+        ]),
+      );
+    });
+
+    test('opens exhibition cache without rebuilding preview twice', () async {
+      final script = _singleFrameScript(
+        id: 'script-exhibition-single-preview',
+        name: 'Exhibition Single Preview',
+        rootPath: r'C:\scripts\exhibition-single-preview',
+        baseCaption: 'artist:single-preview, city lights',
+      );
+      final cache = RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: _testSourceFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 27, 10),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      );
+      final engine = _CountingRecastEngine();
+      final viewModel = StudioScriptViewModel(
+        parserService: _ThrowingParserService(),
+        recastEngine: engine,
+        loadRecastCacheByScriptId: (scriptId) async {
+          return scriptId == script.id ? cache : null;
+        },
+      );
+
+      await viewModel.openScriptFromExhibition(
+        scriptId: script.id,
+        sourceFolder: script.rootPath,
+        frameIndex: 1,
+      );
+
+      expect(engine.frameResolveCallCount, 1);
+      expect(viewModel.frameCount, 1);
+      expect(viewModel.selectedFrameIndex, 1);
+    });
+
     test(
       'restores named cache when current PNG path only has an empty stub',
       () async {
@@ -549,6 +1134,120 @@ void main() {
         expect(
           viewModel.aiRoleExtraction.roles.single.displayName,
           'Recovered AI Hero',
+        );
+      },
+    );
+
+    test(
+      'restores richer named cache when current PNG path cache has no user mappings',
+      () async {
+        final tempRoot = await Directory.systemTemp.createTemp(
+          'studio-script-richer-named-cache-',
+        );
+        addTearDown(() async {
+          if (await tempRoot.exists()) {
+            await tempRoot.delete(recursive: true);
+          }
+        });
+        final importDir = Directory(
+          '${tempRoot.path}${Platform.pathSeparator}Moved Script',
+        );
+        await importDir.create(recursive: true);
+        await File(
+          '${importDir.path}${Platform.pathSeparator}p000.png',
+        ).writeAsBytes(const [137, 80, 78, 71]);
+        final importScriptId =
+            ScriptRecastParserService.scriptIdForDirectory(importDir);
+        final currentScript = _singleFrameScript(
+          id: importScriptId,
+          name: 'Moved Script',
+          rootPath: importDir.path,
+          baseCaption: 'blue eyes',
+        );
+        const extraction = ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'blue-eyes',
+                  text: 'blue eyes',
+                  category: PromptTagCategory.upperBody,
+                ),
+              ],
+            ),
+          ],
+        );
+        final currentEmptyCache = RecastScriptCache(
+          scriptId: currentScript.id,
+          scriptName: currentScript.name,
+          sourceRootPath: currentScript.rootPath,
+          sourceFingerprint: _testSourceFingerprint(currentScript),
+          updatedAt: DateTime.utc(2026, 7, 3, 12),
+          mapping: RecastMapping.defaults(currentScript.id),
+          aiRoleExtraction: extraction,
+          scriptSnapshot: currentScript.toJson(),
+        );
+        final oldScript = _singleFrameScript(
+          id: 'script-old-moved',
+          name: 'Moved Script',
+          rootPath: r'E:\old-cache-root\Moved Script',
+          baseCaption: 'blue eyes',
+        );
+        final richerNamedCache = RecastScriptCache(
+          scriptId: oldScript.id,
+          scriptName: oldScript.name,
+          sourceRootPath: oldScript.rootPath,
+          sourceFingerprint: _testSourceFingerprint(oldScript),
+          updatedAt: DateTime.utc(2026, 7, 3, 11),
+          mapping: RecastMapping(
+            id: 'mapping-${oldScript.id}',
+            scriptId: oldScript.id,
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Heroine',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'legacy-blue-eyes-rule',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'legacy-blue-eyes',
+                        text: 'blue eyes',
+                        category: PromptTagCategory.upperBody,
+                      ),
+                    ],
+                    targetPrompt: 'green eyes',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          aiRoleExtraction: extraction,
+          scriptSnapshot: oldScript.toJson(),
+        );
+        var bulkLoadCount = 0;
+        final viewModel = StudioScriptViewModel(
+          parserService: _ThrowingParserService(),
+          loadRecastCacheByScriptId: (scriptId) async {
+            expect(scriptId, importScriptId);
+            return currentEmptyCache;
+          },
+          loadRecastCaches: () async {
+            bulkLoadCount += 1;
+            return [currentEmptyCache, richerNamedCache];
+          },
+        );
+
+        await viewModel.importScriptPath(importDir.path);
+
+        expect(bulkLoadCount, 1);
+        expect(viewModel.frameCount, 1);
+        expect(
+          viewModel.roleReplacementMappings.single.rules.single.targetPrompt,
+          'green eyes',
         );
       },
     );
@@ -674,6 +1373,8 @@ void main() {
         saved!.scriptId,
         ScriptRecastParserService.scriptIdForDirectory(importDir),
       );
+      expect(saved.mapping.scriptId, saved.scriptId);
+      expect(saved.mapping.id, 'mapping-${saved.scriptId}');
       expect(saved.sourceRootPath, importDir.path);
       final snapshot = Script.fromJson(saved.scriptSnapshot);
       expect(snapshot.rootPath, importDir.path);
@@ -2893,7 +3594,7 @@ void main() {
           id: 'frame-review-source-add-script',
           name: 'Frame Review Source Add Script',
           rootPath: 'frame-review-source-add-script',
-          baseCaption: 'city lights, rain',
+          baseCaption: 'artist:source, city lights, rain',
           charCaptions: const ['source hero, fox ears, blue jacket'],
         );
         final cache = RecastScriptCache(
@@ -2923,6 +3624,30 @@ void main() {
                 ],
               ),
             ],
+            scenePromptReplacements: const [
+              ScriptScenePromptReplacement(
+                id: 'scene-source',
+                label: 'Scene',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-city-lights',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-city-lights',
+                        text: 'city lights',
+                        category: PromptTagCategory.scene,
+                        sourceLocation: 'Scene',
+                        frameIndexes: [1],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+            artistSwap: const ArtistSwap(
+              targetArtistChainId: 'artist-target',
+              sourceArtistPrompt: 'artist:source',
+            ),
           ),
           scriptSnapshot: script.toJson(),
         );
@@ -2953,6 +3678,436 @@ void main() {
         );
         expect(rule.sourceTerms.last.frameIndexes, [1]);
         expect(rule.sourceTerms.last.sourceLocation, '角色 1');
+      },
+    );
+
+    test(
+      'frame review source terms can directly create a role replacement rule',
+      () async {
+        final script = _singleFrameScript(
+          id: 'frame-review-direct-add-script',
+          name: 'Frame Review Direct Add Script',
+          rootPath: 'frame-review-direct-add-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, fox ears, blue jacket'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 18),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'role-1',
+          sourceLocation: '角色 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'fox ears',
+              category: PromptTagCategory.upperBody,
+            ),
+            StudioScriptReplacementSourceTermDraft(
+              text: 'blue jacket',
+              category: PromptTagCategory.upperClothing,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rules = viewModel.roleReplacementMappings.single.rules;
+        expect(rules, hasLength(1));
+        expect(
+          rules.single.sourceTerms.map((term) => term.text),
+          orderedEquals(['fox ears', 'blue jacket']),
+        );
+        expect(rules.single.targetPrompt, isEmpty);
+        expect(rules.single.sourceTerms.first.sourceLocation, '角色 1');
+      },
+    );
+
+    test(
+      'frame review source terms target current frame slot when replacement order differs',
+      () async {
+        final script = _singleFrameScript(
+          id: 'frame-review-slot-target-script',
+          name: 'Frame Review Slot Target Script',
+          rootPath: 'frame-review-slot-target-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const [
+            'slot zero hero, stray ribbon, green eyes',
+            'slot one hero, blue eyes',
+          ],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 22),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-1',
+                displayLabel: 'Role 2',
+                sourcePreview: 'slot one hero',
+              ),
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'slot zero hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'role-1',
+          sourceLocation: 'Role 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'stray ribbon',
+              category: PromptTagCategory.upperClothing,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final targetReplacement = viewModel.roleReplacementMappings
+            .singleWhere((replacement) => replacement.sourceRoleId == 'slot-0');
+        final otherReplacement = viewModel.roleReplacementMappings
+            .singleWhere((replacement) => replacement.sourceRoleId == 'slot-1');
+        final rule = targetReplacement.rules.single;
+        expect(rule.sourceTerms.single.text, 'stray ribbon');
+        expect(rule.selected, isTrue);
+        expect(otherReplacement.rules, isEmpty);
+
+        viewModel.setRoleReplacementRuleDeleted('slot-0', rule.id, true);
+
+        final roleOneGroup = viewModel.selectedFrameTagGroups
+            .singleWhere((group) => group.id == 'role-1');
+        expect(roleOneGroup.tags, isNot(contains('stray ribbon')));
+      },
+    );
+
+    test(
+      'frame review source terms select an existing inactive role replacement rule',
+      () async {
+        final script = _singleFrameScript(
+          id: 'frame-review-existing-rule-script',
+          name: 'Frame Review Existing Rule Script',
+          rootPath: 'frame-review-existing-rule-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, small breasts'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 22),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-small-breasts',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-small-breasts',
+                        text: 'small breasts',
+                        category: PromptTagCategory.upperBody,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'role-1',
+          sourceLocation: 'Role 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'small breasts',
+              category: PromptTagCategory.upperBody,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(rule.id, 'rule-small-breasts');
+        expect(rule.selected, isTrue);
+
+        viewModel.setRoleReplacementRuleDeleted('slot-0', rule.id, true);
+
+        expect(
+          viewModel.roleReplacementMappings.single.rules.single.action,
+          ScriptPromptReplacementAction.delete,
+        );
+      },
+    );
+
+    test(
+      'frame review role terms expand to all matching source role frames',
+      () async {
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'city lights',
+              chars: ['source hero, fox ears', 'other girl'],
+            ),
+            (
+              index: 2,
+              base: 'city lights',
+              chars: ['source hero, blue jacket', 'other girl, fox ears'],
+            ),
+            (
+              index: 3,
+              base: 'rain',
+              chars: ['source hero, fox ears, smile'],
+            ),
+          ],
+          id: 'frame-review-role-expansion-script',
+          name: 'Frame Review Role Expansion Script',
+          rootPath: 'frame-review-role-expansion-script',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 20),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'role-1',
+          sourceLocation: '瑙掕壊 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'fox ears',
+              category: PromptTagCategory.upperBody,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(rule.sourceTerms.single.frameIndexes, [1, 3]);
+      },
+    );
+
+    test(
+      'frame review role terms scan all matching source slot frames',
+      () async {
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'city lights',
+              chars: ['source hero, fox ears'],
+            ),
+            (
+              index: 2,
+              base: 'city lights',
+              chars: ['source hero, blue jacket'],
+            ),
+            (
+              index: 3,
+              base: 'rain',
+              chars: ['source hero, fox ears, smile'],
+            ),
+            (
+              index: 4,
+              base: 'forest',
+              chars: ['source hero, fox ears, late frame'],
+            ),
+            (
+              index: 5,
+              base: 'forest',
+              chars: ['source hero, blue jacket', 'other girl, fox ears'],
+            ),
+          ],
+          id: 'frame-review-ai-role-expansion-script',
+          name: 'Frame Review AI Role Expansion Script',
+          rootPath: 'frame-review-ai-role-expansion-script',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 20),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-source-hero',
+                displayLabel: 'Source Hero',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1, 3],
+                  ),
+                ],
+                stages: [
+                  RoleAssemblyStage(
+                    id: 'source-hero-stage',
+                    label: 'Source Hero',
+                    frameIndexes: [1, 3],
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-source-hero',
+                displayLabel: 'Source Hero',
+                sourcePreview: 'source hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'role-1',
+          sourceLocation: '瑙掕壊 1',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'fox ears',
+              category: PromptTagCategory.upperBody,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(rule.sourceTerms.single.frameIndexes, [1, 3, 4]);
+      },
+    );
+
+    test(
+      'frame review scene terms expand to all matching base prompt frames',
+      () async {
+        final script = _scriptWithFrames(
+          [
+            (
+              index: 1,
+              base: 'city lights, rain',
+              chars: ['source hero'],
+            ),
+            (
+              index: 2,
+              base: 'city lights, night',
+              chars: ['source hero'],
+            ),
+            (
+              index: 3,
+              base: 'forest',
+              chars: ['source hero, city lights'],
+            ),
+          ],
+          id: 'frame-review-scene-expansion-script',
+          name: 'Frame Review Scene Expansion Script',
+          rootPath: 'frame-review-scene-expansion-script',
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 20),
+          mapping: RecastMapping.defaults(script.id),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+
+        final added = viewModel.addFrameReviewTermsToReplacementArea(
+          frameIndex: 1,
+          sourceGroupId: 'base',
+          sourceLocation: '基础提示词',
+          terms: const [
+            StudioScriptReplacementSourceTermDraft(
+              text: 'city lights',
+              category: PromptTagCategory.scene,
+            ),
+          ],
+        );
+
+        expect(added, isTrue);
+        final rule = viewModel.sceneReplacementMappings.single.rules.single;
+        expect(rule.sourceTerms.single.frameIndexes, [1, 2]);
       },
     );
 
@@ -4529,6 +5684,56 @@ void main() {
     });
 
     test(
+      'visible role prompt terms preserve exact existing frame indexes',
+      () {
+        final viewModel = StudioScriptViewModel()
+          ..aiRoleExtraction = const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            roles: [
+              ScriptAiExtractedRole(
+                sourceRoleId: 'slot-0',
+                promptTerms: [
+                  ScriptAiExtractedPromptTerm(
+                    id: 'sparse-body-term',
+                    text: 'sparse body term',
+                    category: PromptTagCategory.upperBody,
+                    frameIndexes: [2],
+                  ),
+                ],
+                stages: [
+                  ScriptAiExtractedStage(
+                    stageId: 'broad-stage',
+                    upperBody: 'sparse body term',
+                    upperClothing: 'blue jacket',
+                    frameIndexes: [1, 2, 3],
+                  ),
+                ],
+              ),
+            ],
+          );
+
+        viewModel.setAiRoleExtractionStageField(
+          sourceRoleId: 'slot-0',
+          stageId: 'broad-stage',
+          part: StudioScriptRolePart.upperClothing,
+          value: 'white dress',
+        );
+
+        final terms = viewModel.aiRoleExtraction.roles.single.promptTerms;
+        expect(
+          terms
+              .singleWhere((term) => term.text == 'sparse body term')
+              .frameIndexes,
+          [2],
+        );
+        expect(
+          terms.singleWhere((term) => term.text == 'white dress').frameIndexes,
+          [1, 2, 3],
+        );
+      },
+    );
+
+    test(
       'visible role prompt terms skip terms already covered by stage fields',
       () {
         final viewModel = StudioScriptViewModel()
@@ -5210,6 +6415,14 @@ void main() {
           "source_phrase": "ai hero, blue jacket",
           "source_location": "slot-0 prompt",
           "frame_indexes": [1, 2]
+        },
+        {
+          "id": "stomach-bulge",
+          "text": "stomach bulge",
+          "category": "body",
+          "source_phrase": "ai hero, stomach bulge",
+          "source_location": "slot-0 prompt",
+          "frame_indexes": [2]
         }
       ],
       "stages": [
@@ -5274,7 +6487,7 @@ void main() {
         expect(
           viewModel.aiRoleExtraction.roles.single.promptTerms
               .map((term) => term.text),
-          orderedEquals(['ai hero', 'blue jacket']),
+          orderedEquals(['ai hero', 'blue jacket', 'stomach bulge']),
         );
         expect(
           viewModel.aiRoleExtraction.sceneTerms.single.text,
@@ -5286,7 +6499,7 @@ void main() {
         expect(
           viewModel.roleReplacementMappings.single.rules
               .map((rule) => rule.sourceTerms.single.text),
-          orderedEquals(['ai hero', 'blue jacket']),
+          orderedEquals(['ai hero', 'blue jacket', 'stomach bulge']),
         );
         expect(
           viewModel.sceneReplacementMappings.single.rules.single.sourceTerms
@@ -5295,6 +6508,54 @@ void main() {
         );
       },
     );
+
+    test('restored cache narrows replacement term frames to source evidence',
+        () async {
+      final parsedScript = await const ScriptRecastParserService()
+          .parseDirectory(Directory(_fixturePath));
+      final caches = [
+        RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: _fixturePath,
+          sourceFingerprint: _sourceFingerprintForTest(parsedScript),
+          updatedAt: DateTime.utc(2026, 6, 20, 3),
+          mapping: RecastMapping(
+            id: 'mapping-${parsedScript.id}',
+            scriptId: parsedScript.id,
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'slot 0',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'fox-tail',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'fox-tail-term',
+                        text: 'fox_tail',
+                        category: PromptTagCategory.lowerBody,
+                        frameIndexes: [1, 2],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          aiRoleExtraction: const ScriptAiRoleExtraction(),
+          scriptSnapshot: parsedScript.toJson(),
+        ),
+      ];
+      final viewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => caches,
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+
+      final rule = viewModel.roleReplacementMappings.single.rules.single;
+      expect(rule.sourceTerms.single.frameIndexes, [1]);
+    });
 
     test(
       'restored AI extraction owns source fields over stale cache parts',
@@ -6559,6 +7820,79 @@ void main() {
     );
 
     test(
+      'sendToProduction persists ready AI role draft confirmation',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'studio-script-production-ai-draft-confirm-test-',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        var caches = <RecastScriptCache>[];
+        final workspaceService = WorkspaceService();
+        await workspaceService.createWorkspace(tempDir.path);
+        final productionService = ScriptRecastProductionService(
+          queueService: ProductionQueueService(
+            workspaceService: workspaceService,
+          ),
+          now: () => DateTime.utc(2026, 6, 26, 8),
+        );
+        final script = _singleFrameScript(
+          id: 'ai-draft-confirm-script',
+          name: 'AI Draft Confirm Script',
+          rootPath: r'C:\scripts\ai-draft-confirm',
+          baseCaption: 'classroom',
+          charCaptions: const ['hina (blue archive), school uniform'],
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          productionService: productionService,
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+          loadCharacters: () async => const [],
+          loadArtistChains: () async => const [],
+        );
+
+        await viewModel.importScriptPath(script.rootPath);
+        viewModel.aiRoleExtraction = const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          confidence: 0.95,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'hina (blue archive)',
+              confidence: 0.95,
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'slot-0-default',
+                  label: 'default',
+                  frameIndexes: [1],
+                  identity: 'hina (blue archive)',
+                  upperClothing: 'school uniform',
+                  confidence: 0.95,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        expect(viewModel.isAiRoleExtractionDraftCollapsed, isFalse);
+
+        await viewModel.sendToProduction();
+
+        expect(viewModel.isAiRoleExtractionDraftCollapsed, isTrue);
+        expect(caches.single.aiRoleExtractionDraftCollapsed, isTrue);
+        expect(
+          caches.single.aiRoleExtraction.status,
+          ScriptAiRoleExtractionStatus.ready,
+        );
+      },
+    );
+
+    test(
       'sendToProduction strips unconfirmed automatic role assemblies',
       () async {
         final tempDir = await Directory.systemTemp.createTemp(
@@ -6639,7 +7973,7 @@ void main() {
     );
 
     test(
-      'sendToProduction keeps replacement source appearances for production',
+      'sendToProduction keeps candidate identity out of production until targeted',
       () async {
         final tempDir = await Directory.systemTemp.createTemp(
           'studio-script-production-replacement-appearances-test-',
@@ -6746,9 +8080,9 @@ void main() {
 
         final plans = await workspaceService.loadProductionPlans();
         final payloadText = plans.single.tasks.single.payload.toString();
-        expect(payloadText, contains('pepe_(arknights)'));
+        expect(payloadText, contains('wakamo_(blue_archive)'));
         expect(payloadText, contains('black jacket'));
-        expect(payloadText, isNot(contains('wakamo_(blue_archive)')));
+        expect(payloadText, isNot(contains('pepe_(arknights)')));
         expect(payloadText, isNot(contains('white tanktop')));
       },
     );
@@ -6993,6 +8327,96 @@ void main() {
         expect(productionService.enqueueCount, 1);
       },
     );
+
+    test(
+      'an earlier script send cannot mark a newly imported script as sent',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'studio-script-stale-send-test-',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final workspaceService = WorkspaceService();
+        await workspaceService.createWorkspace(tempDir.path);
+        final productionService = _PendingProductionService(
+          queueService: ProductionQueueService(
+            workspaceService: workspaceService,
+          ),
+        );
+        final parser = _FakeParserService([
+          _singleFrameScript(
+            id: 'script-a',
+            name: 'Script A',
+            rootPath: 'script-a',
+            baseCaption: 'first script prompt',
+          ),
+          _singleFrameScript(
+            id: 'script-b',
+            name: 'Script B',
+            rootPath: 'script-b',
+            baseCaption: 'second script prompt',
+          ),
+        ]);
+        final viewModel = StudioScriptViewModel(
+          parserService: parser,
+          productionService: productionService,
+          loadCharacters: workspaceService.loadCharacters,
+          loadArtistChains: workspaceService.loadArtistChains,
+        );
+
+        await viewModel.importScriptPath('script-a');
+        final firstSend = viewModel.sendToProduction();
+        await productionService.started.future;
+
+        await viewModel.importScriptPath('script-b');
+        productionService.complete();
+
+        expect(await firstSend, isFalse);
+        expect(viewModel.folderStatus, contains('Script B'));
+        expect(viewModel.diff.original, contains('second script prompt'));
+        expect(viewModel.sentToProduction, isFalse);
+        expect(viewModel.lastProductionPlanId, isNull);
+        expect(viewModel.lastProductionPlanName, isNull);
+        expect(viewModel.isSendingToProduction, isFalse);
+      },
+    );
+
+    test('disposing the view model invalidates a pending production send',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'studio-script-disposed-send-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final workspaceService = WorkspaceService();
+      await workspaceService.createWorkspace(tempDir.path);
+      final productionService = _PendingProductionService(
+        queueService: ProductionQueueService(
+          workspaceService: workspaceService,
+        ),
+      );
+      final viewModel = StudioScriptViewModel(
+        productionService: productionService,
+        loadCharacters: workspaceService.loadCharacters,
+        loadArtistChains: workspaceService.loadArtistChains,
+      );
+      await viewModel.importScriptPath(_fixturePath);
+      final send = viewModel.sendToProduction();
+      await productionService.started.future;
+
+      viewModel.dispose();
+      productionService.complete();
+
+      expect(await send, isFalse);
+    });
 
     test('selected tags can be appended to the shared filter rules', () async {
       var rules = <String, dynamic>{
@@ -8338,6 +9762,356 @@ void main() {
     );
 
     testWidgets(
+      'keyframe source tag multi-selection can directly create a replacement rule',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _singleFrameScript(
+          id: 'frame-source-menu-direct-script',
+          name: 'Frame Source Menu Direct Script',
+          rootPath: 'frame-source-menu-direct-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, fox ears, blue jacket'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 18),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        expect(
+          debugReplacementAreaSourceTagBadgeLabel(viewModel, 'fox ears'),
+          'Role 1',
+        );
+        expect(
+          debugReplacementAreaSourceTagBadgeLabel(viewModel, 'city lights'),
+          'Scene',
+        );
+        expect(
+          debugReplacementAreaSourceTagBadgeLabel(viewModel, 'artist:source'),
+          '画师串',
+        );
+        expect(
+          debugReplacementAreaSourceTagBadgeLabel(viewModel, 'blue jacket'),
+          isNull,
+        );
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
+        final foxEars = find
+            .descendant(of: positiveColumn, matching: find.text('fox ears'))
+            .first;
+        final blueJacket = find
+            .descendant(of: positiveColumn, matching: find.text('blue jacket'))
+            .first;
+        await tester.ensureVisible(foxEars);
+        await tester.pumpAndSettle();
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.tap(foxEars);
+        await tester.pump();
+        await tester.tap(blueJacket);
+        await tester.pump();
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+
+        await tester.tap(foxEars, buttons: kSecondaryMouseButton);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('script-frame-add-to-replacement-area')),
+        );
+        await tester.pumpAndSettle();
+
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(
+          rule.sourceTerms.map((term) => term.text),
+          orderedEquals(['fox ears', 'blue jacket']),
+        );
+      },
+    );
+
+    testWidgets(
+      'keyframe source comparison highlights tags already in replacement area',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _singleFrameScript(
+          id: 'frame-source-replacement-comparison-script',
+          name: 'Frame Source Replacement Comparison Script',
+          rootPath: 'frame-source-replacement-comparison-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, fox ears, blue jacket'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 26),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-fox-ears',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-fox-ears',
+                        text: 'fox ears',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation: 'Role 1',
+                        frameIndexes: [1],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
+        PromptTagChip sourceChip(String label) {
+          return tester.widget<PromptTagChip>(
+            find
+                .descendant(
+                  of: positiveColumn,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is PromptTagChip && widget.label == label,
+                  ),
+                )
+                .first,
+          );
+        }
+
+        expect(
+          sourceChip('fox ears').diffState,
+          PromptTagChipDiffState.unchanged,
+        );
+
+        final compareToggle = find.descendant(
+          of: positiveColumn,
+          matching: find.byKey(
+            const ValueKey('script-keyframe-replacement-compare-toggle'),
+          ),
+        );
+        expect(compareToggle, findsOneWidget);
+        await tester.ensureVisible(compareToggle);
+        await tester.pumpAndSettle();
+        await tester.tap(compareToggle);
+        await tester.pumpAndSettle();
+
+        expect(
+          sourceChip('fox ears').diffState,
+          PromptTagChipDiffState.highlighted,
+        );
+        expect(sourceChip('fox ears').diffBadgeLabel, 'Role 1');
+        expect(sourceChip('fox ears').diffTooltip, isNull);
+        expect(
+          sourceChip('blue jacket').diffState,
+          PromptTagChipDiffState.unchanged,
+        );
+        expect(sourceChip('blue jacket').diffTooltip, isNull);
+      },
+    );
+
+    testWidgets(
+      'keyframe source tag can be assigned to a chosen replacement role',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _singleFrameScript(
+          id: 'frame-source-menu-target-picker-script',
+          name: 'Frame Source Menu Target Picker Script',
+          rootPath: 'frame-source-menu-target-picker-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const [
+            'source hero, fox ears',
+            'source rival, blue jacket',
+          ],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 20),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+              ),
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-1',
+                displayLabel: 'Role 2',
+                sourcePreview: 'source rival',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
+        final foxEars = find
+            .descendant(of: positiveColumn, matching: find.text('fox ears'))
+            .first;
+        await tester.ensureVisible(foxEars);
+        await tester.pumpAndSettle();
+
+        await tester.tap(foxEars, buttons: kSecondaryMouseButton);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('script-frame-add-to-replacement-area')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('script-replacement-target-picker')),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.byKey(
+            const ValueKey('script-replacement-target-role-slot-1'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(viewModel.roleReplacementMappings[0].rules, isEmpty);
+        final rule = viewModel.roleReplacementMappings[1].rules.single;
+        expect(
+          rule.sourceTerms.map((term) => term.text),
+          orderedEquals(['fox ears']),
+        );
+        expect(rule.sourceTerms.single.sourceLocation, 'Role 2');
+      },
+    );
+
+    testWidgets(
+      'keyframe positive source groups with negative-content tags can create a replacement rule',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final script = _singleFrameScript(
+          id: 'frame-source-negative-content-menu-script',
+          name: 'Frame Source Negative Content Menu Script',
+          rootPath: 'frame-source-negative-content-menu-script',
+          baseCaption: 'city lights, rain',
+          charCaptions: const ['source hero, uncensored, fox ears'],
+        );
+        final cache = RecastScriptCache(
+          scriptId: script.id,
+          scriptName: script.name,
+          sourceRootPath: script.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(script),
+          updatedAt: DateTime.utc(2026, 6, 20),
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role 1',
+                sourcePreview: 'source hero',
+              ),
+            ],
+          ),
+          scriptSnapshot: script.toJson(),
+        );
+        final viewModel = StudioScriptViewModel(
+          parserService: _FakeParserService([script]),
+          loadRecastCacheByScriptId: (_) async => cache,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(script.rootPath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final positiveColumn =
+            find.byKey(const ValueKey('script-keyframe-positive-column')).first;
+        final foxEars = find
+            .descendant(of: positiveColumn, matching: find.text('fox ears'))
+            .first;
+        await tester.ensureVisible(foxEars);
+        await tester.pumpAndSettle();
+
+        await tester.tap(foxEars, buttons: kSecondaryMouseButton);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('script-frame-add-to-replacement-area')),
+        );
+        await tester.pumpAndSettle();
+
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(
+          rule.sourceTerms.map((term) => term.text),
+          orderedEquals(['fox ears']),
+        );
+        expect(rule.sourceTerms.single.frameIndexes, [1]);
+        expect(rule.sourceTerms.single.sourceLocation, '角色 1');
+      },
+    );
+
+    testWidgets(
       'keyframe source tags can be right clicked into script-only block words',
       (tester) async {
         tester.view.physicalSize = const Size(1600, 1100);
@@ -8499,6 +10273,60 @@ void main() {
             .dy;
 
         expect(drawerBottom, greaterThanOrEqualTo(workspaceBottom - 1));
+      },
+    );
+
+    testWidgets(
+      'script drawer matches workbench drawer width and hover inset',
+      (tester) async {
+        tester.view.physicalSize = const Size(1300, 720);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final viewModel = StudioScriptViewModel();
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final drawer = find.byKey(const ValueKey('script-layout-left-drawer'));
+        final category = find.byKey(
+          const ValueKey('script-drawer-category-artist'),
+        );
+        expect(drawer, findsOneWidget);
+        expect(category, findsOneWidget);
+        expect(
+          find.descendant(
+            of: drawer,
+            matching: find.byType(StudioAssetDrawerShell),
+          ),
+          findsOneWidget,
+        );
+
+        expect(tester.getSize(drawer).width, greaterThanOrEqualTo(320));
+        expect(
+          tester.getTopLeft(category).dx - tester.getTopLeft(drawer).dx,
+          greaterThanOrEqualTo(18),
+        );
+
+        final categoryList = find.ancestor(
+          of: category,
+          matching: find.byType(ListView),
+        );
+        expect(categoryList, findsOneWidget);
+
+        final viewportRect = tester.getRect(categoryList);
+        final categoryRect = tester.getRect(category);
+        expect(
+          categoryRect.left,
+          greaterThanOrEqualTo(viewportRect.left + studioAssetDrawerHoverInset),
+        );
+        expect(
+          categoryRect.top,
+          greaterThanOrEqualTo(viewportRect.top + studioAssetDrawerHoverInset),
+        );
       },
     );
 
@@ -10044,15 +11872,22 @@ void main() {
           findsOneWidget,
         );
         expect(
+          find.ancestor(
+            of: find.byKey(const ValueKey('artist-drop-target-0')),
+            matching: find.byType(StudioStaggeredReveal),
+          ),
+          findsOneWidget,
+        );
+        expect(
           tester.getTopLeft(sourceTags).dy < tester.getTopLeft(outputTags).dy,
           isTrue,
         );
         expect(
-          find.descendant(of: sourceTags, matching: find.text('婧愮敾甯堜覆')),
+          find.descendant(of: sourceTags, matching: find.text('源画师串')),
           findsOneWidget,
         );
         expect(
-          find.descendant(of: outputTags, matching: find.text('鏇挎崲鍚庣敾甯堜覆')),
+          find.descendant(of: outputTags, matching: find.text('替换后画师串')),
           findsOneWidget,
         );
         expect(
@@ -10110,7 +11945,8 @@ void main() {
       });
 
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       const manualPrompt = 'artist:manual_style, soft watercolor lighting';
       final input = find.byKey(const ValueKey('artist-output-input-0'));
@@ -10760,6 +12596,13 @@ void main() {
           findsOneWidget,
         );
         expect(
+          find.ancestor(
+            of: find.byKey(const ValueKey('script-drawer-category-character')),
+            matching: find.byType(StudioInteractiveSurface),
+          ),
+          findsOneWidget,
+        );
+        expect(
           find.byKey(const ValueKey('script-drawer-category-outfit')),
           findsNothing,
         );
@@ -10799,8 +12642,15 @@ void main() {
         final characterCard = find.byKey(
           const ValueKey('script-asset-character-char-hero'),
         );
+        expect(
+          find.ancestor(
+            of: characterCard,
+            matching: find.byType(StudioInteractiveSurface),
+          ),
+          findsOneWidget,
+        );
         await tester.tap(characterCard);
-        await tester.pump(const Duration(milliseconds: 250));
+        await tester.pumpAndSettle();
 
         final identityDropTarget = find.byKey(
           const ValueKey('role-replacement-identity-drop-slot-0'),
@@ -10817,7 +12667,7 @@ void main() {
             dragEnd - dragStart,
             const Duration(milliseconds: 450),
           );
-          await tester.pump(const Duration(milliseconds: 500));
+          await tester.pumpAndSettle();
         }
 
         final outfitCard = find.byKey(
@@ -10826,8 +12676,15 @@ void main() {
           ),
         );
         expect(outfitCard, findsOneWidget);
+        expect(
+          find.ancestor(
+            of: outfitCard,
+            matching: find.byType(StudioInteractiveSurface),
+          ),
+          findsOneWidget,
+        );
         await tester.tap(outfitCard);
-        await tester.pump(const Duration(milliseconds: 250));
+        await tester.pumpAndSettle();
         final upperBodyPart = find.byKey(
           const ValueKey(
             'script-asset-part-character-char-hero-outfit-outfit-hero-default-upper-body',
@@ -11002,6 +12859,105 @@ void main() {
     );
 
     testWidgets(
+      'role replacement target tag drag moves directly to another rule target',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 20),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-headwear',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-headwear',
+                          text: 'old headwear',
+                          category: PromptTagCategory.upperClothing,
+                          frameIndexes: [1],
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'cat_ears, hair_ribbon',
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-dress',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-dress',
+                          text: 'old dress',
+                          category: PromptTagCategory.upperClothing,
+                          frameIndexes: [1],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceTarget = find.byKey(
+          const ValueKey(
+            'replacement-rule-target-role-slot-0-rule-headwear',
+          ),
+        );
+        final hairRibbonChip = find.descendant(
+          of: sourceTarget,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-hair_ribbon-1-idle'),
+          ),
+        );
+        final targetRule = find.byKey(
+          const ValueKey('replacement-rule-prompt-drop-role-slot-0-rule-dress'),
+        );
+        expect(hairRibbonChip, findsOneWidget);
+        expect(targetRule, findsOneWidget);
+
+        await _dragSelectedTagTo(tester, hairRibbonChip, targetRule);
+        await tester.pumpAndSettle();
+
+        final rules = {
+          for (final rule in viewModel.roleReplacementMappings.single.rules)
+            rule.id: rule,
+        };
+        expect(rules['rule-headwear']!.targetPrompt, 'cat_ears');
+        expect(rules['rule-dress']!.targetPrompt, 'hair_ribbon');
+        expect(
+          rules['rule-dress']!.action,
+          ScriptPromptReplacementAction.replace,
+        );
+      },
+    );
+
+    testWidgets(
       'role replacement weight multiplier stores a block target weight',
       (tester) async {
         late final RecastScriptCache cache;
@@ -11063,7 +13019,69 @@ void main() {
     );
 
     testWidgets(
-      'role replacement weight multiplier writes source terms with block weight when no target exists',
+      'role replacement weight multiplier replaces existing block target weight',
+      (tester) async {
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 16),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-ears',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-fox-ears',
+                          text: 'fox ears',
+                          category: PromptTagCategory.upperBody,
+                          frameIndexes: [1],
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'cat ears',
+                      targetWeightMultiplier: 1.5,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        viewModel.scaleRoleReplacementRuleWeight(
+          'slot-0',
+          'rule-ears',
+          1.2,
+        );
+
+        final rule = viewModel.roleReplacementMappings.single.rules.single;
+        expect(rule.targetPrompt, 'cat ears');
+        expect(rule.targetWeightMultiplier, 1.2);
+        expect(rule.action, ScriptPromptReplacementAction.replace);
+      },
+    );
+
+    testWidgets(
+      'role replacement weight multiplier keeps empty target as source weight',
       (tester) async {
         late final RecastScriptCache cache;
         await tester.runAsync(() async {
@@ -11121,9 +13139,23 @@ void main() {
         );
 
         final rule = viewModel.roleReplacementMappings.single.rules.single;
-        expect(rule.targetPrompt, '1.5:: cat ears ::, fox ears');
+        expect(rule.targetPrompt, isEmpty);
         expect(rule.targetWeightMultiplier, 1.2);
-        expect(rule.action, ScriptPromptReplacementAction.replace);
+        expect(rule.action, ScriptPromptReplacementAction.none);
+        expect(rule.effectiveAction, ScriptPromptReplacementAction.replace);
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        expect(find.text('x1.20'), findsOneWidget);
+        expect(
+          find.byKey(
+            const ValueKey(
+              'replacement-rule-target-role-slot-0-rule-source-only',
+            ),
+          ),
+          findsNothing,
+        );
       },
     );
 
@@ -11345,6 +13377,203 @@ void main() {
       },
     );
 
+    testWidgets('role replacement cards can collapse and expand', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 3600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      late final RecastScriptCache cache;
+      await tester.runAsync(() async {
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        cache = RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: parsedScript.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(
+            parsedScript,
+          ),
+          updatedAt: DateTime.utc(2026, 6, 26),
+          mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'AI Hero',
+                sourcePreview: 'source hero preview',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-ears',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-fox-ears',
+                        text: 'fox ears',
+                        category: PromptTagCategory.upperBody,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    action: ScriptPromptReplacementAction.replace,
+                    targetPrompt: 'cat ears',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      });
+      final viewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => [cache],
+      );
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(_fixturePath);
+      });
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pumpAndSettle();
+
+      final resetButton = find.byKey(
+        const ValueKey('role-replacement-reset-slot-0'),
+      );
+      expect(resetButton, findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('role-replacement-collapsed-summary-slot-0'),
+        ),
+        findsNothing,
+      );
+
+      final collapseButton = find.byKey(
+        const ValueKey('role-replacement-collapse-slot-0'),
+      );
+      expect(collapseButton, findsOneWidget);
+      await tester.ensureVisible(collapseButton);
+      await tester.tap(collapseButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(resetButton, findsNothing);
+      expect(
+        find.byKey(
+          const ValueKey('role-replacement-collapsed-summary-slot-0'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('1 个'), findsWidgets);
+      expect(find.textContaining('1 个已映射'), findsWidgets);
+
+      final expandButton = find.byKey(
+        const ValueKey('role-replacement-expand-slot-0'),
+      );
+      expect(expandButton, findsOneWidget);
+      await tester.tap(expandButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(resetButton, findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('role-replacement-collapsed-summary-slot-0'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'role replacement target stays beside overflowing source terms',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 20),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-overflow-hair',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-absurdly-long-hair',
+                          text: 'absurdly long hair',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-straight-hair',
+                          text: 'straight hair',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-very-long-hair',
+                          text: 'very long hair',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                        ScriptPromptReplacementTerm(
+                          id: 'term-white-hair',
+                          text: 'white hair',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'animal_ear_fluff, animal_ears, long_hair',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+        viewModel.setRoleReplacementRuleSelected(
+          'slot-0',
+          'rule-overflow-hair',
+          true,
+        );
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceDisplay = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-overflow-hair',
+          ),
+        );
+        final targetDisplay = find.byKey(
+          const ValueKey(
+            'replacement-rule-target-role-slot-0-rule-overflow-hair',
+          ),
+        );
+        expect(sourceDisplay, findsOneWidget);
+        expect(targetDisplay, findsOneWidget);
+
+        final sourceRect = tester.getRect(sourceDisplay);
+        final targetRect = tester.getRect(targetDisplay);
+        expect(targetRect.left, greaterThan(sourceRect.right + 8));
+        expect(targetRect.top, lessThan(sourceRect.bottom));
+        expect(targetRect.bottom, greaterThan(sourceRect.top));
+      },
+    );
+
     testWidgets(
       'role replacement source tag drag merges source terms',
       (tester) async {
@@ -11452,6 +13681,155 @@ void main() {
         expect(
           rules['rule-pepe']!.action,
           ScriptPromptReplacementAction.replace,
+        );
+      },
+    );
+
+    testWidgets(
+      'role replacement multi-selected source tags merge into an existing block',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 6, 20),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-hair-block',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-hair-flower',
+                          text: 'hair flower',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'animal_ear_fluff, long_hair',
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-high-ponytail',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-high-ponytail',
+                          text: 'high ponytail',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                      ],
+                    ),
+                    ScriptPromptReplacementRule(
+                      id: 'rule-ponytail',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-ponytail',
+                          text: 'ponytail',
+                          category: PromptTagCategory.upperBody,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final highSource = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-high-ponytail',
+          ),
+        );
+        final ponySource = find.byKey(
+          const ValueKey('replacement-rule-source-role-slot-0-rule-ponytail'),
+        );
+        final highChip = find.descendant(
+          of: highSource,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-high ponytail-0-idle'),
+          ),
+        );
+        final ponyChip = find.descendant(
+          of: ponySource,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-ponytail-0-idle'),
+          ),
+        );
+        expect(highChip, findsOneWidget);
+        expect(ponyChip, findsOneWidget);
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.tap(highChip);
+        await tester.pump();
+        await tester.tap(ponyChip);
+        await tester.pump();
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+
+        final selectedHighChip = find.descendant(
+          of: highSource,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-high ponytail-0-selected'),
+          ),
+        );
+        final selectedPonyChip = find.descendant(
+          of: ponySource,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-ponytail-0-selected'),
+          ),
+        );
+        expect(selectedHighChip, findsOneWidget);
+        expect(selectedPonyChip, findsOneWidget);
+
+        final targetRuleSource = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-hair-block',
+          ),
+        );
+        expect(targetRuleSource, findsOneWidget);
+
+        await _dragSelectedTagTo(tester, selectedHighChip, targetRuleSource);
+        await tester.pumpAndSettle();
+
+        final rules = {
+          for (final rule in viewModel.roleReplacementMappings.single.rules)
+            rule.id: rule,
+        };
+        expect(
+          rules.keys,
+          ['rule-hair-block'],
+        );
+        expect(
+          rules['rule-hair-block']!.sourceTerms.map((term) => term.text),
+          ['hair flower', 'high ponytail', 'ponytail'],
+        );
+        expect(
+          rules['rule-hair-block']!.targetPrompt,
+          'animal_ear_fluff, long_hair',
         );
       },
     );
@@ -12503,6 +14881,20 @@ void main() {
 
         await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
         await tester.pumpAndSettle();
+        expect(
+          find.ancestor(
+            of: find.byKey(const ValueKey('script-recast-plan-panel')),
+            matching: find.byType(StudioStaggeredReveal),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.ancestor(
+            of: find.byKey(const ValueKey('role-replacement-card-slot-0')),
+            matching: find.byType(StudioStaggeredReveal),
+          ),
+          findsWidgets,
+        );
         final resetButton = find.byKey(
           const ValueKey('role-replacement-reset-slot-0'),
         );
@@ -12592,6 +14984,349 @@ void main() {
       expect(
         tester.getTopLeft(firstCard).dy,
         lessThan(tester.getTopLeft(secondCard).dy),
+      );
+    });
+
+    testWidgets(
+      'script asset drawer detail rows use visible shared hover feedback',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final viewModel = StudioScriptViewModel(
+          loadArtistChains: () async => const [
+            ArtistChain(id: 'artist-chain-1', name: 'test artist chain'),
+          ],
+        );
+        await tester.runAsync(() async {
+          await viewModel.ensureAssetsLoaded();
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(
+          find.byKey(const ValueKey('script-drawer-category-artist')),
+        );
+        await tester.pumpAndSettle();
+
+        final artistCard = find.byKey(
+          const ValueKey('script-asset-artist-artist-chain-1'),
+        );
+        expect(artistCard, findsOneWidget);
+
+        final surfaceFinder = find
+            .ancestor(
+              of: artistCard,
+              matching: find.byType(StudioInteractiveSurface),
+            )
+            .first;
+        final surface = tester.widget<StudioInteractiveSurface>(surfaceFinder);
+        expect(surface.hoverOverlayColor, isNotNull);
+        expect(surface.hoverBorderColor, isNotNull);
+
+        final mouse = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        addTearDown(mouse.removePointer);
+        await mouse.addPointer(location: tester.getCenter(artistCard));
+        await tester.pump(StudioMotionTokens.fast);
+
+        final hoverChrome = tester.widget<AnimatedContainer>(
+          find.descendant(
+            of: surfaceFinder,
+            matching: find.byType(AnimatedContainer),
+          ),
+        );
+        final decoration = hoverChrome.decoration! as BoxDecoration;
+        final border = decoration.border! as Border;
+        expect(border.top.color, surface.hoverBorderColor);
+      },
+    );
+
+    testWidgets(
+      'script asset drawer avoids stacked push motion and uses shelf motion',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final previewPath = '${Uri.base.toFilePath()}assets/appicon.png';
+        final viewModel = StudioScriptViewModel(
+          loadCharacters: () async => [
+            CharacterEntry(
+              id: 'char-hero',
+              name: 'library character',
+              traits: const ViewVariantTexts(frontFull: 'green eyes'),
+              imageRefs: [previewPath],
+              defaultOutfitId: 'outfit-hero-default',
+              outfits: [
+                WorkspaceOutfit(
+                  id: 'outfit-hero-default',
+                  name: 'default outfit',
+                  tags: const ViewVariantTexts(frontFull: 'white shirt'),
+                  partTags: const WorkspaceOutfitPartTags(
+                    upperClothingTags: ['white shirt'],
+                  ),
+                  imageRefs: [previewPath],
+                ),
+              ],
+            ),
+          ],
+        );
+        await tester.runAsync(() async {
+          await viewModel.ensureAssetsLoaded();
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.pump();
+
+        final categoryCard = find.byKey(
+          const ValueKey('script-drawer-category-character'),
+        );
+        expect(categoryCard, findsOneWidget);
+        expect(
+          find.ancestor(
+            of: categoryCard,
+            matching: find.byType(StudioDrawerPushTransition),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.ancestor(
+            of: categoryCard,
+            matching: find.byType(StudioStaggeredReveal),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(categoryCard);
+        await tester.pumpAndSettle();
+
+        final characterCard = find.byKey(
+          const ValueKey('script-asset-character-char-hero'),
+        );
+        expect(characterCard, findsOneWidget);
+        expect(
+          find.ancestor(
+            of: characterCard,
+            matching: find.byType(StudioDrawerPushTransition),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.ancestor(
+            of: characterCard,
+            matching: find.byType(StudioStaggeredReveal),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(characterCard);
+        await tester.pumpAndSettle();
+
+        final outfitCard = find.byKey(
+          const ValueKey(
+            'script-asset-character-char-hero-outfit-outfit-hero-default',
+          ),
+        );
+        expect(outfitCard, findsOneWidget);
+        expect(tester.getSize(outfitCard).height, lessThan(66));
+        expect(
+          find.ancestor(
+            of: outfitCard,
+            matching: find.byType(StudioDrawerShelf),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.ensureVisible(outfitCard);
+        await tester.pumpAndSettle();
+        await tester.tap(outfitCard);
+        await tester.pumpAndSettle();
+
+        final outfitPart = find.byKey(
+          const ValueKey(
+            'script-asset-part-character-char-hero-outfit-outfit-hero-default-upper-clothing',
+          ),
+        );
+        expect(outfitPart, findsOneWidget);
+        expect(
+          find.ancestor(
+            of: outfitPart,
+            matching: find.byType(StudioDrawerShelf),
+          ),
+          findsWidgets,
+        );
+        expect(
+          tester
+              .widgetList<StudioDrawerShelf>(
+                find.ancestor(
+                  of: outfitPart,
+                  matching: find.byType(StudioDrawerShelf),
+                ),
+              )
+              .map((shelf) => shelf.railOpacity),
+          everyElement(0),
+        );
+      },
+    );
+
+    testWidgets(
+      'script asset drawer back restores categories without replaying reveal',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final viewModel = StudioScriptViewModel(
+          loadCharacters: () async => const [
+            CharacterEntry(
+              id: 'char-hero',
+              name: 'library character',
+              traits: ViewVariantTexts(frontFull: 'green eyes'),
+            ),
+          ],
+        );
+        await tester.runAsync(() async {
+          await viewModel.ensureAssetsLoaded();
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.pump();
+
+        final categoryCard = find.byKey(
+          const ValueKey('script-drawer-category-character'),
+        );
+        expect(categoryCard, findsOneWidget);
+
+        await tester.tap(categoryCard);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('script-asset-character-char-hero')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const ValueKey('script-drawer-back')));
+        await tester.pump();
+
+        expect(categoryCard, findsOneWidget);
+        final categoryFades = tester
+            .widgetList<FadeTransition>(
+              find.ancestor(
+                of: categoryCard,
+                matching: find.byType(FadeTransition),
+              ),
+            )
+            .map((transition) => transition.opacity.value)
+            .toList(growable: false);
+        expect(categoryFades, isNotEmpty);
+        expect(categoryFades, everyElement(moreOrLessEquals(1)));
+      },
+    );
+
+    testWidgets(
+      'script drawer nested outfit hover stays inside drawer bounds',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 1800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final previewPath = '${Uri.base.toFilePath()}assets/appicon.png';
+        final viewModel = StudioScriptViewModel(
+          loadCharacters: () async => [
+            CharacterEntry(
+              id: 'char-hero',
+              name: 'library character',
+              traits: const ViewVariantTexts(
+                frontFull:
+                    'long character prompt, silver hair, fox ears, blue eyes',
+              ),
+              imageRefs: [previewPath],
+              defaultOutfitId: 'outfit-hero-default',
+              outfits: [
+                WorkspaceOutfit(
+                  id: 'outfit-hero-default',
+                  name: 'default outfit',
+                  tags: const ViewVariantTexts(
+                    frontFull:
+                        'dress, sleeveless, long skirt, ribbon, layered cloth',
+                  ),
+                  partTags: const WorkspaceOutfitPartTags(
+                    upperClothingTags: ['dress', 'sleeveless', 'ribbon'],
+                  ),
+                  imageRefs: [previewPath],
+                ),
+              ],
+            ),
+          ],
+        );
+        await tester.runAsync(() async {
+          await viewModel.ensureAssetsLoaded();
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey('script-drawer-category-character')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('script-asset-character-char-hero')),
+        );
+        await tester.pumpAndSettle();
+
+        final outfitCard = find.byKey(
+          const ValueKey(
+            'script-asset-character-char-hero-outfit-outfit-hero-default',
+          ),
+        );
+        expect(outfitCard, findsOneWidget);
+
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: tester.getCenter(outfitCard));
+        await tester.pump(const Duration(milliseconds: 260));
+
+        final shelf = tester.widget<StudioDrawerShelf>(
+          find.ancestor(
+            of: outfitCard,
+            matching: find.byType(StudioDrawerShelf),
+          ),
+        );
+        expect(shelf.margin.resolve(TextDirection.ltr).right, greaterThan(0));
+
+        await mouse.removePointer();
+      },
+    );
+
+    testWidgets('script optional workflow panels use animated presence', (
+      tester,
+    ) async {
+      final viewModel = StudioScriptViewModel();
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pumpAndSettle();
+
+      final aiPresence = find.byKey(
+        const ValueKey('script-ai-progress-presence'),
+      );
+      expect(aiPresence, findsOneWidget);
+      expect(
+        tester.widget<StudioAnimatedPresence>(aiPresence).visible,
+        isFalse,
+      );
+
+      final cachePresence = find.byKey(
+        const ValueKey('script-changed-source-cache-presence'),
+      );
+      expect(cachePresence, findsOneWidget);
+      expect(
+        tester.widget<StudioAnimatedPresence>(cachePresence).visible,
+        isFalse,
       );
     });
 
@@ -15339,6 +18074,8 @@ class _FakeParserService extends ScriptRecastParserService {
 
   _FakeParserService(this.scripts);
 
+  int get parseCount => _index;
+
   @override
   Future<Script> parseDirectory(
     Directory directory, {
@@ -15347,6 +18084,32 @@ class _FakeParserService extends ScriptRecastParserService {
     final script = scripts[_index];
     _index += 1;
     return script;
+  }
+}
+
+class _ControllableParserService extends ScriptRecastParserService {
+  final Map<String, Completer<void>> _started = {};
+  final Map<String, Completer<Script>> _results = {};
+
+  Future<void> waitUntilStarted(String path) {
+    return (_started[path] ??= Completer<void>()).future;
+  }
+
+  void complete(String path, Script script) {
+    (_results[path] ??= Completer<Script>()).complete(script);
+  }
+
+  @override
+  Future<Script> parseDirectory(
+    Directory directory, {
+    ScriptRecastParseProgressCallback? onProgress,
+  }) {
+    final path = directory.path;
+    final started = _started[path] ??= Completer<void>();
+    if (!started.isCompleted) {
+      started.complete();
+    }
+    return (_results[path] ??= Completer<Script>()).future;
   }
 }
 
@@ -15474,6 +18237,7 @@ class _CountingRecastEngine extends ScriptRecastEngine {
 
 class _PendingProductionService extends ScriptRecastProductionService {
   final Completer<void> _completer = Completer<void>();
+  final Completer<void> started = Completer<void>();
   int enqueueCount = 0;
 
   _PendingProductionService({required super.queueService})
@@ -15495,6 +18259,9 @@ class _PendingProductionService extends ScriptRecastProductionService {
     String? scriptPath,
   }) async {
     enqueueCount += 1;
+    if (!started.isCompleted) {
+      started.complete();
+    }
     await _completer.future;
     return super.enqueueRecastResult(
       result: result,

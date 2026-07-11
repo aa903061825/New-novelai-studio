@@ -47,6 +47,7 @@ void main() {
     final config = VibeConfigV4(
       fileName: 'v4.vibe',
       vibeB64: 'abc123',
+      infoExtracted: 0.42,
       referenceStrength: 0.65,
       imageBytes: fullSizePng,
       sourceImagePath: r'C:\app\vibe-assets\current\v4.png',
@@ -56,15 +57,41 @@ void main() {
     final restored = VibeConfigV4.fromJson(json);
 
     expect(json.keys, isNot(contains('image_b64')));
+    expect(json['info_extracted'], 0.42);
     expect(json['source_image_path'], r'C:\app\vibe-assets\current\v4.png');
     expect(restored.fileName, config.fileName);
     expect(restored.vibeB64, config.vibeB64);
+    expect(restored.infoExtracted, config.infoExtracted);
     expect(restored.referenceStrength, config.referenceStrength);
     expect(restored.sourceImagePath, config.sourceImagePath);
     expect(restored.imageBytes, isNull);
   });
 
-  test('VibeConfigV4 still reads legacy json with image bytes', () {
+  test('VibeConfigV4 reads NAI import info for strength and extraction', () {
+    final config = VibeConfigV4.fromNaiV4VibeJson(
+      'style.naiv4vibe',
+      {
+        'name': 'Soft Vibe',
+        'importInfo': {
+          'strength': 0.33,
+          'information_extracted': 0.7,
+        },
+        'encodings': {
+          'v4-5full': {
+            'unknown': {'encoding': 'encoded-vibe'},
+          },
+        },
+      },
+      0.2,
+    );
+
+    expect(config.fileName, 'Soft Vibe');
+    expect(config.vibeB64, 'encoded-vibe');
+    expect(config.infoExtracted, 0.7);
+    expect(config.referenceStrength, 0.33);
+  });
+
+  test('VibeConfigV4 keeps legacy image json lazy during config load', () {
     final restored = VibeConfigV4.fromJson({
       'file_name': 'legacy-v4.png',
       'vibe_b64': 'abc123',
@@ -75,7 +102,9 @@ void main() {
     expect(restored.fileName, 'legacy-v4.png');
     expect(restored.vibeB64, 'abc123');
     expect(restored.referenceStrength, 0.65);
-    expect(restored.imageBytes, Uint8List.fromList(const [7, 8, 9]));
+    expect(restored.imageBytes, isNull);
+    expect(restored.legacyImageB64, 'BwgJ');
+    expect(restored.toJson()['image_b64'], 'BwgJ');
   });
 
   test('PayloadConfig persists vibe lists in json', () {
@@ -92,6 +121,7 @@ void main() {
       VibeConfigV4(
         fileName: 'v4.vibe',
         vibeB64: 'vibe-encoding',
+        infoExtracted: 0.25,
         referenceStrength: 0.4,
       ),
     ];
@@ -102,6 +132,7 @@ void main() {
     expect(restored.vibeConfigList.first.fileName, 'legacy-vibe.png');
     expect(restored.vibeConfigListV4.length, 1);
     expect(restored.vibeConfigListV4.first.vibeB64, 'vibe-encoding');
+    expect(restored.vibeConfigListV4.first.infoExtracted, 0.25);
   });
 
   test('PayloadConfig persists all script-level V4 vibes', () {

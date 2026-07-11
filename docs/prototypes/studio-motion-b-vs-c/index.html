@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novel Studio Motion B vs C</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090909;
+      --panel: #121212;
+      --panel-2: #191919;
+      --line: #272727;
+      --line-strong: #3a3a3a;
+      --text: #f1f1ec;
+      --muted: #8f8f89;
+      --yellow: #ffdf00;
+      --yellow-soft: rgba(255, 223, 0, .18);
+      --blue: #4aa3ff;
+      --green: #1ed88b;
+      --orange: #ff9b3d;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 232px 1fr;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      padding: 28px 16px;
+      background: #0d0d0d;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 34px;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #050505;
+      background: var(--yellow);
+      font-weight: 900;
+    }
+
+    .nav-item {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      border-radius: 22px;
+      margin-bottom: 8px;
+      color: #bdbdb8;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .nav-item.active {
+      color: #101010;
+      background: var(--yellow);
+    }
+
+    .main {
+      padding: 28px;
+    }
+
+    .top {
+      max-width: 1360px;
+      margin: 0 auto 18px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      color: #b8b8b2;
+      font-size: 12px;
+    }
+
+    .chip {
+      border: 1px solid var(--line-strong);
+      background: #151515;
+      border-radius: 999px;
+      padding: 7px 10px;
+    }
+
+    .compare {
+      max-width: 1360px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .motion-card {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .motion-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 108px;
+    }
+
+    .motion-kicker {
+      color: var(--yellow);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .motion-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      max-width: 480px;
+    }
+
+    .score {
+      flex: 0 0 auto;
+      text-align: right;
+      color: #bdbdb7;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .score strong {
+      display: block;
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .demo {
+      height: 650px;
+      padding: 18px;
+      background: #0f0f0f;
+    }
+
+    .studio-frame {
+      height: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #101010;
+      display: grid;
+      grid-template-columns: 168px 1fr;
+    }
+
+    .mini-side {
+      padding: 16px 10px;
+      border-right: 1px solid var(--line);
+      background: #0b0b0b;
+    }
+
+    .mini-nav {
+      height: 34px;
+      border-radius: 18px;
+      margin-bottom: 7px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #a8a8a2;
+      font-size: 12px;
+      font-weight: 700;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mini-nav .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      border: 2px solid currentColor;
+    }
+
+    .mini-nav.active {
+      color: #111;
+      background: var(--yellow);
+    }
+
+    .mini-content {
+      padding: 18px;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 86px;
+    }
+
+    .hero-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .hero-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 223, 0, .72);
+      color: #0b0b0b;
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+
+    .hero h3 {
+      margin: 0 0 5px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search {
+      height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #0d0d0d;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      color: #767670;
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.12fr .88fr;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .filters,
+    .results {
+      min-width: 0;
+    }
+
+    .filter-card {
+      height: 70px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      background: #151515;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .filter-card .bubble,
+    .row .bubble {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 17px;
+      background: #202020;
+      color: #a0a09a;
+      font-size: 13px;
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+
+    .filter-card.active {
+      border-color: rgba(255, 223, 0, .78);
+      background: rgba(255, 223, 0, .06);
+    }
+
+    .filter-card.active .bubble {
+      background: rgba(255, 223, 0, .78);
+      color: #101010;
+    }
+
+    .filter-text strong,
+    .row strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .filter-text span,
+    .row span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .results {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    .row {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid #232323;
+      background: #111;
+      border-radius: 7px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+
+    .preview {
+      height: 118px;
+      border-radius: 8px;
+      border: 1px solid #2a2a2a;
+      background:
+        linear-gradient(135deg, rgba(255, 223, 0, .2), transparent 35%),
+        linear-gradient(160deg, #161616, #0b0b0b);
+      margin-top: 10px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preview::before,
+    .preview::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      background: rgba(255, 223, 0, .16);
+    }
+
+    .preview::before {
+      width: 98px;
+      height: 98px;
+      right: 22px;
+      top: 16px;
+    }
+
+    .preview::after {
+      width: 54px;
+      height: 54px;
+      right: 94px;
+      top: 44px;
+      background: rgba(74, 163, 255, .17);
+    }
+
+    .cta {
+      height: 34px;
+      border-radius: 17px;
+      border: 0;
+      background: var(--yellow);
+      color: #0d0d0d;
+      padding: 0 18px;
+      font-weight: 900;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .notes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 14px 18px 18px;
+      background: #0f0f0f;
+      border-top: 1px solid var(--line);
+    }
+
+    .note {
+      border: 1px solid var(--line);
+      background: #151515;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 88px;
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .note p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .b-demo .search {
+      animation: bFocus 6s ease-in-out infinite;
+    }
+
+    .b-demo .filter-card:nth-child(2) {
+      animation: bHover 6s ease-in-out infinite;
+    }
+
+    .b-demo .row {
+      animation: bList 6s ease-in-out infinite;
+    }
+
+    .b-demo .row:nth-child(2) {
+      animation-delay: .06s;
+    }
+
+    .b-demo .row:nth-child(3) {
+      animation-delay: .12s;
+    }
+
+    .b-demo .preview {
+      animation: bPreview 6s ease-in-out infinite;
+    }
+
+    @keyframes bFocus {
+      0%, 18%, 100% {
+        border-color: var(--line);
+        box-shadow: none;
+      }
+      25%, 42% {
+        border-color: rgba(255, 223, 0, .65);
+        box-shadow: 0 0 0 2px rgba(255, 223, 0, .08);
+      }
+    }
+
+    @keyframes bHover {
+      0%, 26%, 100% {
+        transform: translateY(0);
+        border-color: var(--line);
+        background: #151515;
+      }
+      34%, 53% {
+        transform: translateY(-2px);
+        border-color: rgba(255, 223, 0, .44);
+        background: rgba(255, 223, 0, .045);
+      }
+    }
+
+    @keyframes bList {
+      0%, 45%, 100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      55% {
+        opacity: .42;
+        transform: translateY(4px);
+      }
+      68%, 88% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes bPreview {
+      0%, 50%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      64%, 82% {
+        opacity: .86;
+        transform: scale(1.012);
+      }
+    }
+
+    .c-demo .hero {
+      animation: cHero 7s cubic-bezier(.16, 1, .3, 1) infinite;
+      transform-origin: center top;
+    }
+
+    .c-demo .mini-nav.active {
+      animation: cNavGlow 7s ease-in-out infinite;
+    }
+
+    .c-demo .search {
+      animation: cSearch 7s ease-in-out infinite;
+    }
+
+    .c-demo .filter-card {
+      animation: cStage 7s cubic-bezier(.16, 1, .3, 1) infinite;
+    }
+
+    .c-demo .filter-card:nth-child(2) {
+      animation-delay: .08s;
+    }
+
+    .c-demo .filter-card:nth-child(3) {
+      animation-delay: .16s;
+    }
+
+    .c-demo .filter-card.active {
+      animation-name: cStageActive;
+    }
+
+    .c-demo .row {
+      animation: cRows 7s cubic-bezier(.16, 1, .3, 1) infinite;
+    }
+
+    .c-demo .row:nth-child(2) {
+      animation-delay: .1s;
+    }
+
+    .c-demo .row:nth-child(3) {
+      animation-delay: .2s;
+    }
+
+    .c-demo .preview {
+      animation: cPreview 7s ease-in-out infinite;
+    }
+
+    .c-demo .cta {
+      animation: cPulse 7s ease-in-out infinite;
+    }
+
+    @keyframes cHero {
+      0%, 100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        box-shadow: none;
+      }
+      8% {
+        opacity: .1;
+        transform: translateY(24px) scale(.97);
+      }
+      20%, 58% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        box-shadow: 0 24px 60px rgba(255, 223, 0, .08);
+      }
+    }
+
+    @keyframes cNavGlow {
+      0%, 100% {
+        box-shadow: none;
+      }
+      20%, 58% {
+        box-shadow: 0 0 26px rgba(255, 223, 0, .3);
+      }
+    }
+
+    @keyframes cSearch {
+      0%, 18%, 100% {
+        border-color: var(--line);
+        box-shadow: none;
+      }
+      28%, 62% {
+        border-color: rgba(255, 223, 0, .72);
+        box-shadow: 0 0 0 3px rgba(255, 223, 0, .11), 0 18px 36px rgba(0, 0, 0, .35);
+      }
+    }
+
+    @keyframes cStage {
+      0%, 12%, 100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+      21% {
+        opacity: .2;
+        transform: translateY(22px) scale(.96);
+      }
+      38%, 68% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes cStageActive {
+      0%, 12%, 100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        box-shadow: none;
+      }
+      21% {
+        opacity: .2;
+        transform: translateY(22px) scale(.96);
+      }
+      38%, 68% {
+        opacity: 1;
+        transform: translateY(-2px) scale(1.012);
+        box-shadow: 0 0 0 1px rgba(255, 223, 0, .2), 0 18px 40px rgba(255, 223, 0, .08);
+      }
+    }
+
+    @keyframes cRows {
+      0%, 36%, 100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+      48% {
+        opacity: .1;
+        transform: translateX(20px) scale(.98);
+      }
+      64%, 78% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+      }
+    }
+
+    @keyframes cPreview {
+      0%, 46%, 100% {
+        transform: scale(1);
+        filter: saturate(1);
+      }
+      62%, 80% {
+        transform: scale(1.045);
+        filter: saturate(1.28);
+      }
+    }
+
+    @keyframes cPulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: none;
+      }
+      20%, 54% {
+        transform: scale(1.035);
+        box-shadow: 0 0 24px rgba(255, 223, 0, .36);
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .compare {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">N</span> Novel Studio</div>
+      <div class="nav-item">⌂ 首页</div>
+      <div class="nav-item">▦ 工作台</div>
+      <div class="nav-item active">▣ 素材库</div>
+      <div class="nav-item">▤ 剧本工作台</div>
+      <div class="nav-item">▧ 批量产线</div>
+      <div class="nav-item">▥ 画廊</div>
+    </aside>
+
+    <main class="main">
+      <section class="top">
+        <div>
+          <h1>B / C 动效方向对比</h1>
+          <p class="subtitle">两个样本使用同一套素材库布局，只比较动效性格。观察筛选卡、搜索框、结果列表和预览区的变化强度。</p>
+        </div>
+        <div class="legend">
+          <span class="chip">B：短、轻、交互触发</span>
+          <span class="chip">C：明显、展示感、入场更强</span>
+        </div>
+      </section>
+
+      <section class="compare">
+        <article class="motion-card b-demo">
+          <header class="motion-header">
+            <div>
+              <div class="motion-kicker">Option B</div>
+              <h2>微动效优化</h2>
+              <p class="motion-copy">保持当前工具布局稳定，按钮、筛选、预览和列表只在交互或状态切换时轻微响应。适合素材库、剧本工作台、批量产线这类高频操作界面。</p>
+            </div>
+            <div class="score"><strong>低干扰</strong>120-220ms</div>
+          </header>
+
+          <div class="demo">
+            <div class="studio-frame">
+              <div class="mini-side">
+                <div class="mini-nav"><span class="dot"></span>首页</div>
+                <div class="mini-nav"><span class="dot"></span>工作台</div>
+                <div class="mini-nav active"><span class="dot"></span>素材库</div>
+                <div class="mini-nav"><span class="dot"></span>剧本工作台</div>
+                <div class="mini-nav"><span class="dot"></span>画廊</div>
+              </div>
+
+              <div class="mini-content">
+                <section class="hero">
+                  <div class="hero-title">
+                    <div class="hero-icon">▣</div>
+                    <div>
+                      <h3>素材库</h3>
+                      <p>已整理 96 条可用素材，可直接送入工作台。</p>
+                    </div>
+                  </div>
+                  <button class="cta">进入工作台</button>
+                </section>
+
+                <div class="search">⌕ 搜索素材、角色或标签</div>
+
+                <div class="grid">
+                  <section class="filters">
+                    <div class="filter-card active">
+                      <div class="bubble">▦</div>
+                      <div class="filter-text"><strong>全部</strong><span>96 个素材</span></div>
+                    </div>
+                    <div class="filter-card">
+                      <div class="bubble">人</div>
+                      <div class="filter-text"><strong>角色</strong><span>24 个素材</span></div>
+                    </div>
+                    <div class="filter-card">
+                      <div class="bubble">图</div>
+                      <div class="filter-text"><strong>画师串</strong><span>25 个素材</span></div>
+                    </div>
+                  </section>
+
+                  <section class="results">
+                    <div class="row"><div class="bubble">K</div><div><strong>kasane_teto</strong><span>girl, white bow, twin drill...</span></div></div>
+                    <div class="row"><div class="bubble">M</div><div><strong>miyu outfit</strong><span>school uniform, ribbon...</span></div></div>
+                    <div class="row"><div class="bubble">A</div><div><strong>artist tags</strong><span>linework, warm key...</span></div></div>
+                    <div class="preview"></div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="notes">
+            <div class="note"><strong>你会感觉到</strong><p>界面更顺，但不抢注意力。鼠标碰到、搜索聚焦、筛选变化时才有反馈。</p></div>
+            <div class="note"><strong>适用位置</strong><p>全局导航、素材库、剧本工作台、批量产线、表单和拖拽操作。</p></div>
+          </div>
+        </article>
+
+        <article class="motion-card c-demo">
+          <header class="motion-header">
+            <div>
+              <div class="motion-kicker">Option C</div>
+              <h2>展示型动效</h2>
+              <p class="motion-copy">保留同一布局，但页面入场、卡片重排、预览区和主按钮更明显，有更强的发光、缩放、弹性和分段出现。更适合首页或画廊展示场景。</p>
+            </div>
+            <div class="score"><strong>高存在感</strong>320-680ms</div>
+          </header>
+
+          <div class="demo">
+            <div class="studio-frame">
+              <div class="mini-side">
+                <div class="mini-nav"><span class="dot"></span>首页</div>
+                <div class="mini-nav"><span class="dot"></span>工作台</div>
+                <div class="mini-nav active"><span class="dot"></span>素材库</div>
+                <div class="mini-nav"><span class="dot"></span>剧本工作台</div>
+                <div class="mini-nav"><span class="dot"></span>画廊</div>
+              </div>
+
+              <div class="mini-content">
+                <section class="hero">
+                  <div class="hero-title">
+                    <div class="hero-icon">▣</div>
+                    <div>
+                      <h3>素材库</h3>
+                      <p>已整理 96 条可用素材，可直接送入工作台。</p>
+                    </div>
+                  </div>
+                  <button class="cta">进入工作台</button>
+                </section>
+
+                <div class="search">⌕ 搜索素材、角色或标签</div>
+
+                <div class="grid">
+                  <section class="filters">
+                    <div class="filter-card active">
+                      <div class="bubble">▦</div>
+                      <div class="filter-text"><strong>全部</strong><span>96 个素材</span></div>
+                    </div>
+                    <div class="filter-card">
+                      <div class="bubble">人</div>
+                      <div class="filter-text"><strong>角色</strong><span>24 个素材</span></div>
+                    </div>
+                    <div class="filter-card">
+                      <div class="bubble">图</div>
+                      <div class="filter-text"><strong>画师串</strong><span>25 个素材</span></div>
+                    </div>
+                  </section>
+
+                  <section class="results">
+                    <div class="row"><div class="bubble">K</div><div><strong>kasane_teto</strong><span>girl, white bow, twin drill...</span></div></div>
+                    <div class="row"><div class="bubble">M</div><div><strong>miyu outfit</strong><span>school uniform, ribbon...</span></div></div>
+                    <div class="row"><div class="bubble">A</div><div><strong>artist tags</strong><span>linework, warm key...</span></div></div>
+                    <div class="preview"></div>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="notes">
+            <div class="note"><strong>你会感觉到</strong><p>更有“演出感”，但高频操作页可能显得躁，切换多了容易打断节奏。</p></div>
+            <div class="note"><strong>适用位置</strong><p>首页首次入场、画廊大图预览、生成完成反馈、少量展示型入口。</p></div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

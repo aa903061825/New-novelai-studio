@@ -569,6 +569,44 @@ void main() {
     ]);
   });
 
+  test('loadSnapshot reads codex entries from separated codex storage',
+      () async {
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'mood-board',
+        name: 'Mood Board',
+        prompt: 'quiet interior',
+      ),
+    ]);
+    await workspaceService.saveCodexEntries([
+      const InspirationEntry(
+        id: 'separated-codex',
+        name: 'Separated Codex',
+        prompt: 'artist:wlop, separated fantasy',
+        source: SourceRef(type: 'legacy_codex'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [],
+    );
+
+    final defaultSnapshot = await service.loadSnapshot();
+    final codexSnapshot = await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 10,
+    );
+
+    expect(defaultSnapshot.inspirations.map((entry) => entry.id), [
+      'mood-board',
+    ]);
+    expect(codexSnapshot.inspirations.map((entry) => entry.id), [
+      'mood-board',
+      'separated-codex',
+    ]);
+    expect(codexSnapshot.legacyCodexTotalCount, 1);
+  });
+
   test('loadSnapshot exposes bundled legacy codex before entries load',
       () async {
     final snapshot = await StudioAssetCatalogService(
@@ -993,7 +1031,7 @@ void main() {
     );
     expect(await cacheFile.exists(), isTrue);
     final cacheJson = jsonDecode(await cacheFile.readAsString());
-    expect(cacheJson['schemaVersion'], 7);
+    expect(cacheJson['schemaVersion'], 9);
     final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
     expect(entries, hasLength(1));
     final cacheEntry = Map<String, dynamic>.from(entries.values.single as Map);
@@ -1072,6 +1110,48 @@ void main() {
     expect(codexResult.fromCache, isTrue);
     expect(codexResult.snapshot.legacyCodexLoadedCount, 1);
     expect(codexResult.snapshot.inspirations.single.id, 'legacy-codex-cache');
+  });
+
+  test('loadSnapshot keeps progressive codex pages out of durable cache',
+      () async {
+    await workspaceService.saveInspirations([
+      for (var index = 1; index <= 220; index++)
+        InspirationEntry(
+          id: 'legacy-codex-progressive-$index',
+          name: 'Progressive Codex $index',
+          prompt: 'artist:wlop, progressive cache $index',
+          source: const SourceRef(type: 'legacy_codex'),
+        ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+      legacyCodexLoader: () async => const [],
+    );
+
+    await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 48,
+    );
+    await service.loadSnapshot(
+      includeLegacyCodex: true,
+      legacyCodexLimit: 208,
+    );
+
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache}',
+    );
+    final cacheJson = jsonDecode(await cacheFile.readAsString());
+    final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
+    final codexEntries = entries.entries
+        .where((entry) => entry.key.startsWith('codex=1|'))
+        .toList(growable: false);
+
+    expect(codexEntries, hasLength(1));
+    expect(
+      codexEntries.single.value['snapshot']['legacyCodexLoadedCount'],
+      48,
+    );
   });
 
   test('loadSnapshotWithCache reuses larger codex cache for smaller requests',
@@ -1223,5 +1303,33 @@ void main() {
     expect(unchecked.snapshot.characters.single.id, 'char-old');
     expect(checked.fromCache, isTrue);
     expect(checked.isStale, isTrue);
+  });
+
+  test('loadSnapshotWithCache can reuse rebuilt snapshot before durable write',
+      () async {
+    await workspaceService.saveCharacters([
+      const CharacterEntry(
+        id: 'char-nonblocking-cache',
+        name: 'Nonblocking Cache Hero',
+        traits: ViewVariantTexts(frontFull: 'blue eyes'),
+      ),
+    ]);
+    final service = StudioAssetCatalogService(
+      workspaceService: workspaceService,
+    );
+
+    final rebuilt = await service.loadSnapshotWithCache(
+      checkStaleness: false,
+      persistCacheBeforeReturn: false,
+    );
+    final cached = await service.loadSnapshotWithCache(
+      checkStaleness: false,
+    );
+
+    expect(rebuilt.fromCache, isFalse);
+    expect(rebuilt.snapshot.characters.single.id, 'char-nonblocking-cache');
+    expect(cached.fromCache, isTrue);
+    expect(cached.snapshot.characters.single.id, 'char-nonblocking-cache');
+    await service.waitForPendingPersistentCacheWrite();
   });
 }

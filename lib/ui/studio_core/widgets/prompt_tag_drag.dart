@@ -1,41 +1,151 @@
 import 'package:flutter/material.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
 
 typedef PromptTagDragRemover = void Function(Set<int> indexes);
 typedef PromptTagSelectionSnapshotProvider = List<PromptTagSelectionItem>
     Function();
 typedef PromptTagDragRemovalPolicy = bool Function(PromptTagDragData data);
+typedef PromptTagCopyOnlyResolver = bool Function();
 
 class PromptTagDragData {
   final String originId;
   final Set<String> sourceFieldIds;
   final Set<int> indexes;
   final List<String> tags;
+  final List<PromptTagDragPreviewItem> previewItems;
+  final bool preserveSelectionOnDrop;
   final PromptTagDragRemover? removeFromSource;
+  final PromptTagCopyOnlyResolver? copyOnlyResolver;
 
   PromptTagDragData({
     required this.originId,
     Set<String>? sourceFieldIds,
     required Set<int> indexes,
     required List<String> tags,
+    List<PromptTagDragPreviewItem>? previewItems,
+    this.preserveSelectionOnDrop = false,
     this.removeFromSource,
+    this.copyOnlyResolver,
   })  : sourceFieldIds = Set.unmodifiable(sourceFieldIds ?? {originId}),
         indexes = Set.unmodifiable(indexes),
-        tags = List.unmodifiable(tags);
+        tags = List.unmodifiable(tags),
+        previewItems = List.unmodifiable(previewItems ?? const []);
+
+  bool get copyOnly => copyOnlyResolver?.call() ?? false;
+
+  PromptTagDragData withPreviewItems(
+    List<PromptTagDragPreviewItem> previewItems,
+  ) {
+    return PromptTagDragData(
+      originId: originId,
+      sourceFieldIds: sourceFieldIds,
+      indexes: indexes,
+      tags: tags,
+      previewItems: previewItems,
+      preserveSelectionOnDrop: preserveSelectionOnDrop,
+      removeFromSource: removeFromSource,
+      copyOnlyResolver: copyOnlyResolver,
+    );
+  }
+}
+
+class PromptTagDragPreviewItem {
+  final String label;
+  final String translation;
+  final bool translationFirst;
+  final String? weightLabel;
+  final double? weight;
+  final PromptTagCategory category;
+  final PromptTagChipVariant variant;
+  final PromptTagChipDiffState diffState;
+  final bool loading;
+  final String loadingLabel;
+  final bool warning;
+  final bool selected;
+  final bool highlighted;
+  final String? highlightTooltip;
+  final double? maxWidth;
+
+  const PromptTagDragPreviewItem({
+    required this.label,
+    required this.translation,
+    this.translationFirst = false,
+    this.weightLabel,
+    this.weight,
+    required this.category,
+    this.variant = PromptTagChipVariant.display,
+    this.diffState = PromptTagChipDiffState.unchanged,
+    this.loading = false,
+    this.loadingLabel = '\u7ffb\u8bd1\u4e2d...',
+    this.warning = false,
+    this.selected = true,
+    this.highlighted = false,
+    this.highlightTooltip,
+    this.maxWidth,
+  });
 }
 
 class PromptTagDragFeedback extends StatelessWidget {
   final List<String> tags;
+  final List<PromptTagDragPreviewItem> previewItems;
   final bool dense;
 
   const PromptTagDragFeedback({
     super.key,
     required this.tags,
+    this.previewItems = const [],
     this.dense = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (tags.isNotEmpty && previewItems.length == 1) {
+      final item = previewItems.single;
+      final count = tags.length;
+      return Material(
+        color: Colors.transparent,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            PromptTagChip(
+              label: item.label,
+              translation: item.translation,
+              translationFirst: item.translationFirst,
+              weightLabel: item.weightLabel,
+              weight: item.weight,
+              loading: item.loading,
+              loadingLabel: item.loadingLabel,
+              warning: item.warning,
+              selected: item.selected,
+              highlighted: item.highlighted,
+              highlightTooltip: item.highlightTooltip,
+              diffState: item.diffState,
+              category: item.category,
+              dense: dense,
+              variant: item.variant,
+              maxWidth: item.maxWidth,
+              bodyKey: const ValueKey('prompt-tag-drag-feedback-chip-body'),
+              markerKey: const ValueKey('prompt-tag-drag-feedback-chip-marker'),
+              weightKey: const ValueKey('prompt-tag-drag-feedback-chip-weight'),
+              checkKey: const ValueKey('prompt-tag-drag-feedback-chip-check'),
+              highlightKey:
+                  const ValueKey('prompt-tag-drag-feedback-chip-highlight'),
+              diffKey: item.diffState == PromptTagChipDiffState.unchanged
+                  ? null
+                  : const ValueKey('prompt-tag-drag-feedback-chip-diff'),
+            ),
+            if (count > 1)
+              Positioned(
+                top: -8,
+                left: -8,
+                child: _DragCountBadge(count: count),
+              ),
+          ],
+        ),
+      );
+    }
     final count = tags.length;
     final first = tags.isEmpty ? '' : tags.first;
     final label = count <= 1 ? first : '$count tags';
@@ -68,6 +178,41 @@ class PromptTagDragFeedback extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DragCountBadge extends StatelessWidget {
+  final int count;
+
+  const _DragCountBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const ValueKey('prompt-tag-drag-feedback-count-badge'),
+      decoration: BoxDecoration(
+        color: StudioTokens.primary,
+        borderRadius: StudioTokens.radiusBadge,
+        border: Border.all(color: StudioTokens.onPrimary),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          'x$count',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: StudioTokens.onPrimary,
+                fontWeight: FontWeight.w900,
+              ),
         ),
       ),
     );
@@ -119,12 +264,14 @@ class PromptTagSelectionField {
   final String? selectionGroupId;
   final PromptTagSelectionSnapshotProvider snapshots;
   final PromptTagDragRemover removeIndexes;
+  final bool copyDraggedTagsWithAlt;
 
   const PromptTagSelectionField({
     required this.fieldId,
     this.selectionGroupId,
     required this.snapshots,
     required this.removeIndexes,
+    this.copyDraggedTagsWithAlt = false,
   });
 }
 
@@ -144,6 +291,8 @@ class PromptTagSelectionController extends ChangeNotifier {
   final Set<PromptTagSelectionKey> _selected = <PromptTagSelectionKey>{};
   final Set<PromptTagSelectionKey> _previewed = <PromptTagSelectionKey>{};
   List<_PromptTagSelectionHit>? _selectionSnapshotCache;
+  bool _disposed = false;
+  bool _unregisterNotificationScheduled = false;
   late final String dragOriginId =
       'prompt-tag-shared-${identityHashCode(this)}';
 
@@ -173,7 +322,27 @@ class PromptTagSelectionController extends ChangeNotifier {
     }
     _selected.removeAll(removedSelected);
     _previewed.removeAll(removedPreviewed);
-    notifyListeners();
+    _scheduleUnregisterNotification();
+  }
+
+  void _scheduleUnregisterNotification() {
+    if (_unregisterNotificationScheduled) {
+      return;
+    }
+    _unregisterNotificationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _unregisterNotificationScheduled = false;
+      if (_disposed) {
+        return;
+      }
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   bool isSelected(String fieldId, int index) {
@@ -324,6 +493,7 @@ class PromptTagSelectionController extends ChangeNotifier {
     required Set<int> localIndexes,
     required List<String> localTags,
     required PromptTagDragRemover localRemove,
+    PromptTagCopyOnlyResolver? copyOnlyResolver,
   }) {
     final groupId = _selectionGroupIdForField(fieldId);
     final selectedInGroup = _selected
@@ -337,12 +507,18 @@ class PromptTagSelectionController extends ChangeNotifier {
     if (selectedInGroup.isEmpty ||
         !selectedFields.contains(fieldId) ||
         (selectedFields.length == 1 && selectedFields.contains(fieldId))) {
+      final sourceFields = {fieldId};
       return PromptTagDragData(
         originId: localOriginId,
-        sourceFieldIds: {fieldId},
+        sourceFieldIds: sourceFields,
         indexes: localIndexes,
         tags: localTags,
+        preserveSelectionOnDrop: selectedInGroup.isNotEmpty,
         removeFromSource: localRemove,
+        copyOnlyResolver: _copyOnlyResolverFor(
+          sourceFields,
+          copyOnlyResolver,
+        ),
       );
     }
 
@@ -351,7 +527,12 @@ class PromptTagSelectionController extends ChangeNotifier {
       sourceFieldIds: selectedFields,
       indexes: selectedIndexesFor(fieldId),
       tags: _selectedTagsFor(selectedInGroup),
+      preserveSelectionOnDrop: true,
       removeFromSource: (_) => _removeSelectedFromSourcesInGroup(groupId),
+      copyOnlyResolver: _copyOnlyResolverFor(
+        selectedFields,
+        copyOnlyResolver,
+      ),
     );
   }
 
@@ -485,6 +666,26 @@ class PromptTagSelectionController extends ChangeNotifier {
 
   String? _selectionGroupIdForField(String fieldId) {
     return _fields[fieldId]?.selectionGroupId;
+  }
+
+  PromptTagCopyOnlyResolver? _copyOnlyResolverFor(
+    Set<String> fieldIds,
+    PromptTagCopyOnlyResolver? copyOnlyResolver,
+  ) {
+    if (copyOnlyResolver == null || fieldIds.isEmpty) {
+      return null;
+    }
+    return () => copyOnlyResolver() && _fieldsAllowAltCopy(fieldIds);
+  }
+
+  bool _fieldsAllowAltCopy(Set<String> fieldIds) {
+    for (final fieldId in fieldIds) {
+      final field = _fields[fieldId];
+      if (field == null || !field.copyDraggedTagsWithAlt) {
+        return false;
+      }
+    }
+    return true;
   }
 
   double _distanceSquaredToRect(Offset point, Rect rect) {

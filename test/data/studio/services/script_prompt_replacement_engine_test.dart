@@ -388,6 +388,43 @@ void main() {
 
       expect(result, '3:: no cap ::, 2:: no hat ::, solo');
     });
+
+    test('empty target multiplier weights only present source tags', () {
+      final result = engine.applyRules(
+        prompt: '1.5:: cat ears ::, solo',
+        frameIndex: 1,
+        rules: [
+          ScriptPromptReplacementRule.fromJson(const {
+            'id': 'rule-source-weight',
+            'sourceTerms': [
+              {
+                'id': 'term-cat-ears',
+                'text': 'cat ears',
+                'category': 'upperBody',
+              },
+              {
+                'id': 'term-fox-ears',
+                'text': 'fox ears',
+                'category': 'upperBody',
+              },
+              {
+                'id': 'term-no-cap',
+                'text': 'no cap',
+                'category': 'upperBody',
+              },
+              {
+                'id': 'term-no-hat',
+                'text': 'no hat',
+                'category': 'upperBody',
+              },
+            ],
+            'targetWeightMultiplier': 2,
+          }),
+        ],
+      );
+
+      expect(result, '3:: cat ears ::, solo');
+    });
   });
 }
 

@@ -62,6 +62,7 @@ void main() {
       VibeConfigV4(
         fileName: 'modern.vibe',
         vibeB64: 'nai4-vibe',
+        infoExtracted: 0.4,
         referenceStrength: 0.2,
       ),
     ];
@@ -71,7 +72,7 @@ void main() {
 
     expect(params['reference_image_multiple'], ['nai4-vibe']);
     expect(params['reference_strength_multiple'], [0.2]);
-    expect(params['reference_information_extracted_multiple'], [1.0]);
+    expect(params['reference_information_extracted_multiple'], [0.4]);
   });
 
   test('enabled vibe with no configured images omits reference payload fields',
@@ -108,6 +109,7 @@ void main() {
       VibeConfigV4(
         fileName: 'legacy-extra.vibe',
         vibeB64: 'extra-vibe',
+        infoExtracted: 0.15,
         referenceStrength: 0.9,
       ),
     ];
@@ -117,7 +119,7 @@ void main() {
 
     expect(params['reference_image_multiple'], ['script-vibe', 'extra-vibe']);
     expect(params['reference_strength_multiple'], [0.2, 0.9]);
-    expect(params['reference_information_extracted_multiple'], [1.0, 1.0]);
+    expect(params['reference_information_extracted_multiple'], [1.0, 0.15]);
   });
 
   test('disabled vibe omits NAI4 reference payload fields', () {

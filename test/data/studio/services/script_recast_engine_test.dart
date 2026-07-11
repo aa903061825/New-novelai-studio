@@ -343,6 +343,7 @@ void main() {
                         category: PromptTagCategory.character,
                       ),
                     ],
+                    targetPrompt: 'pepe_(arknights)',
                   ),
                   ScriptPromptReplacementRule(
                     id: 'rule-tanktop',
@@ -377,6 +378,145 @@ void main() {
         expect(frame2Captions.last, contains('black jacket'));
         expect(frame2Captions.last, isNot(contains('wakamo_(blue_archive)')));
         expect(frame2Captions.last, isNot(contains('white tanktop')));
+      },
+    );
+
+    test(
+      'role prompt replacements fall back to matching captions when '
+      'assembly appearances miss the frame',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['beach', 'beach'],
+          charCaptions: const [
+            ['saren (summer), ponytail', 'boy, black shirt'],
+            ['saren (summer), ponytail', 'boy, black shirt'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-saren',
+                displayLabel: 'Saren',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1],
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-saren',
+                displayLabel: 'Saren',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-saren-summer',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-saren-summer',
+                        text: 'saren (summer)',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1, 2],
+                      ),
+                    ],
+                    targetPrompt: 'animal_ear_fluff, cat_ears',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final frame1Captions =
+            _resolvedCharCaptions(result.frames.first.payload);
+        final frame2Captions =
+            _resolvedCharCaptions(result.frames.last.payload);
+        expect(frame1Captions.first, contains('animal_ear_fluff'));
+        expect(frame1Captions.first, isNot(contains('saren (summer)')));
+        expect(frame1Captions.last, 'boy, black shirt');
+        expect(frame2Captions.first, contains('animal_ear_fluff'));
+        expect(frame2Captions.first, isNot(contains('saren (summer)')));
+        expect(frame2Captions.last, 'boy, black shirt');
+      },
+    );
+
+    test(
+      'role prompt replacement fallback does not locate roles by generic '
+      'girl or boy terms',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['beach', 'beach'],
+          charCaptions: const [
+            ['alice (series), girl, ponytail'],
+            ['beth (series), girl, short hair'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-alice',
+                displayLabel: 'Alice',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1],
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-alice',
+                displayLabel: 'Alice',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-girl',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-girl',
+                        text: 'girl',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1, 2],
+                      ),
+                    ],
+                    targetPrompt: 'loli',
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-alice',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-alice',
+                        text: 'alice (series)',
+                        category: PromptTagCategory.character,
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    targetPrompt: 'target_alice',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final frame1Caption =
+            _resolvedCharCaptions(result.frames.first.payload).single;
+        final frame2Caption =
+            _resolvedCharCaptions(result.frames.last.payload).single;
+        expect(frame1Caption, contains('target_alice'));
+        expect(frame1Caption, contains('loli'));
+        expect(frame2Caption, 'beth (series), girl, short hair');
       },
     );
 
@@ -426,7 +566,7 @@ void main() {
     });
 
     test(
-      'targetIdentityPrompt applies to role captions without local inference',
+      'targetIdentityPrompt stays as a candidate until synced to a rule',
       () {
         final script = _scriptWithCharacterCaption(
           'alice, red jacket, 1girl, solo',
@@ -470,18 +610,18 @@ void main() {
         );
 
         final charCaption = _resolvedCharCaption(result);
-        expect(charCaption, contains('lily'));
-        expect(charCaption, contains('silver hair'));
+        expect(charCaption, isNot(contains('lily')));
+        expect(charCaption, isNot(contains('silver hair')));
         expect(charCaption, contains('white dress'));
+        expect(charCaption, contains('alice'));
         expect(charCaption, contains('1girl'));
         expect(charCaption, contains('solo'));
-        expect(charCaption, isNot(contains('alice')));
         expect(charCaption, isNot(contains('red jacket')));
       },
     );
 
     test(
-      'targetIdentityPrompt is applied after ordinary rules',
+      'rule target prompt is applied without candidate prompt fallback',
       () {
         final script = _scriptWithCharacterCaption('alice, red jacket');
         final result = ScriptRecastEngine().resolvePayloads(
@@ -502,6 +642,7 @@ void main() {
                         category: PromptTagCategory.character,
                       ),
                     ],
+                    targetPrompt: 'lily',
                   ),
                   ScriptPromptReplacementRule(
                     id: 'rule-red-jacket',
@@ -524,14 +665,14 @@ void main() {
 
         final charCaption = _resolvedCharCaption(result);
         expect(charCaption, contains('lily'));
-        expect(charCaption, contains('red jacket'));
+        expect(charCaption, isNot(contains('red jacket')));
         expect(charCaption, contains('white dress'));
         expect(charCaption, isNot(contains('alice')));
       },
     );
 
     test(
-      'targetIdentityPrompt appends after all-mode rule removes identity source',
+      'targetIdentityPrompt does not append after all-mode rule fires',
       () {
         final script = _scriptWithCharacterCaption('alice, red jacket');
         final result = ScriptRecastEngine().resolvePayloads(
@@ -569,7 +710,7 @@ void main() {
         );
 
         final charCaption = _resolvedCharCaption(result);
-        expect(charCaption, contains('lily'));
+        expect(charCaption, isNot(contains('lily')));
         expect(charCaption, contains('white dress'));
         expect(charCaption, isNot(contains('alice')));
         expect(charCaption, isNot(contains('red jacket')));
@@ -707,6 +848,71 @@ void main() {
         expect(charCaptions.last, contains('green eyes'));
         expect(charCaptions.last, isNot(contains('beth')));
         expect(charCaptions.last, isNot(contains('black coat')));
+      },
+    );
+
+    test(
+      'dynamic role appearances suppress legacy swaps on every owned slot',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['masterpiece', 'masterpiece'],
+          charCaptions: const [
+            ['alice, red jacket', 'boy, black shirt'],
+            ['boy, black shirt', 'alice, red jacket'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-alice',
+                displayLabel: 'Alice',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-red-jacket',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-red-jacket',
+                        text: 'red jacket',
+                        category: PromptTagCategory.clothing,
+                      ),
+                    ],
+                    targetPrompt: 'white dress',
+                  ),
+                ],
+              ),
+            ],
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-alice',
+                displayLabel: 'Alice',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1],
+                  ),
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-1',
+                    sourceKind: 'slot',
+                    frameIndexes: [2],
+                  ),
+                ],
+              ),
+            ],
+            roleSwaps: const [
+              RoleSwap(sourceRoleId: 'slot-1', targetCharacterId: 'char-x'),
+            ],
+          ),
+          characters: [_newHeroine],
+          artistChains: const [],
+        );
+
+        final frame1 = _resolvedCharCaptions(result.frames.first.payload);
+        final frame2 = _resolvedCharCaptions(result.frames.last.payload);
+        expect(frame1, ['alice, white dress', 'boy, black shirt']);
+        expect(frame2, ['boy, black shirt', 'alice, white dress']);
       },
     );
 

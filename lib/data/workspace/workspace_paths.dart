@@ -7,6 +7,7 @@ class WorkspacePaths {
   static const loras = 'library/loras.json';
   static const assetFavorites = 'library/favorites.json';
   static const assetCatalogCache = 'library/asset_catalog_cache.json';
+  static const codexEntries = 'library/codex/entries.jsonl';
   static const promptReplaceRules = 'configs/prompt_replace_rules.json';
   static const filterRules = 'configs/filter_rules.json';
   static const galleryRecords = 'gallery/records.json';
@@ -17,7 +18,15 @@ class WorkspacePaths {
   static const assemblyPresetsDir = 'production/assembly_presets';
   static const workflowsDir = 'production/workflows';
   static const scriptRecastKnowledge = 'script_recast/knowledge.json';
+  static const scriptRecastExhibitionCategories =
+      'script_recast/exhibition_categories.json';
+  static const scriptRecastExhibitionCategoryAssignments =
+      'script_recast/exhibition_category_assignments.json';
   static const scriptRecastCacheDir = 'script_recast/cache';
+  static const scriptRecastExhibitionIndex =
+      'script_recast/exhibition_index.json';
+  static const scriptRecastExhibitionSummaryIndex =
+      'script_recast/exhibition_summary_index.json';
   static const tokenizerScriptsDir = 'tokenizer_scripts/scripts';
 
   static const blocks = [
@@ -34,6 +43,7 @@ class WorkspacePaths {
   static const directories = [
     'library/recipes',
     'library/tags',
+    'library/codex',
     'configs/prompt_configs',
     'configs/generation_profiles',
     batchPlansDir,
@@ -61,6 +71,7 @@ class WorkspacePaths {
         assetFavorites,
         promptReplaceRules,
         galleryRecords,
+        scriptRecastExhibitionCategories,
         for (final block in blocks) recipeFile(block),
         for (final block in blocks) tagFile(block),
       ];
@@ -69,6 +80,7 @@ class WorkspacePaths {
         filterRules,
         productionExecutionSettings,
         scriptRecastKnowledge,
+        scriptRecastExhibitionCategoryAssignments,
       ];
 
   static String recipeFile(String block) => 'library/recipes/$block.json';

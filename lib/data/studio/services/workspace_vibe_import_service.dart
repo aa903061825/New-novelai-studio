@@ -195,6 +195,7 @@ WorkspaceVibeReference _referenceFor(int index, VibeConfigV4 vibe) {
     id: 'v4-vibe-$index-${_stableVibeId(vibe.fileName)}',
     name: vibe.fileName.trim().isEmpty ? 'Vibe ${index + 1}' : vibe.fileName,
     vibeB64: vibe.vibeB64,
+    infoExtracted: vibe.infoExtracted,
     referenceStrength: vibe.referenceStrength,
   );
 }

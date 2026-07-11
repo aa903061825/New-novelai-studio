@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
@@ -158,6 +160,121 @@ void main() {
     });
   });
 
+  test('writes and reads script exhibition categories', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final categoriesFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionCategories.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    await categoriesFile.delete();
+
+    expect(await service.loadScriptExhibitionCategories(), isEmpty);
+
+    await service.saveScriptExhibitionCategories([
+      'QAQ',
+      '  qAq  ',
+      '',
+      'Story shelf',
+    ]);
+
+    expect(await service.loadScriptExhibitionCategories(), [
+      'QAQ',
+      'Story shelf',
+    ]);
+
+    await service.addScriptExhibitionCategory('Empty zone');
+    expect(await service.loadScriptExhibitionCategories(), [
+      'Empty zone',
+      'QAQ',
+      'Story shelf',
+    ]);
+
+    await service.removeScriptExhibitionCategory('qaq');
+    expect(await service.loadScriptExhibitionCategories(), [
+      'Empty zone',
+      'Story shelf',
+    ]);
+  });
+
+  test('writes and updates script exhibition category assignments', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    expect(await service.loadScriptExhibitionCategoryAssignments(), isEmpty);
+
+    await service.assignScriptExhibitionCategoryScripts('QAQ', [
+      'script-2',
+      'script-1',
+      'script-1',
+      '',
+    ]);
+    await service.assignScriptExhibitionCategoryScripts(' qAq ', [
+      'script-3',
+    ]);
+    await service.assignScriptExhibitionCategoryScripts('Archive', [
+      'script-2',
+    ]);
+
+    expect(await service.loadScriptExhibitionCategoryAssignments(), {
+      'Archive': ['script-2'],
+      'QAQ': ['script-1', 'script-2', 'script-3'],
+    });
+
+    await service.removeScriptExhibitionCategoryFromScript('QAQ', 'script-2');
+    expect(await service.loadScriptExhibitionCategoryAssignments(), {
+      'Archive': ['script-2'],
+      'QAQ': ['script-1', 'script-3'],
+    });
+
+    await service.removeScriptExhibitionCategoryAssignments('archive');
+    expect(await service.loadScriptExhibitionCategoryAssignments(), {
+      'QAQ': ['script-1', 'script-3'],
+    });
+  });
+
+  test('writes and reads codex entries outside regular inspirations', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+
+    await service.saveCodexEntries([
+      const InspirationEntry(
+        id: 'adult-codex-entry',
+        name: 'Adult Codex Entry',
+        prompt: 'pov, close-up',
+        source: SourceRef(type: 'novalai_codex_adult_docx'),
+      ),
+      const InspirationEntry(
+        id: 'regular-codex-entry',
+        name: 'Regular Codex Entry',
+        prompt: 'artist:wlop, fantasy',
+        source: SourceRef(type: 'legacy_codex'),
+      ),
+    ]);
+
+    final entries = await service.loadCodexEntries();
+    final codexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.codexEntries.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final lines = (await codexFile.readAsLines())
+        .where((line) => line.trim().isNotEmpty)
+        .toList(growable: false);
+
+    expect(entries.map((entry) => entry.id), [
+      'adult-codex-entry',
+      'regular-codex-entry',
+    ]);
+    expect(lines, hasLength(2));
+    expect(await service.loadInspirations(), isEmpty);
+  });
+
   test('writes and reads ArtistChain structured Recast fields', () async {
     final service = WorkspaceService();
     await service.createWorkspace(tempDir.path);
@@ -300,6 +417,51 @@ void main() {
     expect(cache.scriptName, 'Target Cache');
   });
 
+  test('restores a single script snapshot without returning the raw snapshot',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const scriptId = 'script-direct-snapshot-restore';
+    final script = Script(
+      id: scriptId,
+      name: 'Direct Snapshot Restore',
+      rootPath: r'C:\scripts\direct-snapshot',
+      frames: [
+        ScriptFrame(
+          index: 1,
+          fileName: '001.json',
+          sourcePath: r'C:\scripts\direct-snapshot\001.json',
+          rawJson: '{"prompt":"artist:direct"}',
+          parsed: const ParsedFrame(baseCaption: 'artist:direct'),
+          detectedSchema: ScriptSchema.baseInline,
+          parseStatus: ScriptFrameParseStatus.parsed,
+        ),
+      ],
+      detectedSchema: ScriptSchema.baseInline,
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: scriptId,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: 'fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 27),
+        mapping: RecastMapping.defaults(scriptId),
+        scriptSnapshot: script.toJson(),
+      ),
+    );
+
+    final restored = await service.restoreRecastScriptCacheSnapshot(
+      scriptId: scriptId,
+    );
+
+    expect(restored, isNotNull);
+    expect(restored!.cache.scriptId, scriptId);
+    expect(restored.cache.scriptSnapshot, isEmpty);
+    expect(restored.script.name, 'Direct Snapshot Restore');
+    expect(restored.script.frames.single.parsed.baseCaption, 'artist:direct');
+  });
+
   test('compacts heavy reference payloads when saving script recast caches',
       () async {
     final service = WorkspaceService();
@@ -369,6 +531,590 @@ void main() {
     expect(sourcePayload.containsKey('reference_image_multiple'), isFalse);
     expect(comment['seed'], 123456);
     expect(comment.containsKey('reference_strength_multiple'), isFalse);
+  });
+
+  test(
+      'writes lightweight script exhibition index without heavy frame payloads',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+    await service.saveRecastScriptCache(
+      _bloatedRecastScriptCache('script-exhibition-index', heavyReference),
+    );
+
+    final scripts = await service.loadRecastExhibitionScripts();
+
+    expect(scripts, hasLength(1));
+    final script = scripts.single;
+    expect(script.scriptId, 'script-exhibition-index');
+    expect(script.frames.single.prompt, 'artist:test, scenic lighting');
+    expect(script.frames.single.generationParams['seed'], 123456);
+    expect(script.frames.single.generationParams['width'], 832);
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    expect(await indexFile.exists(), isTrue);
+    final rawIndex = await indexFile.readAsString();
+    expect(rawIndex, isNot(contains(heavyReference)));
+    expect(rawIndex, isNot(contains('rawJson')));
+    expect(rawIndex, isNot(contains('sourcePayload')));
+    expect(rawIndex, contains('"generationParams"'));
+    expect(rawIndex, contains('"seed":123456'));
+  });
+
+  test('loads script exhibition summaries without parsing full snapshots',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: 'script-exhibition-summary',
+        scriptName: 'Summary Recast Cache',
+        sourceRootPath: r'C:\scripts\summary',
+        sourceFingerprint:
+            r'script-exhibition-summary|C:\scripts\summary|1:001.json:C:\scripts\summary\001.json:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 10),
+        mapping: RecastMapping.defaults('script-exhibition-summary'),
+        scriptSnapshot: _bloatedRecastScript(
+          'script-exhibition-summary',
+          heavyReference,
+        ).toJson(),
+      ),
+    );
+
+    final scripts = await service.loadRecastExhibitionSummaries();
+
+    expect(scripts, hasLength(1));
+    final script = scripts.single;
+    expect(script.scriptId, 'script-exhibition-summary');
+    expect(script.summaryOnly, isTrue);
+    expect(script.displayFrameCount, 1);
+    expect(script.frames.single.sourcePath, r'C:\scripts\summary\001.json');
+    expect(script.frames.single.prompt, isEmpty);
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    expect(await indexFile.exists(), isTrue);
+    final rawIndex = await indexFile.readAsString();
+    expect(rawIndex, isNot(contains(heavyReference)));
+    expect(rawIndex, isNot(contains('artist:test, scenic lighting')));
+    expect(rawIndex, isNot(contains('rawJson')));
+    expect(rawIndex, isNot(contains('scriptSnapshot')));
+  });
+
+  test('keeps script exhibition categories in summary indexes', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+    final baseScript = _bloatedRecastScript(
+      'script-exhibition-categorized-summary',
+      heavyReference,
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: 'script-exhibition-categorized-summary',
+        scriptName: 'Categorized Summary Recast Cache',
+        sourceRootPath: r'C:\scripts\categorized',
+        sourceFingerprint:
+            r'script-exhibition-categorized-summary|C:\scripts\categorized|1:001.json:C:\scripts\categorized\001.json:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 10),
+        mapping: RecastMapping.defaults(
+          'script-exhibition-categorized-summary',
+        ),
+        scriptSnapshot: Script(
+          id: baseScript.id,
+          name: baseScript.name,
+          rootPath: baseScript.rootPath,
+          frames: baseScript.frames,
+          detectedSchema: baseScript.detectedSchema,
+          parseWarnings: baseScript.parseWarnings,
+          meta: const {
+            'legacyCategoryNames': ['NTR', 'QAQ'],
+          },
+        ).toJson(),
+      ),
+    );
+
+    final scripts = await service.loadRecastExhibitionSummaries();
+
+    expect(scripts, hasLength(1));
+    expect(scripts.single.categoryNames, ['NTR', 'QAQ']);
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    expect(await indexFile.exists(), isTrue);
+    final rawIndex = await indexFile.readAsString();
+    expect(rawIndex, contains('"categoryNames":["NTR","QAQ"]'));
+    expect(rawIndex, isNot(contains('scriptSnapshot')));
+  });
+
+  test('batch recast cache updates invalidate exhibition indexes', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: 'batch-cache-a',
+        scriptName: 'Batch Cache A',
+        sourceRootPath: r'C:\scripts\a',
+        sourceFingerprint: 'a',
+        updatedAt: DateTime.utc(2026, 6, 10),
+        mapping: RecastMapping.defaults('batch-cache-a'),
+      ),
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: 'batch-cache-b',
+        scriptName: 'Batch Cache B',
+        sourceRootPath: r'C:\scripts\b',
+        sourceFingerprint: 'b',
+        updatedAt: DateTime.utc(2026, 6, 10),
+        mapping: RecastMapping.defaults('batch-cache-b'),
+      ),
+    );
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final summaryIndexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    await indexFile.parent.create(recursive: true);
+    await indexFile.writeAsString('stale');
+    await summaryIndexFile.writeAsString('stale');
+
+    await service.saveRecastScriptCacheUpdates([
+      RecastScriptCache(
+        scriptId: 'batch-cache-a',
+        scriptName: 'Batch Cache A',
+        sourceRootPath: r'C:\scripts\a',
+        sourceFingerprint: 'a',
+        updatedAt: DateTime.utc(2026, 6, 11),
+        mapping: RecastMapping.defaults('batch-cache-a'),
+        exhibitionCategoryNames: const ['QAQ'],
+      ),
+      RecastScriptCache(
+        scriptId: 'batch-cache-b',
+        scriptName: 'Batch Cache B',
+        sourceRootPath: r'C:\scripts\b',
+        sourceFingerprint: 'b',
+        updatedAt: DateTime.utc(2026, 6, 11),
+        mapping: RecastMapping.defaults('batch-cache-b'),
+        exhibitionCategoryNames: const ['QAQ'],
+      ),
+    ]);
+
+    expect(await indexFile.exists(), isFalse);
+    expect(await summaryIndexFile.exists(), isFalse);
+    expect(
+      (await service.loadRecastScriptCache('batch-cache-a'))!
+          .exhibitionCategoryNames,
+      ['QAQ'],
+    );
+    expect(
+      (await service.loadRecastScriptCache('batch-cache-b'))!
+          .exhibitionCategoryNames,
+      ['QAQ'],
+    );
+  });
+
+  test('script exhibition summary index stores resolved first-frame sidecar',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final sourceDir = Directory(
+      '${tempDir.path}${Platform.pathSeparator}source-script',
+    );
+    await sourceDir.create(recursive: true);
+    final sourceJson = File(
+      '${sourceDir.path}${Platform.pathSeparator}001.json',
+    );
+    final sourceImage = File(
+      '${sourceDir.path}${Platform.pathSeparator}001.png',
+    );
+    await sourceJson.writeAsString('{}');
+    await sourceImage.writeAsBytes(const [0, 1, 2, 3]);
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: 'script-summary-sidecar',
+        scriptName: 'Summary Sidecar Cache',
+        sourceRootPath: sourceDir.path,
+        sourceFingerprint:
+            'script-summary-sidecar|${sourceDir.path}|1:001.json:${sourceJson.path}:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 10),
+        mapping: RecastMapping.defaults('script-summary-sidecar'),
+        scriptSnapshot: const {},
+      ),
+    );
+
+    final scripts = await service.loadRecastExhibitionSummaries();
+
+    expect(scripts, hasLength(1));
+    expect(
+      _normalizedTestPath(scripts.single.frames.single.sourcePath),
+      _normalizedTestPath(sourceJson.path),
+    );
+    expect(
+      _normalizedTestPath(scripts.single.frames.single.sourceImagePath),
+      _normalizedTestPath(sourceImage.path),
+    );
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final rawIndex = await indexFile.readAsString();
+    expect(rawIndex, contains(sourceImage.path.replaceAll(r'\', r'\\')));
+  });
+
+  test('script exhibition summary accepts canonical recast source fingerprint',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final sourceDir = Directory(
+      '${tempDir.path}${Platform.pathSeparator}canonical-source-script',
+    );
+    await sourceDir.create(recursive: true);
+    final sourceJson = File(
+      '${sourceDir.path}${Platform.pathSeparator}001.json',
+    );
+    final sourceImage = File(
+      '${sourceDir.path}${Platform.pathSeparator}001.png',
+    );
+    await sourceJson.writeAsString('{"Description":"artist:test"}');
+    await sourceImage.writeAsBytes(const [0, 1, 2, 3]);
+    final script = Script(
+      id: 'script-canonical-summary',
+      name: 'Canonical Summary Cache',
+      rootPath: sourceDir.path,
+      frames: [
+        ScriptFrame(
+          index: 1,
+          fileName: '001.json',
+          sourcePath: sourceJson.path,
+          rawJson: await sourceJson.readAsString(),
+          parsed: const ParsedFrame(baseCaption: 'artist:test'),
+          detectedSchema: ScriptSchema.baseInline,
+          parseStatus: ScriptFrameParseStatus.parsed,
+        ),
+      ],
+      detectedSchema: ScriptSchema.baseInline,
+    );
+    const cacheRestoreService = ScriptRecastCacheRestoreService();
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath: script.rootPath,
+        sourceFingerprint: cacheRestoreService.sourceFingerprint(script),
+        sourceContentFingerprint:
+            cacheRestoreService.sourceContentFingerprint(script),
+        updatedAt: DateTime.utc(2026, 6, 21),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      ),
+    );
+
+    final scripts = await service.loadRecastExhibitionSummaries();
+
+    expect(scripts, hasLength(1));
+    expect(
+      _normalizedTestPath(scripts.single.frames.single.sourcePath),
+      _normalizedTestPath(sourceJson.path),
+    );
+    expect(
+      _normalizedTestPath(scripts.single.frames.single.sourceImagePath),
+      _normalizedTestPath(sourceImage.path),
+    );
+  });
+
+  test(
+      'script exhibition summary keeps snapshot source image when fingerprint path is stale',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final currentSourceDir = Directory(
+      '${tempDir.path}${Platform.pathSeparator}current-source-script',
+    );
+    await currentSourceDir.create(recursive: true);
+    final sourceImage = File(
+      '${currentSourceDir.path}${Platform.pathSeparator}p000.png',
+    );
+    await sourceImage.writeAsBytes(const [0, 1, 2, 3]);
+    final staleSourcePath = [
+      tempDir.path,
+      'missing-source-script',
+      'p000.json',
+    ].join(Platform.pathSeparator);
+    final script = Script(
+      id: 'script-summary-stale-source-image',
+      name: 'Stale Source Image Summary Cache',
+      rootPath: currentSourceDir.path,
+      frames: [
+        ScriptFrame(
+          index: 1,
+          fileName: 'p000.json',
+          sourcePath: staleSourcePath,
+          sourceImagePath: sourceImage.path,
+          rawJson: '{"Description":"artist:test"}',
+          parsed: const ParsedFrame(baseCaption: 'artist:test'),
+          detectedSchema: ScriptSchema.baseInline,
+          parseStatus: ScriptFrameParseStatus.parsed,
+        ),
+      ],
+      detectedSchema: ScriptSchema.baseInline,
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: script.id,
+        scriptName: script.name,
+        sourceRootPath:
+            '${tempDir.path}${Platform.pathSeparator}missing-source-script',
+        sourceFingerprint:
+            '${script.id}|${tempDir.path}${Platform.pathSeparator}missing-source-script|'
+            '1:p000.json:$staleSourcePath:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 21),
+        mapping: RecastMapping.defaults(script.id),
+        scriptSnapshot: script.toJson(),
+      ),
+    );
+
+    final scripts = await service.loadRecastExhibitionSummaries();
+
+    expect(scripts, hasLength(1));
+    expect(
+      _normalizedTestPath(scripts.single.frames.single.sourceImagePath),
+      _normalizedTestPath(sourceImage.path),
+    );
+  });
+
+  test('script exhibition rebinds moved premium source roots', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const scriptTitle = '敗北ヒロイン ペコリーヌ (前)_合并5个图集';
+    final oldSourceDir = Directory(
+      [
+        tempDir.path,
+        '作品集',
+        'NTR故事集',
+        scriptTitle,
+      ].join(Platform.pathSeparator),
+    );
+    final currentSourceDir = Directory(
+      [
+        tempDir.path,
+        '作品集',
+        '带图精品',
+        'NTR故事集',
+        scriptTitle,
+      ].join(Platform.pathSeparator),
+    );
+    await currentSourceDir.create(recursive: true);
+    final imageName = '${scriptTitle}_p1.png';
+    final currentImage = File(
+      '${currentSourceDir.path}${Platform.pathSeparator}$imageName',
+    );
+    await currentImage.writeAsBytes(const [0, 1, 2, 3]);
+    final staleImagePath =
+        '${oldSourceDir.path}${Platform.pathSeparator}$imageName';
+    const scriptId = 'script-moved-premium-root';
+    final script = Script(
+      id: scriptId,
+      name: scriptTitle,
+      rootPath: oldSourceDir.path,
+      frames: [
+        ScriptFrame(
+          index: 1,
+          fileName: imageName,
+          sourcePath: staleImagePath,
+          sourceImagePath: staleImagePath,
+          rawJson: '',
+          parsed: const ParsedFrame(baseCaption: 'artist:test'),
+          detectedSchema: ScriptSchema.v4Partial,
+          parseStatus: ScriptFrameParseStatus.parsed,
+        ),
+      ],
+      detectedSchema: ScriptSchema.v4Partial,
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: scriptId,
+        scriptName: scriptTitle,
+        sourceRootPath: oldSourceDir.path,
+        sourceFingerprint:
+            '$scriptId|${oldSourceDir.path}|1:$imageName:$staleImagePath:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 28),
+        mapping: RecastMapping.defaults(scriptId),
+        scriptSnapshot: script.toJson(),
+      ),
+    );
+
+    final summaries = await service.loadRecastExhibitionSummaries();
+    final summary = summaries.single;
+
+    expect(
+      _normalizedTestPath(summary.sourceRootPath),
+      _normalizedTestPath(currentSourceDir.path),
+    );
+    expect(
+      _normalizedTestPath(summary.frames.single.sourcePath),
+      _normalizedTestPath(currentImage.path),
+    );
+    expect(
+      _normalizedTestPath(summary.frames.single.sourceImagePath),
+      _normalizedTestPath(currentImage.path),
+    );
+
+    final detail = await service.loadRecastExhibitionScript(scriptId);
+
+    expect(detail, isNotNull);
+    expect(
+      _normalizedTestPath(detail!.sourceRootPath),
+      _normalizedTestPath(currentSourceDir.path),
+    );
+    expect(
+      _normalizedTestPath(detail.frames.single.sourcePath),
+      _normalizedTestPath(currentImage.path),
+    );
+    expect(
+      _normalizedTestPath(detail.frames.single.sourceImagePath),
+      _normalizedTestPath(currentImage.path),
+    );
+  });
+
+  test('script exhibition rebinds renamed images inside existing source roots',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const scriptTitle = 'クルミ - サレンディア 売春_合并4个图集';
+    final sourceDir = Directory(
+      [
+        tempDir.path,
+        'NTR故事集',
+        scriptTitle,
+      ].join(Platform.pathSeparator),
+    );
+    await sourceDir.create(recursive: true);
+    final currentImage = File(
+      '${sourceDir.path}${Platform.pathSeparator}クルミ - サレンディア 売春_p1.png',
+    );
+    await currentImage.writeAsBytes(const [0, 1, 2, 3]);
+    final staleImagePath =
+        '${sourceDir.path}${Platform.pathSeparator}${scriptTitle}_p1.png';
+    const scriptId = 'script-renamed-source-image';
+    final script = Script(
+      id: scriptId,
+      name: scriptTitle,
+      rootPath: sourceDir.path,
+      frames: [
+        ScriptFrame(
+          index: 1,
+          fileName: '${scriptTitle}_p1.png',
+          sourcePath: staleImagePath,
+          sourceImagePath: staleImagePath,
+          rawJson: '',
+          parsed: const ParsedFrame(baseCaption: 'artist:test'),
+          detectedSchema: ScriptSchema.v4Partial,
+          parseStatus: ScriptFrameParseStatus.parsed,
+        ),
+      ],
+      detectedSchema: ScriptSchema.v4Partial,
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: scriptId,
+        scriptName: scriptTitle,
+        sourceRootPath: sourceDir.path,
+        sourceFingerprint:
+            '$scriptId|${sourceDir.path}|1:${scriptTitle}_p1.png:$staleImagePath:hash',
+        sourceContentFingerprint: 'content-fingerprint',
+        updatedAt: DateTime.utc(2026, 6, 28),
+        mapping: RecastMapping.defaults(scriptId),
+        scriptSnapshot: script.toJson(),
+      ),
+    );
+
+    final summary = (await service.loadRecastExhibitionSummaries()).single;
+
+    expect(
+      _normalizedTestPath(summary.frames.single.sourcePath),
+      _normalizedTestPath(currentImage.path),
+    );
+    expect(
+      _normalizedTestPath(summary.frames.single.sourceImagePath),
+      _normalizedTestPath(currentImage.path),
+    );
+  });
+
+  test('rebuilds stale script exhibition summary index when cache files change',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final heavyReference = _heavyReferencePayload();
+    await service.saveRecastScriptCache(
+      _bloatedRecastScriptCache('script-summary-stale-a', heavyReference),
+    );
+    final initialScripts = await service.loadRecastExhibitionSummaries();
+    expect(initialScripts.map((script) => script.scriptId), [
+      'script-summary-stale-a',
+    ]);
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}script-summary-stale-b.json',
+    );
+    await cacheFile.writeAsString(
+      jsonEncode(
+        _bloatedRecastScriptCache(
+          'script-summary-stale-b',
+          heavyReference,
+        ).toJson(),
+      ),
+    );
+
+    final rebuiltScripts = await service.loadRecastExhibitionSummaries();
+
+    expect(rebuiltScripts.map((script) => script.scriptId), [
+      'script-summary-stale-a',
+      'script-summary-stale-b',
+    ]);
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final rawIndex = await indexFile.readAsString();
+    expect(rawIndex, contains('script-summary-stale-b'));
+    expect(rawIndex, isNot(contains(heavyReference)));
   });
 
   test('quarantines empty script recast cache files while loading', () async {
@@ -688,6 +1434,151 @@ void main() {
     );
   });
 
+  test('loads large production directories and quarantines invalid plan files',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final now = DateTime.parse('2026-06-19T08:00:00Z');
+    final older = now.subtract(const Duration(days: 1));
+    final recentPlan = ProductionPlan(
+      id: 'recent-large',
+      name: 'Recent large queue',
+      createdAt: now,
+      updatedAt: now,
+      tasks: [
+        for (var index = 0; index < 80; index += 1)
+          ProductionTask.scriptRecastFrame(
+            id: 'task-$index',
+            planId: 'recent-large',
+            title: 'Frame $index',
+            scriptId: 'script-large',
+            scriptName: 'Large Script',
+            scriptPath: r'C:\stories\large',
+            recastRunId: 'run-large',
+            frameIndex: index + 1,
+            sourceFileName: 'frame-$index.json',
+            payload: {
+              'input': 'prompt $index',
+              'parameters': {'seed': index},
+            },
+            status: ProductionTaskStatus.queued,
+            createdAt: now,
+            updatedAt: now,
+          ),
+      ],
+    );
+    final olderPlan = ProductionPlan(
+      id: 'older-small',
+      name: 'Older queue',
+      createdAt: older,
+      updatedAt: older,
+      tasks: [
+        ProductionTask.scriptRecastFrame(
+          id: 'old-task',
+          planId: 'older-small',
+          title: 'Old frame',
+          scriptId: 'script-old',
+          recastRunId: 'run-old',
+          frameIndex: 1,
+          sourceFileName: 'old.json',
+          payload: const {'input': 'old prompt'},
+          status: ProductionTaskStatus.completed,
+          createdAt: older,
+          updatedAt: older,
+        ),
+      ],
+    );
+    await service.saveProductionPlans([olderPlan, recentPlan]);
+    final invalidPath = WorkspacePaths.productionPlanFile(
+      'broken-plan',
+    ).replaceAll('/', Platform.pathSeparator);
+    await File(
+      '${tempDir.path}${Platform.pathSeparator}$invalidPath',
+    ).writeAsString('{broken json');
+
+    final plans = await service.loadProductionPlans();
+
+    expect(plans, hasLength(2));
+    expect(plans.first.id, 'older-small');
+    expect(plans.last.id, 'recent-large');
+    expect(plans.last.tasks, hasLength(80));
+    expect(
+      File('${tempDir.path}${Platform.pathSeparator}$invalidPath').existsSync(),
+      isFalse,
+    );
+    expect(
+      Directory(
+        '${tempDir.path}${Platform.pathSeparator}'
+        '${WorkspacePaths.deterministicPlansDir.replaceAll('/', Platform.pathSeparator)}'
+        '${Platform.pathSeparator}_invalid',
+      ).listSync().whereType<File>().map((file) => file.path),
+      isNotEmpty,
+    );
+  });
+
+  test(
+    'retries production plan replacement while the target file is locked',
+    () async {
+      final service = WorkspaceService();
+      await service.createWorkspace(tempDir.path);
+      final now = DateTime.utc(2026, 6, 26, 8);
+      final initialPlan = ProductionPlan(
+        id: 'locked-plan',
+        name: 'Locked plan',
+        tasks: [
+          ProductionTask.manualSingleFrame(
+            id: 'task-1',
+            planId: 'locked-plan',
+            title: 'Initial',
+            payload: const {'input': 'initial prompt'},
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now,
+      );
+      final updatedPlan = ProductionPlan(
+        id: 'locked-plan',
+        name: 'Locked plan',
+        tasks: [
+          ProductionTask.manualSingleFrame(
+            id: 'task-1',
+            planId: 'locked-plan',
+            title: 'Updated',
+            payload: const {'input': 'updated prompt'},
+            createdAt: now,
+            updatedAt: now.add(const Duration(seconds: 1)),
+          ),
+        ],
+        createdAt: now,
+        updatedAt: now.add(const Duration(seconds: 1)),
+      );
+      await service.saveProductionPlans([initialPlan]);
+      final planFile = File(
+        '${tempDir.path}${Platform.pathSeparator}'
+        '${WorkspacePaths.productionPlanFile('locked-plan').replaceAll(
+          '/',
+          Platform.pathSeparator,
+        )}',
+      );
+      final locked = await planFile.open(mode: FileMode.write);
+      await locked.lock();
+      final saveFuture = service.saveProductionPlans([updatedPlan]);
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await locked.unlock();
+      await locked.close();
+      await saveFuture;
+
+      final loaded = await service.loadProductionPlans();
+      expect(loaded.single.tasks.single.title, 'Updated');
+    },
+    skip: !Platform.isWindows
+        ? 'Windows-only regression for transient rename access denial.'
+        : null,
+  );
+
   test('writes and reads filter rules without local secrets', () async {
     final service = WorkspaceService();
     await service.createWorkspace(tempDir.path);
@@ -836,6 +1727,9 @@ void main() {
 String _heavyReferencePayload() {
   return List.filled(4096, 'abcd').join();
 }
+
+String _normalizedTestPath(String path) =>
+    path.replaceAll('\\', '/').toLowerCase();
 
 RecastScriptCache _bloatedRecastScriptCache(
   String scriptId,

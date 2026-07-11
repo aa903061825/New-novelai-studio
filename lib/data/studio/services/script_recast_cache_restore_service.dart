@@ -117,12 +117,22 @@ class ScriptRecastCacheRestoreService {
     RecastScriptCache candidate,
     RecastScriptCache current,
   ) {
+    final candidateUserScore = cacheUserMappingScore(candidate);
+    final currentUserScore = cacheUserMappingScore(current);
+    if (candidateUserScore != currentUserScore) {
+      return candidateUserScore > currentUserScore;
+    }
     final candidateScore = cacheAiDraftScore(candidate);
     final currentScore = cacheAiDraftScore(current);
     if (candidateScore != currentScore) {
       return candidateScore > currentScore;
     }
     return candidate.updatedAt.isAfter(current.updatedAt);
+  }
+
+  int cacheUserMappingScore(RecastScriptCache cache) {
+    return _mappingUserScore(cache.mapping) +
+        (cache.scriptBlockWords.trim().isEmpty ? 0 : 5);
   }
 
   int cacheAiDraftScore(RecastScriptCache cache) {
@@ -220,6 +230,86 @@ class ScriptRecastCacheRestoreService {
       }
     }
   }
+}
+
+int _mappingUserScore(RecastMapping mapping) {
+  var score = 0;
+  score += mapping.roleSwaps.length * 20;
+  score += mapping.promptBlockSwaps.where((swap) => swap.hasEffect).length * 10;
+  score += mapping.manualVibeRefs.length * 5;
+  if (mapping.artistSwap != null) {
+    final swap = mapping.artistSwap!;
+    if (swap.targetArtistChainId.trim().isNotEmpty ||
+        swap.manualPrompt.trim().isNotEmpty ||
+        swap.deleteSource) {
+      score += 20;
+    }
+  }
+  for (final replacement in mapping.rolePromptReplacements) {
+    if (replacement.targetCharacterId?.trim().isNotEmpty == true) {
+      score += 20;
+    }
+    if (replacement.targetIdentityPrompt.trim().isNotEmpty) {
+      score += 10;
+    }
+    for (final rule in replacement.rules) {
+      score += _promptReplacementRuleUserScore(rule);
+    }
+  }
+  for (final replacement in mapping.scenePromptReplacements) {
+    for (final rule in replacement.rules) {
+      score += _promptReplacementRuleUserScore(rule);
+    }
+  }
+  for (final assembly in mapping.roleAssemblies) {
+    for (final stage in assembly.stages) {
+      if (stage.targetCharacterId?.trim().isNotEmpty == true) {
+        score += 20;
+      }
+      if (stage.targetUpperOutfitId?.trim().isNotEmpty == true) {
+        score += 10;
+      }
+      if (stage.targetLowerOutfitId?.trim().isNotEmpty == true) {
+        score += 10;
+      }
+      if (!stage.manualParts.isEmpty) {
+        score += 10;
+      }
+      if (stage.preservedParts.isNotEmpty) {
+        score += 2;
+      }
+    }
+  }
+  return score;
+}
+
+int _promptReplacementRuleUserScore(ScriptPromptReplacementRule rule) {
+  var score = 0;
+  if (rule.targetPrompt.trim().isNotEmpty) {
+    score += 20;
+  }
+  if (rule.targetWeightMultiplier != null) {
+    score += 5;
+  }
+  if (rule.action != ScriptPromptReplacementAction.none) {
+    score += 10;
+  }
+  if (rule.sourceTerms.length > 1) {
+    score += 3;
+  }
+  if (rule.manualPhrase.trim().isNotEmpty) {
+    score += 5;
+  }
+  if (rule.matchMode != ScriptPromptReplacementMatchMode.any) {
+    score += 2;
+  }
+  if (rule.excludedTermIds.isNotEmpty) {
+    score += 2;
+  }
+  if (rule.anchorTermId.trim().isNotEmpty) {
+    score += 2;
+  }
+  return score;
 }
 
 String _stableContentHash(String value) {

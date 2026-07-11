@@ -11,7 +11,10 @@ class ScriptRecastAssetContextService {
   });
 
   Future<ScriptRecastAssetContext> loadContext() async {
-    final snapshot = await catalogService.loadSnapshot();
+    final cacheResult = await catalogService.loadSnapshotWithCache(
+      checkStaleness: false,
+    );
+    final snapshot = cacheResult.snapshot;
     final filterRules = await catalogService.loadWorkbenchFilterRules();
     final characters = List<CharacterEntry>.unmodifiable(snapshot.characters);
     final outfits = List<StudioOutfitAsset>.unmodifiable(snapshot.outfits);

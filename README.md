@@ -30,7 +30,7 @@ Dart package 名称是 `novel_studio`，平台应用标识使用 `studio.novel.n
 ```powershell
 flutter pub get
 flutter analyze --no-pub
-flutter test
+flutter test --no-pub
 flutter build windows
 ```
 
@@ -42,12 +42,9 @@ flutter build windows
 
 ```powershell
 git status --short --branch
-bd prime
-bd ready
 ```
 
-- 任务状态走 Beads：用 `bd show <id>` 查看、`bd update <id> --claim` 认领、完成后 `bd close <id>`。
-- 不要把待办写进临时 Markdown 文件；需要跨会话保留的上下文用 Beads issue 或 `bd remember`。
+- 需要长期保留的设计、实施计划和验收记录统一放在 `docs/` 对应目录，不依赖本地任务工具。
 - 工作区经常会有别人未提交的改动。只修改当前任务需要的文件，不要回滚不属于自己的变更。
 - 对 Script Recast 缓存、翻译缓存和剧本修复，默认不得调用项目里配置的 API、Token、代理或任何凭据；除非当前聊天里明确授权。
 - 历史导入器不再作为新版本入口。素材种子和已存在工作区迁移路径只有在当前功能或测试仍依赖时才保留。

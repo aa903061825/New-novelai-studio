@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
+import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:novel_studio/ui/core/app_display_settings.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
 import 'package:novel_studio/ui/studio_batch/widgets/studio_batch_page.dart';
@@ -224,6 +227,66 @@ ProductionPlan _badOutputPathPlan() {
   );
 }
 
+String _assetPath(String path) => Uri.base.resolve(path).toFilePath();
+
+ProductionPlan _rerunVariantPlan({int variantCount = 5}) {
+  final now = DateTime.utc(2026, 5, 25, 12);
+  final variantPaths = [
+    _assetPath('assets/appicon.png'),
+    _assetPath('assets/qrcode1.jpg'),
+    _assetPath('assets/qrcode2.jpg'),
+  ];
+  return ProductionPlan(
+    id: 'plan-rerun-variants',
+    name: 'Rerun Variant Queue',
+    createdAt: now,
+    updatedAt: now,
+    tasks: [
+      for (var index = 0; index < variantCount; index += 1)
+        ProductionTask.scriptRecastFrame(
+          id: index == 0 ? 'task-1' : 'task-1-rerun-$index',
+          planId: 'plan-rerun-variants',
+          title: 'Frame 1',
+          scriptId: 'script-1',
+          recastRunId: 'run-1',
+          frameIndex: 1,
+          sourceFileName: 'nai_1.json',
+          payload: {
+            'input': 'variant prompt $index',
+            'parameters': {
+              'seed': 123456 + index,
+              'width': 1216,
+              'height': 832,
+            },
+          },
+          status: ProductionTaskStatus.completed,
+          attempts: 1,
+          outputImagePath: variantPaths[index % variantPaths.length],
+          createdAt: now.add(Duration(seconds: index)),
+          updatedAt: now.add(Duration(seconds: index)),
+        ),
+      ProductionTask.scriptRecastFrame(
+        id: 'task-2',
+        planId: 'plan-rerun-variants',
+        title: 'Frame 2',
+        scriptId: 'script-1',
+        recastRunId: 'run-1',
+        frameIndex: 2,
+        sourceFileName: 'nai_2.json',
+        payload: const {
+          'input': 'second frame',
+          'parameters': {'seed': 2},
+        },
+        status: ProductionTaskStatus.completed,
+        attempts: 1,
+        outputImagePath: _assetPath('assets/appicon.png'),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ],
+  );
+}
+
 ProductionPlan _v4SlottedPromptPlan() {
   final now = DateTime.utc(2026, 5, 25, 12);
   return ProductionPlan(
@@ -295,7 +358,47 @@ Widget _buildProductionBatchPageWithFakePlan() {
   );
 }
 
+class _CountingProductionQueueService extends ProductionQueueService {
+  int readOnlyLoadCount = 0;
+
+  _CountingProductionQueueService()
+      : super(workspaceService: WorkspaceService());
+
+  @override
+  Future<List<ProductionPlan>> loadPlansReadOnly() async {
+    readOnlyLoadCount += 1;
+    return [_fakePlan()];
+  }
+
+  @override
+  Future<ProductionPlanExecutionSettings?> loadLastExecutionSettings() async {
+    return null;
+  }
+}
+
 void main() {
+  testWidgets('skipInitialLoad defers the automatic queue load',
+      (tester) async {
+    final service = _CountingProductionQueueService();
+    final viewModel = ProductionQueueViewModel(
+      plans: const [],
+      queueService: service,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(service.readOnlyLoadCount, 0);
+  });
+
   testWidgets('batch page shows deterministic production queue not config tree',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
@@ -377,6 +480,21 @@ void main() {
     expect(
       find.byKey(const ValueKey('studio-production-result-card-task-1')),
       findsOneWidget,
+    );
+    final frameBadge = find.byKey(
+      const ValueKey('studio-production-result-frame-badge-task-1'),
+    );
+    expect(frameBadge, findsOneWidget);
+    expect(
+      find.descendant(of: frameBadge, matching: find.text('1')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: frameBadge,
+        matching: find.text('\u7b2c 1 \u5e27'),
+      ),
+      findsNothing,
     );
     expect(
       find.byKey(
@@ -838,17 +956,22 @@ void main() {
     expect(viewModel.selectedTask?.outputImagePath, 'C:/rerun/task-2.png');
   });
 
-  testWidgets('batch page task-row rerun queues a clone without starting',
+  testWidgets('batch page task-row rerun starts a clone when idle',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
     final viewModel = ProductionQueueViewModel(
       plans: [_fakePlan()],
       executorService: ProductionExecutorService(
-        requestImage: (_) async => Uint8List.fromList([137, 80, 78, 71]),
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
         saveImage: (bytes, fileName) async => 'C:/rerun/$fileName',
         now: () => DateTime.utc(2026, 5, 25, 12),
       ),
@@ -868,29 +991,49 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(viewModel.isExecuting, isFalse);
+    expect(viewModel.isExecuting, isTrue);
     expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
       'task-1',
       'task-1-rerun',
       'task-2',
     ]);
     expect(viewModel.selectedTask?.id, 'task-1-rerun');
-    expect(viewModel.selectedTask?.status, ProductionTaskStatus.queued);
-    expect(viewModel.selectedTask?.attempts, 0);
+    expect(viewModel.selectedTask?.status, ProductionTaskStatus.running);
+    expect(viewModel.selectedTask?.attempts, 1);
     expect(viewModel.selectedTask?.outputImagePath, isNull);
+    await requestStarted.future.timeout(const Duration(seconds: 1));
+    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
+    await tester.pumpAndSettle();
+
+    expect(viewModel.isExecuting, isFalse);
+    expect(viewModel.selectedTask?.status, ProductionTaskStatus.completed);
+    expect(
+      viewModel.selectedTask?.outputImagePath,
+      'C:/rerun/task-1-rerun.png',
+    );
     expect(find.byWidgetPredicate((widget) => widget is ErrorWidget),
         findsNothing);
   });
 
-  testWidgets('result card quick rerun queues a clone without starting rerun',
+  testWidgets('result card quick rerun starts a clone when idle',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
     final viewModel = ProductionQueueViewModel(
       plans: [_fakePlan()],
+      executorService: ProductionExecutorService(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+        saveImage: (bytes, fileName) async => 'C:/rerun/$fileName',
+        now: () => DateTime.utc(2026, 5, 28, 10, 30),
+      ),
       now: () => DateTime.utc(2026, 5, 28, 10, 30),
     );
 
@@ -907,15 +1050,125 @@ void main() {
     );
     await tester.pump();
 
-    expect(viewModel.isExecuting, isFalse);
+    expect(viewModel.isExecuting, isTrue);
     expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
       'task-1',
       'task-1-rerun',
       'task-2',
     ]);
     expect(
-        viewModel.selectedPlan?.tasks[1].status, ProductionTaskStatus.queued);
+        viewModel.selectedPlan?.tasks[1].status, ProductionTaskStatus.running);
     expect(viewModel.selectedPlan?.tasks[1].outputImagePath, isNull);
+    await requestStarted.future.timeout(const Duration(seconds: 1));
+    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
+    await tester.pumpAndSettle();
+
+    expect(viewModel.isExecuting, isFalse);
+    expect(
+      viewModel.selectedPlan?.tasks[1].status,
+      ProductionTaskStatus.completed,
+    );
+    expect(
+      viewModel.selectedPlan?.tasks[1].outputImagePath,
+      'C:/rerun/task-1-rerun.png',
+    );
+  });
+
+  testWidgets('batch page groups rerun variants without hover preview',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ProductionQueueViewModel(
+      plans: [_rerunVariantPlan()],
+      now: () => DateTime.utc(2026, 5, 28, 10, 30),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('studio-production-rerun-task-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-rerun-task-1-rerun-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-result-card-task-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-result-card-task-1-rerun-1'),
+      ),
+      findsNothing,
+    );
+    expect(find.text('Frame 1 x5'), findsWidgets);
+    final productionImage = tester
+        .widgetList<Image>(find.byType(Image))
+        .firstWhere(
+          (image) => image.key
+              .toString()
+              .contains('production-image-${_assetPath('assets/appicon.png')}'),
+        );
+    final resizeImage = productionImage.image as ResizeImage;
+    expect(resizeImage.imageProvider, isA<FileImage>());
+    expect(resizeImage.width, 768);
+    expect(resizeImage.height, 768);
+
+    final resultCard =
+        find.byKey(const ValueKey('studio-production-result-card-task-1'));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(resultCard));
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-result-hover-preview-task-1'),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(resultCard);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('studio-production-result-detail-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('appicon.png'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('studio-production-result-variant-dots')),
+      findsOneWidget,
+    );
+    for (var index = 0; index < 5; index += 1) {
+      expect(
+        find.byKey(
+            ValueKey('studio-production-result-variant-dot-task-1-$index')),
+        findsOneWidget,
+      );
+    }
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('studio-production-result-variant-dot-task-1-2'),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('qrcode2.jpg'), findsWidgets);
   });
 
   testWidgets('batch page shows result waterfall and detail dialog',

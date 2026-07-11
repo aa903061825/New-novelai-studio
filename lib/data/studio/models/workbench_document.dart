@@ -20,6 +20,21 @@ class WorkbenchDocument {
     'i2i_config',
   };
 
+  static const _summaryPayloadKeys = <String>{
+    'prompt_config',
+    'character_config',
+    'saved_config',
+    'param_config',
+    'override_prompt',
+    'use_override_prompt',
+    'use_character_prompt_with_override',
+  };
+
+  static const empty = WorkbenchDocument(
+    version: currentVersion,
+    payload: <String, dynamic>{},
+  );
+
   final int version;
   final Map<String, dynamic> payload;
 
@@ -60,6 +75,38 @@ class WorkbenchDocument {
     );
   }
 
+  factory WorkbenchDocument.summaryFromJson(Map<String, dynamic> json) {
+    if (json['kind'] != kind) {
+      throw const FormatException('Unsupported workbench document kind.');
+    }
+    final version = json['version'];
+    if (version is! int || version > currentVersion) {
+      throw const FormatException('Unsupported workbench document version.');
+    }
+    final payload = json['payload'];
+    if (payload is! Map) {
+      throw const FormatException('Workbench document payload is missing.');
+    }
+    return WorkbenchDocument(
+      version: version,
+      payload: _extractPayload(
+        payload.cast<String, dynamic>(),
+        keys: _summaryPayloadKeys,
+      ),
+    );
+  }
+
+  static WorkbenchDocument? trySummaryFromJson(dynamic json) {
+    if (json is! Map) {
+      return null;
+    }
+    try {
+      return WorkbenchDocument.summaryFromJson(json.cast<String, dynamic>());
+    } on FormatException {
+      return null;
+    }
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'kind': kind,
@@ -81,9 +128,12 @@ class WorkbenchDocument {
     );
   }
 
-  static Map<String, dynamic> _extractPayload(Map<String, dynamic> json) {
+  static Map<String, dynamic> _extractPayload(
+    Map<String, dynamic> json, {
+    Set<String> keys = _payloadKeys,
+  }) {
     return {
-      for (final key in _payloadKeys)
+      for (final key in keys)
         if (json.containsKey(key)) key: json[key],
     };
   }

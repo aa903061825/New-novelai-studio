@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
@@ -9,6 +10,8 @@ enum PromptTagCategory {
   lowerBody,
   upperClothing,
   lowerClothing,
+  accessory,
+  clothingState,
   clothing,
   action,
   scene,
@@ -90,6 +93,52 @@ class PromptTagClassificationCacheEntry {
   }
 }
 
+class PromptTagClassificationSuggestion {
+  final String tag;
+  final PromptTagCategory category;
+  final String source;
+  final bool negative;
+
+  const PromptTagClassificationSuggestion({
+    required this.tag,
+    required this.category,
+    this.source = 'ai_extraction',
+    this.negative = false,
+  });
+}
+
+class PromptTagClassificationCacheEvents {
+  static final PromptTagClassificationRevisionNotifier revision =
+      PromptTagClassificationRevisionNotifier();
+
+  const PromptTagClassificationCacheEvents._();
+
+  static void notifyChanged() {
+    revision.notifyChanged();
+  }
+}
+
+class PromptTagClassificationRevisionNotifier {
+  final Set<void Function()> _listeners = <void Function()>{};
+
+  int value = 0;
+
+  void addListener(void Function() listener) {
+    _listeners.add(listener);
+  }
+
+  void removeListener(void Function() listener) {
+    _listeners.remove(listener);
+  }
+
+  void notifyChanged() {
+    value += 1;
+    for (final listener in List<void Function()>.of(_listeners)) {
+      listener();
+    }
+  }
+}
+
 class PromptTagClassificationCache {
   static const String _validCompoundTagsJsonKey = '__validCompoundTags';
 
@@ -130,6 +179,60 @@ class PromptTagClassificationCache {
   Set<String> get validCompoundTagKeys =>
       Set.unmodifiable(_validCompoundTagKeys);
 
+  int mergeMissingFrom(PromptTagClassificationCache other) {
+    var merged = 0;
+    for (final entry in other._entries.entries) {
+      final existing = _entries[entry.key];
+      if (existing == null) {
+        _entries[entry.key] = entry.value;
+        merged += 1;
+        continue;
+      }
+      if (_shouldReplaceMergedEntry(existing, entry.value)) {
+        _entries[entry.key] = entry.value;
+        merged += 1;
+      }
+    }
+    final compoundCount = _validCompoundTagKeys.length;
+    _validCompoundTagKeys.addAll(other._validCompoundTagKeys);
+    final changed = merged + _validCompoundTagKeys.length - compoundCount;
+    if (changed > 0) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
+    return changed;
+  }
+
+  int mergeMissingSuggestions(
+    Iterable<PromptTagClassificationSuggestion> suggestions, {
+    bool refreshMachineEntries = false,
+  }) {
+    var merged = 0;
+    for (final suggestion in suggestions) {
+      final cleaned = _cleanTag(suggestion.tag);
+      if (cleaned.isEmpty) continue;
+      final key = _cacheKey(cleaned, negative: suggestion.negative);
+      final existing = _entries[key];
+      if (existing != null) {
+        if (!refreshMachineEntries || _isUserConfirmedSource(existing.source)) {
+          continue;
+        }
+      }
+
+      _entries[key] = PromptTagClassificationCacheEntry(
+        category: suggestion.category,
+        source: suggestion.source.trim().isEmpty
+            ? 'ai_extraction'
+            : suggestion.source.trim(),
+        updatedAt: clock(),
+      );
+      merged += 1;
+    }
+    if (merged > 0) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
+    return merged;
+  }
+
   bool isValidCompoundTag(String tag) {
     final key = _legacyCacheKey(tag);
     return key.isNotEmpty && _validCompoundTagKeys.contains(key);
@@ -138,7 +241,9 @@ class PromptTagClassificationCache {
   void confirmValidCompoundTag(String tag) {
     final key = _legacyCacheKey(tag);
     if (key.isEmpty) return;
-    _validCompoundTagKeys.add(key);
+    if (_validCompoundTagKeys.add(key)) {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
   }
 
   PromptTagClassificationCacheEntry? entryFor(
@@ -172,6 +277,9 @@ class PromptTagClassificationCache {
       source: source,
       updatedAt: clock(),
     );
+    if (source != 'rules') {
+      PromptTagClassificationCacheEvents.notifyChanged();
+    }
   }
 
   void clearCategory(
@@ -180,13 +288,18 @@ class PromptTagClassificationCache {
   }) {
     final cleaned = _cleanTag(tag);
     if (cleaned.isEmpty) return;
-    _entries.remove(_cacheKey(cleaned, negative: negative));
+    var changed =
+        _entries.remove(_cacheKey(cleaned, negative: negative)) != null;
 
     final legacyKey = _legacyCacheKey(cleaned);
     final legacyEntry = _entries[legacyKey];
     if (legacyEntry != null &&
         _categoryMatchesPolarity(legacyEntry.category, negative: negative)) {
       _entries.remove(legacyKey);
+      changed = true;
+    }
+    if (changed) {
+      PromptTagClassificationCacheEvents.notifyChanged();
     }
   }
 
@@ -207,6 +320,26 @@ class PromptTagClassificationCache {
 
   static String _legacyCacheKey(String tag) {
     return PromptTagProcessor.normalizeMatchKey(_cleanTag(tag));
+  }
+
+  static bool _shouldReplaceMergedEntry(
+    PromptTagClassificationCacheEntry existing,
+    PromptTagClassificationCacheEntry incoming,
+  ) {
+    if (_isManualSource(existing.source)) {
+      return false;
+    }
+    if (_isManualSource(incoming.source)) {
+      return true;
+    }
+    if (existing.source == 'rules' && incoming.source != 'rules') {
+      return true;
+    }
+    return existing.source == 'legacy' && incoming.source != 'legacy';
+  }
+
+  static bool _isManualSource(String source) {
+    return source == 'manual' || source.startsWith('manual-');
   }
 }
 
@@ -231,13 +364,8 @@ class PromptTagClassificationCacheRepository {
       return PromptTagClassificationCache();
     }
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is! Map) {
-        return PromptTagClassificationCache();
-      }
-      return PromptTagClassificationCache.fromJson(
-        Map<String, dynamic>.from(decoded),
-      );
+      final path = file.path;
+      return Isolate.run(() => _classificationCacheFromFile(path));
     } catch (_) {
       return PromptTagClassificationCache();
     }
@@ -248,6 +376,17 @@ class PromptTagClassificationCacheRepository {
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString('${encoder.convert(cache.toJson())}\n');
   }
+}
+
+PromptTagClassificationCache _classificationCacheFromFile(String path) {
+  final source = File(path).readAsStringSync();
+  final decoded = jsonDecode(source);
+  if (decoded is! Map) {
+    return PromptTagClassificationCache();
+  }
+  return PromptTagClassificationCache.fromJson(
+    Map<String, dynamic>.from(decoded),
+  );
 }
 
 class PromptTagClassifier {
@@ -283,6 +422,8 @@ class PromptTagClassifier {
         PromptTagCategory.lowerBody,
         PromptTagCategory.upperClothing,
         PromptTagCategory.lowerClothing,
+        PromptTagCategory.accessory,
+        PromptTagCategory.clothingState,
         PromptTagCategory.clothing,
         PromptTagCategory.negativeBody,
       ],
@@ -382,6 +523,20 @@ class PromptTagClassifier {
       label: '下装',
       categories: [
         PromptTagCategory.lowerClothing,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'accessory',
+      label: '\u9970\u54c1',
+      categories: [
+        PromptTagCategory.accessory,
+      ],
+    ),
+    PromptTagGroup(
+      id: 'clothingState',
+      label: '\u670d\u88c5\u72b6\u6001/\u52a8\u4f5c',
+      categories: [
+        PromptTagCategory.clothingState,
       ],
     ),
     PromptTagGroup(
@@ -543,6 +698,12 @@ class PromptTagClassifier {
     if (_containsAny(key, _lowerBodyWords)) {
       return PromptTagCategory.lowerBody;
     }
+    if (_containsAny(key, _accessoryWords)) {
+      return PromptTagCategory.accessory;
+    }
+    if (_containsAny(key, _clothingStateWords)) {
+      return PromptTagCategory.clothingState;
+    }
     if (_containsAny(key, _upperClothingWords)) {
       return PromptTagCategory.upperClothing;
     }
@@ -576,7 +737,7 @@ class PromptTagClassifier {
         RegExp(r'^[-+]?\d+(?:\.\d+)?(?:::)??$').hasMatch(key) ||
         RegExp(r'^"?\d+"?\s*:').hasMatch(key) ||
         RegExp(
-          r'^"?(description|stealth pnginfo|base caption|prompt|v4 prompt|char caption|char captions|caption|comment|software|source|cfg|eta|sampler|seed|steps|height|width|scale|uncond scale|n samples|noise schedule|reference strength multiple|uc|hide debug overlay|negative momentum|centers|x|y|r|use coords|use order|controlnet strength|controlnet model|sm|sm dyn|skip cfg above sigma|skip cfg below sigma|lora unet weights|lora clip weights|generation time)"?',
+          r'^"?(description|stealth pnginfo|base caption|prompt|v4 prompt|char caption|char captions|caption|comment|software|source|cfg|eta|sampler|seed|steps|height|width|scale|uncond scale|n samples|noise schedule|reference strength multiple|uc|hide debug overlay|negative momentum|centers|x|y|r|use coords|use order|controlnet strength|controlnet model|sm|sm dyn|skip cfg above sigma|skip cfg below sigma|lora unet weights|lora clip weights|generation time)"?(?:\s*:|$)',
         ).hasMatch(key) ||
         key.startsWith('character#') ||
         key.startsWith('示例角色') ||
@@ -683,25 +844,20 @@ const _artistChainStyleWords = [
 const _upperBodyWords = [
   'breast',
   'nipple',
+  'areola',
   'arm',
   'hand',
   'wrist',
   'torso',
   'shoulder',
-  'choker',
-  'collar',
-  'necklace',
-  'ribbon',
-  'hair ornament',
-  'hairclip',
-  'hair clip',
-  'headband',
+  'inverted nipples',
   'large breasts',
   'small breasts',
+  'flat chest',
   'navel',
   'stomach',
   'body',
-  'nude',
+  'collarbone',
   'cleft of venus',
   'cameltoe',
   'cleavage',
@@ -764,12 +920,61 @@ const _lowerClothingWords = [
   'leggings',
 ];
 
+const _accessoryWords = [
+  'collar',
+  'choker',
+  'necklace',
+  'earring',
+  'earrings',
+  'ribbon',
+  'hair ornament',
+  'hairclip',
+  'hair clip',
+  'headband',
+  'hairband',
+  'crown',
+  'bracelet',
+  'anklet',
+  'glasses',
+  'halo',
+];
+
+const _clothingStateWords = [
+  'strap slip',
+  'slipping strap',
+  'no panties',
+  'no underwear',
+  'no bra',
+  'no clothes',
+  'topless',
+  'bottomless',
+  'completely nude',
+  'completly nude',
+  'nude',
+  'naked',
+  'shirt lift',
+  'clothes lift',
+  'clothes lifted',
+  'dress lift',
+  'skirt lift',
+  'open clothes',
+  'open shirt',
+  'open jacket',
+  'panties aside',
+  'bikini aside',
+  'pulling down',
+  'pulled down',
+  'taking off',
+  'take off',
+  'undressing',
+  'partially undressed',
+];
+
 const _clothingWords = [
   'dress',
   'belt',
   'armor',
   'uniform',
-  'open shirt',
   'robe',
   'kimono',
   'swimsuit',
@@ -959,8 +1164,21 @@ const _negativeBodyWords = [
 ];
 
 PromptTagCategory _categoryFromName(String? name) {
+  final key = name?.trim().replaceAll(RegExp(r'[_\s-]+'), '').toLowerCase();
+  if (key == null || key.isEmpty) {
+    return PromptTagCategory.other;
+  }
+  switch (key) {
+    case 'identity':
+      return PromptTagCategory.character;
+    case 'body':
+      return PromptTagCategory.upperBody;
+    case 'clothingstate':
+      return PromptTagCategory.clothingState;
+  }
   return PromptTagCategory.values.firstWhere(
-    (category) => category.name == name,
+    (category) =>
+        category.name.replaceAll(RegExp(r'[_\s-]+'), '').toLowerCase() == key,
     orElse: () => PromptTagCategory.other,
   );
 }
@@ -975,4 +1193,9 @@ String _cleanTag(String tag) {
     cleaned = cleaned.substring(1, cleaned.length - 1).trim();
   }
   return cleaned;
+}
+
+bool _isUserConfirmedSource(String source) {
+  final normalized = source.trim().toLowerCase();
+  return normalized.startsWith('manual') || normalized.startsWith('user');
 }

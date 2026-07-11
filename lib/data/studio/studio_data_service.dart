@@ -3,10 +3,15 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:novel_studio/data/studio/services/studio_cache_import_service.dart';
+import 'package:novel_studio/data/studio/studio_codex_source.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:path_provider/path_provider.dart';
+
+const _codexMigrationStateSchemaVersion = 1;
+const _codexMigrationStatePath =
+    'library/codex/inspirations_migration_state.json';
 
 class StudioDataService {
   final WorkspaceService workspaceService;
@@ -35,11 +40,20 @@ class StudioDataService {
     Directory root, {
     List<Directory> legacyWorkspaceRoots = const [],
   }) async {
+    var manifest = File(
+      '${root.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+    );
+    if (!await manifest.exists() && await _hasWorkspaceData(root)) {
+      await workspaceService.recoverWorkspace(root.path);
+      manifest = File(
+        '${root.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+      );
+    }
     await _restoreRicherLegacyWorkspaceIfNeeded(
       targetRoot: root,
       legacyWorkspaceRoots: legacyWorkspaceRoots,
     );
-    var manifest = File(
+    manifest = File(
       '${root.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
     );
     if (!await manifest.exists()) {
@@ -55,12 +69,24 @@ class StudioDataService {
       await workspaceService.openWorkspace(root.path);
       await _seedLegacyArtistDataIfEmpty();
       await _backfillLegacyArtistImages();
-      await _removeLegacyCodexFromWorkspaceInspirations();
+      await _migrateCodexOutOfWorkspaceInspirations();
       return;
     }
     await workspaceService.createWorkspace(root.path);
     await _seedLegacyArtistDataIfEmpty();
     await _backfillLegacyArtistImages();
+  }
+
+  Future<bool> _hasWorkspaceData(Directory root) async {
+    if (!await root.exists()) return false;
+    await for (final entity in root.list(recursive: true, followLinks: false)) {
+      if (entity is File &&
+          entity.path !=
+              '${root.path}${Platform.pathSeparator}${WorkspacePaths.manifest}') {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _restoreRicherLegacyWorkspaceIfNeeded({
@@ -280,6 +306,11 @@ class StudioDataService {
   }
 
   Future<void> _backfillLegacyArtistImages() async {
+    final artistChains = await workspaceService.loadArtistChains();
+    if (artistChains.every((artistChain) => artistChain.imageRefs.isNotEmpty)) {
+      return;
+    }
+
     final seed = await _loadLegacyArtistSeed();
     if (seed == null) return;
 
@@ -298,7 +329,6 @@ class StudioDataService {
           artistChain.prompt.trim(): artistChain,
     };
 
-    final artistChains = await workspaceService.loadArtistChains();
     var changed = false;
     final updated = [
       for (final artistChain in artistChains)
@@ -337,13 +367,104 @@ class StudioDataService {
     );
   }
 
-  Future<void> _removeLegacyCodexFromWorkspaceInspirations() async {
+  Future<void> _migrateCodexOutOfWorkspaceInspirations() async {
+    if (await _isCodexMigrationStateCurrent()) {
+      return;
+    }
+
     final inspirations = await workspaceService.loadInspirations();
-    final retained = inspirations
-        .where((entry) => entry.source.type != 'legacy_codex')
-        .toList(growable: false);
-    if (retained.length == inspirations.length) return;
+    final retained = <InspirationEntry>[];
+    final migrated = <InspirationEntry>[];
+    for (final entry in inspirations) {
+      if (isStudioCodexSourceType(entry.source.type)) {
+        migrated.add(entry);
+      } else {
+        retained.add(entry);
+      }
+    }
+    if (migrated.isEmpty) {
+      await _writeCodexMigrationState();
+      return;
+    }
+
+    final existingCodex = await workspaceService.loadCodexEntries();
+    final mergedCodex = _mergeCodexEntries(existingCodex, migrated);
+    await workspaceService.saveCodexEntries(mergedCodex);
     await workspaceService.saveInspirations(retained);
+    final root = workspaceService.root;
+    if (root != null) {
+      await _deleteAssetCatalogCache(root);
+    }
+    await _writeCodexMigrationState();
+  }
+
+  Future<bool> _isCodexMigrationStateCurrent() async {
+    final root = workspaceService.root;
+    if (root == null) return false;
+    final inspirationsFile = _workspaceFile(root, WorkspacePaths.inspirations);
+    if (!await inspirationsFile.exists()) return true;
+
+    final stateFile = _workspaceFile(root, _codexMigrationStatePath);
+    if (!await stateFile.exists()) return false;
+
+    try {
+      final decoded = jsonDecode(await stateFile.readAsString());
+      if (decoded is! Map) return false;
+      final stat = await inspirationsFile.stat();
+      return decoded['schemaVersion'] == _codexMigrationStateSchemaVersion &&
+          decoded['inspirationsModifiedMicros'] ==
+              stat.modified.microsecondsSinceEpoch;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _writeCodexMigrationState() async {
+    final root = workspaceService.root;
+    if (root == null) return;
+    final inspirationsFile = _workspaceFile(root, WorkspacePaths.inspirations);
+    if (!await inspirationsFile.exists()) return;
+
+    final stat = await inspirationsFile.stat();
+    final stateFile = _workspaceFile(root, _codexMigrationStatePath);
+    await stateFile.parent.create(recursive: true);
+    const encoder = JsonEncoder.withIndent('  ');
+    await stateFile.writeAsString(
+      '${encoder.convert({
+            'schemaVersion': _codexMigrationStateSchemaVersion,
+            'inspirationsModifiedMicros': stat.modified.microsecondsSinceEpoch,
+          })}\n',
+    );
+  }
+
+  List<InspirationEntry> _mergeCodexEntries(
+    List<InspirationEntry> existingEntries,
+    List<InspirationEntry> migratedEntries,
+  ) {
+    final byKey = <String, InspirationEntry>{};
+    void addEntry(InspirationEntry entry) {
+      byKey.putIfAbsent(_codexEntryKey(entry), () => entry);
+    }
+
+    for (final entry in existingEntries) {
+      addEntry(entry);
+    }
+    for (final entry in migratedEntries) {
+      addEntry(entry);
+    }
+    return List.unmodifiable(byKey.values);
+  }
+
+  String _codexEntryKey(InspirationEntry entry) {
+    final id = entry.id.trim();
+    if (id.isNotEmpty) return id;
+    return [
+      normalizeStudioCodexSourceType(entry.source.type),
+      entry.source.id ?? '',
+      entry.source.path ?? '',
+      entry.name,
+      entry.prompt,
+    ].join('\n');
   }
 
   Future<List<InspirationEntry>> loadLegacyCodexSeedEntries() async {

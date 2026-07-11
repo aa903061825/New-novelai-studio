@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_command/flutter_command.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -37,21 +38,32 @@ PayloadConfig _payload({String prompt = ''}) {
 }
 
 class _FakeGalleryService extends StudioGalleryService {
-  _FakeGalleryService(this.records)
-      : super(workspaceService: WorkspaceService());
+  _FakeGalleryService(List<StudioGalleryRecord> records)
+      : super(workspaceService: WorkspaceService()) {
+    this.records.addAll(records);
+  }
 
-  final List<StudioGalleryRecord> records;
+  final List<StudioGalleryRecord> records = [];
   final List<String> restoredIds = [];
+  final List<String> removedIds = [];
+  final List<bool> deleteImageFileRequests = [];
 
   @override
   Future<List<StudioGalleryRecord>> loadRecords() async {
-    return records;
+    return List.unmodifiable(records);
   }
 
   @override
   void restoreToWorkbench(StudioGalleryRecord record, PayloadConfig target) {
     restoredIds.add(record.id);
     record.restoreTo(target);
+  }
+
+  @override
+  Future<void> removeRecord(String id, {bool deleteImageFile = false}) async {
+    removedIds.add(id);
+    deleteImageFileRequests.add(deleteImageFile);
+    records.removeWhere((record) => record.id == id);
   }
 }
 
@@ -200,13 +212,155 @@ void main() {
 
     expect(find.text('favorite.png'), findsWidgets);
 
+    await tester.tap(find.byKey(const ValueKey('gallery-card-more-record-1')));
+    await tester.pumpAndSettle();
     await tester.tap(
-      find.byKey(const ValueKey('gallery-card-restore-record-1')),
+      find.byKey(const ValueKey('gallery-card-menu-restore-record-1')),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(galleryService.restoredIds, ['record-1']);
     expect(payload.overridePrompt, 'gallery prompt');
+  });
+
+  testWidgets('gallery page confirms before removing a saved record', (
+    tester,
+  ) async {
+    final deleteRecord = _record(
+      id: 'delete-1',
+      prompt: 'delete prompt',
+      title: 'delete-me.png',
+    );
+    final keepRecord = _record(
+      id: 'keep-1',
+      prompt: 'keep prompt',
+      title: 'keep-me.png',
+    );
+    final galleryService = _FakeGalleryService([deleteRecord, keepRecord]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioGalleryPage(
+          viewModel: GenerationPageViewmodel(),
+          galleryService: galleryService,
+          payloadConfig: GetIt.I<PayloadConfig>(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byKey(const ValueKey('gallery-card-delete-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('gallery-card-keep-1')), findsOneWidget);
+
+    final deleteButton = find.byKey(const ValueKey('gallery-detail-delete'));
+    await tester.ensureVisible(deleteButton);
+    await tester.tap(deleteButton);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('gallery-delete-dialog')), findsOneWidget);
+    expect(find.text('delete-me.png'), findsWidgets);
+    final checkbox = tester.widget<CheckboxListTile>(
+      find.byKey(const ValueKey('gallery-delete-local-file-checkbox')),
+    );
+    expect(checkbox.value, isFalse);
+
+    await tester.tap(find.byKey(const ValueKey('gallery-delete-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(galleryService.removedIds, isEmpty);
+    expect(find.byKey(const ValueKey('gallery-card-delete-1')), findsOneWidget);
+
+    await tester.tap(deleteButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('gallery-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(galleryService.removedIds, ['delete-1']);
+    expect(galleryService.deleteImageFileRequests, [false]);
+    expect(find.byKey(const ValueKey('gallery-card-delete-1')), findsNothing);
+    expect(find.byKey(const ValueKey('gallery-card-keep-1')), findsOneWidget);
+
+    await tester.ensureVisible(deleteButton);
+    await tester.tap(deleteButton);
+    await tester.pumpAndSettle();
+    expect(find.text('keep-me.png'), findsWidgets);
+    await tester.tap(
+      find.byKey(const ValueKey('gallery-delete-local-file-checkbox')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('gallery-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(galleryService.removedIds, ['delete-1', 'keep-1']);
+    expect(galleryService.deleteImageFileRequests, [false, true]);
+    expect(find.byKey(const ValueKey('gallery-card-keep-1')), findsNothing);
+  });
+
+  testWidgets('gallery page box-selects records for batch delete', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final records = [
+      _record(id: 'select-1', prompt: 'first prompt', title: 'first.png'),
+      _record(id: 'select-2', prompt: 'second prompt', title: 'second.png'),
+      _record(id: 'select-3', prompt: 'third prompt', title: 'third.png'),
+    ];
+    final galleryService = _FakeGalleryService(records);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioGalleryPage(
+          viewModel: GenerationPageViewmodel(),
+          galleryService: galleryService,
+          payloadConfig: GetIt.I<PayloadConfig>(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final firstCard = find.byKey(const ValueKey('gallery-card-select-1'));
+    final secondCard = find.byKey(const ValueKey('gallery-card-select-2'));
+    final firstRect = tester.getRect(firstCard);
+    final secondRect = tester.getRect(secondCard);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    addTearDown(gesture.removePointer);
+    await gesture.down(firstRect.topLeft + const Offset(8, 8));
+    await tester.pump();
+    await gesture.moveTo(secondRect.bottomRight + const Offset(8, 8));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('gallery-selection-toolbar')),
+      findsOneWidget,
+    );
+    expect(find.text('已选 2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('gallery-selection-delete')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('gallery-delete-dialog')), findsOneWidget);
+    expect(find.text('将从画廊移除 2 条记录。默认只删除画廊记录，不会删除本地图片文件。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('gallery-delete-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(galleryService.removedIds, ['select-1', 'select-2']);
+    expect(galleryService.deleteImageFileRequests, [false, false]);
+    expect(find.byKey(const ValueKey('gallery-card-select-1')), findsNothing);
+    expect(find.byKey(const ValueKey('gallery-card-select-2')), findsNothing);
+    expect(find.byKey(const ValueKey('gallery-card-select-3')), findsOneWidget);
   });
 
   testWidgets('gallery page filters by search and metadata status', (
@@ -301,15 +455,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('gallery-card-parsed-1')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('gallery-card-details-parsed-1')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
     expect(find.byKey(const ValueKey('gallery-detail-drawer')), findsOneWidget);
     expect(find.text('12983122'), findsOneWidget);
     expect(find.text('k_euler'), findsOneWidget);
@@ -320,12 +465,7 @@ void main() {
     );
     expect(find.text('保存素材'), findsOneWidget);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('gallery-card-missing-1')),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('gallery-card-details-missing-1')),
-    );
+    await tester.tap(find.byKey(const ValueKey('gallery-filter-missing')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -521,12 +661,39 @@ void main() {
       );
       expect(
         find.descendant(of: restoreButton, matching: find.text('送回工作台')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(find.text('Restore'), findsNothing);
       expect(
         find.byKey(const ValueKey('gallery-zoomable-image-viewer')),
         findsOneWidget,
+      );
+      final imageBottom = tester
+          .getBottomLeft(
+              find.byKey(const ValueKey('gallery-zoomable-image-viewer')))
+          .dy;
+      final restoreTop = tester.getTopLeft(restoreButton).dy;
+      expect(restoreTop, greaterThan(imageBottom));
+      final compactRestoreWidth = tester.getSize(restoreButton).width;
+
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(gesture.removePointer);
+      await gesture.addPointer();
+      await gesture.moveTo(tester.getCenter(restoreButton));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(of: restoreButton, matching: find.text('送回工作台')),
+        findsOneWidget,
+      );
+      expect(tester.getSize(restoreButton).width,
+          greaterThan(compactRestoreWidth));
+
+      await gesture.moveTo(Offset.zero);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: restoreButton, matching: find.text('送回工作台')),
+        findsNothing,
       );
       final tagDisplay = tester.widget<PromptTagDisplay>(
         find.byKey(const ValueKey('gallery-preview-prompt-tags-image-1')),

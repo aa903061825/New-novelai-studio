@@ -301,7 +301,7 @@ class GeneratePayloadUseCase {
         if (imageB64.isEmpty) continue;
         imageB64List.add(imageB64);
         referenceStrengthList.add(vc.referenceStrength);
-        infoExtractedList.add(1.0);
+        infoExtractedList.add(vc.infoExtracted);
       }
       if (imageB64List.isEmpty) {
         _removeReferencePayload(paramPayload);

@@ -402,6 +402,7 @@ void main() {
             id: 'vibe-1',
             name: 'Painter Vibe',
             vibeB64: 'encoded-painter-vibe',
+            infoExtracted: 0.18,
             referenceStrength: 0.37,
           ),
         ],
@@ -412,6 +413,7 @@ void main() {
     expect(payload.vibeConfigListV4, hasLength(1));
     expect(payload.vibeConfigListV4.single.fileName, 'Painter Vibe');
     expect(payload.vibeConfigListV4.single.vibeB64, 'encoded-painter-vibe');
+    expect(payload.vibeConfigListV4.single.infoExtracted, 0.18);
     expect(payload.vibeConfigListV4.single.referenceStrength, 0.37);
     expect(payload.generationRuntimeState.vibeEnabled, isTrue);
   });
@@ -497,6 +499,30 @@ void main() {
     );
 
     expect(payload.overridePrompt, 'white dress, lace trim');
+  });
+
+  test('asset sections add reusable fragments without save-back', () {
+    final payload = _payload(prompt: 'base');
+    final service = StudioWorkbenchAssetService(payloadConfig: payload);
+
+    service.appendAssetSection(
+      sourceId: 'recipe-1',
+      sourceBlock: 'style',
+      sectionKey: '穿甲',
+      typeLabel: '穿甲',
+      name: '战斗配方',
+      fragment: 'armored plates, pauldrons',
+    );
+
+    expect(service.fragments, hasLength(1));
+    expect(
+        service.fragments.single.kind, StudioWorkbenchAssetKind.assetSection);
+    expect(service.fragments.single.sourceId, 'recipe-1:穿甲');
+    expect(service.fragments.single.sourceBlock, 'style');
+    expect(service.fragments.single.typeLabel, '穿甲');
+    expect(service.fragments.single.name, '战斗配方 / 穿甲');
+    expect(payload.overridePrompt, 'base, armored plates, pauldrons');
+    expect(service.canSaveBack(service.fragments.single), isFalse);
   });
 
   test('editing and ordering workbench blocks recomposes override prompt', () {

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_scope.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
 import 'package:novel_studio/ui/studio_core/theme/prompt_tag_category_style.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 
 enum PromptTagChipVariant { display, editor }
 
-enum PromptTagChipDiffState { unchanged, added, removed }
+enum PromptTagChipDiffState { unchanged, added, removed, highlighted }
 
 class PromptTagChip extends StatelessWidget {
   final String label;
@@ -34,6 +36,8 @@ class PromptTagChip extends StatelessWidget {
   final Key? checkKey;
   final Key? highlightKey;
   final Key? diffKey;
+  final String? diffTooltip;
+  final String? diffBadgeLabel;
   final VoidCallback? onDeleted;
   final ValueChanged<bool>? onHoverChanged;
   final GestureTapDownCallback? onSecondaryTapDown;
@@ -70,6 +74,8 @@ class PromptTagChip extends StatelessWidget {
     this.checkKey,
     this.highlightKey,
     this.diffKey,
+    this.diffTooltip,
+    this.diffBadgeLabel,
     this.onDeleted,
     this.onHoverChanged,
     this.onSecondaryTapDown,
@@ -86,6 +92,7 @@ class PromptTagChip extends StatelessWidget {
   Color get _diffColor => switch (diffState) {
         PromptTagChipDiffState.added => StudioTokens.active,
         PromptTagChipDiffState.removed => StudioTokens.danger,
+        PromptTagChipDiffState.highlighted => StudioTokens.primary,
         PromptTagChipDiffState.unchanged => StudioTokens.textPrimary,
       };
 
@@ -108,6 +115,9 @@ class PromptTagChip extends StatelessWidget {
     final borderColor = _borderColor();
     final backgroundColor = _backgroundColor();
     final constraints = BoxConstraints(maxWidth: _maxWidth());
+    final cleanDiffBadgeLabel = diffBadgeLabel?.trim();
+    final hasDiffBadge =
+        cleanDiffBadgeLabel != null && cleanDiffBadgeLabel.isNotEmpty;
     final decoration = BoxDecoration(
       color: backgroundColor,
       borderRadius: StudioTokens.radiusTag,
@@ -154,6 +164,7 @@ class PromptTagChip extends StatelessWidget {
             weightColor: weightColor,
             weightBackgroundColor: weightBackgroundColor,
             weightBorderColor: weightBorderColor,
+            diffBadgeLabel: hasDiffBadge ? cleanDiffBadgeLabel : null,
           )
         else
           _buildDisplayContent(
@@ -166,6 +177,7 @@ class PromptTagChip extends StatelessWidget {
             weightColor: weightColor,
             weightBackgroundColor: weightBackgroundColor,
             weightBorderColor: weightBorderColor,
+            diffBadgeLabel: hasDiffBadge ? cleanDiffBadgeLabel : null,
           ),
       ],
     );
@@ -219,13 +231,28 @@ class PromptTagChip extends StatelessWidget {
           _buildOverlayDeleteButton(),
       ],
     );
+    final feedbackScale = selected
+        ? 1.026
+        : previewed
+            ? 1.018
+            : highlighted
+                ? 1.012
+                : 1.0;
     return MouseRegion(
       cursor: enabled && (hasGesture || _isEditor)
           ? SystemMouseCursors.click
           : SystemMouseCursors.basic,
       onEnter: onHoverChanged == null ? null : (_) => onHoverChanged!(true),
       onExit: onHoverChanged == null ? null : (_) => onHoverChanged!(false),
-      child: withActions,
+      child: AnimatedScale(
+        duration: StudioMotionScope.duration(
+          context,
+          StudioMotionTokens.fast,
+        ),
+        curve: StudioMotionTokens.utilityCurve,
+        scale: feedbackScale,
+        child: withActions,
+      ),
     );
   }
 
@@ -239,6 +266,7 @@ class PromptTagChip extends StatelessWidget {
     required Color weightColor,
     required Color weightBackgroundColor,
     required Color weightBorderColor,
+    required String? diffBadgeLabel,
   }) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -287,6 +315,14 @@ class PromptTagChip extends StatelessWidget {
                   borderColor: weightBorderColor,
                 ),
               ],
+              if (diffBadgeLabel != null) ...[
+                const SizedBox(width: 6),
+                _DiffBadge(
+                  dense: dense,
+                  text: diffBadgeLabel,
+                  color: StudioTokens.primary,
+                ),
+              ],
             ],
           ),
           if (hasTranslation || showLoading) ...[
@@ -315,6 +351,7 @@ class PromptTagChip extends StatelessWidget {
     required Color weightColor,
     required Color weightBackgroundColor,
     required Color weightBorderColor,
+    required String? diffBadgeLabel,
   }) {
     final primaryText =
         translationFirst && hasTranslation ? translationText : label;
@@ -374,6 +411,14 @@ class PromptTagChip extends StatelessWidget {
                         color: weightColor,
                         backgroundColor: weightBackgroundColor,
                         borderColor: weightBorderColor,
+                      ),
+                    ],
+                    if (diffBadgeLabel != null) ...[
+                      const SizedBox(width: 6),
+                      _DiffBadge(
+                        dense: dense,
+                        text: diffBadgeLabel,
+                        color: StudioTokens.primary,
                       ),
                     ],
                   ],
@@ -494,13 +539,17 @@ class PromptTagChip extends StatelessWidget {
           Icons.remove_circle_outline,
           '\u5220\u9664\u63d0\u793a\u8bcd',
         ),
+      PromptTagChipDiffState.highlighted => (
+          Icons.check_circle_outline,
+          '\u5df2\u9ad8\u4eae\u63d0\u793a\u8bcd',
+        ),
       PromptTagChipDiffState.unchanged => (
           Icons.circle_outlined,
           '\u672a\u53d8\u63d0\u793a\u8bcd',
         ),
     };
     return Tooltip(
-      message: tooltip,
+      message: diffTooltip ?? tooltip,
       child: Icon(
         icon,
         key: diffKey,
@@ -612,6 +661,47 @@ class _WeightBadge extends StatelessWidget {
                 color: color,
                 fontWeight: FontWeight.w900,
               ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiffBadge extends StatelessWidget {
+  final bool dense;
+  final String text;
+  final Color color;
+
+  const _DiffBadge({
+    required this.dense,
+    required this.text,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: dense ? 72 : 92),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color.withAlpha(26),
+          borderRadius: StudioTokens.radiusBadge,
+          border: Border.all(color: color.withAlpha(130)),
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: dense ? 4 : 5,
+            vertical: dense ? 1 : 2,
+          ),
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
         ),
       ),
     );

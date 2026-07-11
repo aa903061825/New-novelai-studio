@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_drawer_motion.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
 import 'package:novel_studio/ui/studio_core/services/prompt_tag_list_utils.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_drawer_shell.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_hover_preview_thumbnail.dart';
-import 'package:novel_studio/ui/studio_core/widgets/studio_panel.dart';
 
 const double _drawerPreviewWidth = 72;
 const double _drawerPreviewHeight = 96;
@@ -35,6 +37,7 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
   Future<List<_DrawerAssetItem>>? _detailFuture;
   String _searchQuery = '';
   Set<String> _favoriteKeys = const {};
+  bool _revealCategoriesImmediately = false;
 
   @override
   void initState() {
@@ -53,6 +56,7 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
       _detailFuture = null;
       _searchQuery = '';
       _favoriteKeys = const {};
+      _revealCategoriesImmediately = false;
       _searchController.clear();
       _loadFavoriteKeys();
     }
@@ -67,65 +71,72 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    return StudioPanel(
-      color: StudioTokens.surface2,
-      padding: const EdgeInsets.all(14),
-      child: FutureBuilder<StudioAssetCatalogSummary>(
-        future: _summaryFuture,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _DrawerState(
+    return FutureBuilder<StudioAssetCatalogSummary>(
+      future: _summaryFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return StudioAssetDrawerShell(
+            title: '素材抽屉',
+            count: 0,
+            child: StudioAssetDrawerStateMessage(
               icon: Icons.error_outline,
               title: '素材抽屉不可用',
               message: snapshot.error.toString(),
               onRetry: _reload,
-            );
-          }
-          if (!snapshot.hasData) {
-            return const _DrawerState(
+              iconColor: StudioTokens.warning,
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const StudioAssetDrawerShell(
+            title: '素材抽屉',
+            count: 0,
+            child: StudioAssetDrawerStateMessage(
               icon: Icons.hourglass_empty,
               title: '素材抽屉',
               message: '正在整理可用素材',
-            );
-          }
+            ),
+          );
+        }
 
-          final summary = snapshot.data!;
-          if (summary.isEmpty) {
-            return const _DrawerState(
+        final summary = snapshot.data!;
+        if (summary.isEmpty) {
+          return const StudioAssetDrawerShell(
+            title: '素材抽屉',
+            count: 0,
+            child: StudioAssetDrawerStateMessage(
               icon: Icons.inventory_2_outlined,
               title: '素材抽屉',
               message: '还没有可加入工作台的素材',
-            );
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _DrawerHeader(
-                title: _selectedCategory?.title ?? '素材抽屉',
-                count: _selectedCategory?.countFrom(summary) ??
-                    summary.totalAssetCount,
-                onBack: _selectedCategory == null ? null : _showCategories,
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _selectedCategory == null
-                    ? _CategoryCardList(
-                        summary: summary,
-                        onSelect: _selectCategory,
-                      )
-                    : _CategoryDetail(
-                        future: _detailFuture!,
-                        searchController: _searchController,
-                        searchQuery: _searchQuery,
-                        favoriteKeys: _favoriteKeys,
-                        onFavoriteChanged: _setFavorite,
-                      ),
-              ),
-            ],
+            ),
           );
-        },
-      ),
+        }
+
+        return StudioAssetDrawerShell(
+          title: _selectedCategory?.title ?? '素材抽屉',
+          count:
+              _selectedCategory?.countFrom(summary) ?? summary.totalAssetCount,
+          onBack: _selectedCategory == null ? null : _showCategories,
+          backButtonKey: const ValueKey('workbench-drawer-back'),
+          child: _selectedCategory == null
+              ? _CategoryCardList(
+                  key: const ValueKey('workbench-drawer-home'),
+                  summary: summary,
+                  revealImmediately: _revealCategoriesImmediately,
+                  onSelect: _selectCategory,
+                )
+              : _CategoryDetail(
+                  key: ValueKey(
+                    'workbench-drawer-detail-${_selectedCategory!.keySuffix}',
+                  ),
+                  future: _detailFuture!,
+                  searchController: _searchController,
+                  searchQuery: _searchQuery,
+                  favoriteKeys: _favoriteKeys,
+                  onFavoriteChanged: _setFavorite,
+                ),
+        );
+      },
     );
   }
 
@@ -135,6 +146,7 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
       _selectedCategory = null;
       _detailFuture = null;
       _searchQuery = '';
+      _revealCategoriesImmediately = false;
       _searchController.clear();
     });
     _loadFavoriteKeys();
@@ -184,6 +196,7 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
       _selectedCategory = category;
       _detailFuture = _loadCategoryItems(category);
       _searchQuery = '';
+      _revealCategoriesImmediately = false;
       _searchController.clear();
     });
   }
@@ -193,6 +206,7 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
       _selectedCategory = null;
       _detailFuture = null;
       _searchQuery = '';
+      _revealCategoriesImmediately = true;
       _searchController.clear();
     });
   }
@@ -324,7 +338,12 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
               subtitle: _artistChainPrompt(artistChain),
               previewPaths: _resolveImagePaths(artistChain.imageRefs),
               searchableText:
-                  '${artistChain.name} ${_artistChainPrompt(artistChain)}',
+                  '${artistChain.name} ${_artistChainPrompt(artistChain)} ${artistChain.sections.values.join(' ')}',
+              parts: _assetSections(
+                sourceId: artistChain.id,
+                ownerName: artistChain.name,
+                sections: artistChain.sections,
+              ),
               onAdd: () =>
                   widget.workbenchAssetService.appendArtistChain(artistChain),
               onInsert: (index) => widget.workbenchAssetService
@@ -352,7 +371,13 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
               subtitle: recipe.block,
               previewPaths: _resolveImagePaths(recipe.imageRefs),
               searchableText:
-                  '${recipe.name} ${recipe.block} ${recipe.tags} ${recipe.category}',
+                  '${recipe.name} ${recipe.block} ${recipe.tags} ${recipe.category} ${recipe.variants.values.join(' ')}',
+              parts: _assetSections(
+                sourceId: recipe.id,
+                sourceBlock: recipe.block,
+                ownerName: recipe.name,
+                sections: recipe.variants,
+              ),
               onAdd: () => widget.workbenchAssetService.appendRecipe(recipe),
               onInsert: (index) =>
                   widget.workbenchAssetService.insertRecipe(recipe, index),
@@ -373,7 +398,14 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
               title: tag.zh.isEmpty ? tag.tag : tag.zh,
               subtitle: tag.tag,
               previewPaths: _resolveImagePaths(tag.imageRefs),
-              searchableText: '${tag.zh} ${tag.tag} ${tag.block}',
+              searchableText:
+                  '${tag.zh} ${tag.tag} ${tag.block} ${tag.sections.values.join(' ')}',
+              parts: _assetSections(
+                sourceId: tag.id,
+                sourceBlock: tag.block,
+                ownerName: tag.zh.isEmpty ? tag.tag : tag.zh,
+                sections: tag.sections,
+              ),
               onAdd: () => widget.workbenchAssetService.appendTag(tag),
               onInsert: (index) =>
                   widget.workbenchAssetService.insertTag(tag, index),
@@ -510,6 +542,50 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
         .toList(growable: false);
   }
 
+  List<_DrawerOutfitPartItem> _assetSections({
+    required String sourceId,
+    String? sourceBlock,
+    required String ownerName,
+    required Map<String, String> sections,
+  }) {
+    return [
+      for (final entry in sections.entries)
+        if (entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+          _DrawerOutfitPartItem(
+            keySuffix: _sectionKeySuffix(entry.key),
+            label: entry.key.trim(),
+            value: entry.value.trim(),
+            onAdd: () => widget.workbenchAssetService.appendAssetSection(
+              sourceId: sourceId,
+              sourceBlock: sourceBlock,
+              sectionKey: entry.key,
+              typeLabel: entry.key.trim(),
+              name: ownerName,
+              fragment: entry.value,
+            ),
+            onInsert: (index) =>
+                widget.workbenchAssetService.insertAssetSection(
+              sourceId: sourceId,
+              sourceBlock: sourceBlock,
+              sectionKey: entry.key,
+              typeLabel: entry.key.trim(),
+              name: ownerName,
+              fragment: entry.value,
+              targetIndex: index,
+            ),
+          ),
+    ];
+  }
+
+  String _sectionKeySuffix(String value) {
+    final suffix = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return suffix.isEmpty ? value.hashCode.abs().toString() : suffix;
+  }
+
   String _combinedPrompt(List<String> prompts) {
     return prompts
         .map((prompt) => prompt.trim())
@@ -582,57 +658,15 @@ enum _AssetDrawerCategory {
   }
 }
 
-class _DrawerHeader extends StatelessWidget {
-  final String title;
-  final int count;
-  final VoidCallback? onBack;
-
-  const _DrawerHeader({
-    required this.title,
-    required this.count,
-    this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        if (onBack == null)
-          const Icon(
-            Icons.inventory_2_outlined,
-            color: StudioTokens.primary,
-          )
-        else
-          StudioIconButton(
-            key: const ValueKey('workbench-drawer-back'),
-            tooltip: '返回分类',
-            icon: Icons.arrow_back,
-            onPressed: onBack,
-          ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        Text(
-          count.toString(),
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: StudioTokens.primary,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
 class _CategoryCardList extends StatelessWidget {
   final StudioAssetCatalogSummary summary;
+  final bool revealImmediately;
   final ValueChanged<_AssetDrawerCategory> onSelect;
 
   const _CategoryCardList({
+    super.key,
     required this.summary,
+    this.revealImmediately = false,
     required this.onSelect,
   });
 
@@ -642,72 +676,19 @@ class _CategoryCardList extends StatelessWidget {
       for (final category in _AssetDrawerCategory.values)
         if (category != _AssetDrawerCategory.outfit &&
             category.countFrom(summary) > 0)
-          category,
+          StudioAssetDrawerCategory<_AssetDrawerCategory>(
+            value: category,
+            keySuffix: category.keySuffix,
+            title: category.title,
+            icon: category.icon,
+            count: category.countFrom(summary),
+          ),
     ];
-    return ListView.builder(
-      itemCount: categories.length,
-      itemBuilder: (context, index) {
-        final category = categories[index];
-        return _CategoryCard(
-          category: category,
-          count: category.countFrom(summary),
-          onTap: () => onSelect(category),
-        );
-      },
-    );
-  }
-}
-
-class _CategoryCard extends StatelessWidget {
-  final _AssetDrawerCategory category;
-  final int count;
-  final VoidCallback onTap;
-
-  const _CategoryCard({
-    required this.category,
-    required this.count,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      key: ValueKey('workbench-drawer-category-${category.keySuffix}'),
-      onTap: onTap,
-      borderRadius: StudioTokens.radiusSlot,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: StudioTokens.surface3,
-          borderRadius: StudioTokens.radiusSlot,
-          border: StudioTokens.cardBorder,
-        ),
-        child: Row(
-          children: [
-            Icon(category.icon, size: 20, color: StudioTokens.primary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                category.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-            ),
-            Text(
-              count.toString(),
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            const SizedBox(width: 8),
-            const Icon(
-              Icons.chevron_right,
-              size: 20,
-              color: StudioTokens.textSecondary,
-            ),
-          ],
-        ),
-      ),
+    return StudioAssetDrawerCategoryList<_AssetDrawerCategory>(
+      categories: categories,
+      keyPrefix: 'workbench',
+      revealImmediately: revealImmediately,
+      onSelect: onSelect,
     );
   }
 }
@@ -720,6 +701,7 @@ class _CategoryDetail extends StatelessWidget {
   final void Function(_DrawerAssetItem item, bool isFavorite) onFavoriteChanged;
 
   const _CategoryDetail({
+    super.key,
     required this.future,
     required this.searchController,
     required this.searchQuery,
@@ -733,14 +715,15 @@ class _CategoryDetail extends StatelessWidget {
       future: future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return _DrawerState(
+          return StudioAssetDrawerStateMessage(
             icon: Icons.error_outline,
             title: '分类素材不可用',
             message: snapshot.error.toString(),
+            iconColor: StudioTokens.warning,
           );
         }
         if (!snapshot.hasData) {
-          return const _DrawerState(
+          return const StudioAssetDrawerStateMessage(
             icon: Icons.hourglass_empty,
             title: '正在打开分类',
             message: '正在整理这个分类的素材',
@@ -763,53 +746,37 @@ class _CategoryDetail extends StatelessWidget {
         }
         final filteredItems = [...pinnedItems, ...regularItems];
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              key: const ValueKey('workbench-drawer-category-search'),
-              controller: searchController,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: '搜索当前分类',
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: filteredItems.isEmpty
-                  ? const _DrawerState(
-                      icon: Icons.search_off,
-                      title: '没有匹配素材',
-                      message: '换个关键词试试',
-                    )
-                  : ListView.builder(
-                      itemCount: filteredItems.length,
-                      itemBuilder: (context, index) {
-                        final item = filteredItems[index];
-                        return _DrawerAssetRow(
-                          key: _drawerStateKey('asset-row', item.itemKey),
-                          itemKey: item.itemKey,
-                          actionKey: item.actionKey,
-                          favoriteButtonKey: item.favoriteButtonKey,
-                          previewKey: item.previewKey,
-                          icon: item.icon,
-                          title: item.title,
-                          subtitle: item.subtitle,
-                          previewPaths: item.previewPaths,
-                          outfits: item.outfits,
-                          isFavorite: favoriteKeys.contains(item.favoriteKey),
-                          onFavoriteChanged: (isFavorite) =>
-                              onFavoriteChanged(item, isFavorite),
-                          onAdd: item.onAdd,
-                          onInsert: item.onInsert,
-                          characterName: item.characterName,
-                          characterPrompt: item.characterPrompt,
-                        );
-                      },
-                    ),
-            ),
-          ],
+        return StudioAssetDrawerSearchList<_DrawerAssetItem>(
+          searchFieldKey: const ValueKey('workbench-drawer-category-search'),
+          searchController: searchController,
+          items: filteredItems,
+          emptyState: const StudioAssetDrawerStateMessage(
+            icon: Icons.search_off,
+            title: '没有匹配素材',
+            message: '换个关键词试试',
+          ),
+          itemBuilder: (context, item, index) {
+            return _DrawerAssetRow(
+              key: _drawerStateKey('asset-row', item.itemKey),
+              itemKey: item.itemKey,
+              actionKey: item.actionKey,
+              favoriteButtonKey: item.favoriteButtonKey,
+              previewKey: item.previewKey,
+              icon: item.icon,
+              title: item.title,
+              subtitle: item.subtitle,
+              previewPaths: item.previewPaths,
+              outfits: item.outfits,
+              parts: item.parts,
+              isFavorite: favoriteKeys.contains(item.favoriteKey),
+              onFavoriteChanged: (isFavorite) =>
+                  onFavoriteChanged(item, isFavorite),
+              onAdd: item.onAdd,
+              onInsert: item.onInsert,
+              characterName: item.characterName,
+              characterPrompt: item.characterPrompt,
+            );
+          },
         );
       },
     );
@@ -836,6 +803,7 @@ class _DrawerAssetItem {
   final List<String> previewPaths;
   final String searchableText;
   final List<_DrawerOutfitItem> outfits;
+  final List<_DrawerOutfitPartItem> parts;
   final VoidCallback onAdd;
   final ValueChanged<int> onInsert;
   final String? characterName;
@@ -855,6 +823,7 @@ class _DrawerAssetItem {
     required this.onAdd,
     required this.onInsert,
     this.outfits = const [],
+    this.parts = const [],
     this.characterName,
     this.characterPrompt,
   });
@@ -945,6 +914,7 @@ class _DrawerAssetRow extends StatefulWidget {
   final String subtitle;
   final List<String> previewPaths;
   final List<_DrawerOutfitItem> outfits;
+  final List<_DrawerOutfitPartItem> parts;
   final bool isFavorite;
   final ValueChanged<bool> onFavoriteChanged;
   final VoidCallback onAdd;
@@ -963,6 +933,7 @@ class _DrawerAssetRow extends StatefulWidget {
     required this.subtitle,
     required this.previewPaths,
     required this.outfits,
+    required this.parts,
     required this.isFavorite,
     required this.onFavoriteChanged,
     required this.onAdd,
@@ -981,90 +952,101 @@ class _DrawerAssetRowState extends State<_DrawerAssetRow> {
   @override
   Widget build(BuildContext context) {
     final previewPath = _firstPreviewPath(widget.previewPaths);
-    final card = InkWell(
-      key: widget.itemKey,
-      onTap: widget.outfits.isEmpty
-          ? null
-          : () => setState(() {
-                _expanded = !_expanded;
-              }),
-      borderRadius: StudioTokens.radiusSlot,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: StudioTokens.surface3,
-          borderRadius: StudioTokens.radiusSlot,
-          border: StudioTokens.cardBorder,
-        ),
-        child: Row(
-          children: [
-            StudioHoverPreviewThumbnail(
-              previewPaths: widget.previewPaths,
-              overlayKey: ValueKey(
-                '${(widget.previewKey as ValueKey).value}-overlay',
+    final hasChildren = widget.outfits.isNotEmpty || widget.parts.isNotEmpty;
+    final card = StudioAssetDrawerCardSurface(
+      child: InkWell(
+        key: widget.itemKey,
+        onTap: !hasChildren
+            ? null
+            : () => setState(() {
+                  _expanded = !_expanded;
+                }),
+        borderRadius: StudioTokens.radiusSlot,
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: StudioTokens.surface3,
+            borderRadius: StudioTokens.radiusSlot,
+            border: StudioTokens.cardBorder,
+          ),
+          child: Row(
+            children: [
+              StudioHoverPreviewThumbnail(
+                previewPaths: widget.previewPaths,
+                overlayKey: ValueKey(
+                  '${(widget.previewKey as ValueKey).value}-overlay',
+                ),
+                builder: (context, previewPath) => _DrawerAssetPreview(
+                  key: widget.previewKey,
+                  icon: widget.icon,
+                  previewPath: previewPath,
+                ),
               ),
-              builder: (context, previewPath) => _DrawerAssetPreview(
-                key: widget.previewKey,
-                icon: widget.icon,
-                previewPath: previewPath,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  if (widget.subtitle.trim().isNotEmpty) ...[
-                    const SizedBox(height: 3),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      widget.subtitle,
+                      widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.labelLarge,
                     ),
+                    if (widget.subtitle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        widget.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (widget.outfits.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '${widget.outfits.length} 套服装',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: StudioTokens.textMuted,
+                            ),
+                      ),
+                    ],
+                    if (widget.outfits.isEmpty && widget.parts.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '${widget.parts.length} 个分区',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: StudioTokens.textMuted,
+                            ),
+                      ),
+                    ],
                   ],
-                  if (widget.outfits.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      '${widget.outfits.length} 套服装',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: StudioTokens.textMuted,
-                          ),
-                    ),
-                  ],
-                ],
+                ),
               ),
-            ),
-            if (widget.outfits.isNotEmpty) ...[
+              if (hasChildren) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                  color: StudioTokens.textSecondary,
+                ),
+              ],
+              const SizedBox(width: 8),
+              StudioIconButton(
+                key: widget.favoriteButtonKey,
+                tooltip: widget.isFavorite ? '取消收藏' : '收藏',
+                icon: widget.isFavorite ? Icons.star : Icons.star_border,
+                onPressed: () => widget.onFavoriteChanged(!widget.isFavorite),
+              ),
               const SizedBox(width: 4),
-              Icon(
-                _expanded ? Icons.expand_less : Icons.expand_more,
-                size: 20,
-                color: StudioTokens.textSecondary,
+              StudioIconButton(
+                key: widget.actionKey,
+                tooltip: '加入工作台',
+                icon: Icons.add,
+                onPressed: widget.onAdd,
               ),
             ],
-            const SizedBox(width: 8),
-            StudioIconButton(
-              key: widget.favoriteButtonKey,
-              tooltip: widget.isFavorite ? '取消收藏' : '收藏',
-              icon: widget.isFavorite ? Icons.star : Icons.star_border,
-              onPressed: () => widget.onFavoriteChanged(!widget.isFavorite),
-            ),
-            const SizedBox(width: 4),
-            StudioIconButton(
-              key: widget.actionKey,
-              tooltip: '加入工作台',
-              icon: Icons.add,
-              onPressed: widget.onAdd,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1089,21 +1071,63 @@ class _DrawerAssetRowState extends State<_DrawerAssetRow> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         draggable,
-        if (_expanded) ...[
-          Padding(
-            padding: const EdgeInsets.only(left: 18, bottom: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final outfit in widget.outfits)
-                  _DrawerOutfitRow(
-                    key: _drawerStateKey('outfit-row', outfit.itemKey),
-                    outfit: outfit,
-                  ),
-              ],
-            ),
+        StudioDrawerShelf(
+          visible: _expanded,
+          margin: const EdgeInsets.only(
+            left: 18,
+            right: studioAssetDrawerHoverInset,
+            bottom: 8,
           ),
-        ],
+          railOpacity: 0,
+          builder: (context) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var index = 0; index < widget.outfits.length; index += 1)
+                StudioStaggeredReveal(
+                  key: _drawerStateKey(
+                    'outfit-reveal',
+                    widget.outfits[index].itemKey,
+                  ),
+                  index: index,
+                  columns: 1,
+                  maxStaggeredItems: 8,
+                  duration: const Duration(milliseconds: 200),
+                  itemDelay: const Duration(milliseconds: 24),
+                  beginOffset: const Offset(0, 0.026),
+                  beginScale: 0.984,
+                  child: _DrawerOutfitRow(
+                    key: _drawerStateKey(
+                      'outfit-row',
+                      widget.outfits[index].itemKey,
+                    ),
+                    outfit: widget.outfits[index],
+                  ),
+                ),
+              for (var index = 0; index < widget.parts.length; index += 1)
+                Padding(
+                  padding: EdgeInsets.only(
+                    top: widget.outfits.isEmpty && index == 0 ? 0 : 8,
+                  ),
+                  child: StudioStaggeredReveal(
+                    key: ValueKey(
+                      '${(widget.itemKey as ValueKey).value}-part-$index',
+                    ),
+                    index: widget.outfits.length + index,
+                    columns: 1,
+                    maxStaggeredItems: 8,
+                    duration: const Duration(milliseconds: 180),
+                    itemDelay: const Duration(milliseconds: 20),
+                    beginOffset: const Offset(0, 0.022),
+                    beginScale: 0.99,
+                    child: _DrawerPromptPartCard(
+                      outfitKey: widget.itemKey,
+                      part: widget.parts[index],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1198,56 +1222,83 @@ class _DrawerOutfitRowState extends State<_DrawerOutfitRow> {
       child: header,
     );
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface2,
-        borderRadius: StudioTokens.radiusSlot,
-        border: StudioTokens.cardBorder,
+    final headerCard = StudioAssetDrawerCardSurface(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface2,
+          borderRadius: StudioTokens.radiusSlot,
+          border: StudioTokens.cardBorder,
+        ),
+        child: draggableHeader,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          draggableHeader,
-          if (_expanded) ...[
-            const SizedBox(height: 10),
-            for (final part in widget.outfit.parts) ...[
-              _DrawerPromptPartCard(
-                outfitKey: widget.outfit.itemKey,
-                part: part,
-              ),
-              if (part != widget.outfit.parts.last) const SizedBox(height: 8),
-            ],
-            if (widget.outfit.parts.isNotEmpty) const SizedBox(height: 8),
-            if (widget.outfit.parts.isEmpty) ...[
-              if (widget.outfit.upperBodyPrompt.trim().isNotEmpty) ...[
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        headerCard,
+        StudioDrawerShelf(
+          visible: _expanded,
+          margin: const EdgeInsets.only(
+            left: 18,
+            right: studioAssetDrawerHoverInset,
+            bottom: 8,
+          ),
+          railOpacity: 0,
+          builder: (context) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              for (var index = 0;
+                  index < widget.outfit.parts.length;
+                  index += 1) ...[
+                StudioStaggeredReveal(
+                  index: index,
+                  columns: 1,
+                  maxStaggeredItems: 8,
+                  duration: const Duration(milliseconds: 180),
+                  itemDelay: const Duration(milliseconds: 20),
+                  beginOffset: const Offset(0, 0.022),
+                  beginScale: 0.99,
+                  child: _DrawerPromptPartCard(
+                    outfitKey: widget.outfit.itemKey,
+                    part: widget.outfit.parts[index],
+                  ),
+                ),
+                if (index != widget.outfit.parts.length - 1)
+                  const SizedBox(height: 8),
+              ],
+              if (widget.outfit.parts.isNotEmpty) const SizedBox(height: 8),
+              if (widget.outfit.parts.isEmpty) ...[
+                if (widget.outfit.upperBodyPrompt.trim().isNotEmpty) ...[
+                  _DrawerPromptSplitLine(
+                    label: '上身',
+                    value: widget.outfit.upperBodyPrompt,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 _DrawerPromptSplitLine(
-                  label: '上身',
-                  value: widget.outfit.upperBodyPrompt,
+                  label: '上装',
+                  value: widget.outfit.upperClothingPrompt,
                 ),
                 const SizedBox(height: 8),
-              ],
-              _DrawerPromptSplitLine(
-                label: '上装',
-                value: widget.outfit.upperClothingPrompt,
-              ),
-              const SizedBox(height: 8),
-              if (widget.outfit.lowerBodyPrompt.trim().isNotEmpty) ...[
+                if (widget.outfit.lowerBodyPrompt.trim().isNotEmpty) ...[
+                  _DrawerPromptSplitLine(
+                    label: '下身',
+                    value: widget.outfit.lowerBodyPrompt,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 _DrawerPromptSplitLine(
-                  label: '下身',
-                  value: widget.outfit.lowerBodyPrompt,
+                  label: '下装',
+                  value: widget.outfit.lowerClothingPrompt,
                 ),
-                const SizedBox(height: 8),
               ],
-              _DrawerPromptSplitLine(
-                label: '下装',
-                value: widget.outfit.lowerClothingPrompt,
-              ),
             ],
-          ],
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1265,50 +1316,54 @@ class _DrawerPromptPartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = part.value.trim();
     final partKey = _partKey('part');
-    final card = Container(
-      key: ValueKey(partKey),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface3,
-        borderRadius: StudioTokens.radiusSlot,
-        border: Border.all(color: StudioTokens.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 42,
-            child: Text(
-              part.label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: StudioTokens.textMuted,
-                  ),
+    final card = StudioAssetDrawerCardSurface(
+      enabled: value.isNotEmpty,
+      padding: EdgeInsets.zero,
+      child: Container(
+        key: ValueKey(partKey),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface3,
+          borderRadius: StudioTokens.radiusSlot,
+          border: Border.all(color: StudioTokens.border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 42,
+              child: Text(
+                part.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: StudioTokens.textMuted,
+                    ),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value.isEmpty ? '未记录' : value,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                value.isEmpty ? '未记录' : value,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          StudioIconButton(
-            key: ValueKey(_partKey('add-part')),
-            tooltip: '加入工作台',
-            icon: Icons.add,
-            onPressed: value.isEmpty ? null : part.onAdd,
-          ),
-          const SizedBox(width: 4),
-          StudioIconButton(
-            key: ValueKey(_partKey('copy-part')),
-            tooltip: '复制提示词',
-            icon: Icons.copy_outlined,
-            onPressed: value.isEmpty ? null : () => _copy(context, value),
-          ),
-        ],
+            const SizedBox(width: 6),
+            StudioIconButton(
+              key: ValueKey(_partKey('add-part')),
+              tooltip: '加入工作台',
+              icon: Icons.add,
+              onPressed: value.isEmpty ? null : part.onAdd,
+            ),
+            const SizedBox(width: 4),
+            StudioIconButton(
+              key: ValueKey(_partKey('copy-part')),
+              tooltip: '复制提示词',
+              icon: Icons.copy_outlined,
+              onPressed: value.isEmpty ? null : () => _copy(context, value),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -1463,44 +1518,6 @@ class _DrawerDragFeedback extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DrawerState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-  final VoidCallback? onRetry;
-
-  const _DrawerState({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: StudioTokens.warning),
-          const SizedBox(height: 10),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(height: 12),
-            TextButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ],
       ),
     );
   }

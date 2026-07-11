@@ -12,7 +12,8 @@ const ARTIST_CHAIN_PATHS = [
   process.env.REFINE_ARTIST_CHAINS_PATH,
   path.join(
     process.env.APPDATA || '',
-    'Novel Studio',\n  'Novel Studio',
+    'Novel Studio',
+    'Novel Studio',
     'novel_studio',
     'library',
     'artist_chains.json',

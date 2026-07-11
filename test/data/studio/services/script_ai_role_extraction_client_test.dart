@@ -71,8 +71,41 @@ void main() {
     expect(systemPrompt, contains('official art'));
     expect(systemPrompt, contains('Output every stage label in Chinese'));
     expect(systemPrompt, contains('replacement table contract'));
+    expect(systemPrompt, contains('source_terms is the complete'));
+    expect(systemPrompt, contains('term_cache_suggestions'));
+    expect(
+        systemPrompt, contains('Only suggest translations or classifications'));
     expect(systemPrompt, contains('replace, merge, delete, or leave empty'));
-    expect(systemPrompt, contains('replacement-relevant clothing_state'));
+    expect(
+      systemPrompt,
+      contains(
+        'character, upperBody, lowerBody, upperClothing, lowerClothing, accessory, clothingState, other, and scene',
+      ),
+    );
+    expect(
+      systemPrompt,
+      contains(
+        'Pure action, pose, expression, camera, composition, sex-act, and story-beat terms must be excluded from prompt_terms',
+      ),
+    );
+    expect(
+      systemPrompt,
+      contains(
+        'Use other only for rare role-scoped replacement terms that affect replaceable role appearance',
+      ),
+    );
+    expect(
+      systemPrompt,
+      isNot(contains('Do not drop them just because they do not belong')),
+    );
+    expect(
+      systemPrompt,
+      isNot(contains('Do not hard-filter role-scoped source')),
+    );
+    expect(systemPrompt, contains('replacement-relevant clothingState'));
+    expect(systemPrompt, contains('inverted nipples'));
+    expect(systemPrompt, contains('large breasts'));
+    expect(systemPrompt, contains('strap slip'));
     expect(systemPrompt, contains('no panties'));
     expect(systemPrompt, contains('bottomless'));
     expect(systemPrompt, contains('bikini aside'));
@@ -83,7 +116,7 @@ void main() {
     expect(
         systemPrompt,
         contains(
-            'keep state-specific source terms in prompt_terms as clothing_state'));
+            'keep state-specific source terms in prompt_terms as clothingState'));
     expect(systemPrompt, isNot(contains('role-local uncertain candidate')));
     expect(
       systemPrompt,

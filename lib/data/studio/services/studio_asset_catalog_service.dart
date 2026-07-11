@@ -1,12 +1,184 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/services.dart';
 import 'package:novel_studio/data/studio/studio_data_service.dart';
+import 'package:novel_studio/data/studio/studio_codex_source.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
+
+part 'studio_codex_index.dart';
+
+dynamic _decodeAssetCatalogCacheFile(String path) {
+  return jsonDecode(File(path).readAsStringSync());
+}
+
+class _AssetCatalogPersistentCacheReadRequest {
+  final String path;
+  final Map<String, dynamic> request;
+
+  const _AssetCatalogPersistentCacheReadRequest({
+    required this.path,
+    required this.request,
+  });
+}
+
+class _AssetCatalogPersistentCacheWriteRequest {
+  final String path;
+  final Map<String, dynamic> request;
+  final StudioAssetCatalogSnapshot snapshot;
+  final Map<String, String> sourceFingerprint;
+
+  const _AssetCatalogPersistentCacheWriteRequest({
+    required this.path,
+    required this.request,
+    required this.snapshot,
+    required this.sourceFingerprint,
+  });
+}
+
+_PersistentCatalogCache? _readAssetCatalogPersistentCacheFromFile(
+  _AssetCatalogPersistentCacheReadRequest request,
+) {
+  try {
+    final decoded = _decodeAssetCatalogCacheFile(request.path);
+    final map = StudioAssetCatalogService._jsonMap(
+      decoded,
+      'asset catalog cache',
+    );
+    if (map['schemaVersion'] == StudioAssetCatalogService._cacheSchemaVersion) {
+      final entries = StudioAssetCatalogService._jsonMap(
+        map['entries'],
+        'cache.entries',
+      );
+      if (request.request['includeLegacyCodex'] == true) {
+        return StudioAssetCatalogService._readCompatibleCodexCacheEntry(
+          request: request.request,
+          entries: entries,
+          readEntry: (key, entry) =>
+              StudioAssetCatalogService._cacheEntryFromJson(
+            entry,
+            'cache.entry.$key',
+          ),
+        );
+      }
+      final entry =
+          entries[StudioAssetCatalogService._cacheEntryKey(request.request)];
+      if (entry == null) return null;
+      return StudioAssetCatalogService._cacheEntryFromJson(
+        entry,
+        'cache.entry',
+      );
+    }
+    if (map['schemaVersion'] ==
+        StudioAssetCatalogService._singleEntryCacheSchemaVersion) {
+      final cachedRequest = StudioAssetCatalogService._jsonMap(
+        map['request'],
+        'cache.request',
+      );
+      if (!StudioAssetCatalogService._sameJsonMap(
+        cachedRequest,
+        request.request,
+      )) {
+        return null;
+      }
+      return StudioAssetCatalogService._cacheEntryFromJson(map, 'cache');
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+Map<String, dynamic> _readAssetCatalogPersistentCacheEntriesFromFile(
+  String path,
+) {
+  try {
+    final file = File(path);
+    if (!file.existsSync()) return <String, dynamic>{};
+    final decoded = _decodeAssetCatalogCacheFile(path);
+    final map = StudioAssetCatalogService._jsonMap(
+      decoded,
+      'asset catalog cache',
+    );
+    if (map['schemaVersion'] == StudioAssetCatalogService._cacheSchemaVersion) {
+      return StudioAssetCatalogService._jsonMap(
+        map['entries'],
+        'cache.entries',
+      );
+    }
+    if (map['schemaVersion'] ==
+        StudioAssetCatalogService._singleEntryCacheSchemaVersion) {
+      final request = StudioAssetCatalogService._jsonMap(
+        map['request'],
+        'cache.request',
+      );
+      return <String, dynamic>{
+        StudioAssetCatalogService._cacheEntryKey(request):
+            StudioAssetCatalogService._cacheEntryToJson(
+          _PersistentCatalogCache(
+            snapshot: StudioAssetCatalogService._snapshotFromJson(
+              map['snapshot'],
+            ),
+            sourceFingerprint: StudioAssetCatalogService._stringMap(
+              map['sourceFingerprint'],
+              'cache.sourceFingerprint',
+            ),
+          ),
+        ),
+      };
+    }
+  } catch (_) {
+    return <String, dynamic>{};
+  }
+  return <String, dynamic>{};
+}
+
+void _writeAssetCatalogPersistentCacheFile(
+  _AssetCatalogPersistentCacheWriteRequest request,
+) {
+  final file = File(request.path);
+  final cacheEntry = _PersistentCatalogCache(
+    snapshot: request.snapshot,
+    sourceFingerprint: request.sourceFingerprint,
+  );
+  final cacheKey = StudioAssetCatalogService._cacheEntryKey(request.request);
+  file.parent.createSync(recursive: true);
+  final entries = _readAssetCatalogPersistentCacheEntriesFromFile(file.path);
+  if (request.request['includeLegacyCodex'] == true &&
+      StudioAssetCatalogService._hasPersistentEntryCoveringSnapshot(
+        entries,
+        request.request,
+        request.snapshot,
+      )) {
+    return;
+  }
+  if (request.request['includeLegacyCodex'] == true) {
+    StudioAssetCatalogService._removeCoveredCodexCacheEntries(
+      entries,
+      request.request,
+      request.snapshot,
+    );
+  } else {
+    StudioAssetCatalogService._removeRedundantDefaultCacheEntries(
+      entries,
+      cacheKey,
+    );
+  }
+  entries[cacheKey] = StudioAssetCatalogService._cacheEntryToJson(cacheEntry);
+  StudioAssetCatalogService._prunePersistentCacheEntries(entries);
+  file.writeAsStringSync(
+    jsonEncode({
+      'schemaVersion': StudioAssetCatalogService._cacheSchemaVersion,
+      'generatedAt': DateTime.now().toUtc().toIso8601String(),
+      'entries': entries,
+    }),
+  );
+}
 
 class StudioLegacyCodexCategory {
   final String key;
@@ -955,8 +1127,13 @@ class StudioAssetCatalogCacheLoadResult {
 }
 
 class StudioAssetCatalogService {
-  static const _cacheSchemaVersion = 7;
+  static const _cacheSchemaVersion = 9;
   static const _singleEntryCacheSchemaVersion = 2;
+  static const _maxPersistentCodexEntries = 8;
+  static const _maxPersistentCodexLimit = 64;
+  static final _cacheSchemaVersionPattern = RegExp(
+    r'"schemaVersion"\s*:\s*(\d+)',
+  );
   static final _genericLegacyOutfitNamePattern = RegExp(
     r'^(变体\s*\d+|服装|outfit|variant\s*\d+|imported outfit|preset\s*\d+)$',
     caseSensitive: false,
@@ -970,29 +1147,26 @@ class StudioAssetCatalogService {
 
   final WorkspaceService workspaceService;
   final Future<List<InspirationEntry>> Function()? legacyCodexLoader;
-  List<InspirationEntry>? _legacyCodexCache;
-  bool? _legacyCodexAvailabilityCache;
+  late final StudioCodexIndex _codexIndex;
   final Map<String, _PersistentCatalogCache> _catalogCacheEntries = {};
-  final Map<String, List<String>> _legacyCodexCategoryKeyCache = {};
+  Future<void>? _pendingPersistentCacheWrite;
 
   StudioAssetCatalogService({
     required this.workspaceService,
     this.legacyCodexLoader,
-  });
+  }) {
+    _codexIndex = StudioCodexIndex(
+      workspaceService: workspaceService,
+      legacyCodexLoader: legacyCodexLoader,
+    );
+  }
 
   static bool isCodexSourceType(String sourceType) {
-    final normalized = sourceType.trim().toLowerCase().replaceAll('-', '_');
-    if (normalized.isEmpty) return false;
-    return normalized == 'codex' ||
-        normalized == 'legacy_codex' ||
-        normalized.startsWith('novalai_codex') ||
-        normalized.contains('_codex') ||
-        normalized.contains('codex_');
+    return isStudioCodexSourceType(sourceType);
   }
 
   static bool isAdultCodexSourceType(String sourceType) {
-    final normalized = sourceType.trim().toLowerCase().replaceAll('-', '_');
-    return isCodexSourceType(normalized) && normalized.contains('adult');
+    return isAdultStudioCodexSourceType(sourceType);
   }
 
   Future<StudioAssetCatalogCacheLoadResult> loadSnapshotWithCache({
@@ -1001,6 +1175,7 @@ class StudioAssetCatalogService {
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
     bool checkStaleness = true,
+    bool persistCacheBeforeReturn = true,
   }) async {
     final request = _cacheRequest(
       includeLegacyCodex: includeLegacyCodex,
@@ -1031,6 +1206,7 @@ class StudioAssetCatalogService {
         legacyCodexLimit: legacyCodexLimit,
         legacyCodexQuery: legacyCodexQuery,
         legacyCodexCategoryKey: legacyCodexCategoryKey,
+        persistCacheBeforeReturn: persistCacheBeforeReturn,
       ),
       fromCache: false,
       isStale: false,
@@ -1048,12 +1224,14 @@ class StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) {
     return loadSnapshot(
       includeLegacyCodex: includeLegacyCodex,
       legacyCodexLimit: legacyCodexLimit,
       legacyCodexQuery: legacyCodexQuery,
       legacyCodexCategoryKey: legacyCodexCategoryKey,
+      persistCacheBeforeReturn: persistCacheBeforeReturn,
     );
   }
 
@@ -1062,9 +1240,11 @@ class StudioAssetCatalogService {
     final recipeCountsByBlock = <String, int>{};
     final tagCountsByBlock = <String, int>{};
 
-    for (final block in WorkspacePaths.blocks) {
+    for (final block in await workspaceService.listRecipeBlocks()) {
       recipeCountsByBlock[block] =
           (await workspaceService.loadRecipes(block)).length;
+    }
+    for (final block in await workspaceService.listTagBlocks()) {
       tagCountsByBlock[block] = (await workspaceService.loadTags(block)).length;
     }
 
@@ -1087,6 +1267,18 @@ class StudioAssetCatalogService {
     );
   }
 
+  Future<StudioAssetCatalogSummary?> loadCachedSummary() async {
+    final request = _cacheRequest(
+      includeLegacyCodex: false,
+      legacyCodexLimit: 160,
+      legacyCodexQuery: '',
+      legacyCodexCategoryKey: StudioLegacyCodexCategories.allKey,
+    );
+    final cached =
+        _readMemoryCache(request) ?? await _readPersistentCache(request);
+    return cached?.snapshot.summary;
+  }
+
   Future<Set<String>> loadAssetFavoriteKeys() {
     return workspaceService.loadAssetFavorites();
   }
@@ -1096,13 +1288,24 @@ class StudioAssetCatalogService {
   }
 
   String? resolveImagePath(List<String> refs) {
+    final paths = resolveImagePaths(refs, limit: 1);
+    return paths.isEmpty ? null : paths.first;
+  }
+
+  List<String> resolveImagePaths(List<String> refs, {int? limit}) {
     final workspaceRoot = workspaceService.root;
+    final paths = <String>[];
+    final seen = <String>{};
     for (final ref in refs) {
       final trimmed = ref.trim();
       if (trimmed.isEmpty) continue;
       final direct = File(trimmed);
       if (direct.isAbsolute && direct.existsSync()) {
-        return direct.path;
+        if (seen.add(direct.path)) {
+          paths.add(direct.path);
+          if (limit != null && paths.length >= limit) return paths;
+        }
+        continue;
       }
       if (workspaceRoot == null) continue;
       for (final candidate in [
@@ -1111,10 +1314,52 @@ class StudioAssetCatalogService {
         File(_join(workspaceRoot.path, 'imports/artist_studio/$trimmed')),
         File(_join(workspaceRoot.path, 'imports/external/$trimmed')),
       ]) {
-        if (candidate.existsSync()) return candidate.path;
+        if (candidate.existsSync() && seen.add(candidate.path)) {
+          paths.add(candidate.path);
+          if (limit != null && paths.length >= limit) return paths;
+          break;
+        }
       }
     }
-    return null;
+    return List.unmodifiable(paths);
+  }
+
+  Future<List<String>> resolveImagePathsAsync(List<String> refs) async {
+    final workspaceRoot = workspaceService.root;
+    if (workspaceRoot == null) {
+      final paths = <String>[];
+      final seen = <String>{};
+      for (final ref in refs) {
+        final resolved = resolveImagePath([ref]);
+        if (resolved != null && seen.add(resolved)) {
+          paths.add(resolved);
+        }
+      }
+      return List.unmodifiable(paths);
+    }
+    final paths = <String>[];
+    final seen = <String>{};
+    for (final ref in refs) {
+      final trimmed = ref.trim();
+      if (trimmed.isEmpty) continue;
+      final direct = File(trimmed);
+      if (direct.isAbsolute && await direct.exists()) {
+        if (seen.add(direct.path)) paths.add(direct.path);
+        continue;
+      }
+      for (final candidate in [
+        File(_join(workspaceRoot.path, trimmed)),
+        File(_join(workspaceRoot.path, 'assets/references/$trimmed')),
+        File(_join(workspaceRoot.path, 'imports/artist_studio/$trimmed')),
+        File(_join(workspaceRoot.path, 'imports/external/$trimmed')),
+      ]) {
+        if (await candidate.exists() && seen.add(candidate.path)) {
+          paths.add(candidate.path);
+          break;
+        }
+      }
+    }
+    return List.unmodifiable(paths);
   }
 
   Future<List<CharacterEntry>> loadWorkbenchCharacters() {
@@ -1126,7 +1371,7 @@ class StudioAssetCatalogService {
     return List.unmodifiable(_outfitsFromCharacters(characters));
   }
 
-  List<StudioOutfitAsset> _outfitsFromCharacters(
+  static List<StudioOutfitAsset> _outfitsFromCharacters(
     List<CharacterEntry> characters,
   ) {
     final outfits = <StudioOutfitAsset>[];
@@ -1144,7 +1389,7 @@ class StudioAssetCatalogService {
 
   Future<List<Recipe>> loadWorkbenchRecipes() async {
     final recipes = <Recipe>[];
-    for (final block in WorkspacePaths.blocks) {
+    for (final block in await workspaceService.listRecipeBlocks()) {
       recipes.addAll(await workspaceService.loadRecipes(block));
     }
     return List.unmodifiable(recipes);
@@ -1152,7 +1397,7 @@ class StudioAssetCatalogService {
 
   Future<List<TagEntry>> loadWorkbenchTags() async {
     final tags = <TagEntry>[];
-    for (final block in WorkspacePaths.blocks) {
+    for (final block in await workspaceService.listTagBlocks()) {
       tags.addAll(await workspaceService.loadTags(block));
     }
     return List.unmodifiable(tags);
@@ -1167,6 +1412,7 @@ class StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     final snapshot = await _buildSnapshot(
       includeLegacyCodex: includeLegacyCodex,
@@ -1174,17 +1420,40 @@ class StudioAssetCatalogService {
       legacyCodexQuery: legacyCodexQuery,
       legacyCodexCategoryKey: legacyCodexCategoryKey,
     );
-    await _writePersistentCache(
-      request: _cacheRequest(
-        includeLegacyCodex: includeLegacyCodex,
-        legacyCodexLimit: legacyCodexLimit,
-        legacyCodexQuery: legacyCodexQuery,
-        legacyCodexCategoryKey: legacyCodexCategoryKey,
-      ),
-      snapshot: snapshot,
-      sourceFingerprint: await _sourceFingerprint(),
+    final request = _cacheRequest(
+      includeLegacyCodex: includeLegacyCodex,
+      legacyCodexLimit: legacyCodexLimit,
+      legacyCodexQuery: legacyCodexQuery,
+      legacyCodexCategoryKey: legacyCodexCategoryKey,
     );
+    if (persistCacheBeforeReturn) {
+      await _writePersistentCache(
+        request: request,
+        snapshot: snapshot,
+        sourceFingerprint: await _sourceFingerprint(),
+      );
+    } else {
+      _rememberMemoryCache(
+        request: request,
+        snapshot: snapshot,
+        sourceFingerprint: const {},
+      );
+      final pendingWrite = _writePersistentCacheWithFreshFingerprint(
+        request: request,
+        snapshot: snapshot,
+      );
+      _pendingPersistentCacheWrite = pendingWrite;
+      unawaited(pendingWrite.whenComplete(() {
+        if (identical(_pendingPersistentCacheWrite, pendingWrite)) {
+          _pendingPersistentCacheWrite = null;
+        }
+      }));
+    }
     return snapshot;
+  }
+
+  Future<void> waitForPendingPersistentCacheWrite() {
+    return _pendingPersistentCacheWrite ?? Future<void>.value();
   }
 
   Future<StudioAssetCatalogSnapshot> _buildSnapshot({
@@ -1199,9 +1468,16 @@ class StudioAssetCatalogService {
     final catalogInspirations = workspaceInspirations
         .where((entry) => !isCodexSourceType(entry.source.type))
         .toList(growable: false);
-    final workspaceCodexInspirations = workspaceInspirations
+    final legacyWorkspaceCodexInspirations = workspaceInspirations
         .where((entry) => isCodexSourceType(entry.source.type))
         .toList(growable: false);
+    final separatedCodexInspirations = includeLegacyCodex
+        ? await workspaceService.loadCodexEntries()
+        : const <InspirationEntry>[];
+    final workspaceCodexInspirations = [
+      ...separatedCodexInspirations,
+      ...legacyWorkspaceCodexInspirations,
+    ];
     final legacyCodex = includeLegacyCodex
         ? await _loadLegacyCodexInspirations(
             limit: legacyCodexLimit,
@@ -1209,9 +1485,11 @@ class StudioAssetCatalogService {
             categoryKey: legacyCodexCategoryKey,
             workspaceCodexEntries: workspaceCodexInspirations,
           )
-        : const _LegacyCodexSlice.empty();
-    final legacyCodexAvailable =
-        workspaceCodexInspirations.isNotEmpty || await _hasLegacyCodexSource();
+        : const StudioCodexSlice.empty();
+    final legacyCodexAvailable = workspaceCodexInspirations.isNotEmpty ||
+        legacyWorkspaceCodexInspirations.isNotEmpty ||
+        await workspaceService.hasCodexEntries() ||
+        await _hasLegacyCodexSource();
     final inspirations = [
       ...catalogInspirations,
       ...legacyCodex.entries,
@@ -1226,12 +1504,14 @@ class StudioAssetCatalogService {
     final recipes = <Recipe>[];
     final tags = <TagEntry>[];
 
-    for (final block in WorkspacePaths.blocks) {
+    for (final block in await workspaceService.listRecipeBlocks()) {
       final blockRecipes = await workspaceService.loadRecipes(block);
-      final blockTags = await workspaceService.loadTags(block);
       recipes.addAll(blockRecipes);
-      tags.addAll(blockTags);
       recipeCountsByBlock[block] = blockRecipes.length;
+    }
+    for (final block in await workspaceService.listTagBlocks()) {
+      final blockTags = await workspaceService.loadTags(block);
+      tags.addAll(blockTags);
       tagCountsByBlock[block] = blockTags.length;
     }
 
@@ -1292,32 +1572,22 @@ class StudioAssetCatalogService {
     final file = _workspaceFile(WorkspacePaths.assetCatalogCache);
     if (file == null || !await file.exists()) return null;
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      final map = _jsonMap(decoded, 'asset catalog cache');
-      if (map['schemaVersion'] == _cacheSchemaVersion) {
-        final entries = _jsonMap(map['entries'], 'cache.entries');
-        if (request['includeLegacyCodex'] == true) {
-          final compatible = _readCompatibleCodexCacheEntry(
+      final schemaVersion = await _readPersistentCacheSchemaVersion(file);
+      if (schemaVersion != _cacheSchemaVersion &&
+          schemaVersion != _singleEntryCacheSchemaVersion) {
+        return null;
+      }
+      final cacheEntry = await Isolate.run(
+        () => _readAssetCatalogPersistentCacheFromFile(
+          _AssetCatalogPersistentCacheReadRequest(
+            path: file.path,
             request: request,
-            entries: entries,
-            readEntry: (key, entry) =>
-                _cacheEntryFromJson(entry, 'cache.entry.$key'),
-          );
-          if (compatible != null) {
-            _catalogCacheEntries[_cacheEntryKey(request)] = compatible;
-            return compatible;
-          }
-        }
-        final entry = entries[_cacheEntryKey(request)];
-        if (entry == null) return null;
-        final cacheEntry = _cacheEntryFromJson(entry, 'cache.entry');
+          ),
+        ),
+      );
+      if (cacheEntry != null) {
         _catalogCacheEntries[_cacheEntryKey(request)] = cacheEntry;
         return cacheEntry;
-      }
-      if (map['schemaVersion'] == _singleEntryCacheSchemaVersion) {
-        final cachedRequest = _jsonMap(map['request'], 'cache.request');
-        if (!_sameJsonMap(cachedRequest, request)) return null;
-        return _cacheEntryFromJson(map, 'cache');
       }
       return null;
     } catch (_) {
@@ -1337,6 +1607,33 @@ class StudioAssetCatalogService {
     return _catalogCacheEntries[_cacheEntryKey(request)];
   }
 
+  void _rememberMemoryCache({
+    required Map<String, dynamic> request,
+    required StudioAssetCatalogSnapshot snapshot,
+    required Map<String, String> sourceFingerprint,
+  }) {
+    _catalogCacheEntries[_cacheEntryKey(request)] = _PersistentCatalogCache(
+      snapshot: snapshot,
+      sourceFingerprint: sourceFingerprint,
+    );
+  }
+
+  Future<void> _writePersistentCacheWithFreshFingerprint({
+    required Map<String, dynamic> request,
+    required StudioAssetCatalogSnapshot snapshot,
+  }) async {
+    try {
+      await _writePersistentCache(
+        request: request,
+        snapshot: snapshot,
+        sourceFingerprint: await _sourceFingerprint(),
+      );
+    } catch (_) {
+      // Cache persistence is a read optimization; foreground data is already
+      // available from the rebuilt in-memory snapshot.
+    }
+  }
+
   Future<void> _writePersistentCache({
     required Map<String, dynamic> request,
     required StudioAssetCatalogSnapshot snapshot,
@@ -1346,50 +1643,134 @@ class StudioAssetCatalogService {
       snapshot: snapshot,
       sourceFingerprint: sourceFingerprint,
     );
-    _catalogCacheEntries[_cacheEntryKey(request)] = cacheEntry;
+    _rememberMemoryCache(
+      request: request,
+      snapshot: snapshot,
+      sourceFingerprint: sourceFingerprint,
+    );
+    if (!_shouldPersistCacheEntry(request, snapshot)) {
+      return;
+    }
     final file = _workspaceFile(WorkspacePaths.assetCatalogCache);
     if (file == null) return;
-    await file.parent.create(recursive: true);
-    final entries = await _readPersistentCacheEntries(file);
-    entries[_cacheEntryKey(request)] = _cacheEntryToJson(cacheEntry);
-    await file.writeAsString(
-      jsonEncode({
-        'schemaVersion': _cacheSchemaVersion,
-        'generatedAt': DateTime.now().toUtc().toIso8601String(),
-        'entries': entries,
-      }),
+    await Isolate.run(
+      () => _writeAssetCatalogPersistentCacheFile(
+        _AssetCatalogPersistentCacheWriteRequest(
+          path: file.path,
+          request: request,
+          snapshot: cacheEntry.snapshot,
+          sourceFingerprint: cacheEntry.sourceFingerprint,
+        ),
+      ),
     );
   }
 
-  Future<Map<String, dynamic>> _readPersistentCacheEntries(File file) async {
-    if (!await file.exists()) return <String, dynamic>{};
+  Future<int?> _readPersistentCacheSchemaVersion(File file) async {
     try {
-      final decoded = jsonDecode(await file.readAsString());
-      final map = _jsonMap(decoded, 'asset catalog cache');
-      if (map['schemaVersion'] == _cacheSchemaVersion) {
-        return _jsonMap(map['entries'], 'cache.entries');
-      }
-      if (map['schemaVersion'] == _singleEntryCacheSchemaVersion) {
-        final request = _jsonMap(map['request'], 'cache.request');
-        return <String, dynamic>{
-          _cacheEntryKey(request): _cacheEntryToJson(
-            _PersistentCatalogCache(
-              snapshot: _snapshotFromJson(map['snapshot']),
-              sourceFingerprint: _stringMap(
-                map['sourceFingerprint'],
-                'cache.sourceFingerprint',
-              ),
-            ),
-          ),
-        };
-      }
+      final length = await file.length();
+      if (length <= 0) return null;
+      final end = length < 512 ? length : 512;
+      final prefix = await file.openRead(0, end).transform(utf8.decoder).join();
+      final match = _cacheSchemaVersionPattern.firstMatch(prefix);
+      if (match == null) return null;
+      return int.tryParse(match.group(1)!);
     } catch (_) {
-      return <String, dynamic>{};
+      return null;
     }
-    return <String, dynamic>{};
   }
 
-  Map<String, dynamic> _cacheEntryToJson(_PersistentCatalogCache cacheEntry) {
+  static bool _shouldPersistCacheEntry(
+    Map<String, dynamic> request,
+    StudioAssetCatalogSnapshot snapshot,
+  ) {
+    if (request['includeLegacyCodex'] != true) return true;
+    final loadedCount = snapshot.legacyCodexLoadedCount;
+    final totalCount = snapshot.legacyCodexTotalCount;
+    return loadedCount <= _maxPersistentCodexLimit ||
+        totalCount <= _maxPersistentCodexLimit;
+  }
+
+  static bool _hasPersistentEntryCoveringSnapshot(
+    Map<String, dynamic> entries,
+    Map<String, dynamic> request,
+    StudioAssetCatalogSnapshot snapshot,
+  ) {
+    final compatible = _readCompatibleCodexCacheEntry(
+      request: request,
+      entries: entries,
+      readEntry: (key, entry) => _cacheEntryFromJson(entry, 'cache.entry.$key'),
+    );
+    return compatible != null &&
+        compatible.snapshot.legacyCodexLoadedCount >=
+            snapshot.legacyCodexLoadedCount;
+  }
+
+  static void _removeCoveredCodexCacheEntries(
+    Map<String, dynamic> entries,
+    Map<String, dynamic> request,
+    StudioAssetCatalogSnapshot snapshot,
+  ) {
+    final requestedQuery = (request['legacyCodexQuery'] ?? '').toString();
+    final requestedCategoryKey =
+        StudioLegacyCodexCategories.normalizedRequestKey(
+      (request['legacyCodexCategoryKey'] ?? '').toString(),
+    );
+    entries.removeWhere((key, _) {
+      final parts = _cacheEntryKeyParts(key);
+      if (parts == null ||
+          !parts.includeLegacyCodex ||
+          parts.legacyCodexQuery != requestedQuery ||
+          parts.legacyCodexCategoryKey != requestedCategoryKey) {
+        return false;
+      }
+      return parts.legacyCodexLimit <= snapshot.legacyCodexLoadedCount;
+    });
+  }
+
+  static void _removeRedundantDefaultCacheEntries(
+    Map<String, dynamic> entries,
+    String currentKey,
+  ) {
+    entries.removeWhere((key, _) {
+      if (key == currentKey) return false;
+      final parts = _cacheEntryKeyParts(key);
+      return parts != null && !parts.includeLegacyCodex;
+    });
+  }
+
+  static void _prunePersistentCacheEntries(Map<String, dynamic> entries) {
+    final codexKeys = [
+      for (final key in entries.keys)
+        if (_cacheEntryKeyParts(key)?.includeLegacyCodex == true) key,
+    ];
+    if (codexKeys.length <= _maxPersistentCodexEntries) return;
+    codexKeys.sort((a, b) {
+      final generatedCompare = _cacheEntryGeneratedAt(
+        entries[b],
+      ).compareTo(_cacheEntryGeneratedAt(entries[a]));
+      if (generatedCompare != 0) return generatedCompare;
+      final aLimit = _cacheEntryKeyParts(a)?.legacyCodexLimit ?? 0;
+      final bLimit = _cacheEntryKeyParts(b)?.legacyCodexLimit ?? 0;
+      return bLimit.compareTo(aLimit);
+    });
+    for (final key in codexKeys.skip(_maxPersistentCodexEntries)) {
+      entries.remove(key);
+    }
+  }
+
+  static DateTime _cacheEntryGeneratedAt(dynamic entry) {
+    if (entry is! Map) return DateTime.fromMillisecondsSinceEpoch(0);
+    final generatedAt = entry['generatedAt'];
+    if (generatedAt is! String) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+    return DateTime.tryParse(generatedAt) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  static Map<String, dynamic> _cacheEntryToJson(
+    _PersistentCatalogCache cacheEntry,
+  ) {
     return {
       'generatedAt': DateTime.now().toUtc().toIso8601String(),
       'sourceFingerprint': cacheEntry.sourceFingerprint,
@@ -1397,7 +1778,10 @@ class StudioAssetCatalogService {
     };
   }
 
-  _PersistentCatalogCache _cacheEntryFromJson(dynamic json, String label) {
+  static _PersistentCatalogCache _cacheEntryFromJson(
+    dynamic json,
+    String label,
+  ) {
     final map = _jsonMap(json, label);
     return _PersistentCatalogCache(
       snapshot: _snapshotFromJson(map['snapshot']),
@@ -1406,7 +1790,7 @@ class StudioAssetCatalogService {
     );
   }
 
-  _PersistentCatalogCache? _readCompatibleCodexCacheEntry({
+  static _PersistentCatalogCache? _readCompatibleCodexCacheEntry({
     required Map<String, dynamic> request,
     required Map<String, dynamic> entries,
     required _PersistentCatalogCache Function(String key, dynamic entry)
@@ -1444,7 +1828,7 @@ class StudioAssetCatalogService {
     return best;
   }
 
-  String _cacheEntryKey(Map<String, dynamic> request) {
+  static String _cacheEntryKey(Map<String, dynamic> request) {
     final includeLegacyCodex = request['includeLegacyCodex'] == true ? 1 : 0;
     final limit = _intValue(request['legacyCodexLimit']);
     final query = (request['legacyCodexQuery'] ?? '').toString();
@@ -1459,7 +1843,7 @@ class StudioAssetCatalogService {
     ].join('|');
   }
 
-  ({
+  static ({
     bool includeLegacyCodex,
     int legacyCodexLimit,
     String legacyCodexQuery,
@@ -1517,14 +1901,14 @@ class StudioAssetCatalogService {
       WorkspacePaths.characters,
       WorkspacePaths.artistChains,
       WorkspacePaths.inspirations,
+      WorkspacePaths.codexEntries,
       WorkspacePaths.loras,
-      for (final block in WorkspacePaths.blocks)
-        WorkspacePaths.recipeFile(block),
-      for (final block in WorkspacePaths.blocks) WorkspacePaths.tagFile(block),
     ]) {
       await _addFileFingerprint(root, relativePath, fingerprint);
     }
     for (final relativeDir in [
+      'library/recipes',
+      'library/tags',
       WorkspacePaths.batchPlansDir,
       WorkspacePaths.workflowsDir,
       WorkspacePaths.assemblyPresetsDir,
@@ -1588,7 +1972,10 @@ class StudioAssetCatalogService {
     return true;
   }
 
-  bool _sameJsonMap(Map<String, dynamic> left, Map<String, dynamic> right) {
+  static bool _sameJsonMap(
+    Map<String, dynamic> left,
+    Map<String, dynamic> right,
+  ) {
     if (left.length != right.length) return false;
     for (final entry in left.entries) {
       if (right[entry.key] != entry.value) return false;
@@ -1596,7 +1983,9 @@ class StudioAssetCatalogService {
     return true;
   }
 
-  Map<String, dynamic> _summaryToJson(StudioAssetCatalogSummary summary) {
+  static Map<String, dynamic> _summaryToJson(
+    StudioAssetCatalogSummary summary,
+  ) {
     return {
       'characterCount': summary.characterCount,
       'outfitCount': summary.outfitCount,
@@ -1613,7 +2002,7 @@ class StudioAssetCatalogService {
     };
   }
 
-  StudioAssetCatalogSummary _summaryFromJson(dynamic json) {
+  static StudioAssetCatalogSummary _summaryFromJson(dynamic json) {
     final map = _jsonMap(json, 'catalog.summary');
     return StudioAssetCatalogSummary(
       characterCount: _intValue(map['characterCount']),
@@ -1633,7 +2022,9 @@ class StudioAssetCatalogService {
     );
   }
 
-  Map<String, dynamic> _snapshotToJson(StudioAssetCatalogSnapshot snapshot) {
+  static Map<String, dynamic> _snapshotToJson(
+    StudioAssetCatalogSnapshot snapshot,
+  ) {
     return {
       'summary': _summaryToJson(snapshot.summary),
       'characters': snapshot.characters.map((entry) => entry.toJson()).toList(),
@@ -1655,7 +2046,7 @@ class StudioAssetCatalogService {
     };
   }
 
-  StudioAssetCatalogSnapshot _snapshotFromJson(dynamic json) {
+  static StudioAssetCatalogSnapshot _snapshotFromJson(dynamic json) {
     final map = _jsonMap(json, 'catalog.snapshot');
     final characters = _list(map['characters'])
         .map(CharacterEntry.fromJson)
@@ -1694,29 +2085,29 @@ class StudioAssetCatalogService {
     );
   }
 
-  Map<String, dynamic> _jsonMap(dynamic value, String label) {
+  static Map<String, dynamic> _jsonMap(dynamic value, String label) {
     if (value is Map) return Map<String, dynamic>.from(value);
     throw FormatException('$label must be a JSON object.');
   }
 
-  List<dynamic> _list(dynamic value) {
+  static List<dynamic> _list(dynamic value) {
     if (value is List) return value;
     return const [];
   }
 
-  Map<String, String> _stringMap(dynamic value, String label) {
+  static Map<String, String> _stringMap(dynamic value, String label) {
     return _jsonMap(value, label).map(
       (key, value) => MapEntry(key, value.toString()),
     );
   }
 
-  Map<String, int> _intMap(dynamic value, String label) {
+  static Map<String, int> _intMap(dynamic value, String label) {
     return _jsonMap(value, label).map(
       (key, value) => MapEntry(key, _intValue(value)),
     );
   }
 
-  int _intValue(dynamic value) {
+  static int _intValue(dynamic value) {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return 0;
@@ -2322,321 +2713,22 @@ class StudioAssetCatalogService {
     return outfits.isEmpty ? null : outfits.first.id;
   }
 
-  Future<_LegacyCodexSlice> _loadLegacyCodexInspirations({
+  Future<StudioCodexSlice> _loadLegacyCodexInspirations({
     required int limit,
     required String query,
     required String categoryKey,
     List<InspirationEntry> workspaceCodexEntries = const [],
   }) async {
-    final allEntries = _mergedCodexEntries(
-      workspaceCodexEntries,
-      await _loadAllLegacyCodexInspirations(),
+    return _codexIndex.loadSlice(
+      workspaceCodexEntries: workspaceCodexEntries,
+      limit: limit,
+      query: query,
+      categoryKey: categoryKey,
     );
-    final requestFilter =
-        StudioLegacyCodexCategories.requestFilterFor(categoryKey);
-    final sourceFiltered = allEntries
-        .where(
-          (entry) => _matchesCodexSourceScope(
-            entry,
-            requestFilter.sourceScopeKey,
-          ),
-        )
-        .toList(growable: false);
-    final sourceGroups = _groupLegacyCodexEntries(sourceFiltered);
-    final normalizedQuery = query.trim().toLowerCase();
-    final queryFiltered = normalizedQuery.isEmpty
-        ? sourceGroups
-        : sourceGroups
-            .where((group) => _matchesCodexGroupQuery(group, normalizedQuery))
-            .toList(growable: false);
-    final normalizedCategory = requestFilter.categoryKey;
-    final categoryCounts = _legacyCodexCategoryCountsForGroups(
-      queryFiltered,
-      sourceScopeKey: requestFilter.sourceScopeKey,
-    );
-    final filtered = <_LegacyCodexGroup>[];
-    if (normalizedCategory == StudioLegacyCodexCategories.allKey) {
-      filtered.addAll(queryFiltered);
-    } else {
-      for (final group in queryFiltered) {
-        final categoryKeys = _legacyCodexCategoryKeysForGroup(
-          group,
-          requestFilter.sourceScopeKey,
-        );
-        if (categoryKeys.contains(normalizedCategory)) {
-          filtered.add(group);
-        }
-      }
-    }
-    final safeLimit = limit < 1 ? 1 : limit;
-    return _LegacyCodexSlice(
-      entries: filtered
-          .take(safeLimit)
-          .map(_legacyCodexGroupEntry)
-          .toList(growable: false),
-      totalCount: filtered.length,
-      categoryCounts: Map.unmodifiable(categoryCounts),
-    );
-  }
-
-  Map<String, int> _legacyCodexCategoryCountsForGroups(
-    List<_LegacyCodexGroup> groups, {
-    required String sourceScopeKey,
-  }) {
-    final counts = <String, int>{
-      StudioLegacyCodexCategories.allKey: groups.length,
-    };
-    final sawSourceCategories = groups.any(
-      (group) => _legacyCodexCategoryKeysForGroup(group, sourceScopeKey).any(
-        StudioLegacyCodexCategories.isSourceCategoryKey,
-      ),
-    );
-    if (!sawSourceCategories) {
-      for (final category
-          in StudioLegacyCodexCategories.filtersForSource(sourceScopeKey)
-              .skip(1)) {
-        counts[category.key] = 0;
-      }
-    }
-    for (final group in groups) {
-      for (final key in _legacyCodexCategoryKeysForGroup(
-        group,
-        sourceScopeKey,
-      )) {
-        counts[key] = (counts[key] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }
-
-  List<String> _legacyCodexCategoryKeysFor(
-    InspirationEntry entry,
-    String sourceScopeKey,
-  ) {
-    final normalizedSourceScopeKey =
-        StudioLegacyCodexCategories.normalizedSourceScopeKey(sourceScopeKey);
-    final cacheKey =
-        _legacyCodexCategoryCacheKey(entry, normalizedSourceScopeKey);
-    return _legacyCodexCategoryKeyCache.putIfAbsent(
-      cacheKey,
-      () => StudioLegacyCodexCategories.keysForSource(
-        entry,
-        normalizedSourceScopeKey,
-      ),
-    );
-  }
-
-  String _legacyCodexCategoryCacheKey(
-    InspirationEntry entry,
-    String sourceScopeKey,
-  ) {
-    return [
-      sourceScopeKey,
-      entry.id,
-      entry.name,
-      entry.prompt,
-      entry.negativePrompt,
-      entry.tags.join('\u0001'),
-      entry.note,
-      entry.sourceCategoryPath.join('\u0001'),
-      entry.sourceParentId ?? '',
-      entry.sourceParentName ?? '',
-      entry.sourceVariantLabel ?? '',
-      entry.source.type,
-      entry.source.id ?? '',
-      entry.source.path ?? '',
-    ].join('\u0002');
-  }
-
-  List<String> _legacyCodexCategoryKeysForGroup(
-    _LegacyCodexGroup group,
-    String sourceScopeKey,
-  ) {
-    final keys = <String>{};
-    for (final entry in [group.parent, ...group.variants]) {
-      keys.addAll(_legacyCodexCategoryKeysFor(entry, sourceScopeKey));
-    }
-    return List.unmodifiable(keys);
-  }
-
-  List<_LegacyCodexGroup> _groupLegacyCodexEntries(
-    List<InspirationEntry> entries,
-  ) {
-    final groups = <_MutableLegacyCodexGroup>[];
-    final groupsByParentId = <String, _MutableLegacyCodexGroup>{};
-    final pendingByParentId = <String, List<InspirationEntry>>{};
-
-    void addParent(InspirationEntry entry) {
-      final group = _MutableLegacyCodexGroup(entry);
-      final pending = pendingByParentId.remove(entry.id);
-      if (pending != null) {
-        group.variants.addAll(pending);
-      }
-      groups.add(group);
-      groupsByParentId[entry.id] = group;
-    }
-
-    for (final entry in entries) {
-      final parentId = entry.sourceParentId?.trim();
-      if (parentId == null || parentId.isEmpty) {
-        addParent(entry);
-        continue;
-      }
-      final group = groupsByParentId[parentId];
-      if (group != null) {
-        group.variants.add(entry);
-      } else {
-        pendingByParentId.putIfAbsent(parentId, () => []).add(entry);
-      }
-    }
-    for (final pending in pendingByParentId.values) {
-      for (final entry in pending) {
-        addParent(entry);
-      }
-    }
-    return List.unmodifiable([
-      for (final group in groups)
-        _LegacyCodexGroup(
-          parent: group.parent,
-          variants: List.unmodifiable(group.variants),
-        ),
-    ]);
-  }
-
-  InspirationEntry _legacyCodexGroupEntry(_LegacyCodexGroup group) {
-    if (group.variants.isEmpty && group.parent.variants.isEmpty) {
-      return group.parent;
-    }
-    return InspirationEntry(
-      id: group.parent.id,
-      name: group.parent.name,
-      prompt: group.parent.prompt,
-      negativePrompt: group.parent.negativePrompt,
-      tags: group.parent.tags,
-      imageRefs: group.parent.imageRefs,
-      source: group.parent.source,
-      note: group.parent.note,
-      sourceCategoryPath: group.parent.sourceCategoryPath,
-      sourceParentId: group.parent.sourceParentId,
-      sourceParentName: group.parent.sourceParentName,
-      sourceVariantLabel: group.parent.sourceVariantLabel,
-      variants: [
-        ...group.parent.variants,
-        ...group.variants,
-      ],
-    );
-  }
-
-  List<InspirationEntry> _mergedCodexEntries(
-    List<InspirationEntry> workspaceEntries,
-    List<InspirationEntry> bundledEntries,
-  ) {
-    if (workspaceEntries.isEmpty) return bundledEntries;
-    if (bundledEntries.isEmpty) return workspaceEntries;
-
-    final byKey = <String, InspirationEntry>{};
-    void addEntry(InspirationEntry entry) {
-      final id = entry.id.trim();
-      final key = id.isNotEmpty
-          ? id
-          : [
-              entry.source.type,
-              entry.source.id ?? '',
-              entry.name,
-              entry.prompt,
-            ].join('\n');
-      byKey.putIfAbsent(key, () => entry);
-    }
-
-    for (final entry in workspaceEntries) {
-      addEntry(entry);
-    }
-    for (final entry in bundledEntries) {
-      addEntry(entry);
-    }
-    return List.unmodifiable(byKey.values);
-  }
-
-  Future<List<InspirationEntry>> _loadAllLegacyCodexInspirations() async {
-    final cached = _legacyCodexCache;
-    if (cached != null) return cached;
-    if (legacyCodexLoader != null) {
-      final entries = await legacyCodexLoader!.call();
-      _legacyCodexCache = entries;
-      return entries;
-    }
-    try {
-      final raw = await rootBundle.loadString(
-        'assets/json/legacy_codex_seed.json',
-      );
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return const [];
-      final entries = await StudioDataService(
-        workspaceService: workspaceService,
-        legacyCodexSeedLoader: () async => decoded,
-      ).loadLegacyCodexSeedEntries();
-      _legacyCodexCache = entries;
-      return entries;
-    } catch (_) {
-      return const [];
-    }
   }
 
   Future<bool> _hasLegacyCodexSource() async {
-    if (legacyCodexLoader != null) return true;
-    final cached = _legacyCodexCache;
-    if (cached != null) return cached.isNotEmpty;
-    final cachedAvailability = _legacyCodexAvailabilityCache;
-    if (cachedAvailability != null) return cachedAvailability;
-    try {
-      final raw = await rootBundle.loadString(
-        'assets/json/legacy_codex_seed.json',
-      );
-      final available = raw.trim().isNotEmpty;
-      _legacyCodexAvailabilityCache = available;
-      return available;
-    } catch (_) {
-      _legacyCodexAvailabilityCache = false;
-      return false;
-    }
-  }
-
-  bool _matchesCodexQuery(InspirationEntry entry, String normalizedQuery) {
-    return [
-      entry.name,
-      entry.prompt,
-      entry.negativePrompt,
-      entry.tags.join(' '),
-      entry.sourceCategoryPath.join(' '),
-      entry.sourceParentName ?? '',
-      entry.sourceVariantLabel ?? '',
-      entry.note,
-    ].join('\n').toLowerCase().contains(normalizedQuery);
-  }
-
-  bool _matchesCodexGroupQuery(
-    _LegacyCodexGroup group,
-    String normalizedQuery,
-  ) {
-    return _matchesCodexQuery(group.parent, normalizedQuery) ||
-        group.variants.any(
-          (variant) => _matchesCodexQuery(variant, normalizedQuery),
-        );
-  }
-
-  bool _matchesCodexSourceScope(
-    InspirationEntry entry,
-    String sourceScopeKey,
-  ) {
-    final normalizedScope =
-        StudioLegacyCodexCategories.normalizedSourceScopeKey(sourceScopeKey);
-    if (normalizedScope == StudioLegacyCodexCategories.sourceAllKey) {
-      return true;
-    }
-    final isAdult = isAdultCodexSourceType(entry.source.type);
-    return normalizedScope == StudioLegacyCodexCategories.sourceAdultKey
-        ? isAdult
-        : !isAdult;
+    return _codexIndex.hasBundledCodexSource();
   }
 
   String _join(String root, String path) {
@@ -2648,40 +2740,6 @@ class StudioAssetCatalogService {
           .where((segment) => segment.isNotEmpty && segment != '.'),
     ].join(Platform.pathSeparator);
   }
-}
-
-class _MutableLegacyCodexGroup {
-  final InspirationEntry parent;
-  final List<InspirationEntry> variants = [];
-
-  _MutableLegacyCodexGroup(this.parent);
-}
-
-class _LegacyCodexGroup {
-  final InspirationEntry parent;
-  final List<InspirationEntry> variants;
-
-  const _LegacyCodexGroup({
-    required this.parent,
-    required this.variants,
-  });
-}
-
-class _LegacyCodexSlice {
-  final List<InspirationEntry> entries;
-  final int totalCount;
-  final Map<String, int> categoryCounts;
-
-  const _LegacyCodexSlice({
-    required this.entries,
-    required this.totalCount,
-    required this.categoryCounts,
-  });
-
-  const _LegacyCodexSlice.empty()
-      : entries = const [],
-        totalCount = 0,
-        categoryCounts = const {};
 }
 
 class _PersistentCatalogCache {

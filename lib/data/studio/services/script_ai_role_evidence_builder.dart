@@ -1,17 +1,23 @@
 import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 class ScriptAiRoleEvidenceBuilder {
   final int maxFramesPerChunk;
   final int maxFrameIndexesPerTag;
   final int maxSamplesPerTag;
   final int maxTimelineSegmentsPerSource;
+  final TranslationCache? translationCache;
+  final PromptTagClassificationCache? classificationCache;
 
   const ScriptAiRoleEvidenceBuilder({
     this.maxFramesPerChunk = 80,
     this.maxFrameIndexesPerTag = 24,
     this.maxSamplesPerTag = 3,
     this.maxTimelineSegmentsPerSource = 12,
+    this.translationCache,
+    this.classificationCache,
   });
 
   List<Map<String, dynamic>> buildChunks({required Script script}) {
@@ -103,6 +109,7 @@ class ScriptAiRoleEvidenceBuilder {
       'sources': [
         for (final source in sources.values) source.toJson(),
       ],
+      'source_terms': _sourceTerms(sources.values),
       'cross_slot_tag_candidates': _crossSlotTagCandidates(sources.values),
     };
   }
@@ -177,6 +184,43 @@ class ScriptAiRoleEvidenceBuilder {
         sample: rawCaption,
       );
     }
+  }
+
+  List<Map<String, dynamic>> _sourceTerms(
+    Iterable<_SourceAccumulator> sources,
+  ) {
+    return List.unmodifiable([
+      for (final source in sources)
+        for (final entry in source.tagEntries)
+          _sourceTerm(source, entry.key, entry.value),
+    ]);
+  }
+
+  Map<String, dynamic> _sourceTerm(
+    _SourceAccumulator source,
+    String normalized,
+    _TagEvidenceAccumulator tag,
+  ) {
+    final negative = source.isNegative;
+    final cachedTranslation = translationCache?.getCached(tag.tag) ?? '';
+    final cachedCategory = classificationCache
+            ?.entryFor(tag.tag, negative: negative)
+            ?.category
+            .name ??
+        '';
+    return {
+      'text': tag.tag,
+      'normalized': normalized,
+      'source_id': source.sourceId,
+      'source_kind': source.sourceKind,
+      'polarity': negative ? 'negative' : 'positive',
+      'frame_indexes': tag.frameIndexes,
+      'source_phrase': tag.samples.isEmpty ? '' : tag.samples.first,
+      'cached_translation': cachedTranslation,
+      'cached_category': cachedCategory,
+      'needs_translation': cachedTranslation.isEmpty,
+      'needs_category': cachedCategory.isEmpty,
+    };
   }
 }
 
@@ -357,6 +401,8 @@ class _SourceAccumulator {
   Iterable<MapEntry<String, _TagEvidenceAccumulator>> get tagEntries =>
       _tags.entries;
 
+  bool get isNegative => sourceKind == 'negative';
+
   List<_TimelineSegment> _timelineSegments() {
     if (_captionEvents.isEmpty) return const [];
     final segments = <_TimelineSegment>[];
@@ -505,6 +551,7 @@ class _TagEvidenceAccumulator {
   });
 
   List<int> get frameIndexes => List.unmodifiable(_frameIndexes);
+  List<String> get samples => List.unmodifiable(_samples);
 
   void add({
     required int frameIndex,

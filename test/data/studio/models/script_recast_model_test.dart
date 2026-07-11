@@ -263,6 +263,60 @@ void main() {
       expect(rule.action, ScriptPromptReplacementAction.none);
     });
 
+    test('replacement term categories preserve accessory and clothingState',
+        () {
+      final mapping = RecastMapping.fromJson({
+        'id': 'mapping-a',
+        'scriptId': 'script-a',
+        'roleSwaps': [],
+        'artistSwap': null,
+        'rolePromptReplacements': [
+          {
+            'sourceRoleId': 'slot-0',
+            'displayLabel': 'Role',
+            'rules': [
+              {
+                'id': 'rule-accessory',
+                'sourceTerms': [
+                  {
+                    'id': 'term-collar',
+                    'text': 'black collar',
+                    'category': 'accessory',
+                  },
+                ],
+              },
+              {
+                'id': 'rule-state',
+                'sourceTerms': [
+                  {
+                    'id': 'term-strap-slip',
+                    'text': 'strap slip',
+                    'category': 'clothing_state',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      final terms = mapping.rolePromptReplacements.single.rules
+          .expand((rule) => rule.sourceTerms)
+          .toList();
+      expect(terms[0].category, PromptTagCategory.accessory);
+      expect(terms[1].category, PromptTagCategory.clothingState);
+      expect(
+        mapping.toJson()['rolePromptReplacements'][0]['rules'][0]['sourceTerms']
+            [0]['category'],
+        'accessory',
+      );
+      expect(
+        mapping.toJson()['rolePromptReplacements'][0]['rules'][1]['sourceTerms']
+            [0]['category'],
+        'clothingState',
+      );
+    });
+
     test('target prompt with default action is an effective replacement', () {
       const rule = ScriptPromptReplacementRule(
         id: 'rule-target-only',
@@ -282,6 +336,16 @@ void main() {
       });
 
       expect(rule.toJson()['targetWeightMultiplier'], 1.2);
+    });
+
+    test('target weight multiplier without target prompt is effective', () {
+      const rule = ScriptPromptReplacementRule(
+        id: 'rule-source-weight',
+        targetWeightMultiplier: 1.2,
+      );
+
+      expect(rule.effectiveAction, ScriptPromptReplacementAction.replace);
+      expect(rule.hasEffect, isTrue);
     });
 
     test('replace action with blank target and manual prompt is inactive', () {

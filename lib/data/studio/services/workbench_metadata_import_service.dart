@@ -48,8 +48,12 @@ class WorkbenchMetadataImportService {
     String fileName,
     Uint8List bytes,
   ) async {
-    if (fileName.toLowerCase().endsWith('.png')) {
+    final lowerFileName = fileName.toLowerCase();
+    if (lowerFileName.endsWith('.png')) {
       return _parsePngBytes(bytes);
+    }
+    if (lowerFileName.endsWith('.webp')) {
+      return _parseWebpBytes(bytes);
     }
     return NaiMetadataParser.parseString(utf8.decode(bytes));
   }
@@ -89,6 +93,16 @@ class WorkbenchMetadataImportService {
       throw const FormatException('No NovelAI metadata found in PNG.');
     }
     return NaiMetadataParser.parseString(decodedStealthMetadata);
+  }
+
+  Future<NaiMetadataParseResult> _parseWebpBytes(Uint8List bytes) async {
+    for (final payload in _extractWebpMetadataPayloads(bytes)) {
+      final parsed = NaiMetadataParser.parse(payload);
+      if (_hasImportableMetadata(parsed)) {
+        return parsed;
+      }
+    }
+    throw const FormatException('No NovelAI metadata found in WEBP.');
   }
 
   Future<NaiMetadataParseResult?> _parsePngTextMetadataFile(File file) async {
@@ -254,6 +268,75 @@ class WorkbenchMetadataImportService {
     }
 
     return metadata;
+  }
+
+  List<dynamic> _extractWebpMetadataPayloads(Uint8List bytes) {
+    if (bytes.length < 12 ||
+        ascii.decode(bytes.sublist(0, 4), allowInvalid: true) != 'RIFF' ||
+        ascii.decode(bytes.sublist(8, 12), allowInvalid: true) != 'WEBP') {
+      return const [];
+    }
+    final payloads = <dynamic>[];
+    var offset = 12;
+    while (offset + 8 <= bytes.length) {
+      final type = ascii.decode(
+        bytes.sublist(offset, offset + 4),
+        allowInvalid: true,
+      );
+      final length = _uint32LittleEndianAt(bytes, offset + 4);
+      final dataStart = offset + 8;
+      final dataEnd = dataStart + length;
+      if (dataEnd > bytes.length) {
+        break;
+      }
+      if (type == 'EXIF' || type == 'XMP ') {
+        _addWebpMetadataPayloads(payloads, bytes.sublist(dataStart, dataEnd));
+      }
+      offset = dataEnd + (length.isOdd ? 1 : 0);
+    }
+    return payloads;
+  }
+
+  void _addWebpMetadataPayloads(List<dynamic> payloads, Uint8List bytes) {
+    final text = utf8.decode(bytes, allowMalformed: true).trim();
+    if (text.isEmpty) {
+      return;
+    }
+    final direct = _decodeJsonObject(text);
+    if (direct != null) {
+      payloads.add(direct);
+    }
+    final embedded = _embeddedJsonObject(text);
+    if (embedded != null) {
+      payloads.add(embedded);
+    }
+  }
+
+  Map<String, dynamic>? _embeddedJsonObject(String text) {
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) {
+      return null;
+    }
+    return _decodeJsonObject(text.substring(start, end + 1));
+  }
+
+  Map<String, dynamic>? _decodeJsonObject(String text) {
+    try {
+      final decoded = jsonDecode(text.trim());
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
+  bool _hasImportableMetadata(NaiMetadataParseResult parsed) {
+    return parsed.hasStructuredMetadata ||
+        parsed.prompt?.trim().isNotEmpty == true ||
+        parsed.charCaptions.any((caption) => caption.trim().isNotEmpty);
   }
 
   MapEntry<String, String>? _parseTextChunk(Uint8List data) {
@@ -472,13 +555,25 @@ class WorkbenchMetadataImportService {
   }
 
   String _fileName(File file) {
-    final segments = file.uri.pathSegments;
-    if (segments.isEmpty) return file.path;
-    return Uri.decodeComponent(segments.last);
+    final path = file.path.trim();
+    if (path.isEmpty) return file.path;
+    final forwardSlash = path.lastIndexOf('/');
+    final backSlash = path.lastIndexOf('\\');
+    final separator = max(forwardSlash, backSlash);
+    if (separator < 0 || separator + 1 >= path.length) return path;
+    return path.substring(separator + 1);
   }
 
   int _uint32At(Uint8List bytes, int offset) {
     return ByteData.sublistView(bytes, offset, offset + 4).getUint32(0);
+  }
+
+  int _uint32LittleEndianAt(Uint8List bytes, int offset) {
+    return ByteData.sublistView(
+      bytes,
+      offset,
+      offset + 4,
+    ).getUint32(0, Endian.little);
   }
 
   List<CharacterConfig> _charactersFrom(NaiMetadataParseResult parsed) {

@@ -19,7 +19,7 @@ jobs:
           flutter-version: 3.29.3
       - name: 创建 secrets.json 文件
         run: |
-          echo "${{ secrets.SECRETS_JSON_CONTENT }} | base64 -d" > secrets.json
+          echo "${{ secrets.SECRETS_JSON_CONTENT }}" | base64 --decode > secrets.json
       - name: 解码并保存 keystore 文件
         run: |
           echo "${{ secrets.SECRETS_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks

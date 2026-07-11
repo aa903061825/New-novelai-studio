@@ -1,4 +1,4 @@
----
+﻿---
 name: script-recast-cache-builder
 description: Project-local workflow for building, repairing, and proofreading Novel Studio Script Recast caches in NAI_NEW. Use when the user asks to make or fix "剧本缓存", "剧本 cache", "Script Recast cache", role field cache, AI role extraction cache, per-script character-slot cache, or a source-evidence-only character/frame/slot cache.
 ---
@@ -109,7 +109,6 @@ Always identify:
 
 ## Workflow
 
-1. Inspect existing project memory with `bd prime` and search for relevant prior
    cache work, but do not treat historical memories as process exemplars unless
    their provenance is verified. Use the synthetic example in
    `references/cache-contract.md` only for schema shape.

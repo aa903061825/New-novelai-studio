@@ -26,6 +26,8 @@ import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
 import 'package:novel_studio/ui/generation_page/widgets/generation_page_view.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_animated_presence.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_sequence.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:novel_studio/ui/studio_workbench/widgets/prompt_composer_panel.dart';
@@ -72,11 +74,11 @@ class _EnglishGenerationAssetLoader extends AssetLoader {
 }
 
 class _FakeCatalogService extends StudioAssetCatalogService {
-  _FakeCatalogService() : super(workspaceService: WorkspaceService());
+  final StudioAssetCatalogSummary summary;
+  final StudioAssetCatalogSnapshot? snapshot;
 
-  @override
-  Future<StudioAssetCatalogSummary> loadSummary() async {
-    return const StudioAssetCatalogSummary(
+  _FakeCatalogService({
+    this.summary = const StudioAssetCatalogSummary(
       characterCount: 0,
       outfitCount: 0,
       artistChainCount: 0,
@@ -84,7 +86,13 @@ class _FakeCatalogService extends StudioAssetCatalogService {
       tagCount: 0,
       recipeCountsByBlock: {},
       tagCountsByBlock: {},
-    );
+    ),
+    this.snapshot,
+  }) : super(workspaceService: WorkspaceService());
+
+  @override
+  Future<StudioAssetCatalogSummary> loadSummary() async {
+    return summary;
   }
 
   @override
@@ -93,14 +101,16 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
-    return StudioAssetCatalogSnapshot(
-      summary: await loadSummary(),
-      characters: [],
-      artistChains: [],
-      recipes: [],
-      tags: [],
-    );
+    return snapshot ??
+        StudioAssetCatalogSnapshot(
+          summary: await loadSummary(),
+          characters: [],
+          artistChains: [],
+          recipes: [],
+          tags: [],
+        );
   }
 }
 
@@ -250,7 +260,21 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('workbench-reference-input-section')),
+        matching: find.byType(StudioMotionSequenceRegion),
+      ),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('workbench-character-section')),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('workbench-character-section')),
+        matching: find.byType(StudioMotionSequenceRegion),
+      ),
       findsOneWidget,
     );
     expect(
@@ -296,11 +320,83 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('workbench-prompt-control-section')),
+        matching: find.byType(StudioMotionSequenceRegion),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('workbench-start-generation-button')),
+        matching: find.byType(StudioMotionSequenceRegion),
+      ),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('workbench-negative-prompt-editor')),
       findsOneWidget,
     );
     expect(find.byType(TabBar), findsNothing);
     expect(find.byType(TabBarView), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('wide workbench gives asset drawer enough category width',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await GetIt.I.unregister<StudioAssetCatalogService>();
+    GetIt.I.registerSingleton<StudioAssetCatalogService>(
+      _FakeCatalogService(
+        summary: const StudioAssetCatalogSummary(
+          characterCount: 1,
+          outfitCount: 0,
+          artistChainCount: 1,
+          recipeCount: 0,
+          tagCount: 0,
+          recipeCountsByBlock: {},
+          tagCountsByBlock: {},
+        ),
+        snapshot: const StudioAssetCatalogSnapshot(
+          summary: StudioAssetCatalogSummary(
+            characterCount: 1,
+            outfitCount: 0,
+            artistChainCount: 1,
+            recipeCount: 0,
+            tagCount: 0,
+            recipeCountsByBlock: {},
+            tagCountsByBlock: {},
+          ),
+          characters: [
+            CharacterEntry(
+              id: 'char-1',
+              name: '角色',
+              traits: ViewVariantTexts(frontFull: 'girl'),
+            ),
+          ],
+          artistChains: [
+            ArtistChain(id: 'artist-1', name: '画师串', prompt: 'artist'),
+          ],
+          recipes: [],
+          tags: [],
+        ),
+      ),
+    );
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    final drawer = find.byType(WorkbenchAssetDrawer);
+    expect(drawer, findsOneWidget);
+    expect(tester.getSize(drawer).width, greaterThanOrEqualTo(320));
+    expect(
+      find.byKey(const ValueKey('workbench-drawer-category-artist')),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(milliseconds: 1));
   });
@@ -328,21 +424,53 @@ void main() {
     );
     expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsNothing);
     expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
+    expect(
+      tester
+          .widget<StudioAnimatedPresence>(
+            find.byKey(const ValueKey('workbench-vibe-presence')),
+          )
+          .visible,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<StudioAnimatedPresence>(
+            find.byKey(const ValueKey('workbench-i2i-presence')),
+          )
+          .visible,
+      isFalse,
+    );
 
     await tester
         .tap(find.byKey(const ValueKey('workbench-vibe-section-toggle')));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(payload.generationRuntimeState.vibeEnabled, isTrue);
+    expect(
+      tester
+          .widget<StudioAnimatedPresence>(
+            find.byKey(const ValueKey('workbench-vibe-presence')),
+          )
+          .visible,
+      isTrue,
+    );
     expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsNothing);
 
     await tester
         .tap(find.byKey(const ValueKey('workbench-i2i-section-toggle')));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-i2i-editor')), findsOneWidget);
+    expect(
+      tester
+          .widget<StudioAnimatedPresence>(
+            find.byKey(const ValueKey('workbench-i2i-presence')),
+          )
+          .visible,
+      isTrue,
+    );
     expect(
       find.byKey(const ValueKey('workbench-i2i-config-view')),
       findsOneWidget,
@@ -403,6 +531,32 @@ void main() {
     expect(find.text('output_folder'), findsNothing);
     expect(find.text('proxy'), findsNothing);
     expect(find.text('metadata_erase'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('workbench seed field uses animated presence when revealed',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.paramConfig = ParamConfig(randomSeed: false, seed: 12345);
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    final seedPresence = find.byKey(const ValueKey('workbench-seed-presence'));
+    expect(seedPresence, findsOneWidget);
+    expect(tester.widget<StudioAnimatedPresence>(seedPresence).visible, isTrue);
+    expect(
+      find.descendant(
+        of: seedPresence,
+        matching: find.byKey(const ValueKey('workbench-seed-field')),
+      ),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(milliseconds: 1));
   });

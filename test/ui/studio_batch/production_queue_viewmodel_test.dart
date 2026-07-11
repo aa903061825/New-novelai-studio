@@ -48,6 +48,50 @@ void main() {
     expect(viewModel.totalTasks, 1);
   });
 
+  test('load selects the first plan task when a newer plan is prepended',
+      () async {
+    final oldPlan = _plan(
+      [
+        _scriptTask(
+          id: 'old-task',
+          payload: const {
+            'input': 'old prompt',
+            'parameters': {'seed': 1},
+          },
+        ),
+      ],
+      id: 'old-plan',
+      name: 'Old Recast',
+    );
+    final newPlan = _plan(
+      [
+        _scriptTask(
+          id: 'new-task',
+          planId: 'new-plan',
+          payload: const {
+            'input': 'current preview prompt',
+            'parameters': {'seed': 2},
+          },
+        ),
+      ],
+      id: 'new-plan',
+      name: 'Current Recast',
+    );
+    await queueService.savePlans([oldPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+    );
+    expect(viewModel.selectedTask?.id, 'old-task');
+
+    await queueService.savePlans([newPlan, oldPlan]);
+    await viewModel.load();
+
+    expect(viewModel.selectedPlan?.id, 'new-plan');
+    expect(viewModel.selectedTask?.id, 'new-task');
+    expect(viewModel.selectedTask?.payload['input'], 'current preview prompt');
+  });
+
   test('start runs queued tasks and saves the updated plan', () async {
     await queueService.savePlans([
       _plan([_scriptTask(id: 'task-1')])
@@ -1051,6 +1095,93 @@ void main() {
     expect(rerun?.suggestedFileName, 'task-done-rerun.png');
   });
 
+  test('queueRerunTask keeps multiple inserted reruns in request order',
+      () async {
+    final completedA = _scriptTask(
+      id: 'task-done-a',
+      frameIndex: 9,
+      status: ProductionTaskStatus.completed,
+      attempts: 1,
+      outputImagePath: 'C:/old/task-done-a.png',
+    );
+    final completedB = _scriptTask(
+      id: 'task-done-b',
+      frameIndex: 10,
+      status: ProductionTaskStatus.completed,
+      attempts: 1,
+      outputImagePath: 'C:/old/task-done-b.png',
+    );
+    await queueService.savePlans([
+      _plan([
+        completedA,
+        completedB,
+        _scriptTask(id: 'task-next', frameIndex: 11),
+      ])
+    ]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+    );
+
+    await viewModel.queueRerunTask(completedA);
+    await viewModel.queueRerunTask(completedB);
+
+    expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
+      'task-done-a',
+      'task-done-a-rerun',
+      'task-done-b',
+      'task-done-b-rerun',
+      'task-next',
+    ]);
+  });
+
+  test('queueRerunTask serializes concurrent saves so reruns are not lost',
+      () async {
+    final completedA = _scriptTask(
+      id: 'task-done-a',
+      frameIndex: 9,
+      status: ProductionTaskStatus.completed,
+      attempts: 1,
+      outputImagePath: 'C:/old/task-done-a.png',
+    );
+    final completedB = _scriptTask(
+      id: 'task-done-b',
+      frameIndex: 10,
+      status: ProductionTaskStatus.completed,
+      attempts: 1,
+      outputImagePath: 'C:/old/task-done-b.png',
+    );
+    final blockingQueueService = _BlockingPlanSaveQueueService(
+      workspaceService: workspaceService,
+      initialPlans: [
+        _plan([completedA, completedB])
+      ],
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: await blockingQueueService.loadPlans(),
+      queueService: blockingQueueService,
+    );
+
+    final firstQueue = viewModel.queueRerunTask(completedA);
+    await blockingQueueService.firstSaveStarted.future;
+    final secondQueue = viewModel.queueRerunTask(completedB);
+    await Future<void>.delayed(Duration.zero);
+    blockingQueueService.releaseFirstSave();
+
+    final clones = await Future.wait([firstQueue, secondQueue]);
+
+    expect(clones.map((task) => task?.id), [
+      'task-done-a-rerun',
+      'task-done-b-rerun',
+    ]);
+    expect(viewModel.selectedPlan?.tasks.map((task) => task.id), [
+      'task-done-a',
+      'task-done-a-rerun',
+      'task-done-b',
+      'task-done-b-rerun',
+    ]);
+  });
+
   test('restored partial queues expose resume before an in-memory pause',
       () async {
     await queueService.savePlans([
@@ -1474,6 +1605,45 @@ class _BlockingExecutionSettingsQueueService extends ProductionQueueService {
       await _firstSaveRelease.future;
     }
     await super.saveLastExecutionSettings(settings);
+  }
+
+  void releaseFirstSave() {
+    if (!_firstSaveRelease.isCompleted) {
+      _firstSaveRelease.complete();
+    }
+  }
+}
+
+class _BlockingPlanSaveQueueService extends ProductionQueueService {
+  final Completer<List<ProductionPlan>> firstSaveStarted =
+      Completer<List<ProductionPlan>>();
+  final Completer<void> _firstSaveRelease = Completer<void>();
+  List<ProductionPlan> _plans;
+  var _savePlansCalls = 0;
+
+  _BlockingPlanSaveQueueService({
+    required super.workspaceService,
+    required List<ProductionPlan> initialPlans,
+  }) : _plans = List.unmodifiable(initialPlans);
+
+  @override
+  Future<List<ProductionPlan>> loadPlans() async {
+    return _plans;
+  }
+
+  @override
+  Future<List<ProductionPlan>> loadPlansReadOnly() async {
+    return _plans;
+  }
+
+  @override
+  Future<void> savePlans(List<ProductionPlan> plans) async {
+    _savePlansCalls += 1;
+    if (_savePlansCalls == 1) {
+      firstSaveStarted.complete(plans);
+      await _firstSaveRelease.future;
+    }
+    _plans = List.unmodifiable(plans);
   }
 
   void releaseFirstSave() {

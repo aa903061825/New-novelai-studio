@@ -164,6 +164,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     lastIncludeLegacyCodex = includeLegacyCodex;
     lastLegacyCodexLimit = legacyCodexLimit;

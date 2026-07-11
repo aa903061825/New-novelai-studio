@@ -8,8 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:image_size_getter/file_input.dart' as image_size;
 import 'package:image_size_getter/image_size_getter.dart' as image_size;
 import 'package:novel_studio/data/services/file_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_shell/widgets/studio_image_preview_layout.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_wheel_zoom.dart';
 import 'package:waterfall_flow/waterfall_flow.dart';
 
 const _windowChannel = MethodChannel('novel_studio/window');
@@ -37,43 +39,54 @@ class _NativeImagePreviewFullscreen {
 class StudioGeneratedImageItem {
   final String id;
   final String name;
+  final String? leadingLabel;
   final String? imagePath;
   final Uint8List? imageBytes;
   final Object? source;
   final String? placeholder;
+  final double? imageHeight;
 
   const StudioGeneratedImageItem({
     required this.id,
     required this.name,
+    this.leadingLabel,
     this.imagePath,
     this.imageBytes,
     this.source,
     this.placeholder,
+    this.imageHeight,
   });
 
   const StudioGeneratedImageItem.file({
     required this.id,
     required this.name,
+    this.leadingLabel,
     required String this.imagePath,
     this.source,
     this.placeholder,
+    this.imageHeight,
   }) : imageBytes = null;
 
   const StudioGeneratedImageItem.memory({
     required this.id,
     required this.name,
+    this.leadingLabel,
     required Uint8List this.imageBytes,
     this.source,
     this.placeholder,
+    this.imageHeight,
   }) : imagePath = null;
 
   bool get hasImage =>
-      imageBytes != null || _existingImageFile(imagePath) != null;
+      imageBytes != null || imagePath?.trim().isNotEmpty == true;
 }
+
+const _thumbnailMaxDecodeExtent = 1024;
 
 class StudioGeneratedImageGallery extends StatelessWidget {
   final List<StudioGeneratedImageItem> items;
   final String? selectedId;
+  final Set<String> selectedIds;
   final double columnWidth;
   final bool scrollable;
   final EdgeInsets padding;
@@ -91,6 +104,7 @@ class StudioGeneratedImageGallery extends StatelessWidget {
     super.key,
     required this.items,
     this.selectedId,
+    this.selectedIds = const {},
     this.columnWidth = 240,
     this.scrollable = false,
     this.padding = EdgeInsets.zero,
@@ -131,7 +145,7 @@ class StudioGeneratedImageGallery extends StatelessWidget {
             final item = items[index];
             final card = _StudioGeneratedImageCard(
               item: item,
-              selected: item.id == selectedId,
+              selected: item.id == selectedId || selectedIds.contains(item.id),
               onTap: onOpen == null ? null : () => onOpen!(context, item),
               trailing: trailingBuilder?.call(context, item),
               imageOverlay: imageOverlayBuilder?.call(context, item),
@@ -152,6 +166,7 @@ class StudioGeneratedImageGallery extends StatelessWidget {
 class StudioGeneratedImageSliverGallery extends StatelessWidget {
   final List<StudioGeneratedImageItem> items;
   final String? selectedId;
+  final Set<String> selectedIds;
   final double columnWidth;
   final String cardKeyPrefix;
   final String imageKeyPrefix;
@@ -167,6 +182,7 @@ class StudioGeneratedImageSliverGallery extends StatelessWidget {
     super.key,
     required this.items,
     this.selectedId,
+    this.selectedIds = const {},
     this.columnWidth = 240,
     this.cardKeyPrefix = 'studio-generated-image-card',
     this.imageKeyPrefix = 'studio-generated-image',
@@ -196,7 +212,8 @@ class StudioGeneratedImageSliverGallery extends StatelessWidget {
               final item = items[index];
               final card = _StudioGeneratedImageCard(
                 item: item,
-                selected: item.id == selectedId,
+                selected:
+                    item.id == selectedId || selectedIds.contains(item.id),
                 onTap: onOpen == null ? null : () => onOpen!(context, item),
                 trailing: trailingBuilder?.call(context, item),
                 imageOverlay: imageOverlayBuilder?.call(context, item),
@@ -237,43 +254,49 @@ class _StudioGeneratedImageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      key: ValueKey('$cardKeyPrefix-${item.id}'),
-      color:
-          selected ? StudioTokens.primary.withAlpha(18) : StudioTokens.surface2,
-      shape: RoundedRectangleBorder(
-        borderRadius: StudioTokens.radiusCard,
-        side: BorderSide(
-          color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
+    return StudioInteractiveSurface(
+      child: Material(
+        key: ValueKey('$cardKeyPrefix-${item.id}'),
+        color: selected
+            ? StudioTokens.primary.withAlpha(18)
+            : StudioTokens.surface2,
+        shape: RoundedRectangleBorder(
+          borderRadius: StudioTokens.radiusCard,
+          side: BorderSide(
+            color: selected ? StudioTokens.primary : StudioTokens.cardOutline,
+          ),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (trailing != null)
-              _ImageNameRow(item: item, trailing: trailing)
-            else
-              const SizedBox.shrink(),
-            Stack(
-              children: [
-                _StudioGeneratedImage(
-                  item: item,
-                  imageKey: ValueKey('$imageKeyPrefix-${item.id}'),
-                ),
-                if (imageOverlay != null)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: imageOverlay!,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (trailing != null)
+                _ImageNameRow(item: item, trailing: trailing)
+              else
+                const SizedBox.shrink(),
+              Stack(
+                children: [
+                  _StudioGeneratedImage(
+                    item: item,
+                    imageKey: ValueKey('$imageKeyPrefix-${item.id}'),
+                    height: item.imageHeight,
+                    filterQuality: FilterQuality.low,
+                    maxDecodeExtent: _thumbnailMaxDecodeExtent,
                   ),
-              ],
-            ),
-            if (trailing == null) _ImageNameRow(item: item),
-          ],
+                  if (imageOverlay != null)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: imageOverlay!,
+                      ),
+                    ),
+                ],
+              ),
+              if (trailing == null) _ImageNameRow(item: item),
+            ],
+          ),
         ),
       ),
     );
@@ -292,6 +315,18 @@ class _ImageNameRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       child: Row(
         children: [
+          if (item.leadingLabel != null) ...[
+            Text(
+              item.leadingLabel!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: StudioTokens.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(width: 6),
+          ],
           Expanded(
             child: Text(
               item.name,
@@ -330,6 +365,8 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
   final Key zoomableKey;
   final Key fullscreenButtonKey;
   final bool showFooterInFullscreen;
+  final bool wheelNavigationEnabled;
+  final Map<String, List<String>> wheelNavigationScopeIdsByItemId;
   final Future<void> Function(String path)? revealInFileManager;
 
   const StudioGeneratedImageViewerDialog({
@@ -346,6 +383,8 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
     this.fullscreenButtonKey =
         const ValueKey('studio-generated-image-viewer-fullscreen'),
     this.showFooterInFullscreen = true,
+    this.wheelNavigationEnabled = false,
+    this.wheelNavigationScopeIdsByItemId = const {},
     this.revealInFileManager,
   });
 
@@ -368,6 +407,8 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
     Key fullscreenButtonKey =
         const ValueKey('studio-generated-image-viewer-fullscreen'),
     bool showFooterInFullscreen = true,
+    bool wheelNavigationEnabled = false,
+    Map<String, List<String>> wheelNavigationScopeIdsByItemId = const {},
     Future<void> Function(String path)? revealInFileManager,
   }) {
     return showDialog<void>(
@@ -383,6 +424,8 @@ class StudioGeneratedImageViewerDialog extends StatefulWidget {
         zoomableKey: zoomableKey,
         fullscreenButtonKey: fullscreenButtonKey,
         showFooterInFullscreen: showFooterInFullscreen,
+        wheelNavigationEnabled: wheelNavigationEnabled,
+        wheelNavigationScopeIdsByItemId: wheelNavigationScopeIdsByItemId,
         revealInFileManager: revealInFileManager,
       ),
     );
@@ -408,7 +451,11 @@ class _StudioGeneratedImageViewerDialogState
 
   StudioGeneratedImageItem get _item => widget.items[_index];
 
-  bool get _canNavigate => widget.items.length > 1;
+  bool get _canNavigate => _linearNavigationIndexes.length > 1;
+
+  bool get _canWheelNavigate =>
+      widget.wheelNavigationEnabled &&
+      _wheelNavigationIndexesForCurrentItem().length > 1;
 
   @override
   void initState() {
@@ -453,8 +500,8 @@ class _StudioGeneratedImageViewerDialogState
       children: [
         _StudioGeneratedImageViewerToolbar(
           item: _item,
-          index: _index,
-          count: widget.items.length,
+          index: _linearNavigationIndex,
+          count: _linearNavigationCount,
           fullscreen: _fullscreen,
           canNavigate: _canNavigate,
           onPrevious: () => _navigate(-1),
@@ -475,9 +522,29 @@ class _StudioGeneratedImageViewerDialogState
             onPointerCancel: _handleWindowedImagePointerCancel,
             child: ClipRRect(
               borderRadius: StudioTokens.radiusCard,
-              child: _StudioGeneratedZoomableImage(
-                item: _item,
-                zoomableKey: widget.zoomableKey,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _StudioGeneratedZoomableImage(
+                    item: _item,
+                    zoomableKey: widget.zoomableKey,
+                    onWheelNavigation:
+                        _canWheelNavigate ? _navigateWheel : null,
+                  ),
+                  if (_navigationDotCount > 1)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 10,
+                      child: _StudioGeneratedVariantDots(
+                        key: const ValueKey(
+                          'studio-generated-image-viewer-dots',
+                        ),
+                        index: _navigationDotIndex,
+                        count: _navigationDotCount,
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -500,10 +567,29 @@ class _StudioGeneratedImageViewerDialogState
         key: widget.fullscreenKey,
         children: [
           Positioned.fill(
-            child: _StudioGeneratedZoomableImage(
-              item: _item,
-              fullscreen: true,
-              zoomableKey: widget.zoomableKey,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _StudioGeneratedZoomableImage(
+                  item: _item,
+                  fullscreen: true,
+                  zoomableKey: widget.zoomableKey,
+                  onWheelNavigation: _canWheelNavigate ? _navigateWheel : null,
+                ),
+                if (_navigationDotCount > 1)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 18,
+                    child: _StudioGeneratedVariantDots(
+                      key: const ValueKey(
+                        'studio-generated-image-viewer-dots-fullscreen',
+                      ),
+                      index: _navigationDotIndex,
+                      count: _navigationDotCount,
+                    ),
+                  ),
+              ],
             ),
           ),
           Positioned(
@@ -520,8 +606,8 @@ class _StudioGeneratedImageViewerDialogState
                 child: _OverlayPanel(
                   child: _StudioGeneratedImageViewerToolbar(
                     item: _item,
-                    index: _index,
-                    count: widget.items.length,
+                    index: _linearNavigationIndex,
+                    count: _linearNavigationCount,
                     fullscreen: _fullscreen,
                     canNavigate: _canNavigate,
                     onPrevious: () => _navigate(-1),
@@ -567,6 +653,14 @@ class _StudioGeneratedImageViewerDialogState
       _navigate(1);
       return KeyEventResult.handled;
     }
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp && _canWheelNavigate) {
+      _navigateWheel(-1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown && _canWheelNavigate) {
+      _navigateWheel(1);
+      return KeyEventResult.handled;
+    }
     return KeyEventResult.ignored;
   }
 
@@ -577,11 +671,116 @@ class _StudioGeneratedImageViewerDialogState
   }
 
   void _navigate(int delta) {
-    if (!_canNavigate) return;
+    final indexes = _linearNavigationIndexes;
+    if (indexes.length <= 1) return;
+    final currentGroupKey = _navigationGroupKey(_item);
+    var localIndex = indexes.indexWhere(
+      (index) => _navigationGroupKey(widget.items[index]) == currentGroupKey,
+    );
+    if (localIndex < 0) {
+      localIndex = indexes.indexOf(_index);
+    }
+    if (localIndex < 0) {
+      return;
+    }
+    var nextLocalIndex = (localIndex + delta) % indexes.length;
+    if (nextLocalIndex < 0) {
+      nextLocalIndex += indexes.length;
+    }
     setState(() {
-      _index = (_index + delta) % widget.items.length;
-      if (_index < 0) _index = widget.items.length - 1;
+      _index = indexes[nextLocalIndex];
     });
+  }
+
+  void _navigateWheel(int delta) {
+    final indexes = _wheelNavigationIndexesForCurrentItem();
+    if (indexes.length <= 1) return;
+    final localIndex = indexes.indexOf(_index);
+    if (localIndex < 0) return;
+    var nextLocalIndex = (localIndex + delta) % indexes.length;
+    if (nextLocalIndex < 0) {
+      nextLocalIndex += indexes.length;
+    }
+    setState(() {
+      _index = indexes[nextLocalIndex];
+    });
+  }
+
+  int get _navigationDotCount => _navigationDotIndexes.length;
+
+  int get _navigationDotIndex {
+    final indexes = _navigationDotIndexes;
+    final localIndex = indexes.indexOf(_index);
+    return localIndex < 0 ? _index : localIndex;
+  }
+
+  List<int> get _navigationDotIndexes {
+    final wheelIndexes = _wheelNavigationIndexesForCurrentItem();
+    if (widget.wheelNavigationScopeIdsByItemId.isNotEmpty &&
+        wheelIndexes.length > 1) {
+      return wheelIndexes;
+    }
+    return [for (var index = 0; index < widget.items.length; index += 1) index];
+  }
+
+  List<int> _wheelNavigationIndexesForCurrentItem() {
+    final scopeIds = widget.wheelNavigationScopeIdsByItemId.isEmpty
+        ? [for (final item in widget.items) item.id]
+        : widget.wheelNavigationScopeIdsByItemId[_item.id] ?? [_item.id];
+    final indexes = <int>[];
+    final seen = <String>{};
+    for (final itemId in scopeIds) {
+      if (!seen.add(itemId)) continue;
+      final index = widget.items.indexWhere((item) => item.id == itemId);
+      if (index >= 0) {
+        indexes.add(index);
+      }
+    }
+    return indexes;
+  }
+
+  int get _linearNavigationCount => _linearNavigationIndexes.length;
+
+  int get _linearNavigationIndex {
+    final indexes = _linearNavigationIndexes;
+    final currentGroupKey = _navigationGroupKey(_item);
+    final localIndex = indexes.indexWhere(
+      (index) => _navigationGroupKey(widget.items[index]) == currentGroupKey,
+    );
+    return localIndex < 0 ? _index : localIndex;
+  }
+
+  List<int> get _linearNavigationIndexes {
+    if (widget.wheelNavigationScopeIdsByItemId.isEmpty) {
+      return [
+        for (var index = 0; index < widget.items.length; index += 1) index
+      ];
+    }
+    final indexes = <int>[];
+    final seen = <String>{};
+    for (var index = 0; index < widget.items.length; index += 1) {
+      final key = _navigationGroupKey(widget.items[index]);
+      if (seen.add(key)) {
+        indexes.add(index);
+      }
+    }
+    return indexes;
+  }
+
+  String _navigationGroupKey(StudioGeneratedImageItem item) {
+    if (widget.wheelNavigationScopeIdsByItemId.isEmpty) {
+      return 'item:${item.id}';
+    }
+    final scopeIds = widget.wheelNavigationScopeIdsByItemId[item.id];
+    if (scopeIds == null || scopeIds.isEmpty) {
+      return 'item:${item.id}';
+    }
+    final seen = <String>{};
+    final normalized = [
+      for (final id in scopeIds)
+        if (seen.add(id)) id,
+    ];
+    return 'scope:${normalized.join('\u001f')}';
   }
 
   void _toggleFullscreen() {
@@ -762,15 +961,80 @@ class _StudioGeneratedImageViewerToolbar extends StatelessWidget {
   }
 }
 
+class _StudioGeneratedVariantDots extends StatelessWidget {
+  final int index;
+  final int count;
+
+  const _StudioGeneratedVariantDots({
+    super.key,
+    required this.index,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dotCount = min(count, 9);
+    final activeIndex = count <= dotCount
+        ? index.clamp(0, dotCount - 1)
+        : ((index / count) * dotCount).floor().clamp(0, dotCount - 1);
+    return Center(
+      child: Semantics(
+        label: '图片 ${index + 1}/$count',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.52),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var dot = 0; dot < dotCount; dot += 1) ...[
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    width: dot == activeIndex ? 8 : 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: dot == activeIndex
+                          ? StudioTokens.primary
+                          : Colors.white.withValues(alpha: 0.34),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  if (dot != dotCount - 1) const SizedBox(width: 4),
+                ],
+                if (count > dotCount) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '$count',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _StudioGeneratedZoomableImage extends StatefulWidget {
   final StudioGeneratedImageItem item;
   final bool fullscreen;
   final Key zoomableKey;
+  final ValueChanged<int>? onWheelNavigation;
 
   const _StudioGeneratedZoomableImage({
     required this.item,
     this.fullscreen = false,
     this.zoomableKey = const ValueKey('studio-generated-image-zoomable-viewer'),
+    this.onWheelNavigation,
   });
 
   @override
@@ -784,6 +1048,13 @@ class _StudioGeneratedZoomableImageState
   static const double _maxScale = 8;
 
   final TransformationController _controller = TransformationController();
+  late final StudioWheelZoomController _wheelZoom = StudioWheelZoomController(
+    transformationController: _controller,
+    minScale: _currentMinScale,
+    maxScale: _maxScale,
+    resetTransform: () => _fitTransform.clone(),
+    requireControlModifier: true,
+  );
   String? _layoutKey;
   Matrix4 _fitTransform = Matrix4.identity();
   double _currentMinScale = _minScale;
@@ -797,12 +1068,14 @@ class _StudioGeneratedZoomableImageState
       _layoutKey = null;
       _fitTransform = Matrix4.identity();
       _currentMinScale = _minScale;
-      _controller.value = Matrix4.identity();
+      _wheelZoom.minScale = _currentMinScale;
+      _wheelZoom.reset();
     }
   }
 
   @override
   void dispose() {
+    _wheelZoom.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -817,6 +1090,8 @@ class _StudioGeneratedZoomableImageState
         );
         final sourceSize = _sourceImageSize(widget.item) ?? viewportSize;
         _currentMinScale = _fitScaleFor(viewportSize, sourceSize);
+        _wheelZoom.minScale = _currentMinScale;
+        _wheelZoom.maxScale = _maxScale;
         _scheduleFitTransform(viewportSize, sourceSize);
         return Listener(
           key: widget.zoomableKey,
@@ -842,7 +1117,7 @@ class _StudioGeneratedZoomableImageState
                   ),
                   width: sourceSize.width,
                   height: sourceSize.height,
-                  filterQuality: FilterQuality.high,
+                  filterQuality: FilterQuality.medium,
                 ),
               ),
             ),
@@ -854,26 +1129,19 @@ class _StudioGeneratedZoomableImageState
 
   void _handlePointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
-    final delta = event.scrollDelta.dy;
-    if (delta == 0) return;
-    _scaleAt(event.localPosition, delta < 0 ? 1.12 : 0.88);
-  }
-
-  void _scaleAt(Offset focalPoint, double scaleFactor) {
-    final currentScale = _controller.value.getMaxScaleOnAxis();
-    final nextScale = (currentScale * scaleFactor)
-        .clamp(_currentMinScale, _maxScale)
-        .toDouble();
-    if (nextScale <= _currentMinScale + 0.01) {
-      _controller.value = _fitTransform.clone();
-      return;
-    }
-    final effectiveScale = nextScale / currentScale;
-    final next = _controller.value.clone()
-      ..translateByDouble(focalPoint.dx, focalPoint.dy, 0, 1)
-      ..scaleByDouble(effectiveScale, effectiveScale, 1, 1)
-      ..translateByDouble(-focalPoint.dx, -focalPoint.dy, 0, 1);
-    _controller.value = next;
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      final scrollEvent = event as PointerScrollEvent;
+      if (_wheelZoom.handlePointerSignal(scrollEvent)) {
+        return;
+      }
+      final navigate = widget.onWheelNavigation;
+      if (navigate == null) return;
+      final delta = scrollEvent.scrollDelta.dy == 0
+          ? scrollEvent.scrollDelta.dx
+          : scrollEvent.scrollDelta.dy;
+      if (delta == 0) return;
+      navigate(delta > 0 ? 1 : -1);
+    });
   }
 
   void _scheduleFitTransform(Size viewportSize, Size sourceSize) {
@@ -887,10 +1155,7 @@ class _StudioGeneratedZoomableImageState
     if (_layoutKey == nextKey) return;
     _layoutKey = nextKey;
     _fitTransform = _fitMatrix(viewportSize, sourceSize);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _layoutKey != nextKey) return;
-      _controller.value = _fitTransform.clone();
-    });
+    _controller.value = _fitTransform.clone();
   }
 }
 
@@ -900,6 +1165,7 @@ class _StudioGeneratedImage extends StatelessWidget {
   final double? width;
   final double? height;
   final FilterQuality filterQuality;
+  final int? maxDecodeExtent;
 
   const _StudioGeneratedImage({
     required this.item,
@@ -907,39 +1173,106 @@ class _StudioGeneratedImage extends StatelessWidget {
     this.width,
     this.height,
     this.filterQuality = FilterQuality.medium,
+    this.maxDecodeExtent,
   });
 
   @override
   Widget build(BuildContext context) {
+    final sourceSize = _sourceImageSize(item);
+    final effectiveHeight = sourceSize == null ? height : null;
     final bytes = item.imageBytes;
     if (bytes != null) {
-      return Image.memory(
-        bytes,
-        key: imageKey,
-        width: width ?? double.infinity,
-        height: height,
-        fit: BoxFit.contain,
-        filterQuality: filterQuality,
-        errorBuilder: (context, error, stackTrace) =>
-            _ImagePlaceholder(item: item, placeholderKey: imageKey),
+      return _NaturalAspectRatio(
+        sourceSize: sourceSize,
+        child: Image.memory(
+          bytes,
+          key: imageKey,
+          width: width ?? double.infinity,
+          height: effectiveHeight,
+          fit: BoxFit.contain,
+          filterQuality: filterQuality,
+          errorBuilder: (context, error, stackTrace) =>
+              _ImagePlaceholder(item: item, placeholderKey: imageKey),
+        ),
       );
     }
 
-    final file = _existingImageFile(item.imagePath);
+    final file = _imageFile(item.imagePath);
     if (file != null) {
-      return Image.file(
-        file,
-        key: imageKey,
-        width: width ?? double.infinity,
-        height: height,
-        fit: BoxFit.contain,
-        filterQuality: filterQuality,
-        errorBuilder: (context, error, stackTrace) =>
-            _ImagePlaceholder(item: item, placeholderKey: imageKey),
+      final maxDecodeExtent = this.maxDecodeExtent;
+      if (maxDecodeExtent == null) {
+        return _NaturalAspectRatio(
+          sourceSize: sourceSize,
+          child: Image.file(
+            file,
+            key: imageKey,
+            width: width ?? double.infinity,
+            height: effectiveHeight,
+            fit: BoxFit.contain,
+            filterQuality: filterQuality,
+            errorBuilder: (context, error, stackTrace) =>
+                _ImagePlaceholder(item: item, placeholderKey: imageKey),
+          ),
+        );
+      }
+      return _NaturalAspectRatio(
+        sourceSize: sourceSize,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+            final cacheWidth = _cacheImageExtentFor(
+              width ?? constraints.maxWidth,
+              devicePixelRatio,
+              maxExtent: maxDecodeExtent,
+            );
+            final cacheHeight = _cacheImageExtentFor(
+              effectiveHeight ?? constraints.maxHeight,
+              devicePixelRatio,
+              maxExtent: maxDecodeExtent,
+            );
+            return Image(
+              key: imageKey,
+              image: ResizeImage(
+                FileImage(file),
+                width: cacheWidth,
+                height: cacheHeight,
+                policy: ResizeImagePolicy.fit,
+              ),
+              width: width ?? double.infinity,
+              height: effectiveHeight,
+              fit: BoxFit.contain,
+              filterQuality: filterQuality,
+              errorBuilder: (context, error, stackTrace) =>
+                  _ImagePlaceholder(item: item, placeholderKey: imageKey),
+            );
+          },
+        ),
       );
     }
 
     return _ImagePlaceholder(item: item, placeholderKey: imageKey);
+  }
+}
+
+class _NaturalAspectRatio extends StatelessWidget {
+  final Size? sourceSize;
+  final Widget child;
+
+  const _NaturalAspectRatio({
+    required this.sourceSize,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = sourceSize;
+    if (size == null || size.width <= 0 || size.height <= 0) {
+      return child;
+    }
+    return AspectRatio(
+      aspectRatio: size.width / size.height,
+      child: child,
+    );
   }
 }
 
@@ -957,7 +1290,7 @@ class _ImagePlaceholder extends StatelessWidget {
     final text = item.placeholder?.trim();
     return SizedBox(
       key: placeholderKey,
-      height: 148,
+      height: item.imageHeight ?? 148,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -1010,14 +1343,34 @@ class _OverlayPanel extends StatelessWidget {
 }
 
 File? _existingImageFile(String? path) {
-  final trimmed = path?.trim();
-  if (trimmed == null || trimmed.isEmpty) return null;
+  final file = _imageFile(path);
+  if (file == null) return null;
   try {
-    final file = File(trimmed);
     return file.existsSync() ? file : null;
   } catch (_) {
     return null;
   }
+}
+
+File? _imageFile(String? path) {
+  final trimmed = path?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  try {
+    return File(trimmed);
+  } catch (_) {
+    return null;
+  }
+}
+
+int? _cacheImageExtentFor(
+  double extent,
+  double devicePixelRatio, {
+  required int maxExtent,
+}) {
+  if (!extent.isFinite || extent <= 0 || devicePixelRatio <= 0) {
+    return null;
+  }
+  return (extent * devicePixelRatio).ceil().clamp(1, maxExtent).toInt();
 }
 
 Size? _sourceImageSize(StudioGeneratedImageItem item) {

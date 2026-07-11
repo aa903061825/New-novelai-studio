@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
@@ -10,16 +11,14 @@ import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/prompt_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
-import 'package:novel_studio/data/studio/services/asset_tag_cache_prewarm_service.dart';
-import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
-import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
-import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
@@ -57,6 +56,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
     bool checkStaleness = true,
+    bool persistCacheBeforeReturn = true,
   }) async {
     loadSnapshotWithCacheCallCount += 1;
     final cached = cacheLoadResult;
@@ -88,6 +88,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     refreshSnapshotCacheCallCount += 1;
     return loadSnapshot(
@@ -104,6 +105,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     includeLegacyCodexRequests.add(includeLegacyCodex);
     legacyCodexLimitRequests.add(legacyCodexLimit);
@@ -653,7 +655,6 @@ void main() {
     required PayloadConfig config,
     StudioWorkbenchAssetService? service,
     StudioAssetCatalogService? catalogService,
-    AssetTagCachePrewarmService? tagCachePrewarmService,
     StudioAssetPreviewGenerationService? previewGenerationService,
     StudioAssetCatalogSnapshot catalog = snapshot,
     Map<String, String> resolvedRefs = const {},
@@ -662,6 +663,7 @@ void main() {
     Future<List<WorkspaceVibeReference>> Function()? importVibes,
     Future<void> Function(List<ArtistChain>)? saveArtistChains,
     Future<void> Function(List<CharacterEntry>)? saveCharacters,
+    Future<void> Function(String, List<Recipe>)? saveRecipes,
     Future<void> Function(String, List<TagEntry>)? saveTags,
   }) {
     final resolvedCatalogService = catalogService ??
@@ -677,13 +679,13 @@ void main() {
             StudioWorkbenchAssetService(
               payloadConfig: config,
             ),
-        tagCachePrewarmService: tagCachePrewarmService,
         previewGenerationService: previewGenerationService,
         onSendToScript: onSendToScript,
         loadVibes: loadVibes,
         importVibes: importVibes,
         saveArtistChains: saveArtistChains,
         saveCharacters: saveCharacters,
+        saveRecipes: saveRecipes,
         saveTags: saveTags,
       ),
     );
@@ -730,6 +732,13 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('asset-card-character-char-1')),
+        matching: find.byType(StudioStaggeredReveal),
+      ),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('asset-card-outfit-char-1-outfit-1')),
       findsOneWidget,
     );
@@ -756,8 +765,7 @@ void main() {
     expect(find.text('引用待检查'), findsNothing);
   });
 
-  testWidgets(
-      'cached asset library checks freshness without a second cache load',
+  testWidgets('cached asset library does not auto-refresh on first display',
       (tester) async {
     final config = payload();
     final catalogService = _FakeCatalogService(snapshot)
@@ -784,10 +792,8 @@ void main() {
     await tester.pump();
 
     expect(catalogService.loadSnapshotWithCacheCallCount, 1);
-    expect(catalogService.sourceFingerprintStaleCheckCount, 1);
-    expect(catalogService.lastCheckedSourceFingerprint, {
-      'library/characters.json': '1:2',
-    });
+    expect(catalogService.sourceFingerprintStaleCheckCount, 0);
+    expect(catalogService.lastCheckedSourceFingerprint, isNull);
     expect(catalogService.refreshSnapshotCacheCallCount, 0);
   });
 
@@ -1498,37 +1504,38 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final config = payload();
-    const tagCatalog = StudioAssetCatalogSnapshot(
+    const artistCatalog = StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
         characterCount: 0,
         outfitCount: 0,
-        artistChainCount: 0,
+        artistChainCount: 2,
         recipeCount: 0,
-        tagCount: 2,
+        tagCount: 0,
         recipeCountsByBlock: {},
-        tagCountsByBlock: {'scene': 2},
+        tagCountsByBlock: {},
       ),
       characters: [],
-      artistChains: [],
-      recipes: [],
-      tags: [
-        TagEntry(id: 'tag-1', tag: 'rainy street', block: 'scene'),
-        TagEntry(id: 'tag-2', tag: 'moonlit roof', block: 'scene'),
+      artistChains: [
+        ArtistChain(id: 'artist-1', name: 'First Painter', prompt: 'ink wash'),
+        ArtistChain(
+            id: 'artist-2', name: 'Second Painter', prompt: 'rain glow'),
       ],
+      recipes: [],
+      tags: [],
     );
-    final catalogService = _FakeCatalogService(tagCatalog);
+    final catalogService = _FakeCatalogService(artistCatalog);
 
     await tester.pumpWidget(
       page(
         config: config,
-        catalog: tagCatalog,
+        catalog: artistCatalog,
         catalogService: catalogService,
       ),
     );
     await tester.pumpAndSettle();
 
-    final firstCard = find.byKey(const ValueKey('asset-card-tag-scene-tag-1'));
-    final secondCard = find.byKey(const ValueKey('asset-card-tag-scene-tag-2'));
+    final firstCard = find.byKey(const ValueKey('asset-card-artist-artist-1'));
+    final secondCard = find.byKey(const ValueKey('asset-card-artist-artist-2'));
     expect(
       tester.getTopLeft(firstCard).dy,
       lessThan(tester.getTopLeft(secondCard).dy),
@@ -1543,7 +1550,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('asset-detail-dialog-close')));
     await tester.pumpAndSettle();
-    expect(catalogService.favoriteKeys, contains('tag:scene/tag-2'));
+    expect(catalogService.favoriteKeys, contains('artist:artist-2'));
     expect(
       tester.getTopLeft(secondCard).dy,
       lessThan(tester.getTopLeft(firstCard).dy),
@@ -1552,130 +1559,13 @@ void main() {
     await tester.ensureVisible(secondCard);
     await tester.tap(secondCard);
     await tester.pumpAndSettle();
-    await tester.tap(secondFavorite);
+    final favoriteAgain = find.byKey(const ValueKey('asset-detail-favorite'));
+    await tester.ensureVisible(favoriteAgain);
+    await tester.tap(favoriteAgain);
     await tester.pumpAndSettle();
-
-    expect(catalogService.favoriteKeys, isNot(contains('tag:scene/tag-2')));
-    expect(
-      tester.getTopLeft(firstCard).dy,
-      lessThan(tester.getTopLeft(secondCard).dy),
-    );
-  });
-
-  testWidgets('favorite cards stay scoped to the selected asset filter',
-      (tester) async {
-    final config = payload();
-    final catalogService = _FakeCatalogService(
-      snapshot,
-      favoriteKeys: {
-        StudioAssetFavoriteKeys.character('char-1'),
-      },
-    );
-
-    await tester.pumpWidget(
-      page(config: config, catalogService: catalogService),
-    );
+    await tester.tap(find.byKey(const ValueKey('asset-detail-dialog-close')));
     await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('asset-card-character-char-1')),
-      findsOneWidget,
-    );
-
-    final artistFilter =
-        find.byKey(const ValueKey('asset-filter-artist-chain'));
-    await tester.ensureVisible(artistFilter);
-    await tester.tap(artistFilter);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('asset-card-character-char-1')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('asset-card-artist-artist-1')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('asset waterfall prompt cards do not translate by default',
-      (tester) async {
-    final config = payload();
-
-    await tester.pumpWidget(page(config: config));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('silver hair, blue eyes'), findsNothing);
-    expect(find.text('silver hair'), findsNothing);
-    expect(find.text('blue eyes'), findsNothing);
-    expect(find.text('银发'), findsNothing);
-    expect(find.text('蓝眼睛'), findsNothing);
-  });
-
-  testWidgets('asset prompt previews skip redundant single grouped blocks',
-      (tester) async {
-    final config = payload();
-
-    await tester.pumpWidget(page(config: config));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('prompt-tag-group-character')),
-      findsNothing,
-    );
-    expect(find.textContaining('silver hair, blue eyes'), findsNothing);
-    expect(find.text('silver hair'), findsNothing);
-    expect(find.text('blue eyes'), findsNothing);
-  });
-
-  testWidgets('asset library prewarms tag translation and grouping caches',
-      (tester) async {
-    final config = payload();
-    final catalogService = _FakeCatalogService(snapshot);
-    final translationCache = TranslationCache(clock: () => 1710000000)
-      ..setManual('blue eyes', 'cached-blue-eyes');
-    final classificationCache = PromptTagClassificationCache(
-      clock: () => 1710000000,
-    );
-    final service = AssetTagCachePrewarmService(
-      catalogService: catalogService,
-      translationService: _FakePromptTranslationService((request) async {
-        return OnlineTranslationResult(
-          text: 'zh:${request.text}',
-          source: OnlineAiResultSource.online,
-          providerName: 'fake-ai',
-        );
-      }),
-      translationCache: translationCache,
-      classificationCache: classificationCache,
-      saveTranslationCache: (_) async {},
-      saveClassificationCache: (_) async {},
-    );
-
-    await tester.pumpWidget(
-      page(
-        config: config,
-        catalogService: catalogService,
-        tagCachePrewarmService: service,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final button =
-        find.byKey(const ValueKey('asset-library-prewarm-tag-cache'));
-    expect(button, findsOneWidget);
-
-    await tester.tap(button);
-    await tester.pumpAndSettle();
-
-    expect(translationCache.getCached('silver hair'), 'zh:silver hair');
-    expect(translationCache.getCached('blue eyes'), 'cached-blue-eyes');
-    expect(classificationCache.entryFor('silver hair'), isNull);
-    expect(
-      find.byKey(const ValueKey('asset-library-tag-cache-prewarm-status')),
-      findsOneWidget,
-    );
-    expect(find.textContaining('缓存预热完成'), findsOneWidget);
+    expect(catalogService.favoriteKeys, isNot(contains('artist:artist-2')));
   });
 
   testWidgets('character detail does not expose synthetic default outfit',
@@ -1877,6 +1767,13 @@ void main() {
         find.byKey(const ValueKey('asset-detail-preview-artist-multi-preview'));
     await tester.ensureVisible(preview);
     expect(
+      find.ancestor(
+        of: preview,
+        matching: find.byType(StudioInteractiveSurface),
+      ),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(
         const ValueKey('asset-detail-preview-count-artist-multi-preview'),
       ),
@@ -1885,14 +1782,7 @@ void main() {
     final detailImage = find.byKey(
       const ValueKey('asset-detail-preview-image-artist-multi-preview'),
     );
-    expect(
-      tester.widget<Image>(detailImage).image,
-      isA<FileImage>().having(
-        (provider) => provider.file.path,
-        'file path',
-        first.path,
-      ),
-    );
+    _expectResizedFileImage(tester.widget<Image>(detailImage), first.path);
 
     await tester.sendEventToBinding(
       PointerScrollEvent(
@@ -1902,14 +1792,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      tester.widget<Image>(detailImage).image,
-      isA<FileImage>().having(
-        (provider) => provider.file.path,
-        'file path',
-        second.path,
-      ),
-    );
+    _expectResizedFileImage(tester.widget<Image>(detailImage), second.path);
 
     await tester.tap(preview);
     await tester.pumpAndSettle();
@@ -2024,6 +1907,14 @@ void main() {
       ),
       findsOneWidget,
     );
+    _expectResizedFileImage(
+      tester.widget<Image>(
+        find.byKey(
+          const ValueKey('asset-card-preview-image-artist-tall-preview'),
+        ),
+      ),
+      previewFile.path,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -2075,8 +1966,6 @@ void main() {
     final allFilter = find.byKey(const ValueKey('asset-filter-all'));
     final characterFilter =
         find.byKey(const ValueKey('asset-filter-character'));
-    final addCategoryButton =
-        find.byKey(const ValueKey('asset-library-add-custom-category'));
     final artistFilter =
         find.byKey(const ValueKey('asset-filter-artist-chain'));
     final outfitFilter = find.byKey(const ValueKey('asset-filter-outfit'));
@@ -2089,9 +1978,7 @@ void main() {
     expect(allFilter, findsOneWidget);
     expect(characterFilter, findsOneWidget);
     expect(artistFilter, findsOneWidget);
-    expect(addCategoryButton, findsOneWidget);
     expect(tester.getSize(allFilter).height, greaterThanOrEqualTo(72));
-    expect(tester.getTopLeft(addCategoryButton).dx, greaterThanOrEqualTo(0));
     expect(outfitFilter, findsOneWidget);
     expect(
       find.descendant(of: gallery, matching: outfitFilter),
@@ -2101,7 +1988,12 @@ void main() {
       find.descendant(of: secondaryRow, matching: outfitFilter),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('asset-filter-recipe')), findsOneWidget);
     expect(find.byKey(const ValueKey('asset-filter-tag')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('asset-library-add-custom-category')),
+      findsNothing,
+    );
   });
 
   testWidgets('codex filter is promoted to the primary gallery cards',
@@ -2424,45 +2316,6 @@ void main() {
     );
   });
 
-  testWidgets('asset library can add a custom category filter name',
-      (tester) async {
-    final config = payload();
-
-    await tester.pumpWidget(page(config: config));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('asset-custom-category-weather')),
-        findsNothing);
-
-    await tester.tap(
-      find.byKey(const ValueKey('asset-library-add-custom-category')),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-library-custom-category-input')),
-      'weather',
-    );
-    await tester.tap(
-      find.byKey(const ValueKey('asset-library-save-custom-category')),
-    );
-    await tester.pumpAndSettle();
-
-    final customFilter =
-        find.byKey(const ValueKey('asset-custom-category-weather'));
-    expect(customFilter, findsOneWidget);
-
-    await tester.tap(customFilter);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('asset-card-tag-scene-tag-1')),
-        findsOneWidget);
-    expect(find.byKey(const ValueKey('asset-card-character-char-1')),
-        findsNothing);
-    expect(
-        find.byKey(const ValueKey('asset-card-artist-artist-1')), findsNothing);
-  });
-
   testWidgets('asset library page can send a selected asset to workbench',
       (tester) async {
     final config = payload();
@@ -2521,17 +2374,20 @@ void main() {
       find.byKey(const ValueKey('asset-library-search')),
       '',
     );
-    final tagFilter = find.byKey(const ValueKey('asset-filter-tag'));
-    await tester.ensureVisible(tagFilter);
-    await tester.tap(tagFilter);
+    expect(find.byKey(const ValueKey('asset-filter-tag')), findsOneWidget);
+
+    final artistFilter =
+        find.byKey(const ValueKey('asset-filter-artist-chain'));
+    await tester.ensureVisible(artistFilter);
+    await tester.tap(artistFilter);
     await tester.pumpAndSettle();
 
-    expect(find.text('雨街'), findsOneWidget);
+    expect(find.text('雨街'), findsNothing);
     expect(find.text('雨披'), findsNothing);
-    expect(find.text('水彩柔光'), findsNothing);
+    expect(find.text('水彩柔光'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('asset-card-tag-scene-tag-1')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('asset-card-outfit-char-1-outfit-1')),
@@ -2539,7 +2395,7 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('asset-card-artist-artist-1')),
-      findsNothing,
+      findsOneWidget,
     );
   });
 
@@ -2692,14 +2548,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('asset-filter-tag')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('asset-card-tag-scene-tag-0')),
       findsOneWidget,
     );
-    expect(
-      catalogService.resolveImagePathCallCount,
-      lessThan(tagCount ~/ 2),
-    );
+    expect(catalogService.resolveImagePathCallCount, lessThan(tagCount ~/ 2));
   });
 
   testWidgets(
@@ -2745,8 +2599,7 @@ void main() {
     );
     expect(find.text('char-1'), findsWidgets);
     expect(find.text('1 套'), findsOneWidget);
-    expect(find.text('1 张'), findsOneWidget);
-    expect(find.text('1 条'), findsWidgets);
+    expect(find.text('1 张'), findsWidgets);
     expect(
       find.byKey(
         const ValueKey('asset-detail-prompt-editor-character-char-1'),
@@ -3558,16 +3411,34 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
+    expect(find.byKey(const ValueKey('asset-library-add-character')),
+        findsNothing);
+    expect(
       find.byKey(const ValueKey('asset-library-add-artist-chain')),
+      findsNothing,
     );
+
+    await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('asset-editor-kind-artist-chain')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('asset-editor-name-field')),
       'Manual Painter',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-editor-prompt-field')),
+    final createPromptEditor =
+        find.byKey(const ValueKey('asset-editor-prompt-field'));
+    expect(
+      find.descendant(
+        of: createPromptEditor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(
+      tester,
+      createPromptEditor,
       'artist:manual, bright rim light',
     );
     await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
@@ -3587,15 +3458,32 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('asset-detail-edit-asset')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-editor-prompt-field')),
-      'artist:manual, sunset palette',
+    final editPromptEditor =
+        find.byKey(const ValueKey('asset-editor-prompt-field'));
+    expect(
+      find.descendant(
+        of: editPromptEditor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(
+      tester,
+      editPromptEditor,
+      'sunset palette',
     );
     await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
     await tester.pumpAndSettle();
 
-    expect(savedArtistChains.single.prompt, 'artist:manual, sunset palette');
-    expect(savedArtistChains.single.tags, ['artist:manual', 'sunset palette']);
+    expect(
+      savedArtistChains.single.prompt,
+      'artist:manual, bright rim light, sunset palette',
+    );
+    expect(savedArtistChains.single.tags, [
+      'artist:manual',
+      'bright rim light',
+      'sunset palette',
+    ]);
 
     final deleteAsset = find.byKey(const ValueKey('asset-detail-delete-asset'));
     await tester.ensureVisible(deleteAsset);
@@ -3609,15 +3497,81 @@ void main() {
     expect(find.text('Manual Painter'), findsNothing);
   });
 
-  testWidgets('asset library can create manual characters and prompt tags',
+  testWidgets('new manual artist chain is shown after a crowded all view',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    List<ArtistChain> savedArtistChains = const [];
+    final config = payload();
+    final characters = [
+      for (var index = 0; index < 49; index += 1)
+        CharacterEntry(
+          id: 'crowded-character-$index',
+          name: 'Crowded Character $index',
+          traits: ViewVariantTexts(frontFull: 'crowded character $index'),
+        ),
+    ];
+    final crowdedCatalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: characters.length,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: const {},
+        tagCountsByBlock: const {},
+      ),
+      characters: characters,
+      artistChains: const [],
+      recipes: const [],
+      tags: const [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: crowdedCatalog,
+        saveArtistChains: (artistChains) async {
+          savedArtistChains = artistChains;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('asset-editor-kind-artist-chain')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-name-field')),
+      'Visible Painter',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(const ValueKey('asset-editor-prompt-field')),
+      'artist:visible',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(savedArtistChains, hasLength(1));
+    expect(
+      find.byKey(ValueKey('asset-card-artist-${savedArtistChains.single.id}')),
+      findsOneWidget,
+    );
+    expect(find.text('匹配素材 1'), findsOneWidget);
+  });
+
+  testWidgets('asset library can create manual characters', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     List<CharacterEntry> savedCharacters = const [];
-    List<TagEntry> savedTags = const [];
     final config = payload();
     final emptyCatalog = const StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
@@ -3641,52 +3595,228 @@ void main() {
         saveCharacters: (characters) async {
           savedCharacters = characters;
         },
-        saveTags: (block, tags) async {
-          savedTags = tags;
-        },
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('asset-library-add-character')));
+    expect(find.byKey(const ValueKey('asset-library-add-character')),
+        findsNothing);
+    expect(
+      find.byKey(const ValueKey('asset-library-add-artist-chain')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-editor-kind-character')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('asset-editor-prompt-field')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('asset-character-editor-front-upper-field')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-character-editor-front-lower-field')),
+      findsNothing,
+    );
+
     await tester.enterText(
       find.byKey(const ValueKey('asset-editor-name-field')),
       'Manual Hero',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-editor-prompt-field')),
-      '1girl, girl, loli, silver hair, blue cape',
+    await _addPromptTags(
+      tester,
+      find.byKey(const ValueKey('asset-character-editor-identity-tags-editor')),
+      '1girl, girl, loli, silver hair',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+          const ValueKey('asset-character-editor-upper-body-tags-editor')),
+      'blue eyes',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-character-editor-upper-clothing-tags-editor'),
+      ),
+      'blue cape',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+          const ValueKey('asset-character-editor-lower-body-tags-editor')),
+      'fox tail',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-character-editor-lower-clothing-tags-editor'),
+      ),
+      'pleated skirt',
     );
     await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
     await tester.pumpAndSettle();
 
     expect(savedCharacters, hasLength(1));
-    expect(savedCharacters.single.name, 'Manual Hero');
+    final character = savedCharacters.single;
+    expect(character.name, 'Manual Hero');
     expect(
-      savedCharacters.single.traits.frontFull,
-      '1girl, girl, loli, silver hair, blue cape',
+      character.traits.frontFull,
+      'girl, loli, silver hair, blue eyes, fox tail',
     );
+    expect(character.traits.frontUpper, 'blue eyes');
+    expect(character.traits.frontLower, 'fox tail');
+    expect(character.identityTags, ['girl', 'loli', 'silver hair']);
+    expect(character.identityTags, isNot(contains('1girl')));
+    expect(character.anchorTags, isEmpty);
+    expect(character.defaultOutfitId, 'default-outfit');
+    expect(character.outfits, hasLength(1));
+    expect(character.outfits.single.partTags.upperBodyTags, ['blue eyes']);
+    expect(character.outfits.single.partTags.upperClothingTags, ['blue cape']);
+    expect(character.outfits.single.partTags.lowerBodyTags, ['fox tail']);
     expect(
-      savedCharacters.single.identityTags,
-      ['girl', 'loli', 'silver hair', 'blue cape'],
-    );
-    expect(savedCharacters.single.identityTags, isNot(contains('1girl')));
-    expect(savedCharacters.single.identityTags, containsAll(['girl', 'loli']));
-    expect(savedCharacters.single.anchorTags, isEmpty);
+        character.outfits.single.partTags.lowerClothingTags, ['pleated skirt']);
+    expect(character.outfits.single.tags.frontUpper, 'blue cape');
+    expect(character.outfits.single.tags.frontLower, 'pleated skirt');
+    expect(find.byKey(const ValueKey('asset-library-add-tag')), findsNothing);
+  });
 
-    await tester.tap(find.byKey(const ValueKey('asset-library-add-tag')));
+  testWidgets('asset library can create sectioned recipes and tags',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final savedRecipesByBlock = <String, List<Recipe>>{};
+    final savedTagsByBlock = <String, List<TagEntry>>{};
+    final config = payload();
+    const emptyCatalog = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+
+    await tester.pumpWidget(
+      page(
+        config: config,
+        catalog: emptyCatalog,
+        saveRecipes: (block, recipes) async {
+          savedRecipesByBlock[block] = recipes;
+        },
+        saveTags: (block, tags) async {
+          savedTagsByBlock[block] = tags;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-editor-kind-recipe')));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.byKey(const ValueKey('asset-editor-tag-field')),
-      'floating lanterns',
+      find.byKey(const ValueKey('asset-editor-name-field')),
+      'Battle Recipe',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-block-field')),
+      'combat',
+    );
+    final recipePromptEditor =
+        find.byKey(const ValueKey('asset-editor-prompt-field'));
+    expect(
+      find.descendant(
+        of: recipePromptEditor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(
+      tester,
+      recipePromptEditor,
+      'battle stance',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-editor-add-section')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-section-prompt-0-label')),
+      '穿甲',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(const ValueKey('asset-editor-section-prompt-0')),
+      'armored plates, shoulder armor',
     );
     await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
     await tester.pumpAndSettle();
 
-    expect(savedTags, hasLength(1));
-    expect(savedTags.single.tag, 'floating lanterns');
-    expect(savedTags.single.block, 'style');
+    expect(savedRecipesByBlock['combat'], hasLength(1));
+    expect(savedRecipesByBlock['combat']!.single.tags, 'battle stance');
+    expect(
+      savedRecipesByBlock['combat']!.single.variants,
+      {'穿甲': 'armored plates, shoulder armor'},
+    );
+
+    await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-editor-kind-tag')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-name-field')),
+      'Camera Mood',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-block-field')),
+      'camera',
+    );
+    final tagPromptEditor =
+        find.byKey(const ValueKey('asset-editor-prompt-field'));
+    expect(
+      find.descendant(
+        of: tagPromptEditor,
+        matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+      ),
+      findsOneWidget,
+    );
+    await _addPromptTags(
+      tester,
+      tagPromptEditor,
+      'low angle',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-editor-add-section')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('asset-editor-section-prompt-0-label')),
+      '俯拍',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(const ValueKey('asset-editor-section-prompt-0')),
+      'from above, wide shot',
+    );
+    await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(savedTagsByBlock['camera'], hasLength(1));
+    expect(savedTagsByBlock['camera']!.single.tag, 'low angle');
+    expect(savedTagsByBlock['camera']!.single.zh, 'Camera Mood');
+    expect(
+      savedTagsByBlock['camera']!.single.sections,
+      {'俯拍': 'from above, wide shot'},
+    );
   });
 
   testWidgets('asset library can duplicate character cards', (tester) async {
@@ -3757,37 +3887,62 @@ void main() {
       find.byKey(const ValueKey('asset-editor-name-field')),
       'Edited Hero',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-editor-prompt-field')),
-      'edited full, silver hair, blue cape',
-    );
-    await tester.enterText(
+    expect(
+        find.byKey(const ValueKey('asset-editor-prompt-field')), findsNothing);
+    expect(
       find.byKey(const ValueKey('asset-character-editor-front-upper-field')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-character-editor-front-lower-field')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-character-editor-anchor-tags-editor')),
+      findsNothing,
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(const ValueKey('asset-character-editor-identity-tags-editor')),
+      'manual identity',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+          const ValueKey('asset-character-editor-upper-body-tags-editor')),
       'edited upper',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-character-editor-front-lower-field')),
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-character-editor-upper-clothing-tags-editor'),
+      ),
+      'blue cape',
+    );
+    await _addPromptTags(
+      tester,
+      find.byKey(
+          const ValueKey('asset-character-editor-lower-body-tags-editor')),
       'edited lower',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-character-editor-anchor-tags-field')),
-      'hero anchor, explicit anchor',
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-character-editor-lower-clothing-tags-editor'),
+      ),
+      'pleated skirt',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('asset-character-editor-identity-tags-field')),
-      'manual identity, silver hair',
-    );
-    await tester.enterText(
+    expect(
       find.byKey(const ValueKey('asset-character-editor-aliases-field')),
-      'Hero, Li Xia',
+      findsNothing,
     );
-    await tester.enterText(
+    expect(
       find.byKey(const ValueKey('asset-character-editor-image-refs-field')),
-      'refs/new.png\nrefs/second.png',
+      findsNothing,
     );
-    await tester.enterText(
+    expect(
       find.byKey(const ValueKey('asset-character-editor-note-field')),
-      'manual note',
+      findsNothing,
     );
     await tester.tap(find.byKey(const ValueKey('asset-editor-save')));
     await tester.pumpAndSettle();
@@ -3795,14 +3950,24 @@ void main() {
     expect(savedCharacters, hasLength(1));
     final character = savedCharacters.single;
     expect(character.name, 'Edited Hero');
-    expect(character.traits.frontFull, 'edited full, silver hair, blue cape');
-    expect(character.traits.frontUpper, 'edited upper');
-    expect(character.traits.frontLower, 'edited lower');
-    expect(character.anchorTags, ['hero anchor', 'explicit anchor']);
-    expect(character.identityTags, ['manual identity', 'silver hair']);
-    expect(character.aliases, ['Hero', 'Li Xia']);
-    expect(character.imageRefs, ['refs/new.png', 'refs/second.png']);
-    expect(character.note, 'manual note');
+    expect(character.traits.frontFull, contains('manual identity'));
+    expect(character.traits.frontFull, contains('edited upper'));
+    expect(character.traits.frontFull, contains('edited lower'));
+    expect(character.traits.frontUpper, contains('edited upper'));
+    expect(character.traits.frontLower, contains('edited lower'));
+    expect(character.anchorTags, isEmpty);
+    expect(character.identityTags, contains('manual identity'));
+    expect(character.defaultOutfitId, isNotNull);
+    expect(character.outfits, isNotEmpty);
+    final defaultOutfit = character.outfits.firstWhere(
+      (outfit) => outfit.id == character.defaultOutfitId,
+      orElse: () => character.outfits.first,
+    );
+    expect(defaultOutfit.partTags.upperClothingTags, contains('blue cape'));
+    expect(defaultOutfit.partTags.lowerClothingTags, contains('pleated skirt'));
+    expect(character.aliases, isEmpty);
+    expect(character.imageRefs, ['refs/lixia.png']);
+    expect(character.note, '主角素材');
     expect(character.source.type, 'manual');
   });
 
@@ -3881,6 +4046,184 @@ void main() {
     expect(
       savedCharacters.single.outfits.single.tags.frontUpper,
       'yellow jacket, blue trim',
+    );
+  });
+
+  testWidgets('asset detail serializes prompt edits against the latest catalog',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final firstSaveStarted = Completer<void>();
+    final releaseSaves = Completer<void>();
+    List<CharacterEntry> persistedCharacters = const [];
+    var savesInFlight = 0;
+    var maxSavesInFlight = 0;
+
+    await tester.pumpWidget(
+      page(
+        config: payload(),
+        saveCharacters: (characters) async {
+          savesInFlight += 1;
+          if (savesInFlight > maxSavesInFlight) {
+            maxSavesInFlight = savesInFlight;
+          }
+          if (!firstSaveStarted.isCompleted) {
+            firstSaveStarted.complete();
+          }
+          await releaseSaves.future;
+          persistedCharacters = characters;
+          savesInFlight -= 1;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
+    await tester.pumpAndSettle();
+
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-detail-prompt-editor-character-char-1'),
+      ),
+      'new ribbon',
+    );
+    await firstSaveStarted.future;
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey(
+          'asset-detail-prompt-editor-character-char-1-outfit-0-upper-clothing',
+        ),
+      ),
+      'blue trim',
+    );
+
+    releaseSaves.complete();
+    await tester.pumpAndSettle();
+
+    expect(maxSavesInFlight, 1);
+    expect(persistedCharacters.single.identityTags, contains('new ribbon'));
+    expect(
+      persistedCharacters.single.outfits.single.partTags.upperClothingTags,
+      contains('blue trim'),
+    );
+  });
+
+  testWidgets('character deletion waits for a pending prompt mutation',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final firstSaveStarted = Completer<void>();
+    final releaseSaves = Completer<void>();
+    List<CharacterEntry> persistedCharacters = const [];
+    var savesInFlight = 0;
+    var maxSavesInFlight = 0;
+
+    await tester.pumpWidget(
+      page(
+        config: payload(),
+        saveCharacters: (characters) async {
+          savesInFlight += 1;
+          if (savesInFlight > maxSavesInFlight) {
+            maxSavesInFlight = savesInFlight;
+          }
+          if (!firstSaveStarted.isCompleted) {
+            firstSaveStarted.complete();
+          }
+          await releaseSaves.future;
+          persistedCharacters = characters;
+          savesInFlight -= 1;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
+    await tester.pumpAndSettle();
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-detail-prompt-editor-character-char-1'),
+      ),
+      'pending prompt',
+    );
+    await firstSaveStarted.future;
+
+    final deleteAsset = find.byKey(const ValueKey('asset-detail-delete-asset'));
+    tester.widget<StudioIconButton>(deleteAsset).onPressed?.call();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-delete-confirm')));
+    await tester.pump();
+
+    releaseSaves.complete();
+    await tester.pumpAndSettle();
+
+    expect(maxSavesInFlight, 1);
+    expect(persistedCharacters, isEmpty);
+  });
+
+  testWidgets('queued prompt edits keep their working catalog after dispose',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final firstSaveStarted = Completer<void>();
+    final releaseFirstSave = Completer<void>();
+    List<CharacterEntry> persistedCharacters = const [];
+    var saveCount = 0;
+
+    await tester.pumpWidget(
+      page(
+        config: payload(),
+        saveCharacters: (characters) async {
+          saveCount += 1;
+          if (saveCount == 1) {
+            firstSaveStarted.complete();
+            await releaseFirstSave.future;
+          }
+          persistedCharacters = characters;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('asset-card-character-char-1')));
+    await tester.pumpAndSettle();
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey('asset-detail-prompt-editor-character-char-1'),
+      ),
+      'new ribbon',
+    );
+    await firstSaveStarted.future;
+    await _addPromptTags(
+      tester,
+      find.byKey(
+        const ValueKey(
+          'asset-detail-prompt-editor-character-char-1-outfit-0-upper-clothing',
+        ),
+      ),
+      'blue trim',
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    releaseFirstSave.complete();
+    for (var i = 0; i < 4; i += 1) {
+      await tester.pump();
+    }
+
+    expect(saveCount, 2);
+    expect(persistedCharacters.single.identityTags, contains('new ribbon'));
+    expect(
+      persistedCharacters.single.outfits.single.partTags.upperClothingTags,
+      contains('blue trim'),
     );
   });
 
@@ -5041,31 +5384,16 @@ void main() {
         ),
       ),
     );
-    expect(
-      casualImage.image,
-      isA<FileImage>().having(
-        (provider) => provider.file.path,
-        'file path',
-        casualPreviewFile.path,
-      ),
-    );
+    _expectResizedFileImage(casualImage, casualPreviewFile.path);
     final infoStrip = find.byKey(
       const ValueKey('asset-detail-info-strip-character-char-multi'),
     );
     expect(
       find.descendant(of: infoStrip, matching: find.text('2 张')),
-      findsOneWidget,
+      findsWidgets,
     );
     expect(
       find.descendant(of: infoStrip, matching: find.text('5 张')),
-      findsNothing,
-    );
-    expect(
-      find.descendant(of: infoStrip, matching: find.text('2 条')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: infoStrip, matching: find.text('5 条')),
       findsNothing,
     );
     for (var index = 0; index < 2; index += 1) {
@@ -5098,14 +5426,7 @@ void main() {
         ),
       ),
     );
-    expect(
-      scrolledCasualImage.image,
-      isA<FileImage>().having(
-        (provider) => provider.file.path,
-        'file path',
-        casualAltPreviewFile.path,
-      ),
-    );
+    _expectResizedFileImage(scrolledCasualImage, casualAltPreviewFile.path);
 
     await tester.tap(casualPreview);
     await tester.pumpAndSettle();
@@ -5361,7 +5682,7 @@ void main() {
           outfits: [
             WorkspaceOutfit(
               id: 'uniform',
-              name: '鍒舵湇',
+              name: '制服',
               tags: ViewVariantTexts(frontFull: 'navy uniform'),
               imageRefs: ['refs/outfit-detail.png'],
             ),
@@ -5395,14 +5716,7 @@ void main() {
       ),
     );
 
-    expect(
-      previewImage.image,
-      isA<FileImage>().having(
-        (provider) => provider.file.path,
-        'file path',
-        outfitPreview.path,
-      ),
-    );
+    _expectResizedFileImage(previewImage, outfitPreview.path);
   });
 
   testWidgets(
@@ -5414,14 +5728,10 @@ void main() {
     await tester.pumpWidget(page(config: config, service: service));
     await tester.pumpAndSettle();
 
-    final tagFilter = find.byKey(const ValueKey('asset-filter-tag'));
-    await tester.ensureVisible(tagFilter);
-    await tester.tap(tagFilter);
-    await tester.pumpAndSettle();
-
-    final tagCard = find.byKey(const ValueKey('asset-card-tag-scene-tag-1'));
-    await tester.ensureVisible(tagCard);
-    await tester.tap(tagCard);
+    final characterCard =
+        find.byKey(const ValueKey('asset-card-character-char-1'));
+    await tester.ensureVisible(characterCard);
+    await tester.tap(characterCard);
     await tester.pumpAndSettle();
     final detailSend = find.byKey(const ValueKey('asset-detail-send'));
     await tester.ensureVisible(detailSend);
@@ -5429,8 +5739,8 @@ void main() {
     await tester.pump();
 
     expect(config.useOverridePrompt, isTrue);
-    expect(config.overridePrompt, 'rainy street');
-    expect(service.fragments.single.typeLabel, 'Tag');
+    expect(config.overridePrompt, 'silver hair, blue eyes');
+    expect(service.fragments.single.typeLabel, '角色');
     expect(find.text('已发送到工作台'), findsOneWidget);
   });
 
@@ -5450,24 +5760,22 @@ void main() {
     expect(shape.side.color, StudioTokens.cardOutline);
   });
 
-  testWidgets('asset library filters recipes and tags by block chip',
+  testWidgets('asset library surfaces recipe and tag without block chips',
       (tester) async {
     final config = payload();
 
     await tester.pumpWidget(page(config: config));
     await tester.pumpAndSettle();
 
-    final styleFilter = find.byKey(const ValueKey('asset-block-filter-style'));
-    await tester.ensureVisible(styleFilter);
-    await tester.tap(styleFilter);
-    await tester.pumpAndSettle();
-
+    expect(
+        find.byKey(const ValueKey('asset-block-filter-style')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('asset-block-filter-scene')), findsNothing);
     expect(find.text('雨夜街道'), findsOneWidget);
-    expect(find.text('雨街'), findsNothing);
-    expect(find.text('璃夏'), findsNothing);
+    expect(find.text('雨街'), findsOneWidget);
   });
 
-  testWidgets('asset library surfaces non-basic KAMIA assets for browsing',
+  testWidgets('asset library surfaces non-basic assets for browsing',
       (tester) async {
     final config = payload();
 
@@ -5877,27 +6185,32 @@ void main() {
     expect(find.textContaining('48/500'), findsNothing);
     expect(
       find.byKey(
-        const ValueKey('asset-card-inspiration-legacy-codex-regular-0500'),
+        const ValueKey('asset-card-inspiration-legacy-codex-regular-0001'),
       ),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('asset-card-inspiration-legacy-codex-regular-0500'),
+      ),
+      findsNothing,
     );
   });
 }
 
-class _FakePromptTranslationService implements PromptTranslationService {
-  final Future<OnlineTranslationResult> Function(OnlineTranslationRequest)
-      handler;
-
-  const _FakePromptTranslationService(this.handler);
-
-  @override
-  OnlineAiMode get currentMode => OnlineAiMode.ai;
-
-  @override
-  Future<OnlineTranslationResult> translate(
-    OnlineTranslationRequest request, {
-    bool preferCache = true,
-  }) {
-    return handler(request);
-  }
+void _expectResizedFileImage(Image image, String expectedPath) {
+  expect(image.image, isA<ResizeImage>());
+  final resizeImage = image.image as ResizeImage;
+  expect(resizeImage.width, isNotNull);
+  expect(resizeImage.height, isNotNull);
+  expect(resizeImage.width, lessThanOrEqualTo(1024));
+  expect(resizeImage.height, lessThanOrEqualTo(1024));
+  expect(
+    resizeImage.imageProvider,
+    isA<FileImage>().having(
+      (provider) => provider.file.path,
+      'file path',
+      expectedPath,
+    ),
+  );
 }

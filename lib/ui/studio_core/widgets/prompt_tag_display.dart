@@ -54,7 +54,17 @@ typedef PromptTagContextMenuActionBuilder = List<PromptTagContextMenuAction>
 typedef PromptTagDisplayDiffResolver = PromptTagChipDiffState Function(
   String tag,
 );
+typedef PromptTagDisplayDiffTooltipResolver = String? Function(String tag);
+typedef PromptTagDisplayDiffBadgeResolver = String? Function(String tag);
 typedef PromptTagGroupDiffResolver = PromptTagChipDiffState Function(
+  String groupId,
+  String tag,
+);
+typedef PromptTagGroupDiffTooltipResolver = String? Function(
+  String groupId,
+  String tag,
+);
+typedef PromptTagGroupDiffBadgeResolver = String? Function(
   String groupId,
   String tag,
 );
@@ -166,6 +176,19 @@ class PromptTagContextMenuAction {
     this.enabled = true,
     this.tone = StudioContextMenuItemTone.normal,
   });
+
+  PromptTagContextMenuAction copyWith({
+    PromptTagContextMenuActionCallback? onSelected,
+  }) {
+    return PromptTagContextMenuAction(
+      key: key,
+      icon: icon,
+      label: label,
+      onSelected: onSelected ?? this.onSelected,
+      enabled: enabled,
+      tone: tone,
+    );
+  }
 }
 
 class PromptTagDisplayGroup {
@@ -227,6 +250,8 @@ class PromptTagGroupDisplay extends StatelessWidget {
   final PromptTagGroupActionBuilder? groupActionBuilder;
   final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagGroupDiffResolver? diffStateForTag;
+  final PromptTagGroupDiffTooltipResolver? diffTooltipForTag;
+  final PromptTagGroupDiffBadgeResolver? diffBadgeLabelForTag;
   final bool showTagWarnings;
   final Set<String> suppressedTagWarningKeys;
   final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
@@ -260,6 +285,8 @@ class PromptTagGroupDisplay extends StatelessWidget {
     this.groupActionBuilder,
     this.contextMenuActionBuilder,
     this.diffStateForTag,
+    this.diffTooltipForTag,
+    this.diffBadgeLabelForTag,
     this.showTagWarnings = true,
     this.suppressedTagWarningKeys = const {},
     this.onSuppressTagWarningForScope,
@@ -333,17 +360,32 @@ class PromptTagGroupDisplay extends StatelessWidget {
                   groupActionBuilder: groupActionBuilder,
                   contextMenuActionBuilder: contextMenuActionBuilder == null
                       ? null
-                      : (context, actionContext) => contextMenuActionBuilder!(
-                            context,
-                            actionContext.copyWith(
-                              groupId: group.id,
-                              groupLabel: group.label,
-                              negative: group.negative,
-                            ),
-                          ),
+                      : (context, actionContext) {
+                          final scopedContext = actionContext.copyWith(
+                            groupId: group.id,
+                            groupLabel: group.label,
+                            negative: group.negative,
+                          );
+                          return [
+                            for (final action in contextMenuActionBuilder!(
+                              context,
+                              scopedContext,
+                            ))
+                              action.copyWith(
+                                onSelected: (context, _) =>
+                                    action.onSelected(context, scopedContext),
+                              ),
+                          ];
+                        },
                   diffStateForTag: diffStateForTag == null
                       ? null
                       : (tag) => diffStateForTag!(group.id, tag),
+                  diffTooltipForTag: diffTooltipForTag == null
+                      ? null
+                      : (tag) => diffTooltipForTag!(group.id, tag),
+                  diffBadgeLabelForTag: diffBadgeLabelForTag == null
+                      ? null
+                      : (tag) => diffBadgeLabelForTag!(group.id, tag),
                   showTagWarnings: showTagWarnings,
                   suppressedTagWarningKeys: suppressedTagWarningKeys,
                   onSuppressTagWarningForScope: onSuppressTagWarningForScope,
@@ -581,10 +623,14 @@ class PromptTagDisplay extends StatefulWidget {
   final String? selectionFieldId;
   final String? selectionGroupId;
   final bool showSelectionToolbar;
+  final bool copyDraggedTagsWithAlt;
+  final bool enableKeyboardPaste;
   final PromptTagGroupActionBuilder? groupActionBuilder;
   final PromptTagDragEndCallback? onTagDragEnd;
   final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagDisplayDiffResolver? diffStateForTag;
+  final PromptTagDisplayDiffTooltipResolver? diffTooltipForTag;
+  final PromptTagDisplayDiffBadgeResolver? diffBadgeLabelForTag;
   final bool showTagWarnings;
   final Set<String> suppressedTagWarningKeys;
   final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
@@ -620,10 +666,14 @@ class PromptTagDisplay extends StatefulWidget {
     this.selectionFieldId,
     this.selectionGroupId,
     this.showSelectionToolbar = true,
+    this.copyDraggedTagsWithAlt = false,
+    this.enableKeyboardPaste = false,
     this.groupActionBuilder,
     this.onTagDragEnd,
     this.contextMenuActionBuilder,
     this.diffStateForTag,
+    this.diffTooltipForTag,
+    this.diffBadgeLabelForTag,
     this.showTagWarnings = true,
     this.suppressedTagWarningKeys = const {},
     this.onSuppressTagWarningForScope,
@@ -656,6 +706,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   bool _selectionMoved = false;
   bool _selectionAdditive = false;
   bool _selectionStartedOnDraggableTag = false;
+  bool _tagDragInProgress = false;
   late PromptTagLayoutMode _layoutMode = _normalizedLayoutMode(
     widget.initialLayoutMode,
   );
@@ -670,6 +721,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     super.initState();
     AppDisplaySettings.promptTranslationShortcutSerial.addListener(
       _handleShortcutTrigger,
+    );
+    PromptTagClassificationCacheEvents.revision.addListener(
+      _handleClassificationCacheChanged,
     );
     _syncSelectionController();
   }
@@ -708,9 +762,19 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     AppDisplaySettings.promptTranslationShortcutSerial.removeListener(
       _handleShortcutTrigger,
     );
+    PromptTagClassificationCacheEvents.revision.removeListener(
+      _handleClassificationCacheChanged,
+    );
     _unregisterSelectionController();
     _selectionFocusNode.dispose();
     super.dispose();
+  }
+
+  void _handleClassificationCacheChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   void _syncSelectionController() {
@@ -730,6 +794,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           selectionGroupId: widget.selectionGroupId,
           snapshots: _selectionSnapshots,
           removeIndexes: _removeIndexes,
+          copyDraggedTagsWithAlt: widget.copyDraggedTagsWithAlt,
         ),
       );
   }
@@ -905,6 +970,15 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           unawaited(_copySelectedFromKeyboard(context));
           return KeyEventResult.handled;
         }
+        if (event is KeyDownEvent &&
+            (HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed) &&
+            event.logicalKey == LogicalKeyboardKey.keyV &&
+            widget.enableKeyboardPaste &&
+            widget.onChanged != null) {
+          unawaited(_pasteTagsFromClipboard());
+          return KeyEventResult.handled;
+        }
         return KeyEventResult.ignored;
       },
       child: Stack(
@@ -924,7 +998,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               child: _selectionDropTarget(content),
             ),
           ),
-          if (rect != null && _selectionMoved)
+          if (!_tagDragInProgress && rect != null && _selectionMoved)
             Positioned(
               left: rect.left,
               top: rect.top,
@@ -932,6 +1006,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               height: rect.height,
               child: IgnorePointer(
                 child: DecoratedBox(
+                  key: const ValueKey('prompt-tag-selection-rectangle'),
                   decoration: BoxDecoration(
                     color: StudioTokens.primary.withAlpha(28),
                     borderRadius: const BorderRadius.only(
@@ -1044,6 +1119,12 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     final start = _selectionStart;
     final current = _selectionCurrent;
     if (start == null || current == null) {
+      return;
+    }
+    if (_tagDragInProgress &&
+        _selectionStartedOnDraggableTag &&
+        _selectionMoved) {
+      setState(_clearSelectionInteractionStateOnly);
       return;
     }
     final rect = _rectFrom(start, current);
@@ -1253,6 +1334,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     _selectionMoved = false;
     _selectionAdditive = false;
     _selectionStartedOnDraggableTag = false;
+    _tagDragInProgress = false;
   }
 
   void _deleteSelectedTags() {
@@ -1394,7 +1476,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
 
   PromptTagDragData _dragDataForSelection() {
     final indexes = _activeSelectedIndexes.toSet();
-    return _dragDataForIndexes(indexes);
+    return _dragDataForIndexes(indexes, preserveSelectionOnDrop: true);
   }
 
   PromptTagDragData _dragDataForIndex(int index) {
@@ -1404,12 +1486,14 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     return _dragDataForIndexes(
       indexes,
       includeSharedSelection: activeSelected.contains(index),
+      preserveSelectionOnDrop: activeSelected.contains(index),
     );
   }
 
   PromptTagDragData _dragDataForIndexes(
     Set<int> indexes, {
     bool includeSharedSelection = true,
+    bool preserveSelectionOnDrop = false,
   }) {
     final tags = promptTagsForIndexes(_tags, indexes);
     final controller = widget.selectionController;
@@ -1420,6 +1504,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         localIndexes: indexes,
         localTags: tags,
         localRemove: _removeDraggedIndexes,
+        copyOnlyResolver: _isAltCopyDrag,
       );
     }
     return PromptTagDragData(
@@ -1427,29 +1512,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       sourceFieldIds: {_sharedSelectionFieldId},
       indexes: indexes,
       tags: tags,
+      preserveSelectionOnDrop: preserveSelectionOnDrop,
       removeFromSource: _removeDraggedIndexes,
+      copyOnlyResolver: _isAltCopyDrag,
     );
-  }
-
-  void _beginDraggingIndexes(Set<int> indexes) {
-    final validIndexes =
-        indexes.where((index) => index >= 0 && index < _tags.length).toSet();
-    if (validIndexes.isEmpty) {
-      return;
-    }
-    _selectionFocusNode.requestFocus();
-    final controller = widget.selectionController;
-    if (controller != null) {
-      controller.setFieldSelection(_sharedSelectionFieldId, validIndexes);
-      setState(_clearSelectionInteractionStateOnly);
-      return;
-    }
-    setState(() {
-      _selectedIndexes
-        ..clear()
-        ..addAll(validIndexes);
-      _clearSelectionInteractionStateOnly();
-    });
   }
 
   void _acceptDraggedTags(
@@ -1461,8 +1527,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         data.tags.every((tag) => tag.trim().isEmpty)) {
       return;
     }
+    final copyOnly = data.copyOnly;
     final categoryChanged = _applyDroppedCategory(data.tags, dropCategory);
-    if (data.originId == _dragOriginId) {
+    if (data.originId == _dragOriginId && !copyOnly) {
       if (dropCategory != null && insertIndex == null) {
         if (categoryChanged && mounted) {
           setState(_clearSelectionStateOnly);
@@ -1505,7 +1572,65 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
       return;
     }
     setState(_clearSelectionStateOnly);
-    data.removeFromSource?.call(data.indexes);
+    if (!copyOnly) {
+      data.removeFromSource?.call(data.indexes);
+    }
+  }
+
+  bool _isAltCopyDrag() {
+    return widget.copyDraggedTagsWithAlt &&
+        HardwareKeyboard.instance.isAltPressed;
+  }
+
+  Future<void> _pasteTagsFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted || widget.onChanged == null) {
+      return;
+    }
+    final incoming = _clipboardPromptTags(data?.text ?? '');
+    if (incoming.isEmpty) {
+      return;
+    }
+    _insertPastedTags(incoming);
+  }
+
+  List<String> _clipboardPromptTags(String text) {
+    return PromptTagProcessor.splitWorkshopTags(text)
+        .map(
+          (tag) => PromptTagProcessor.cleanTagDisplay(
+            tag,
+            removeWeights: false,
+          ),
+        )
+        .where((tag) => tag.trim().isNotEmpty)
+        .toList(growable: false);
+  }
+
+  void _insertPastedTags(List<String> incoming) {
+    final current = _tags;
+    final selected = _activeSelectedIndexes
+        .where((index) => index >= 0 && index < current.length)
+        .toList()
+      ..sort();
+    final selectedSet = selected.toSet();
+    final target = selected.isEmpty ? current.length : selected.first;
+    final remaining = [
+      for (final (index, tag) in current.indexed)
+        if (!selectedSet.contains(index)) tag,
+    ];
+    final next = [...remaining]..insertAll(target, incoming);
+    widget.onChanged?.call(joinPromptTags(next));
+    if (!mounted) {
+      return;
+    }
+    setState(_clearSelectionStateOnly);
+    widget.selectionController?.setFieldSelection(
+      _sharedSelectionFieldId,
+      {
+        for (var offset = 0; offset < incoming.length; offset++)
+          target + offset,
+      },
+    );
   }
 
   bool _applyDroppedCategory(
@@ -1726,20 +1851,25 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             final selected = _isSelected(item.index);
             final diffState = widget.diffStateForTag?.call(item.text) ??
                 PromptTagChipDiffState.unchanged;
+            final diffTooltip = widget.diffTooltipForTag?.call(item.text);
+            final diffBadgeLabel = widget.diffBadgeLabelForTag?.call(item.text);
             final tagMaxWidth =
                 compactSourceOrder ? _sourceOrderTagMaxWidth(item.index) : null;
+            final translation = translate
+                ? _translationFor(cache, item.text)
+                : _translationOverrides[item.text] ?? '';
+            final loading = _autoTranslationPending.contains(item.text);
+            final category = item.classification.category;
             final chip = PromptTagChip(
               label: item.text,
               weightLabel: item.weightLabel,
               weight: item.weight,
               maxWidth: tagMaxWidth,
-              translation: translate
-                  ? _translationFor(cache, item.text)
-                  : _translationOverrides[item.text] ?? '',
-              loading: _autoTranslationPending.contains(item.text),
+              translation: translation,
+              loading: loading,
               warning: item.warning,
               diffState: diffState,
-              category: item.classification.category,
+              category: category,
               dense: widget.dense,
               hovered: _hoveredIndex == item.index,
               previewed: _selectionPreviewIndexes.contains(item.index) ||
@@ -1762,6 +1892,8 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               checkKey: ValueKey(
                 'prompt-tag-chip-check-${item.text}-${item.index}',
               ),
+              diffTooltip: diffTooltip,
+              diffBadgeLabel: diffBadgeLabel,
               diffKey: diffState == PromptTagChipDiffState.unchanged
                   ? null
                   : ValueKey(
@@ -1802,24 +1934,48 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             if (!_canDragTags) {
               return chip;
             }
-            final dragData = selected
+            final baseDragData = selected
                 ? _dragDataForSelection()
                 : _dragDataForIndex(
                     item.index,
                   );
+            final dragData = baseDragData.tags.isNotEmpty
+                ? baseDragData.withPreviewItems([
+                    PromptTagDragPreviewItem(
+                      label: item.text,
+                      translation: translation,
+                      weightLabel: item.weightLabel,
+                      weight: item.weight,
+                      loading: loading,
+                      warning: item.warning,
+                      diffState: diffState,
+                      category: category,
+                      selected: selected,
+                      maxWidth: tagMaxWidth,
+                    ),
+                  ])
+                : baseDragData;
             return Draggable<PromptTagDragData>(
               data: dragData,
               dragAnchorStrategy: pointerDragAnchorStrategy,
               feedback: PromptTagDragFeedback(
                 tags: dragData.tags,
+                previewItems: dragData.previewItems,
                 dense: widget.dense,
               ),
-              onDragStarted: selected
-                  ? null
-                  : () => _beginDraggingIndexes(dragData.indexes),
+              onDragStarted: () {
+                setState(() {
+                  _tagDragInProgress = true;
+                });
+              },
               onDragEnd: widget.onTagDragEnd == null
-                  ? null
-                  : (details) => widget.onTagDragEnd!(dragData, details),
+                  ? (_) {
+                      _tagDragInProgress = false;
+                    }
+                  : (details) {
+                      _tagDragInProgress = false;
+                      widget.onTagDragEnd!(dragData, details);
+                    },
               childWhenDragging: Opacity(opacity: 0.45, child: chip),
               child: chip,
             );
@@ -1865,16 +2021,18 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             PromptTagCategory.quality,
             PromptTagCategory.artist,
             PromptTagCategory.character,
+            PromptTagCategory.upperBody,
+            PromptTagCategory.lowerBody,
+            PromptTagCategory.upperClothing,
+            PromptTagCategory.lowerClothing,
+            PromptTagCategory.accessory,
+            PromptTagCategory.clothingState,
             PromptTagCategory.clothing,
             PromptTagCategory.action,
             PromptTagCategory.scene,
             PromptTagCategory.style,
             PromptTagCategory.other,
             PromptTagCategory.camera,
-            PromptTagCategory.upperBody,
-            PromptTagCategory.lowerBody,
-            PromptTagCategory.upperClothing,
-            PromptTagCategory.lowerClothing,
           ];
     for (final category in preferred) {
       if (allowed.contains(category)) {
@@ -3116,6 +3274,8 @@ List<PromptTagCategory> _manualCategoryChoices(bool negative) {
     PromptTagCategory.lowerBody,
     PromptTagCategory.upperClothing,
     PromptTagCategory.lowerClothing,
+    PromptTagCategory.accessory,
+    PromptTagCategory.clothingState,
     PromptTagCategory.clothing,
     PromptTagCategory.action,
     PromptTagCategory.scene,
@@ -3132,6 +3292,8 @@ String _categoryLabel(PromptTagCategory category) {
     PromptTagCategory.lowerBody => '下身',
     PromptTagCategory.upperClothing => '上装',
     PromptTagCategory.lowerClothing => '下装',
+    PromptTagCategory.accessory => '饰品',
+    PromptTagCategory.clothingState => '服装状态',
     PromptTagCategory.clothing => '服装',
     PromptTagCategory.action => '动作',
     PromptTagCategory.scene => '场景',

@@ -6,6 +6,8 @@ import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_evidence_builder.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 void main() {
   group('DefaultScriptAiRoleExtractionService', () {
@@ -45,6 +47,85 @@ void main() {
 
       expect(result.reasoningContent, contains('[chunk-1]'));
       expect(result.reasoningContent, contains('先查看 slot-0'));
+    });
+
+    test('merges AI term cache suggestions after successful extraction',
+        () async {
+      final translationCache = TranslationCache(clock: () => 1710000000)
+        ..setManual('wings', '手动翅膀');
+      final classificationCache =
+          PromptTagClassificationCache(clock: () => 1710000000)
+            ..setCategory(
+              'wings',
+              PromptTagCategory.upperBody,
+              source: 'manual',
+            );
+      var translationSaved = false;
+      var classificationSaved = false;
+      final fakeClient = _FakeRoleExtractionClient(
+        (request) async => ScriptAiRoleExtractionClientResult(
+          rawJson: jsonEncode({
+            'schema_version': 1,
+            'status': 'ready',
+            'chunk_id': 'chunk-1',
+            'roles': [
+              {
+                'source_role_id': 'slot-0',
+                'display_name': 'slot-0',
+                'prompt_terms': [
+                  {
+                    'id': 'term-double-bun',
+                    'text': 'double bun',
+                    'category': 'body',
+                    'frame_indexes': [1],
+                  }
+                ],
+                'stages': [],
+              }
+            ],
+            'term_cache_suggestions': [
+              {
+                'text': 'double bun',
+                'translation': '双丸子头',
+                'category': 'upperBody',
+                'source': 'ai_extraction',
+              },
+              {
+                'text': 'wings',
+                'translation': 'AI翅膀',
+                'category': 'lowerBody',
+                'source': 'ai_extraction',
+              }
+            ],
+          }),
+        ),
+      );
+      final service = DefaultScriptAiRoleExtractionService(client: fakeClient);
+
+      final result = await service.extractRoles(
+        request: _request(
+          script: _script(frameCount: 1),
+          translationCache: translationCache,
+          classificationCache: classificationCache,
+          saveTranslationCache: (_) async => translationSaved = true,
+          saveClassificationCache: (_) async => classificationSaved = true,
+        ),
+      );
+
+      expect(result.extraction.isReady, isTrue);
+      expect(translationCache.getCached('double bun'), '双丸子头');
+      expect(translationCache.entryFor('double bun')?.source, 'ai_extraction');
+      expect(translationCache.getCached('wings'), '手动翅膀');
+      expect(
+        classificationCache.entryFor('double bun')?.category,
+        PromptTagCategory.upperBody,
+      );
+      expect(
+        classificationCache.entryFor('wings')?.category,
+        PromptTagCategory.upperBody,
+      );
+      expect(translationSaved, isTrue);
+      expect(classificationSaved, isTrue);
     });
 
     test('passes reasoning effort to each client request', () async {
@@ -1411,6 +1492,11 @@ ScriptAiRoleExtractionServiceRequest _request({
   required Script script,
   List<ScriptAiRoleExtraction> completedChunkExtractions = const [],
   String reasoningEffort = '',
+  TranslationCache? translationCache,
+  PromptTagClassificationCache? classificationCache,
+  Future<void> Function(TranslationCache cache)? saveTranslationCache,
+  Future<void> Function(PromptTagClassificationCache cache)?
+      saveClassificationCache,
 }) {
   return ScriptAiRoleExtractionServiceRequest(
     baseUrl: 'https://script.example',
@@ -1420,6 +1506,10 @@ ScriptAiRoleExtractionServiceRequest _request({
     reasoningEffort: reasoningEffort,
     script: script,
     completedChunkExtractions: completedChunkExtractions,
+    translationCache: translationCache,
+    classificationCache: classificationCache,
+    saveTranslationCache: saveTranslationCache,
+    saveClassificationCache: saveClassificationCache,
   );
 }
 

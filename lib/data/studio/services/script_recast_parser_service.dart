@@ -119,7 +119,7 @@ class ScriptRecastParserService {
     final detectedSchema = _voteSchema(frames);
     final List<String> parseWarnings = frames.isEmpty
         ? const [
-            'No prompt-bearing JSON or PNG script frames found in this directory.',
+            'No prompt-bearing JSON, PNG, or WEBP script frames found in this directory.',
           ]
         : frames.expand((frame) => frame.warnings).toList(growable: false);
 
@@ -628,7 +628,7 @@ _ScriptFrameSourceKind? _scriptFrameFileKind(File file) {
   if (lowerName.endsWith('.json')) {
     return _ScriptFrameSourceKind.json;
   }
-  if (lowerName.endsWith('.png')) {
+  if (lowerName.endsWith('.png') || lowerName.endsWith('.webp')) {
     return _ScriptFrameSourceKind.png;
   }
   return null;

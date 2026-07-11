@@ -320,13 +320,28 @@ class ScriptRecastEngine {
   }) {
     final captions = frame.parsed.charCaptions.toList(growable: true);
     final roleReplacementSlotIndexes = <int>{};
+    final roleReplacementOwnedSlotIds = <String>{};
     if (mapping.rolePromptReplacements.isNotEmpty) {
       for (final replacement in mapping.rolePromptReplacements) {
+        final replacementSourceId = replacement.sourceRoleId.trim();
+        if (_slotIndex(replacementSourceId) != null) {
+          roleReplacementOwnedSlotIds.add(replacementSourceId);
+        }
+        for (final assembly in _roleAssembliesForReplacement(
+          mapping: mapping,
+          replacement: replacement,
+        )) {
+          for (final appearance in assembly.sourceAppearances) {
+            if (_appearanceCanTargetCaption(appearance)) {
+              roleReplacementOwnedSlotIds.add(appearance.sourceId.trim());
+            }
+          }
+        }
         final slotIndexes = _rolePromptReplacementSlotIndexes(
           replacement: replacement,
           mapping: mapping,
           frameIndex: frame.index,
-          captionsLength: captions.length,
+          captions: captions,
         );
         for (final slotIndex in slotIndexes) {
           roleReplacementSlotIndexes.add(slotIndex);
@@ -370,6 +385,9 @@ class ScriptRecastEngine {
       return List.unmodifiable(captions);
     }
     for (final roleSwap in mapping.roleSwaps) {
+      if (roleReplacementOwnedSlotIds.contains(roleSwap.sourceRoleId.trim())) {
+        continue;
+      }
       final slotIndex = _slotIndex(roleSwap.sourceRoleId);
       if (slotIndex == null || slotIndex < 0 || slotIndex >= captions.length) {
         continue;
@@ -394,10 +412,11 @@ class ScriptRecastEngine {
     required ScriptRolePromptReplacement replacement,
     required RecastMapping mapping,
     required int frameIndex,
-    required int captionsLength,
+    required List<String> captions,
   }) {
     final appearanceSlotIndexes = <int>{};
     var hasAppearanceMapping = false;
+    var hasCaptionAppearanceMapping = false;
     for (final assembly in _roleAssembliesForReplacement(
       mapping: mapping,
       replacement: replacement,
@@ -406,23 +425,231 @@ class ScriptRecastEngine {
         continue;
       }
       hasAppearanceMapping = true;
+      hasCaptionAppearanceMapping = hasCaptionAppearanceMapping ||
+          assembly.sourceAppearances.any(_appearanceCanTargetCaption);
       appearanceSlotIndexes.addAll(
         _appearanceSlotIndexesForFrame(
           assembly: assembly,
           frameIndex: frameIndex,
-          captionsLength: captionsLength,
+          captionsLength: captions.length,
         ),
       );
     }
     if (hasAppearanceMapping) {
-      return List.unmodifiable(appearanceSlotIndexes.toList()..sort());
+      if (appearanceSlotIndexes.isNotEmpty) {
+        return List.unmodifiable(appearanceSlotIndexes.toList()..sort());
+      }
+      if (hasCaptionAppearanceMapping) {
+        return _captionSlotIndexesMatchingReplacement(
+          replacement: replacement,
+          frameIndex: frameIndex,
+          captions: captions,
+        );
+      }
+      return const [];
     }
 
     final slotIndex = _slotIndex(replacement.sourceRoleId.trim());
-    if (slotIndex == null || slotIndex < 0 || slotIndex >= captionsLength) {
+    if (slotIndex == null || slotIndex < 0 || slotIndex >= captions.length) {
       return const [];
     }
     return [slotIndex];
+  }
+
+  bool _appearanceCanTargetCaption(RoleAssemblySourceAppearance appearance) {
+    final sourceKind = appearance.sourceKind.trim().toLowerCase();
+    final sourceId = appearance.sourceId.trim().toLowerCase();
+    return sourceKind == 'slot' || sourceId.startsWith('slot-');
+  }
+
+  List<int> _captionSlotIndexesMatchingReplacement({
+    required ScriptRolePromptReplacement replacement,
+    required int frameIndex,
+    required List<String> captions,
+  }) {
+    final preferred = _captionSlotIndexesMatchingReplacementTerms(
+      replacement: replacement,
+      frameIndex: frameIndex,
+      captions: captions,
+      requireCharacterTerm: true,
+    );
+    if (preferred.isNotEmpty) {
+      return preferred;
+    }
+    return _captionSlotIndexesMatchingReplacementTerms(
+      replacement: replacement,
+      frameIndex: frameIndex,
+      captions: captions,
+      requireCharacterTerm: false,
+    );
+  }
+
+  List<int> _captionSlotIndexesMatchingReplacementTerms({
+    required ScriptRolePromptReplacement replacement,
+    required int frameIndex,
+    required List<String> captions,
+    required bool requireCharacterTerm,
+  }) {
+    final indexes = <int>[];
+    for (final (index, caption) in captions.indexed) {
+      final tagKeys = {
+        for (final tag in PromptTagProcessor.splitWorkshopTags(caption))
+          PromptTagProcessor.normalizeMatchKey(tag),
+      };
+      if (tagKeys.isEmpty) {
+        continue;
+      }
+      if (_replacementMatchesCaptionKeys(
+        replacement: replacement,
+        frameIndex: frameIndex,
+        tagKeys: tagKeys,
+        requireCharacterTerm: requireCharacterTerm,
+      )) {
+        indexes.add(index);
+      }
+    }
+    return List.unmodifiable(indexes);
+  }
+
+  bool _replacementMatchesCaptionKeys({
+    required ScriptRolePromptReplacement replacement,
+    required int frameIndex,
+    required Set<String> tagKeys,
+    required bool requireCharacterTerm,
+  }) {
+    for (final rule in replacement.rules) {
+      if (rule.effectiveAction == ScriptPromptReplacementAction.none) {
+        continue;
+      }
+      final includedTerms = _includedReplacementTerms(rule);
+      if (includedTerms.isEmpty ||
+          !_replacementRuleCanApplyToFrame(includedTerms, frameIndex)) {
+        continue;
+      }
+      final eligibleTerms = [
+        for (final term in includedTerms)
+          if (_replacementTermCanApplyToFrame(term, frameIndex) &&
+              !_isGenericReplacementCharacterTerm(term))
+            term,
+      ];
+      if (eligibleTerms.isEmpty) {
+        continue;
+      }
+      final presentTerms = [
+        for (final term in eligibleTerms)
+          if (tagKeys.contains(PromptTagProcessor.normalizeMatchKey(term.text)))
+            term,
+      ];
+      if (presentTerms.isEmpty) {
+        continue;
+      }
+      if (requireCharacterTerm &&
+          !presentTerms.any(
+            (term) =>
+                term.category == PromptTagCategory.character &&
+                !_isGenericRoleLocatorTerm(term.text),
+          )) {
+        continue;
+      }
+      if (_replacementRuleMatches(rule, eligibleTerms, presentTerms)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isGenericReplacementCharacterTerm(ScriptPromptReplacementTerm term) {
+    return term.category == PromptTagCategory.character &&
+        _isGenericRoleLocatorTerm(term.text);
+  }
+
+  bool _isGenericRoleLocatorTerm(String value) {
+    final key = PromptTagProcessor.normalizeMatchKey(value);
+    return key == 'solo' ||
+        key == 'female' ||
+        key == 'male' ||
+        key == 'woman' ||
+        key == 'man' ||
+        key == 'women' ||
+        key == 'men' ||
+        key == 'girl' ||
+        key == 'girls' ||
+        key == 'boy' ||
+        key == 'boys' ||
+        key == '1girl' ||
+        key == '2girls' ||
+        key == '1boy' ||
+        key == '2boys';
+  }
+
+  List<ScriptPromptReplacementTerm> _includedReplacementTerms(
+    ScriptPromptReplacementRule rule,
+  ) {
+    final excluded = rule.excludedTermIds.toSet();
+    return [
+      for (final term in rule.sourceTerms)
+        if (!excluded.contains(term.id)) term,
+    ];
+  }
+
+  bool _replacementRuleCanApplyToFrame(
+    List<ScriptPromptReplacementTerm> terms,
+    int frameIndex,
+  ) {
+    final scopedTerms = terms.where((term) => term.frameIndexes.isNotEmpty);
+    if (scopedTerms.isEmpty) {
+      return true;
+    }
+    return scopedTerms.any((term) => term.frameIndexes.contains(frameIndex));
+  }
+
+  bool _replacementTermCanApplyToFrame(
+    ScriptPromptReplacementTerm term,
+    int frameIndex,
+  ) {
+    return term.frameIndexes.isEmpty || term.frameIndexes.contains(frameIndex);
+  }
+
+  bool _replacementRuleMatches(
+    ScriptPromptReplacementRule rule,
+    List<ScriptPromptReplacementTerm> eligibleTerms,
+    List<ScriptPromptReplacementTerm> presentTerms,
+  ) {
+    final presentKeys = {
+      for (final term in presentTerms)
+        PromptTagProcessor.normalizeMatchKey(term.text),
+    };
+    switch (rule.matchMode) {
+      case ScriptPromptReplacementMatchMode.any:
+        return presentKeys.isNotEmpty;
+      case ScriptPromptReplacementMatchMode.all:
+        return {
+          for (final term in eligibleTerms)
+            PromptTagProcessor.normalizeMatchKey(term.text),
+        }.every(presentKeys.contains);
+      case ScriptPromptReplacementMatchMode.anchor:
+        final anchor = _replacementAnchorTerm(rule, eligibleTerms);
+        return anchor != null &&
+            presentKeys.contains(PromptTagProcessor.normalizeMatchKey(
+              anchor.text,
+            ));
+    }
+  }
+
+  ScriptPromptReplacementTerm? _replacementAnchorTerm(
+    ScriptPromptReplacementRule rule,
+    List<ScriptPromptReplacementTerm> eligibleTerms,
+  ) {
+    final anchorTermId = rule.anchorTermId.trim();
+    if (anchorTermId.isNotEmpty) {
+      for (final term in eligibleTerms) {
+        if (term.id == anchorTermId) {
+          return term;
+        }
+      }
+      return null;
+    }
+    return eligibleTerms.isEmpty ? null : eligibleTerms.first;
   }
 
   List<int> _appearanceSlotIndexesForFrame({
@@ -1409,68 +1636,9 @@ String _applyRolePromptReplacement({
   required int frameIndex,
   required ScriptRolePromptReplacement replacement,
 }) {
-  final resolved = _promptReplacementEngine.applyRules(
+  return _promptReplacementEngine.applyRules(
     prompt: caption,
     frameIndex: frameIndex,
     rules: replacement.rules,
   );
-  final identityRule = _targetIdentityPromptRule(replacement);
-  if (identityRule != null) {
-    final identityResolved = _promptReplacementEngine.applyRules(
-      prompt: resolved,
-      frameIndex: frameIndex,
-      rules: [identityRule],
-    );
-    return identityResolved == resolved
-        ? _appendPromptTagsIfMissing(resolved, replacement.targetIdentityPrompt)
-        : identityResolved;
-  }
-
-  final targetIdentityPrompt = replacement.targetIdentityPrompt.trim();
-  if (targetIdentityPrompt.isEmpty) {
-    return resolved;
-  }
-  return _appendPromptTagsIfMissing(resolved, targetIdentityPrompt);
-}
-
-ScriptPromptReplacementRule? _targetIdentityPromptRule(
-  ScriptRolePromptReplacement replacement,
-) {
-  final targetIdentityPrompt = replacement.targetIdentityPrompt.trim();
-  if (targetIdentityPrompt.isEmpty) {
-    return null;
-  }
-  final identityTerms = [
-    for (final rule in replacement.rules)
-      for (final term in rule.sourceTerms)
-        if (term.category == PromptTagCategory.character) term,
-  ];
-  if (identityTerms.isEmpty) {
-    return null;
-  }
-  return ScriptPromptReplacementRule(
-    id: '${replacement.sourceRoleId}-target-identity',
-    sourceTerms: identityTerms,
-    targetPrompt: targetIdentityPrompt,
-  );
-}
-
-String _appendPromptTagsIfMissing(String prompt, String tagsToAppend) {
-  final existingKeys = {
-    for (final tag in _splitTags(prompt))
-      PromptTagProcessor.normalizeMatchKey(tag),
-  };
-  final appendedKeys = <String>{};
-  final missingTags = <String>[];
-  for (final tag in sanitizeGenerationPromptTags(_splitTags(tagsToAppend))) {
-    final key = PromptTagProcessor.normalizeMatchKey(tag);
-    if (key.isEmpty || existingKeys.contains(key) || !appendedKeys.add(key)) {
-      continue;
-    }
-    missingTags.add(tag);
-  }
-  if (missingTags.isEmpty) {
-    return prompt;
-  }
-  return sanitizeGenerationPrompt(_joinTags([prompt, ...missingTags]));
 }

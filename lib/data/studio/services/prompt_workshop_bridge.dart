@@ -34,6 +34,13 @@ class PromptWorkshopBridge {
         '${Platform.pathSeparator}$fileName',
       ),
       File(
+        '$appData${Platform.pathSeparator}org.exception0x0194'
+        '${Platform.pathSeparator}nai3_autodraw'
+        '${Platform.pathSeparator}novel_studio'
+        '${Platform.pathSeparator}configs'
+        '${Platform.pathSeparator}$fileName',
+      ),
+      File(
         '$appData${Platform.pathSeparator}novel_studio'
         '${Platform.pathSeparator}configs'
         '${Platform.pathSeparator}$fileName',
@@ -46,7 +53,11 @@ class PromptWorkshopBridge {
   }) async {
     for (final file in candidates ?? defaultTranslationCacheCandidates()) {
       if (!await file.exists()) continue;
-      return TranslationCacheRepository(file).load();
+      try {
+        return await TranslationCacheRepository(file).load();
+      } on FormatException {
+        continue;
+      }
     }
     return TranslationCache();
   }
@@ -81,7 +92,11 @@ class PromptWorkshopBridge {
     for (final file
         in candidates ?? defaultTagClassificationCacheCandidates()) {
       if (!await file.exists()) continue;
-      return PromptTagClassificationCacheRepository(file).load();
+      try {
+        return await PromptTagClassificationCacheRepository(file).load();
+      } on FormatException {
+        continue;
+      }
     }
     return PromptTagClassificationCache();
   }
@@ -95,6 +110,22 @@ class PromptWorkshopBridge {
       (file) => file.existsSync(),
       orElse: () => files.first,
     );
-    await PromptTagClassificationCacheRepository(target).save(cache);
+    var cacheToSave = cache;
+    if (target.existsSync()) {
+      final existing = await PromptTagClassificationCacheRepository(
+        target,
+      ).load();
+      cacheToSave = PromptTagClassificationCache(
+        entries: {
+          ...existing.entries,
+          ...cache.entries,
+        },
+        validCompoundTagKeys: {
+          ...existing.validCompoundTagKeys,
+          ...cache.validCompoundTagKeys,
+        },
+      );
+    }
+    await PromptTagClassificationCacheRepository(target).save(cacheToSave);
   }
 }

@@ -58,7 +58,8 @@ void main() {
         catalogService: catalog,
       ).loadContext();
 
-      expect(catalog.snapshotLoadCount, 1);
+      expect(catalog.snapshotLoadCount, 0);
+      expect(catalog.cachedSnapshotLoadCount, 1);
       expect(context.characters.map((character) => character.id), [
         'char-hero',
         'char-sidekick',
@@ -96,6 +97,30 @@ void main() {
       expect(context.filterMetadata.strongFilterKeywordCount, 1);
       expect(context.filterMetadata.replaceRuleCount, 1);
       expect(context.filterMetadata.deleteArtistTags, isTrue);
+    });
+
+    test('loads Recast asset options through catalog cache fast path',
+        () async {
+      final catalog = _FakeCatalogService(
+        snapshot: _snapshot(
+          characters: const [
+            CharacterEntry(
+              id: 'char-cached',
+              name: 'Cached Heroine',
+              traits: ViewVariantTexts(frontFull: 'cached green eyes'),
+            ),
+          ],
+        ),
+      );
+      catalog.throwOnDirectSnapshotLoad = true;
+
+      final context = await ScriptRecastAssetContextService(
+        catalogService: catalog,
+      ).loadContext();
+
+      expect(catalog.snapshotLoadCount, 0);
+      expect(catalog.cachedSnapshotLoadCount, 1);
+      expect(context.characters.single.id, 'char-cached');
     });
 
     test('exposes immutable empty metadata when filters are absent', () async {
@@ -153,6 +178,8 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   final StudioAssetCatalogSnapshot snapshot;
   final Map<String, dynamic>? filterRules;
   int snapshotLoadCount = 0;
+  int cachedSnapshotLoadCount = 0;
+  bool throwOnDirectSnapshotLoad = false;
 
   _FakeCatalogService({
     required this.snapshot,
@@ -165,9 +192,30 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     snapshotLoadCount += 1;
+    if (throwOnDirectSnapshotLoad) {
+      throw StateError('Direct catalog snapshot load should not be used.');
+    }
     return snapshot;
+  }
+
+  @override
+  Future<StudioAssetCatalogCacheLoadResult> loadSnapshotWithCache({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool checkStaleness = true,
+    bool persistCacheBeforeReturn = true,
+  }) async {
+    cachedSnapshotLoadCount += 1;
+    return StudioAssetCatalogCacheLoadResult(
+      snapshot: snapshot,
+      fromCache: true,
+      isStale: false,
+    );
   }
 
   @override

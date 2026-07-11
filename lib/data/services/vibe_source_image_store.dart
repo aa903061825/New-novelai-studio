@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:novel_studio/data/models/vibe_config_v4.dart';
 import 'package:uuid/uuid.dart';
@@ -37,7 +38,7 @@ class VibeSourceImageStore {
   }) async {
     var changed = false;
     for (final vibe in vibes) {
-      final bytes = vibe.imageBytes;
+      final bytes = vibe.imageBytes ?? _decodeLegacyImage(vibe.legacyImageB64);
       if (bytes == null ||
           vibe.sourceImagePath != null && vibe.sourceImagePath!.isNotEmpty) {
         continue;
@@ -48,9 +49,22 @@ class VibeSourceImageStore {
         bytes: bytes,
       );
       vibe.imageBytes = null;
+      vibe.legacyImageB64 = null;
       changed = true;
     }
     return changed;
+  }
+
+  Uint8List? _decodeLegacyImage(String? imageB64) {
+    final trimmed = imageB64?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    try {
+      return base64Decode(trimmed);
+    } catch (_) {
+      return null;
+    }
   }
 
   String _safeSegment(String value) {

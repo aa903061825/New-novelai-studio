@@ -223,11 +223,16 @@ class _CompactVibeV4Card extends StatelessWidget {
                 ? Image.file(File(imagePath), fit: BoxFit.cover)
                 : const Icon(Icons.broken_image_outlined, size: 36);
         return CompactImageConfigCard(
-          height: 186,
+          height: 218,
           thumbnail: thumbnail,
           fileName: viewmodel.fileName,
           onDelete: onDelete,
           controls: [
+            MiniLabeledSlider(
+              label: 'I',
+              value: viewmodel.infoExtracted,
+              onChanged: viewmodel.setInfoExtracted,
+            ),
             MiniLabeledSlider(
               label: 'S',
               value: viewmodel.referenceStrength,

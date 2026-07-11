@@ -9,6 +9,7 @@ enum StudioWorkbenchAssetKind {
   character,
   outfit,
   outfitPart,
+  assetSection,
   artistChain,
   recipe,
   tag,
@@ -227,6 +228,44 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
     _mergeArtistChainVibes(artistChain.vibeRefs);
   }
 
+  void appendAssetSection({
+    required String sourceId,
+    String? sourceBlock,
+    required String sectionKey,
+    required String typeLabel,
+    required String name,
+    required String fragment,
+  }) {
+    _appendPromptFragment(
+      kind: StudioWorkbenchAssetKind.assetSection,
+      sourceId: '$sourceId:$sectionKey',
+      sourceBlock: sourceBlock,
+      typeLabel: typeLabel,
+      name: '$name / $typeLabel',
+      fragment: fragment,
+    );
+  }
+
+  void insertAssetSection({
+    required String sourceId,
+    String? sourceBlock,
+    required String sectionKey,
+    required String typeLabel,
+    required String name,
+    required String fragment,
+    required int targetIndex,
+  }) {
+    _insertPromptFragment(
+      kind: StudioWorkbenchAssetKind.assetSection,
+      sourceId: '$sourceId:$sectionKey',
+      sourceBlock: sourceBlock,
+      typeLabel: typeLabel,
+      name: '$name / $typeLabel',
+      fragment: fragment,
+      targetIndex: targetIndex,
+    );
+  }
+
   void appendRecipe(Recipe recipe) {
     final tags = recipe.tags.trim();
     if (tags.isNotEmpty) {
@@ -342,7 +381,8 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
   bool canSaveBack(StudioWorkbenchAssetFragment fragment) =>
       workspaceService != null &&
       fragment.isDirty &&
-      fragment.kind != StudioWorkbenchAssetKind.outfitPart;
+      fragment.kind != StudioWorkbenchAssetKind.outfitPart &&
+      fragment.kind != StudioWorkbenchAssetKind.assetSection;
 
   Future<void> saveBack(String id) async {
     final workspace = workspaceService;
@@ -359,6 +399,8 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
         break;
       case StudioWorkbenchAssetKind.outfitPart:
         throw StateError('Outfit part fragments cannot be saved back.');
+      case StudioWorkbenchAssetKind.assetSection:
+        throw StateError('Asset section fragments cannot be saved back.');
       case StudioWorkbenchAssetKind.artistChain:
         await _saveArtistChainPrompt(workspace, fragment);
         break;
@@ -468,6 +510,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
       final nextConfig = VibeConfigV4(
         fileName: vibe.name.trim().isEmpty ? vibe.id : vibe.name,
         vibeB64: encoding,
+        infoExtracted: vibe.infoExtracted,
         referenceStrength: vibe.referenceStrength,
         imageBytes: existingIndex >= 0 ? next[existingIndex].imageBytes : null,
         sourceImagePath:
@@ -480,6 +523,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
       }
       final existing = next[existingIndex];
       if (existing.fileName != nextConfig.fileName ||
+          existing.infoExtracted != nextConfig.infoExtracted ||
           existing.referenceStrength != nextConfig.referenceStrength) {
         next[existingIndex] = nextConfig;
         changed = true;
@@ -627,6 +671,7 @@ class StudioWorkbenchAssetService extends ChangeNotifier {
             zh: tag.zh,
             block: tag.block,
             category: tag.category,
+            sections: tag.sections,
             aliases: tag.aliases,
             imageRefs: tag.imageRefs,
             source: tag.source,

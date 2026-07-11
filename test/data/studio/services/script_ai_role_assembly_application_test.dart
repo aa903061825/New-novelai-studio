@@ -246,6 +246,123 @@ void main() {
     expect(sceneRule.anchorTermId, 'night');
   });
 
+  test('reuses confirmed replacement rules by source term when ids changed',
+      () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      rolePromptReplacements: [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Old heroine',
+          targetCharacterId: 'target-character',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'legacy-double-bun-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-double-bun',
+                  text: 'double bun',
+                  category: PromptTagCategory.upperBody,
+                  sourcePhrase: 'old double bun evidence',
+                ),
+              ],
+              targetPrompt: 'single braid',
+            ),
+          ],
+        ),
+      ],
+      scenePromptReplacements: [
+        ScriptScenePromptReplacement(
+          id: 'scene-ai',
+          label: 'Scene',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'legacy-bedroom-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-bedroom',
+                  text: 'bedroom',
+                  category: PromptTagCategory.scene,
+                ),
+              ],
+              targetPrompt: 'classroom',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Heroine',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-double-bun',
+                text: 'double bun',
+                category: PromptTagCategory.upperBody,
+                sourcePhrase: 'new double bun evidence',
+                frameIndexes: [2],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-wings',
+                text: 'wings',
+                category: PromptTagCategory.upperBody,
+                sourcePhrase: 'wings evidence',
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+        sceneTerms: [
+          ScriptAiExtractedPromptTerm(
+            id: 'scene-bedroom',
+            text: 'bedroom',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'new bedroom evidence',
+            frameIndexes: [2],
+          ),
+          ScriptAiExtractedPromptTerm(
+            id: 'scene-sunset',
+            text: 'sunset',
+            category: PromptTagCategory.scene,
+            sourcePhrase: 'sunset evidence',
+            frameIndexes: [3],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    final roleReplacement = result.mapping.rolePromptReplacements.single;
+    expect(roleReplacement.targetCharacterId, 'target-character');
+    expect(roleReplacement.rules, hasLength(2));
+    expect(roleReplacement.rules.first.id, 'legacy-double-bun-rule');
+    expect(roleReplacement.rules.first.targetPrompt, 'single braid');
+    expect(
+        roleReplacement.rules.first.sourceTerms.single.id, 'term-double-bun');
+    expect(roleReplacement.rules.first.sourceTerms.single.sourcePhrase,
+        'new double bun evidence');
+    expect(roleReplacement.rules.last.sourceTerms.single.text, 'wings');
+
+    final sceneRules = result.mapping.scenePromptReplacements.single.rules;
+    expect(sceneRules, hasLength(2));
+    expect(sceneRules.first.id, 'legacy-bedroom-rule');
+    expect(sceneRules.first.targetPrompt, 'classroom');
+    expect(sceneRules.first.sourceTerms.single.id, 'scene-bedroom');
+    expect(
+      result.mapping.rolePromptReplacements.single.rules
+          .expand((rule) => rule.sourceTerms)
+          .map((term) => term.text),
+      isNot(contains('bedroom')),
+    );
+  });
+
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
     const mapping = RecastMapping(

@@ -13,6 +13,7 @@ migrate_working_dir/
 dist/
 .superpowers/
 .codex-run/
+.codex-runtime/
 
 # IntelliJ related
 *.iml
@@ -47,29 +48,26 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# macOS 
-**/Flutter/ephemeral/ 
-**/Pods/ 
-**/macos/Flutter/GeneratedPluginRegistrant.swift 
-**/macos/Flutter/ephemeral 
-**/xcuserdata/ 
+# macOS
+**/Flutter/ephemeral/
+**/Pods/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral
+**/xcuserdata/
 
-# Windows 
-**/windows/flutter/generated_plugin_registrant.cc 
-**/windows/flutter/generated_plugin_registrant.h 
-**/windows/flutter/generated_plugins.cmake 
+# Windows
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
 
-# Linux 
-**/linux/flutter/generated_plugin_registrant.cc 
-**/linux/flutter/generated_plugin_registrant.h 
-**/linux/flutter/generated_plugins.cmake 
+# Linux
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/generated_plugin_registrant.h
+**/linux/flutter/generated_plugins.cmake
 
 secrets.json
 
 android/build/reports/**
 android/app/.cxx/**
 
-# Beads / Dolt files (added by bd init)
-.dolt/
 *.db
-.beads-credential-key

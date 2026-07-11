@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -89,9 +90,12 @@ void main() {
     final executor = ProductionExecutorService(
       requestImage: (payload) async => _fakePngBytes,
       saveImage: (bytes, fileName) async => 'C:/out/$fileName',
-      savePlanImage: (bytes, fileName, planId, outputDirectory) async {
-        scopedSaves.add('$planId|$outputDirectory|$fileName|${bytes.length}');
-        return 'C:/out/$planId/$fileName';
+      savePlanImage: (bytes, fileName, plan, task) async {
+        scopedSaves.add(
+          '${plan.name}|${task.source.scriptName}|${task.source.frameIndex}|'
+          '$fileName|${bytes.length}',
+        );
+        return 'C:/out/${plan.id}/$fileName';
       },
       now: () => DateTime.utc(2026, 5, 25, 12),
     );
@@ -103,8 +107,43 @@ void main() {
       maxRetries: 1,
     );
 
-    expect(scopedSaves, ['plan-1|null|nai_1.png|4']);
+    expect(scopedSaves, ['Script Recast|Pilot Script|1|nai_1.png|4']);
     expect(result.tasks.single.outputImagePath, 'C:/out/plan-1/nai_1.png');
+  });
+
+  test('completed task update failures do not become generation failures',
+      () async {
+    final observedStatuses = <ProductionTaskStatus>[];
+    final executor = ProductionExecutorService(
+      requestImage: (payload) async => _fakePngBytes,
+      saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      now: () => DateTime.utc(2026, 5, 25, 12),
+    );
+
+    final result = await executor.runPlan(
+      _plan([
+        _scriptTask(id: 'task-1', frameIndex: 1, input: 'frame 1'),
+      ]),
+      maxRetries: 1,
+      onTaskUpdate: (task) async {
+        observedStatuses.add(task.status);
+        if (task.status == ProductionTaskStatus.completed) {
+          throw const FileSystemException(
+            'Cannot rename file',
+            r'C:\workspace\production\deterministic_plans\plan-1.json',
+            OSError('Access is denied.', 5),
+          );
+        }
+      },
+    );
+
+    expect(observedStatuses, [
+      ProductionTaskStatus.running,
+      ProductionTaskStatus.completed,
+    ]);
+    expect(result.tasks.single.status, ProductionTaskStatus.completed);
+    expect(result.tasks.single.outputImagePath, 'C:/out/nai_1.png');
+    expect(result.tasks.single.error, isNull);
   });
 
   test('runPlan expands shared reference parameters before requesting image',
@@ -147,8 +186,11 @@ void main() {
     final executor = ProductionExecutorService(
       requestImage: (payload) async => _fakePngBytes,
       saveImage: (bytes, fileName) async => 'C:/out/$fileName',
-      savePlanImage: (bytes, fileName, planId, outputDirectory) async {
-        scopedSaves.add('$planId|$outputDirectory|$fileName');
+      savePlanImage: (bytes, fileName, plan, task) async {
+        final outputDirectory = plan.executionSettings?.outputDirectory;
+        scopedSaves.add(
+          '${plan.id}|$outputDirectory|${task.source.scriptName}|$fileName',
+        );
         return '$outputDirectory/$fileName';
       },
       now: () => DateTime.utc(2026, 5, 25, 12),
@@ -165,7 +207,7 @@ void main() {
       maxRetries: 1,
     );
 
-    expect(scopedSaves, [r'plan-1|D:\batch-output|nai_1.png']);
+    expect(scopedSaves, [r'plan-1|D:\batch-output|Pilot Script|nai_1.png']);
     expect(result.tasks.single.outputImagePath, r'D:\batch-output/nai_1.png');
   });
 
@@ -296,6 +338,41 @@ void main() {
     expect(result.tasks.single.status, ProductionTaskStatus.queued);
     expect(result.tasks.single.attempts, 1);
     expect(result.tasks.single.error, contains('not yet'));
+  });
+
+  test('runPlan does not save a request that completed after cancellation',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestResult = Completer<Uint8List>();
+    var canContinue = true;
+    var saveCount = 0;
+    final executor = ProductionExecutorService(
+      requestImage: (payload) {
+        requestStarted.complete();
+        return requestResult.future;
+      },
+      saveImage: (bytes, fileName) async {
+        saveCount += 1;
+        return 'C:/out/$fileName';
+      },
+      now: () => DateTime.utc(2026, 5, 25, 12),
+    );
+
+    final run = executor.runPlan(
+      _plan([
+        _scriptTask(id: 'task-stopped', frameIndex: 1, input: 'stale frame'),
+      ]),
+      shouldContinue: () => canContinue,
+    );
+    await requestStarted.future;
+    canContinue = false;
+    requestResult.complete(_fakePngBytes);
+
+    final result = await run;
+
+    expect(saveCount, 0);
+    expect(result.tasks.single.status, ProductionTaskStatus.queued);
+    expect(result.tasks.single.outputImagePath, isNull);
   });
 
   test('runPlan waits the configured interval between sequential requests',

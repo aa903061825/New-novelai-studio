@@ -183,6 +183,53 @@ void main() {
     expect(characters.single.id, 'current-character');
   });
 
+  test(
+      'initializeAt evaluates legacy restore after recovering a missing manifest',
+      () async {
+    final target = Directory('${tempDir.path}/current-missing-manifest');
+    final legacy = Directory('${tempDir.path}/legacy-with-preview');
+    final legacyWorkspace = WorkspaceService();
+    await legacyWorkspace.createWorkspace(legacy.path);
+    await legacyWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'legacy-character',
+        name: 'Legacy',
+        traits: ViewVariantTexts(frontFull: 'legacy'),
+        imageRefs: ['assets/references/legacy.png'],
+      ),
+    ]);
+
+    final currentWorkspace = WorkspaceService();
+    await currentWorkspace.createWorkspace(target.path);
+    await currentWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'current-character',
+        name: 'Current',
+        traits: ViewVariantTexts(frontFull: 'current'),
+        imageRefs: ['assets/references/current.png'],
+      ),
+    ]);
+    final currentPreview = File(
+      '${target.path}${Platform.pathSeparator}assets'
+      '${Platform.pathSeparator}references'
+      '${Platform.pathSeparator}current.png',
+    );
+    await currentPreview.parent.create(recursive: true);
+    await currentPreview.writeAsBytes([1, 2, 3]);
+    await File(
+      '${target.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+    ).delete();
+
+    final reopenedWorkspace = WorkspaceService();
+    await StudioDataService(workspaceService: reopenedWorkspace).initializeAt(
+      target,
+      legacyWorkspaceRoots: [legacy],
+    );
+
+    final characters = await reopenedWorkspace.loadCharacters();
+    expect(characters.single.id, 'current-character');
+  });
+
   test('initializeAt opens existing studio data without clearing characters',
       () async {
     final workspaceService = WorkspaceService();
@@ -205,6 +252,70 @@ void main() {
 
     expect(characters.single.id, 'char-1');
     expect(characters.single.traits.frontFull, 'blue eyes');
+  });
+
+  test('initializeAt rebuilds a missing manifest without clearing characters',
+      () async {
+    final existingWorkspace = WorkspaceService();
+    await existingWorkspace.createWorkspace(tempDir.path);
+    await existingWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'preserved-character',
+        name: 'Preserved',
+        traits: ViewVariantTexts(frontFull: 'green eyes'),
+      ),
+    ]);
+    final manifest = File(
+      '${tempDir.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+    );
+    await manifest.delete();
+
+    final reopenedWorkspace = WorkspaceService();
+    await StudioDataService(workspaceService: reopenedWorkspace)
+        .initializeAt(tempDir);
+
+    final characters = await reopenedWorkspace.loadCharacters();
+    expect(characters.single.id, 'preserved-character');
+    expect(await manifest.exists(), isTrue);
+  });
+
+  test(
+      'initializeAt does not replace manifestless workspace data with bundled cache',
+      () async {
+    final target = Directory('${tempDir.path}/target');
+    final existingWorkspace = WorkspaceService();
+    await existingWorkspace.createWorkspace(target.path);
+    await existingWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'current-character',
+        name: 'Current',
+        traits: ViewVariantTexts(frontFull: 'current prompt'),
+      ),
+    ]);
+    await File(
+      '${target.path}${Platform.pathSeparator}${WorkspacePaths.manifest}',
+    ).delete();
+
+    final bundledCache = Directory('${tempDir.path}/bundled_cache');
+    final bundledStudio = Directory('${bundledCache.path}/novel_studio');
+    final bundledWorkspace = WorkspaceService();
+    await bundledWorkspace.createWorkspace(bundledStudio.path);
+    await bundledWorkspace.saveCharacters([
+      const CharacterEntry(
+        id: 'bundled-character',
+        name: 'Bundled',
+        traits: ViewVariantTexts(frontFull: 'bundled prompt'),
+      ),
+    ]);
+
+    final reopenedWorkspace = WorkspaceService();
+    await StudioDataService(
+      workspaceService: reopenedWorkspace,
+      bundledCacheRoot: bundledCache,
+    ).initializeAt(target);
+
+    final characters = await reopenedWorkspace.loadCharacters();
+    expect(characters.single.id, 'current-character');
   });
 
   test('initializeAt seeds legacy artist workbook data into an empty studio',
@@ -356,10 +467,16 @@ void main() {
     expect(codexEntries.single.source.type, 'legacy_codex');
   });
 
-  test('initializeAt removes previously seeded legacy codex entries', () async {
+  test('initializeAt migrates workspace codex entries out of inspirations',
+      () async {
     final workspaceService = WorkspaceService();
     await workspaceService.createWorkspace(tempDir.path);
     await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'manual-prompt-1',
+        name: 'Manual prompt',
+        prompt: 'artist:manual',
+      ),
       const InspirationEntry(
         id: 'legacy-codex-regular-0001',
         name: 'Fantasy',
@@ -367,7 +484,20 @@ void main() {
         tags: ['Codex', 'Regular'],
         source: SourceRef(type: 'legacy_codex', id: 'regular.docx#p156'),
       ),
+      const InspirationEntry(
+        id: 'adult-codex-0001',
+        name: 'Adult pose',
+        prompt: 'adult pose prompt',
+        tags: ['Codex', 'Adult'],
+        source: SourceRef(type: 'novalai_codex_adult_docx', id: 'adult#1'),
+      ),
     ]);
+    final cache = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache.replaceAll('/', Platform.pathSeparator)}',
+    );
+    await cache.parent.create(recursive: true);
+    await cache.writeAsString('stale cache');
 
     final service = StudioDataService(
       workspaceService: workspaceService,
@@ -383,7 +513,86 @@ void main() {
     await service.initializeAt(tempDir);
 
     final inspirations = await workspaceService.loadInspirations();
+    final codexEntries = await workspaceService.loadCodexEntries();
 
-    expect(inspirations, isEmpty);
+    expect(inspirations.single.id, 'manual-prompt-1');
+    expect(
+      codexEntries.map((entry) => entry.id),
+      containsAll(['legacy-codex-regular-0001', 'adult-codex-0001']),
+    );
+    expect(codexEntries.map((entry) => entry.source.type),
+        contains('legacy_codex'));
+    expect(
+      codexEntries.map((entry) => entry.source.type),
+      contains('novalai_codex_adult_docx'),
+    );
+    expect(await cache.exists(), isFalse);
   });
+
+  test('initializeAt skips legacy artist seed when artist images are filled',
+      () async {
+    final workspaceService = WorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveArtistChains([
+      const ArtistChain(
+        id: 'artist-1',
+        name: 'Artist',
+        prompt: 'artist prompt',
+        imageRefs: ['assets/references/artist.png'],
+      ),
+    ]);
+    var seedLoadCount = 0;
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async {
+        seedLoadCount += 1;
+        return const {
+          'artistChains': [],
+          'characters': [],
+        };
+      },
+    );
+
+    await service.initializeAt(tempDir);
+
+    expect(seedLoadCount, 0);
+  });
+
+  test('initializeAt skips unchanged codex migration scan after state is saved',
+      () async {
+    final workspaceService = _CountingWorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveInspirations([
+      const InspirationEntry(
+        id: 'manual-prompt-1',
+        name: 'Manual prompt',
+        prompt: 'artist:manual',
+      ),
+    ]);
+    final service = StudioDataService(
+      workspaceService: workspaceService,
+      legacyArtistSeedLoader: () async => const {
+        'artistChains': [],
+        'characters': [],
+      },
+      legacyCodexSeedLoader: () async => const {
+        'inspirations': [],
+      },
+    );
+
+    await service.initializeAt(tempDir);
+    await service.initializeAt(tempDir);
+
+    expect(workspaceService.loadInspirationsCount, 1);
+  });
+}
+
+class _CountingWorkspaceService extends WorkspaceService {
+  int loadInspirationsCount = 0;
+
+  @override
+  Future<List<InspirationEntry>> loadInspirations() {
+    loadInspirationsCount += 1;
+    return super.loadInspirations();
+  }
 }

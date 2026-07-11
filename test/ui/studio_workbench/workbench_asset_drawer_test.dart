@@ -16,7 +16,14 @@ import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.d
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_drawer_motion.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_sequence.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_scope.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_asset_drawer_shell.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_hover_preview_thumbnail.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_single_image_parameters_viewmodel.dart';
 import 'package:novel_studio/ui/studio_workbench/widgets/prompt_composer_panel.dart';
@@ -55,6 +62,7 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     snapshotLoadCount++;
     return snapshot;
@@ -63,6 +71,21 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   @override
   Future<List<CharacterEntry>> loadWorkbenchCharacters() async {
     return snapshot.characters;
+  }
+
+  @override
+  Future<List<StudioOutfitAsset>> loadWorkbenchOutfits() async {
+    return snapshot.outfits;
+  }
+
+  @override
+  Future<List<ArtistChain>> loadWorkbenchArtistChains() async {
+    return snapshot.artistChains;
+  }
+
+  @override
+  Future<List<Recipe>> loadWorkbenchRecipes() async {
+    return snapshot.recipes;
   }
 
   @override
@@ -253,7 +276,8 @@ void main() {
     await tester
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
 
     await tester
         .tap(find.byKey(const ValueKey('workbench-drawer-add-tag-tag-1')));
@@ -261,6 +285,62 @@ void main() {
 
     expect(workbench.fragments.single.positiveText, 'cinematic lighting');
     expect(workbench.payloadConfig.overridePrompt, 'cinematic lighting');
+  });
+
+  testWidgets('drawer expands sectioned tag assets into prompt parts',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 1,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {'camera': 1},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [
+        TagEntry(
+          id: 'tag-1',
+          tag: 'cinematic lighting',
+          block: 'camera',
+          sections: {'armor': 'armored plates, pauldrons'},
+        ),
+      ],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        WorkbenchAssetDrawer(
+          catalogService: _FakeCatalogService(snapshot),
+          workbenchAssetService: workbench,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-drawer-add-part-tag-tag-1-armor')),
+    );
+    await tester.pump();
+
+    expect(workbench.fragments, hasLength(1));
+    expect(
+        workbench.fragments.single.kind, StudioWorkbenchAssetKind.assetSection);
+    expect(workbench.fragments.single.typeLabel, 'armor');
+    expect(
+        workbench.fragments.single.positiveText, 'armored plates, pauldrons');
+    expect(workbench.payloadConfig.overridePrompt, 'armored plates, pauldrons');
   });
 
   testWidgets('drawer shows category cards before loading category details',
@@ -307,13 +387,421 @@ void main() {
     await tester
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('workbench-drawer-add-tag-tag-1')),
         findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-drawer-add-tag-tag-2')),
         findsOneWidget);
     expect(catalog.tagLoadCount, 1);
+  });
+
+  testWidgets('drawer cards use event-triggered motion surfaces',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 1,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {'camera': 1},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [
+        TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+      ],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        WorkbenchAssetDrawer(
+          catalogService: _FakeCatalogService(snapshot),
+          workbenchAssetService: workbench,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final categoryCard =
+        find.byKey(const ValueKey('workbench-drawer-category-tag'));
+    expect(
+      find.ancestor(
+        of: categoryCard,
+        matching: find.byType(StudioInteractiveSurface),
+      ),
+      findsOneWidget,
+    );
+
+    final categoryScale = find.ancestor(
+      of: categoryCard,
+      matching: find.byType(AnimatedScale),
+    );
+    expect(tester.widget<AnimatedScale>(categoryScale).scale, 1);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(categoryCard));
+    await tester.pump(StudioMotionTokens.fast);
+
+    expect(tester.widget<AnimatedScale>(categoryScale).scale, greaterThan(1));
+
+    await mouse.moveTo(Offset.zero);
+    await tester.pump(StudioMotionTokens.fast);
+    await tester.tap(categoryCard);
+    await tester.pump();
+    await tester.pump();
+
+    final assetCard =
+        find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
+    expect(
+      find.ancestor(
+        of: assetCard,
+        matching: find.byType(StudioInteractiveSurface),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('drawer category hover reserves horizontal drawer space',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 0,
+        artistChainCount: 1,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-1',
+          name: '角色',
+          traits: ViewVariantTexts(frontFull: 'girl'),
+        ),
+      ],
+      artistChains: [
+        ArtistChain(id: 'artist-1', name: '画师串', prompt: 'artist'),
+      ],
+      recipes: [],
+      tags: [],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        SizedBox(
+          key: const ValueKey('narrow-drawer-frame'),
+          width: 280,
+          height: 360,
+          child: WorkbenchAssetDrawer(
+            catalogService: _FakeCatalogService(snapshot),
+            workbenchAssetService: workbench,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    final categoryCard =
+        find.byKey(const ValueKey('workbench-drawer-category-artist'));
+    expect(categoryCard, findsOneWidget);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(categoryCard));
+    await tester.pump(StudioMotionTokens.fast);
+
+    final categoryList = find.ancestor(
+      of: categoryCard,
+      matching: find.byType(ListView),
+    );
+    expect(categoryList, findsOneWidget);
+
+    final viewportRect = tester.getRect(categoryList);
+    final cardRect = tester.getRect(categoryCard);
+
+    expect(cardRect.left, greaterThanOrEqualTo(viewportRect.left + 2));
+    expect(cardRect.right, lessThanOrEqualTo(viewportRect.right - 2));
+  });
+
+  testWidgets('drawer detail list reserves top hover outline space',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 1,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {'camera': 1},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [
+        TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+      ],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        SizedBox(
+          width: 320,
+          height: 360,
+          child: WorkbenchAssetDrawer(
+            catalogService: _FakeCatalogService(snapshot),
+            workbenchAssetService: workbench,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    final assetCard =
+        find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
+    expect(assetCard, findsOneWidget);
+    expect(find.byType(StudioAssetDrawerShell), findsOneWidget);
+
+    final detailList = find.ancestor(
+      of: assetCard,
+      matching: find.byType(ListView),
+    );
+    expect(detailList, findsOneWidget);
+
+    final viewportRect = tester.getRect(detailList);
+    final cardRect = tester.getRect(assetCard);
+
+    expect(
+      cardRect.top,
+      greaterThanOrEqualTo(viewportRect.top + studioAssetDrawerHoverInset),
+    );
+  });
+
+  testWidgets('drawer detail rows use visible shared hover feedback',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-1',
+          name: 'library character',
+          traits: ViewVariantTexts(frontFull: 'green eyes'),
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        SizedBox(
+          width: 320,
+          height: 360,
+          child: WorkbenchAssetDrawer(
+            catalogService: _FakeCatalogService(snapshot),
+            workbenchAssetService: workbench,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-drawer-category-character')),
+    );
+    await tester.pumpAndSettle();
+
+    final characterCard = find.byKey(
+      const ValueKey('workbench-drawer-card-character-char-1'),
+    );
+    expect(characterCard, findsOneWidget);
+
+    final surfaceFinder = find
+        .ancestor(
+          of: characterCard,
+          matching: find.byType(StudioInteractiveSurface),
+        )
+        .first;
+    final surface = tester.widget<StudioInteractiveSurface>(surfaceFinder);
+    expect(surface.hoverOverlayColor, isNotNull);
+    expect(surface.hoverBorderColor, isNotNull);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(characterCard));
+    await tester.pump(StudioMotionTokens.fast);
+
+    final hoverChrome = tester.widget<AnimatedContainer>(
+      find.descendant(
+        of: surfaceFinder,
+        matching: find.byType(AnimatedContainer),
+      ),
+    );
+    final decoration = hoverChrome.decoration! as BoxDecoration;
+    final border = decoration.border! as Border;
+    expect(border.top.color, surface.hoverBorderColor);
+  });
+
+  testWidgets('drawer back navigation restores category cards without flash',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 1,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {'camera': 1},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [
+        TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+      ],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        WorkbenchAssetDrawer(
+          catalogService: _FakeCatalogService(snapshot),
+          workbenchAssetService: workbench,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final categoryCard =
+        find.byKey(const ValueKey('workbench-drawer-category-tag'));
+    await tester.tap(categoryCard);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    final assetCard =
+        find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
+    expect(assetCard, findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('workbench-drawer-back')));
+    await tester.pump();
+
+    expect(categoryCard, findsOneWidget);
+    expect(assetCard, findsNothing);
+
+    final categoryFades = tester
+        .widgetList<FadeTransition>(
+          find.ancestor(
+            of: categoryCard,
+            matching: find.byType(FadeTransition),
+          ),
+        )
+        .map((transition) => transition.opacity.value)
+        .toList(growable: false);
+    expect(categoryFades, isNotEmpty);
+    expect(categoryFades, everyElement(moreOrLessEquals(1)));
+  });
+
+  testWidgets('drawer category and detail content avoid stacked push motion',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 2,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {'camera': 2},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [
+        TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+        TagEntry(id: 'tag-2', tag: 'low angle', block: 'camera'),
+      ],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        WorkbenchAssetDrawer(
+          catalogService: _FakeCatalogService(snapshot),
+          workbenchAssetService: workbench,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final categoryCard =
+        find.byKey(const ValueKey('workbench-drawer-category-tag'));
+    expect(
+      find.ancestor(
+        of: categoryCard,
+        matching: find.byType(StudioDrawerPushTransition),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: categoryCard,
+        matching: find.byType(StudioMotionSequenceRegion),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: categoryCard,
+        matching: find.byType(StudioStaggeredReveal),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(categoryCard);
+    await tester.pump();
+    await tester.pump();
+
+    final detailRow =
+        find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
+    expect(
+      find.ancestor(
+        of: detailRow,
+        matching: find.byType(StudioDrawerPushTransition),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: detailRow,
+        matching: find.byType(StudioStaggeredReveal),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('drawer filters the selected category details by search text',
@@ -351,6 +839,7 @@ void main() {
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const ValueKey('workbench-drawer-category-search')),
@@ -399,7 +888,7 @@ void main() {
     await tester
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final firstCard =
         find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
@@ -501,6 +990,13 @@ void main() {
       const ValueKey('workbench-drawer-card-character-char-1-outfit-outfit-1'),
     );
     expect(outfitCard, findsOneWidget);
+    expect(
+      find.ancestor(
+        of: outfitCard,
+        matching: find.byType(StudioDrawerShelf),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('雨披'), findsOneWidget);
     expect(find.text('上装'), findsNothing);
     expect(find.text('上身'), findsNothing);
@@ -511,6 +1007,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('上身'), findsWidgets);
+    final upperClothingPart = find.byKey(
+      const ValueKey(
+        'workbench-drawer-part-character-char-1-outfit-outfit-1-upper-clothing',
+      ),
+    );
+    expect(
+      find.ancestor(
+        of: upperClothingPart,
+        matching: find.byType(StudioDrawerShelf),
+      ),
+      findsWidgets,
+    );
     expect(find.text('blue eyes'), findsNothing);
     expect(find.text('上装'), findsWidgets);
     expect(find.text('yellow jacket'), findsWidgets);
@@ -527,6 +1035,96 @@ void main() {
     await tester.pump();
 
     expect(workbench.fragments.single.positiveText, 'yellow rain coat');
+  });
+
+  testWidgets(
+      'drawer outfit interaction bounds stay on the header when motion is disabled',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 1,
+        outfitCount: 1,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [
+        CharacterEntry(
+          id: 'char-1',
+          name: 'Heroine',
+          traits: ViewVariantTexts(frontFull: 'silver hair, blue eyes'),
+          outfits: [
+            WorkspaceOutfit(
+              id: 'outfit-1',
+              name: 'Default Outfit',
+              tags: ViewVariantTexts(frontFull: 'yellow rain coat'),
+              partTags: WorkspaceOutfitPartTags(
+                upperClothingTags: ['yellow jacket'],
+                lowerClothingTags: ['rain skirt'],
+              ),
+            ),
+          ],
+        ),
+      ],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        StudioMotionScope(
+          disableAnimations: true,
+          child: WorkbenchAssetDrawer(
+            catalogService: _FakeCatalogService(snapshot),
+            workbenchAssetService: workbench,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester
+        .tap(find.byKey(const ValueKey('workbench-drawer-category-character')));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(
+        find.byKey(const ValueKey('workbench-drawer-card-character-char-1')));
+    await tester.pumpAndSettle();
+
+    final outfitCard = find.byKey(
+      const ValueKey('workbench-drawer-card-character-char-1-outfit-outfit-1'),
+    );
+    expect(outfitCard, findsOneWidget);
+    await tester.tap(outfitCard);
+    await tester.pumpAndSettle();
+
+    final outfitSurface = find.ancestor(
+      of: outfitCard,
+      matching: find.byType(StudioInteractiveSurface),
+    );
+    expect(outfitSurface, findsOneWidget);
+    expect(tester.getSize(outfitSurface).height, lessThan(132));
+
+    final upperClothingPart = find.byKey(
+      const ValueKey(
+        'workbench-drawer-part-character-char-1-outfit-outfit-1-upper-clothing',
+      ),
+    );
+    expect(upperClothingPart, findsOneWidget);
+    expect(
+      tester
+          .widgetList<StudioDrawerShelf>(
+            find.ancestor(
+              of: upperClothingPart,
+              matching: find.byType(StudioDrawerShelf),
+            ),
+          )
+          .map((shelf) => shelf.railOpacity),
+      everyElement(0),
+    );
   });
 
   testWidgets(
@@ -923,7 +1521,7 @@ void main() {
     );
 
     await mouse.moveTo(tester.getCenter(outfitPreview));
-    await tester.pump();
+    await tester.pump(kStudioHoverPreviewActivationDelay);
 
     expect(
       find.byKey(
@@ -1001,7 +1599,7 @@ void main() {
     if (categoryCard.evaluate().isNotEmpty) {
       await tester.tap(categoryCard);
       await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
     }
 
     final source =
@@ -1020,6 +1618,72 @@ void main() {
       find.byKey(const ValueKey('workbench-character-expanded-card-1')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('workbench character cards use hover motion surfaces',
+      (tester) async {
+    const snapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 0,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [],
+      recipes: [],
+      tags: [],
+    );
+    final payload = _payload();
+    payload.characterConfigList = [
+      CharacterConfig.fromEmpty(name: '瑙掕壊 1'),
+    ];
+    final workbench = StudioWorkbenchAssetService(payloadConfig: payload);
+    final parameters = WorkbenchSingleImageParametersViewmodel(payload);
+    if (GetIt.I.isRegistered<PayloadConfig>()) {
+      GetIt.I.unregister<PayloadConfig>();
+    }
+    GetIt.I.registerSingleton<PayloadConfig>(payload);
+    addTearDown(() {
+      if (GetIt.I.isRegistered<PayloadConfig>()) {
+        GetIt.I.unregister<PayloadConfig>();
+      }
+    });
+
+    await tester.pumpWidget(
+      _characterDropWorkbenchApp(
+        catalogService: _FakeCatalogService(snapshot),
+        workbench: workbench,
+        parameters: parameters,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final characterCard =
+        find.byKey(const ValueKey('workbench-character-card-0'));
+    expect(
+      find.ancestor(
+        of: characterCard,
+        matching: find.byType(StudioInteractiveSurface),
+      ),
+      findsOneWidget,
+    );
+
+    final characterScale = find.ancestor(
+      of: characterCard,
+      matching: find.byType(AnimatedScale),
+    );
+    expect(tester.widget<AnimatedScale>(characterScale).scale, 1);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(characterCard));
+    await tester.pump(StudioMotionTokens.fast);
+
+    expect(tester.widget<AnimatedScale>(characterScale).scale, greaterThan(1));
   });
 
   testWidgets('expanded character prompt stack accepts drawer outfit drops',
@@ -1082,7 +1746,7 @@ void main() {
     if (categoryCard.evaluate().isNotEmpty) {
       await tester.tap(categoryCard);
       await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
     }
 
     await tester.tap(
@@ -1216,6 +1880,7 @@ void main() {
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     final preview = find.byKey(
       const ValueKey('workbench-drawer-preview-tag-tag-1'),
@@ -1243,7 +1908,7 @@ void main() {
     );
 
     await mouse.moveTo(tester.getCenter(preview));
-    await tester.pump();
+    await tester.pump(kStudioHoverPreviewActivationDelay);
 
     final overlay = find.byKey(
       const ValueKey('workbench-drawer-preview-tag-tag-1-overlay'),
@@ -1341,6 +2006,7 @@ void main() {
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     String imagePathFor(Finder root) {
       final image = tester
@@ -1356,7 +2022,7 @@ void main() {
     );
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: tester.getCenter(preview));
-    await tester.pump();
+    await tester.pump(kStudioHoverPreviewActivationDelay);
 
     final overlay = find.byKey(
       const ValueKey('workbench-drawer-preview-tag-tag-1-overlay'),
@@ -1443,6 +2109,7 @@ void main() {
         .tap(find.byKey(const ValueKey('workbench-drawer-category-tag')));
     await tester.pump();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     String imagePathFor(Finder root) {
       final image = tester
@@ -1461,7 +2128,7 @@ void main() {
     final offsetBefore = scrollableState.position.pixels;
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: tester.getCenter(preview));
-    await tester.pump();
+    await tester.pump(kStudioHoverPreviewActivationDelay);
 
     await tester.sendEventToBinding(
       PointerScrollEvent(
@@ -1519,5 +2186,15 @@ void main() {
 
     expect(workbench.fragments.single.positiveText, 'cinematic lighting');
     expect(workbench.payloadConfig.overridePrompt, 'cinematic lighting');
+    final promptBlock = find.byKey(
+      ValueKey('prompt-block-editor-${workbench.fragments.single.id}'),
+    );
+    expect(
+      find.ancestor(
+        of: promptBlock,
+        matching: find.byType(StudioStaggeredReveal),
+      ),
+      findsOneWidget,
+    );
   });
 }

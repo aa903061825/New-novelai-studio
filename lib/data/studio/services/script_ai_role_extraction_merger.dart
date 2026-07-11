@@ -40,6 +40,10 @@ class ScriptAiRoleExtractionMerger {
         for (final extraction in readyExtractions)
           ...extraction.unassignedTerms,
       ]),
+      sceneTerms: _mergePromptTerms([
+        for (final extraction in readyExtractions) extraction.sceneTerms,
+      ]),
+      termCacheSuggestions: _mergeTermCacheSuggestions(readyExtractions),
     ).collapseEquivalentStages();
   }
 
@@ -137,6 +141,7 @@ class _RoleAccumulator {
   final List<ScriptAiRoleAppearance> appearances = [];
   final List<ScriptAiExtractedStage> stages = [];
   final List<ScriptAiUnassignedTerm> unassignedTerms = [];
+  final Map<String, _PromptTermAccumulator> promptTerms = {};
   final Set<String> _evidenceKeys = {};
   final Set<String> _warningKeys = {};
   final Set<String> _rawIdentityKeys = {};
@@ -182,6 +187,7 @@ class _RoleAccumulator {
     _addStrings(variantTags, _variantKeys, role.variantTags);
     _addAppearances(appearances, _appearanceKeys, role.appearances);
     unassignedTerms.addAll(role.unassignedTerms);
+    _addPromptTerms(promptTerms, role.promptTerms);
     for (final stage in role.stages) {
       stages.add(_copyStageWithId(stage, _uniqueStageId(stage.stageId)));
     }
@@ -205,6 +211,9 @@ class _RoleAccumulator {
       warnings: List.unmodifiable(warnings),
       stages: List.unmodifiable(stages),
       unassignedTerms: List.unmodifiable(unassignedTerms),
+      promptTerms: List.unmodifiable([
+        for (final accumulator in promptTerms.values) accumulator.build(),
+      ]),
     );
   }
 
@@ -270,6 +279,78 @@ class _StrongFilterAccumulator {
       reason: reason,
     );
   }
+}
+
+class _PromptTermAccumulator {
+  ScriptAiExtractedPromptTerm term;
+  final List<int> frameIndexes = [];
+
+  _PromptTermAccumulator(this.term) {
+    _addInts(frameIndexes, term.frameIndexes);
+  }
+
+  void add(ScriptAiExtractedPromptTerm next) {
+    if (term.text.trim().isEmpty && next.text.trim().isNotEmpty) {
+      term = next;
+    }
+    _addInts(frameIndexes, next.frameIndexes);
+  }
+
+  ScriptAiExtractedPromptTerm build() {
+    return term.copyWith(frameIndexes: List.unmodifiable(frameIndexes));
+  }
+}
+
+List<ScriptAiExtractedPromptTerm> _mergePromptTerms(
+  Iterable<List<ScriptAiExtractedPromptTerm>> termGroups,
+) {
+  final accumulators = <String, _PromptTermAccumulator>{};
+  for (final terms in termGroups) {
+    _addPromptTerms(accumulators, terms);
+  }
+  return List.unmodifiable([
+    for (final accumulator in accumulators.values) accumulator.build(),
+  ]);
+}
+
+void _addPromptTerms(
+  Map<String, _PromptTermAccumulator> target,
+  Iterable<ScriptAiExtractedPromptTerm> terms,
+) {
+  for (final term in terms) {
+    final key = _promptTermKey(term);
+    if (key.isEmpty) continue;
+    target.putIfAbsent(key, () => _PromptTermAccumulator(term)).add(term);
+  }
+}
+
+String _promptTermKey(ScriptAiExtractedPromptTerm term) {
+  final textKey = _tagKey(term.text);
+  if (textKey.isEmpty) return '';
+  return [
+    textKey,
+    term.category.name,
+    term.sourceLocation.trim(),
+  ].join('|');
+}
+
+List<ScriptAiTermCacheSuggestion> _mergeTermCacheSuggestions(
+  List<ScriptAiRoleExtraction> extractions,
+) {
+  final suggestions = <String, ScriptAiTermCacheSuggestion>{};
+  for (final extraction in extractions) {
+    for (final suggestion in extraction.termCacheSuggestions) {
+      final key = _tagKey(suggestion.text);
+      if (key.isEmpty) continue;
+      final existing = suggestions[key];
+      if (existing == null ||
+          (existing.translation.trim().isEmpty &&
+              suggestion.translation.trim().isNotEmpty)) {
+        suggestions[key] = suggestion;
+      }
+    }
+  }
+  return List.unmodifiable(suggestions.values);
 }
 
 double _averageConfidence(List<ScriptAiRoleExtraction> extractions) {

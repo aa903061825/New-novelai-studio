@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
@@ -11,6 +12,16 @@ typedef StudioGalleryResolvePicturePath = Future<String> Function(
   String fileName,
   String saveDir,
 );
+
+class StudioGalleryCreativeSummary {
+  final int totalCount;
+  final List<StudioGalleryRecord> recentRecords;
+
+  const StudioGalleryCreativeSummary({
+    required this.totalCount,
+    required this.recentRecords,
+  });
+}
 
 class StudioGalleryService {
   final WorkspaceService workspaceService;
@@ -39,11 +50,48 @@ class StudioGalleryService {
     return Future.wait(records.map(_resolveLegacyImagePath));
   }
 
+  Future<List<StudioGalleryRecord>> loadRecastRecords() async {
+    final file = _recordsFile();
+    if (!await file.exists()) {
+      return const [];
+    }
+
+    final records = await compute(_recastRecordsFromFile, file.path);
+    return Future.wait(records.map(_resolveLegacyImagePath));
+  }
+
   Future<List<StudioGalleryRecord>> loadCreativeRecords() async {
     final records = await loadRecords();
     return records
         .where((record) => record.provenance == null)
         .toList(growable: false);
+  }
+
+  Future<StudioGalleryCreativeSummary> loadCreativeRecordSummary({
+    int recentLimit = 4,
+  }) async {
+    final file = _recordsFile();
+    if (!await file.exists()) {
+      return const StudioGalleryCreativeSummary(
+        totalCount: 0,
+        recentRecords: [],
+      );
+    }
+
+    final payload = await compute(_creativeSummaryPayloadFromFile, {
+      'path': file.path,
+      'recentLimit': recentLimit,
+    });
+    final recentRecords = <StudioGalleryRecord>[];
+    for (final json in payload.recentRecordJson) {
+      recentRecords.add(
+        await _resolveLegacyImagePath(StudioGalleryRecord.fromJson(json)),
+      );
+    }
+    return StudioGalleryCreativeSummary(
+      totalCount: payload.totalCount,
+      recentRecords: List.unmodifiable(recentRecords),
+    );
   }
 
   Future<StudioGalleryRecord> saveSnapshot({
@@ -141,11 +189,24 @@ class StudioGalleryService {
     );
   }
 
-  Future<void> removeRecord(String id) async {
+  Future<void> removeRecord(
+    String id, {
+    bool deleteImageFile = false,
+  }) async {
     final records = await loadRecords();
-    await saveRecords(
-      records.where((record) => record.id != id).toList(growable: false),
-    );
+    StudioGalleryRecord? removedRecord;
+    final remainingRecords = <StudioGalleryRecord>[];
+    for (final record in records) {
+      if (record.id == id) {
+        removedRecord ??= record;
+      } else {
+        remainingRecords.add(record);
+      }
+    }
+    if (deleteImageFile) {
+      await _deleteRecordImageFile(removedRecord);
+    }
+    await saveRecords(remainingRecords);
   }
 
   void restoreToWorkbench(
@@ -178,6 +239,16 @@ class StudioGalleryService {
       throw StateError('No workspace is open.');
     }
     return File(_resolve(root, WorkspacePaths.galleryRecords));
+  }
+
+  Future<void> _deleteRecordImageFile(StudioGalleryRecord? record) async {
+    final imagePath = record?.imagePath?.trim();
+    if (imagePath == null || imagePath.isEmpty) return;
+
+    final file = File(imagePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
   }
 
   String _resolve(Directory root, String relativePath) {
@@ -257,5 +328,68 @@ Map<String, dynamic> _jsonMap(dynamic json) {
       throw const FormatException('JSON object keys must be strings.');
     }
     return MapEntry(key, value);
+  });
+}
+
+_CreativeSummaryPayload _creativeSummaryPayloadFromFile(
+  Map<String, Object?> request,
+) {
+  final path = request['path'] as String? ?? '';
+  final recentLimit = request['recentLimit'] as int? ?? 4;
+  final source = path.isEmpty ? '[]' : File(path).readAsStringSync();
+  final decoded = jsonDecode(source);
+  if (decoded is! List) {
+    throw const FormatException('Gallery records must be a JSON array.');
+  }
+
+  var totalCount = 0;
+  final recentRecordJson = <Map<String, dynamic>>[];
+  for (final value in decoded) {
+    final record = _jsonMap(value);
+    if (record['provenance'] != null) {
+      continue;
+    }
+    totalCount += 1;
+    if (recentRecordJson.length < recentLimit) {
+      recentRecordJson.add(record);
+    }
+  }
+
+  return _CreativeSummaryPayload(
+    totalCount: totalCount,
+    recentRecordJson: recentRecordJson,
+  );
+}
+
+List<StudioGalleryRecord> _recastRecordsFromFile(String path) {
+  final source = path.isEmpty ? '[]' : File(path).readAsStringSync();
+  final decoded = jsonDecode(source);
+  if (decoded is! List) {
+    throw const FormatException('Gallery records must be a JSON array.');
+  }
+
+  return [
+    for (final value in decoded)
+      if (value is Map)
+        if (_hasRecastProvenance(value))
+          StudioGalleryRecord.fromRecastSummaryJson(_jsonMap(value)),
+  ];
+}
+
+bool _hasRecastProvenance(Map<dynamic, dynamic> value) {
+  if (value['provenance'] != null) {
+    return true;
+  }
+  final additionalInfo = value['additionalInfo'];
+  return additionalInfo is Map && additionalInfo['provenance'] != null;
+}
+
+class _CreativeSummaryPayload {
+  final int totalCount;
+  final List<Map<String, dynamic>> recentRecordJson;
+
+  const _CreativeSummaryPayload({
+    required this.totalCount,
+    required this.recentRecordJson,
   });
 }

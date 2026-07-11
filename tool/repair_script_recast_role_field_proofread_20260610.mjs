@@ -433,7 +433,7 @@ function isLowerBodyTerm(term) {
 
 function isUpperClothingTerm(term) {
   const key = termKey(term);
-  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini|bikini top|neckerchief|sailor collar|harness|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|apron|vest|suit|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tanktop|tank top|cheerleader|nun)\b/u.test(key);
+  return /\b(shirt|blouse|jacket|coat|overcoat|hoodie|sweater|dress|uniform|bra|bikini|bikini top|neckerchief|sailor collar|harness|leotard|bodysuit|swimsuit|school swimsuit|one piece swimsuit|kimono|robe|armor|apron|vest|suit|gloves?|sleeves?|sports bra|towel|mantle|cloak|cape|belt|strap|bowtie|necktie|tie|frills?|lingerie|outfit|costume|clothes|clothing|pajamas|tanktop|tank top|cheerleader|nun|glasses|sunglasses|eyewear|goggles|monocle)\b/u.test(key);
 }
 
 function isLowerClothingTerm(term) {

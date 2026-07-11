@@ -161,6 +161,8 @@ PromptTagCategory? filterRuleCategoryFromTagEntry(TagEntry tag) {
     if (key.contains('lower clothing') || key.contains('lower outfit')) {
       return PromptTagCategory.lowerClothing;
     }
+    if (key.contains('accessory')) return PromptTagCategory.accessory;
+    if (key.contains('state')) return PromptTagCategory.clothingState;
     if (key.contains('upper')) return PromptTagCategory.upperBody;
     if (key.contains('lower')) return PromptTagCategory.lowerBody;
     if (key.contains('clothing') || key.contains('outfit')) {
@@ -195,6 +197,8 @@ String filterRuleBlockFromCategory(PromptTagCategory category) {
     PromptTagCategory.lowerBody ||
     PromptTagCategory.upperClothing ||
     PromptTagCategory.lowerClothing ||
+    PromptTagCategory.accessory ||
+    PromptTagCategory.clothingState ||
     PromptTagCategory.clothing ||
     PromptTagCategory.negativeBody =>
       'clothing',

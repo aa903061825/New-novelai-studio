@@ -4,7 +4,9 @@ import 'package:novel_studio/data/studio/services/script_ai_role_evidence_builde
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_merger.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_parser.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 
 export 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart'
     show ScriptAiRoleExtractionStreamDelta;
@@ -21,6 +23,12 @@ typedef ScriptAiRoleExtractionChunkCompleted = Future<void> Function(
   ScriptAiRoleExtraction extraction,
   Map<String, dynamic> requestPreview,
 );
+typedef ScriptAiTranslationCacheSaver = Future<void> Function(
+  TranslationCache cache,
+);
+typedef ScriptAiClassificationCacheSaver = Future<void> Function(
+  PromptTagClassificationCache cache,
+);
 
 class ScriptAiRoleExtractionServiceRequest {
   final String baseUrl;
@@ -33,6 +41,10 @@ class ScriptAiRoleExtractionServiceRequest {
   final ScriptAiRoleExtractionRequestStarted? onRequestStarted;
   final ScriptAiRoleExtractionStreamUpdate? onStreamDelta;
   final ScriptAiRoleExtractionChunkCompleted? onChunkCompleted;
+  final TranslationCache? translationCache;
+  final PromptTagClassificationCache? classificationCache;
+  final ScriptAiTranslationCacheSaver? saveTranslationCache;
+  final ScriptAiClassificationCacheSaver? saveClassificationCache;
 
   const ScriptAiRoleExtractionServiceRequest({
     required this.baseUrl,
@@ -45,6 +57,10 @@ class ScriptAiRoleExtractionServiceRequest {
     this.onRequestStarted,
     this.onStreamDelta,
     this.onChunkCompleted,
+    this.translationCache,
+    this.classificationCache,
+    this.saveTranslationCache,
+    this.saveClassificationCache,
   });
 }
 
@@ -406,14 +422,17 @@ class DefaultScriptAiRoleExtractionService
     }
 
     if (chunkExtractions.length == 1) {
-      return ScriptAiRoleExtractionServiceResult(
-        extraction: _normalizeExtraction(
-          chunkExtractions.single,
-          promptWeightIndex,
+      return _resultWithMergedCacheSuggestions(
+        request: request,
+        result: ScriptAiRoleExtractionServiceResult(
+          extraction: _normalizeExtraction(
+            chunkExtractions.single,
+            promptWeightIndex,
+          ),
+          requestPreview: lastRequestPreview ?? chunks.single,
+          aiRequestCount: aiRequestCount,
+          reasoningContent: _joinReasoning(reasoningParts),
         ),
-        requestPreview: lastRequestPreview ?? chunks.single,
-        aiRequestCount: aiRequestCount,
-        reasoningContent: _joinReasoning(reasoningParts),
       );
     }
 
@@ -444,11 +463,14 @@ class DefaultScriptAiRoleExtractionService
       );
       final merged = parser.parse(result.rawJson);
       if (merged.isReady) {
-        return ScriptAiRoleExtractionServiceResult(
-          extraction: _normalizeExtraction(merged, promptWeightIndex),
-          requestPreview: mergeRequest,
-          aiRequestCount: aiRequestCount,
-          reasoningContent: _joinReasoning(reasoningParts),
+        return _resultWithMergedCacheSuggestions(
+          request: request,
+          result: ScriptAiRoleExtractionServiceResult(
+            extraction: _normalizeExtraction(merged, promptWeightIndex),
+            requestPreview: mergeRequest,
+            aiRequestCount: aiRequestCount,
+            reasoningContent: _joinReasoning(reasoningParts),
+          ),
         );
       }
       mergeFailure = _mergeFallbackExtraction(merged);
@@ -456,17 +478,122 @@ class DefaultScriptAiRoleExtractionService
       mergeFailure = _mergeFallbackErrorExtraction(error);
     }
 
-    return ScriptAiRoleExtractionServiceResult(
-      extraction: _normalizeExtraction(
-        merger.merge([
-          ...chunkExtractions,
-          mergeFailure,
-        ]),
-        promptWeightIndex,
+    return _resultWithMergedCacheSuggestions(
+      request: request,
+      result: ScriptAiRoleExtractionServiceResult(
+        extraction: _normalizeExtraction(
+          merger.merge([
+            ...chunkExtractions,
+            mergeFailure,
+          ]),
+          promptWeightIndex,
+        ),
+        requestPreview: mergeRequest,
+        aiRequestCount: aiRequestCount,
+        reasoningContent: _joinReasoning(reasoningParts),
       ),
-      requestPreview: mergeRequest,
-      aiRequestCount: aiRequestCount,
-      reasoningContent: _joinReasoning(reasoningParts),
+    );
+  }
+
+  Future<ScriptAiRoleExtractionServiceResult>
+      _resultWithMergedCacheSuggestions({
+    required ScriptAiRoleExtractionServiceRequest request,
+    required ScriptAiRoleExtractionServiceResult result,
+  }) async {
+    final extraction = await _extractionWithMergedCacheSuggestions(
+      request: request,
+      extraction: result.extraction,
+    );
+    if (identical(extraction, result.extraction)) {
+      return result;
+    }
+    return ScriptAiRoleExtractionServiceResult(
+      extraction: extraction,
+      requestPreview: result.requestPreview,
+      aiRequestCount: result.aiRequestCount,
+      reasoningContent: result.reasoningContent,
+    );
+  }
+
+  Future<ScriptAiRoleExtraction> _extractionWithMergedCacheSuggestions({
+    required ScriptAiRoleExtractionServiceRequest request,
+    required ScriptAiRoleExtraction extraction,
+  }) async {
+    if (!extraction.isReady || extraction.termCacheSuggestions.isEmpty) {
+      return extraction;
+    }
+    try {
+      final translationCache = request.translationCache;
+      if (translationCache != null) {
+        final merged = translationCache.mergeMissingSuggestions(
+          [
+            for (final suggestion in extraction.termCacheSuggestions)
+              if (suggestion.translation.trim().isNotEmpty)
+                TranslationCacheSuggestion(
+                  text: suggestion.text,
+                  translation: suggestion.translation,
+                  source: suggestion.source.trim().isEmpty
+                      ? 'ai_extraction'
+                      : suggestion.source,
+                ),
+          ],
+        );
+        if (merged > 0) {
+          await request.saveTranslationCache?.call(translationCache);
+        }
+      }
+
+      final classificationCache = request.classificationCache;
+      if (classificationCache != null) {
+        final merged = classificationCache.mergeMissingSuggestions(
+          [
+            for (final suggestion in extraction.termCacheSuggestions)
+              if (suggestion.text.trim().isNotEmpty)
+                PromptTagClassificationSuggestion(
+                  tag: suggestion.text,
+                  category: suggestion.category,
+                  source: suggestion.source.trim().isEmpty
+                      ? 'ai_extraction'
+                      : suggestion.source,
+                ),
+          ],
+        );
+        if (merged > 0) {
+          await request.saveClassificationCache?.call(classificationCache);
+        }
+      }
+      return extraction;
+    } catch (error) {
+      return _extractionWithAdditionalAttention(
+        extraction,
+        ScriptAiExtractionAttentionItem(
+          id: 'ai-role-extraction-cache-suggestion-save-failed',
+          kind: 'cache_suggestion_save_failed',
+          message: error.toString(),
+          blocking: false,
+        ),
+      );
+    }
+  }
+
+  ScriptAiRoleExtraction _extractionWithAdditionalAttention(
+    ScriptAiRoleExtraction extraction,
+    ScriptAiExtractionAttentionItem item,
+  ) {
+    return ScriptAiRoleExtraction(
+      schemaVersion: extraction.schemaVersion,
+      status: extraction.status,
+      chunkId: extraction.chunkId,
+      confidence: extraction.confidence,
+      roles: extraction.roles,
+      artistChains: extraction.artistChains,
+      strongFilterKeywords: extraction.strongFilterKeywords,
+      attentionItems: [...extraction.attentionItems, item],
+      unassignedTerms: extraction.unassignedTerms,
+      evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
+      rawResponse: extraction.rawResponse,
     );
   }
 
@@ -519,6 +646,7 @@ class DefaultScriptAiRoleExtractionService
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -583,6 +711,8 @@ class DefaultScriptAiRoleExtractionService
       attentionItems: List.unmodifiable(attentionItems),
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
     );
   }
 
@@ -684,6 +814,7 @@ class DefaultScriptAiRoleExtractionService
         sourceRoleId: '',
         sourceKind: 'global',
       ),
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -939,6 +1070,7 @@ class DefaultScriptAiRoleExtractionService
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -1346,6 +1478,8 @@ class DefaultScriptAiRoleExtractionService
           ],
           unassignedTerms: followUpExtraction.unassignedTerms,
           evidenceRequests: followUpExtraction.evidenceRequests,
+          sceneTerms: followUpExtraction.sceneTerms,
+          termCacheSuggestions: followUpExtraction.termCacheSuggestions,
           rawResponse: followUpExtraction.rawResponse,
         ),
         requestPreview: followUpRequest,
@@ -1374,6 +1508,8 @@ class DefaultScriptAiRoleExtractionService
         ],
         unassignedTerms: followUpExtraction.unassignedTerms,
         evidenceRequests: followUpExtraction.evidenceRequests,
+        sceneTerms: followUpExtraction.sceneTerms,
+        termCacheSuggestions: followUpExtraction.termCacheSuggestions,
         rawResponse: followUpExtraction.rawResponse,
       ),
       requestPreview: followUpRequest,
@@ -1526,6 +1662,8 @@ class DefaultScriptAiRoleExtractionService
       ],
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }

@@ -265,6 +265,58 @@ void main() {
     expect(parsed.parameters['steps'], 28);
   });
 
+  test('parses prompt-bearing webp EXIF metadata', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'workbench-webp-file-exif-',
+    );
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final file = File('${directory.path}/metadata.webp');
+    await file.writeAsBytes(_webpWithMetadata(jsonEncode({
+      'Description': 'webp metadata prompt',
+      'Comment': {
+        'seed': 112233,
+        'steps': 28,
+      },
+    })));
+
+    final parsed = await WorkbenchMetadataImportService().parseFile(file);
+
+    expect(parsed.prompt, 'webp metadata prompt');
+    expect(parsed.parameters['seed'], 112233);
+    expect(parsed.parameters['steps'], 28);
+  });
+
+  test('parseFile handles local paths with percent characters', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'workbench-png-file-percent-path-',
+    );
+    addTearDown(() async {
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    });
+    final nested = Directory('${directory.path}/bad%folder');
+    await nested.create(recursive: true);
+    final file = File('${nested.path}/percent%file.png');
+    await file.writeAsBytes(_pngWithTextThenBrokenChunk({
+      'Description': 'percent path prompt',
+      'Comment': jsonEncode({
+        'seed': 97531,
+        'steps': 28,
+      }),
+    }));
+
+    final parsed = await WorkbenchMetadataImportService().parseFile(file);
+
+    expect(parsed.prompt, 'percent path prompt');
+    expect(parsed.parameters['seed'], 97531);
+    expect(parsed.parameters['steps'], 28);
+  });
+
   test('parseFile falls back to stealth png metadata without text chunks',
       () async {
     final directory = await Directory.systemTemp.createTemp(
@@ -384,6 +436,28 @@ Uint8List _pngWithStealthMetadata(String magic, String metadata) {
   return bytes.toBytes();
 }
 
+Uint8List _webpWithMetadata(String metadata) {
+  final payload = Uint8List.fromList([
+    ...ascii.encode('Exif'),
+    0,
+    0,
+    ...utf8.encode(metadata),
+  ]);
+  final chunk = Uint8List.fromList([
+    ...ascii.encode('EXIF'),
+    ..._uint32Little(payload.length),
+    ...payload,
+    if (payload.length.isOdd) 0,
+  ]);
+  final riffSize = 4 + chunk.length;
+  return Uint8List.fromList([
+    ...ascii.encode('RIFF'),
+    ..._uint32Little(riffSize),
+    ...ascii.encode('WEBP'),
+    ...chunk,
+  ]);
+}
+
 Uint8List _pngWithTextThenBrokenChunk(Map<String, String> textChunks) {
   final bytes = BytesBuilder();
   bytes.add(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
@@ -432,6 +506,11 @@ Uint8List _pngChunk(String type, Uint8List data) {
 
 Uint8List _uint32(int value) {
   final data = ByteData(4)..setUint32(0, value, Endian.big);
+  return data.buffer.asUint8List();
+}
+
+Uint8List _uint32Little(int value) {
+  final data = ByteData(4)..setUint32(0, value, Endian.little);
   return data.buffer.asUint8List();
 }
 

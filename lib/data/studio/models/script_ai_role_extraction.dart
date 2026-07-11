@@ -49,6 +49,7 @@ class ScriptAiRoleExtraction {
   final List<ScriptAiUnassignedTerm> unassignedTerms;
   final List<ScriptAiEvidenceRequest> evidenceRequests;
   final List<ScriptAiExtractedPromptTerm> sceneTerms;
+  final List<ScriptAiTermCacheSuggestion> termCacheSuggestions;
   final String rawResponse;
 
   const ScriptAiRoleExtraction({
@@ -63,6 +64,7 @@ class ScriptAiRoleExtraction {
     this.unassignedTerms = const [],
     this.evidenceRequests = const [],
     this.sceneTerms = const [],
+    this.termCacheSuggestions = const [],
     this.rawResponse = '',
   });
 
@@ -115,6 +117,10 @@ class ScriptAiRoleExtraction {
               defaultCategory: PromptTagCategory.scene,
             ),
           )
+          .toList(growable: false),
+      termCacheSuggestions: _mapList(
+              json['term_cache_suggestions'] ?? json['termCacheSuggestions'])
+          .map(ScriptAiTermCacheSuggestion.fromJson)
           .toList(growable: false),
       rawResponse: _stringValue(json['raw_response']),
     );
@@ -170,6 +176,7 @@ class ScriptAiRoleExtraction {
       unassignedTerms: unassignedTerms,
       evidenceRequests: evidenceRequests,
       sceneTerms: sceneTerms,
+      termCacheSuggestions: termCacheSuggestions,
       rawResponse: rawResponse,
     );
   }
@@ -191,6 +198,10 @@ class ScriptAiRoleExtraction {
               evidenceRequests.map((request) => request.toJson()).toList(),
         if (sceneTerms.isNotEmpty)
           'scene_terms': sceneTerms.map((term) => term.toJson()).toList(),
+        if (termCacheSuggestions.isNotEmpty)
+          'term_cache_suggestions': termCacheSuggestions
+              .map((suggestion) => suggestion.toJson())
+              .toList(),
         if (rawResponse.trim().isNotEmpty) 'raw_response': rawResponse,
       };
 }
@@ -255,6 +266,39 @@ class ScriptAiExtractedPromptTerm {
         if (sourcePhrase.trim().isNotEmpty) 'source_phrase': sourcePhrase,
         if (sourceLocation.trim().isNotEmpty) 'source_location': sourceLocation,
         if (frameIndexes.isNotEmpty) 'frame_indexes': frameIndexes,
+      };
+}
+
+class ScriptAiTermCacheSuggestion {
+  final String text;
+  final String translation;
+  final PromptTagCategory category;
+  final String source;
+
+  const ScriptAiTermCacheSuggestion({
+    this.text = '',
+    this.translation = '',
+    this.category = PromptTagCategory.other,
+    this.source = '',
+  });
+
+  factory ScriptAiTermCacheSuggestion.fromJson(Map<String, dynamic> json) {
+    return ScriptAiTermCacheSuggestion(
+      text: _stringValue(json['text']),
+      translation: _stringValue(json['translation']),
+      category: _promptReplacementCategoryValue(
+        json['category'],
+        fallback: PromptTagCategory.other,
+      ),
+      source: _stringValue(json['source']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        if (translation.trim().isNotEmpty) 'translation': translation,
+        'category': category.name,
+        if (source.trim().isNotEmpty) 'source': source,
       };
 }
 

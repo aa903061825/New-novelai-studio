@@ -29,15 +29,11 @@ enum AssetLibraryKind {
 class AssetLibraryQuery {
   final String query;
   final AssetLibraryFilter filter;
-  final String? selectedBlock;
-  final String? selectedCustomCategory;
   final Set<String> favoriteKeys;
 
   const AssetLibraryQuery({
     this.query = '',
     this.filter = AssetLibraryFilter.all,
-    this.selectedBlock,
-    this.selectedCustomCategory,
     this.favoriteKeys = const {},
   });
 
@@ -54,23 +50,20 @@ class AssetLibraryQuery {
           item.kind == AssetLibraryKind.inspiration && !item.isLegacyCodex,
         _ => _filterForKind(item.kind) == filter && !item.isLegacyCodex,
       };
-      final blockMatches = selectedBlock == null || item.block == selectedBlock;
-      final customCategoryMatches = selectedCustomCategory == null ||
-          item.customCategory == selectedCustomCategory;
       final queryMatches =
           normalizedQuery.isEmpty || item.matchesQuery(normalizedQuery);
-      return typeMatches &&
-          blockMatches &&
-          customCategoryMatches &&
-          queryMatches;
+      return typeMatches && queryMatches;
     }).toList(growable: false);
-    return filtered
+    final indexed = filtered.indexed.toList(growable: false)
       ..sort((a, b) {
-        final aFavorite = favoriteKeys.contains(a.favoriteKey);
-        final bFavorite = favoriteKeys.contains(b.favoriteKey);
-        if (aFavorite == bFavorite) return 0;
-        return aFavorite ? -1 : 1;
+        final aFavorite = favoriteKeys.contains(a.$2.favoriteKey);
+        final bFavorite = favoriteKeys.contains(b.$2.favoriteKey);
+        if (aFavorite != bFavorite) return aFavorite ? -1 : 1;
+        return a.$1.compareTo(b.$1);
       });
+    return [
+      for (final entry in indexed) entry.$2,
+    ];
   }
 }
 
@@ -78,8 +71,6 @@ class AssetLibraryQueryItem<T> {
   final T value;
   final AssetLibraryKind kind;
   final bool isLegacyCodex;
-  final String? block;
-  final String? customCategory;
   final String favoriteKey;
   final bool Function(String normalizedQuery) matchesQuery;
 
@@ -87,8 +78,6 @@ class AssetLibraryQueryItem<T> {
     required this.value,
     required this.kind,
     this.isLegacyCodex = false,
-    this.block,
-    this.customCategory,
     required this.favoriteKey,
     required this.matchesQuery,
   });

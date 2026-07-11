@@ -91,6 +91,7 @@ class _EmptyCatalogService extends StudioAssetCatalogService {
     int legacyCodexLimit = 160,
     String legacyCodexQuery = '',
     String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
   }) async {
     return const StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(

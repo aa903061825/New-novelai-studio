@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:novel_studio/data/models/api_request.dart';
 import 'package:novel_studio/data/services/api_service.dart';
 import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/services/image_service.dart';
+import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/services/script_exhibition_image_organizer_service.dart';
 
 typedef ProductionNaiFetch = Future<ApiResponse> Function(ApiRequest request);
 typedef ProductionNaiProcessResponse = Uint8List Function(Uint8List bytes);
@@ -88,33 +91,59 @@ class ProductionNaiAdapterService {
   Future<String> savePlanImage(
     Uint8List bytes,
     String fileName,
-    String productionPlanId,
-    String? outputDirectoryOverride,
-  ) async {
-    final effectiveOutputDirectory = outputDirectoryOverride ?? outputDirectory;
-    if (effectiveOutputDirectory.trim().isNotEmpty) {
-      await savePictureToFile(bytes, fileName, effectiveOutputDirectory);
-      return resolvePictureSavePath(fileName, effectiveOutputDirectory);
+    ProductionPlan plan,
+    ProductionTask task,
+  ) {
+    if (task.taskType == ProductionTaskType.scriptRecastFrame) {
+      return saveScriptRecastImage(bytes, plan, task);
     }
-    final scopedFileName =
-        '${_safePathSegment(productionPlanId)}/${_safeFileName(fileName)}';
-    await savePictureToFile(bytes, scopedFileName, effectiveOutputDirectory);
-    return resolvePictureSavePath(scopedFileName, effectiveOutputDirectory);
+    return saveImage(bytes, fileName);
+  }
+
+  Future<String> saveScriptRecastImage(
+    Uint8List bytes,
+    ProductionPlan plan,
+    ProductionTask task,
+  ) async {
+    final effectiveOutputDirectory =
+        plan.executionSettings?.outputDirectory.trim().isNotEmpty == true
+            ? plan.executionSettings!.outputDirectory
+            : outputDirectory;
+    final destinationOutputRoot =
+        await _scriptRecastDestinationOutputRoot(effectiveOutputDirectory);
+    final destination = ScriptExhibitionImagePathPolicy.destinationForTask(
+      outputRoot: destinationOutputRoot,
+      planName: plan.name,
+      task: task,
+      existingDestinationKeys: const {},
+    );
+    final root = Directory(destinationOutputRoot).absolute.path;
+    final relativePath = _relativePathUnderRoot(destination, root);
+    await savePictureToFile(bytes, relativePath, effectiveOutputDirectory);
+    return resolvePictureSavePath(relativePath, effectiveOutputDirectory);
+  }
+
+  Future<String> _scriptRecastDestinationOutputRoot(String saveDir) async {
+    if (saveDir.trim().isNotEmpty) {
+      return saveDir;
+    }
+    final probePath = await resolvePictureSavePath(
+      '__script_exhibition_root_probe__.png',
+      saveDir,
+    );
+    return File(probePath).parent.path;
   }
 }
 
-String _safePathSegment(String value) {
-  final sanitized = value
-      .trim()
-      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]+'), '-')
-      .replaceAll(RegExp(r'-+'), '-')
-      .replaceAll(RegExp(r'^-+|-+$'), '');
-  return sanitized.isEmpty ? 'production-plan' : sanitized;
-}
-
-String _safeFileName(String value) {
-  final normalized = value.trim().replaceAll('\\', '/').split('/').last;
-  return _safePathSegment(normalized);
+String _relativePathUnderRoot(String path, String root) {
+  final pathKey = File(path).absolute.path.replaceAll('\\', '/');
+  final rootKey = Directory(root).absolute.path.replaceAll('\\', '/');
+  if (pathKey == rootKey || !pathKey.startsWith('$rootKey/')) {
+    return path.split(RegExp(r'[\\/]')).last;
+  }
+  return pathKey
+      .substring(rootKey.length + 1)
+      .replaceAll('/', Platform.pathSeparator);
 }
 
 String _apiErrorMessage(Uint8List data) {

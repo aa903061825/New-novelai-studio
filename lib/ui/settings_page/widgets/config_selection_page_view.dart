@@ -77,7 +77,7 @@ class _ConfigSelectionPageViewState extends State<ConfigSelectionPageView> {
         ),
         const SizedBox(height: 18),
         Expanded(
-          child: SingleChildScrollView(
+          child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
             child: Center(
               child: ConstrainedBox(
@@ -85,8 +85,6 @@ class _ConfigSelectionPageViewState extends State<ConfigSelectionPageView> {
                 child: entries.isEmpty
                     ? const _ConfigPresetEmptyState()
                     : GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
                         itemCount: entries.length,
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: columns,
@@ -498,6 +496,8 @@ class _ConfigPresetCover extends StatelessWidget {
           : Image.memory(
               imageBytes,
               fit: BoxFit.cover,
+              cacheWidth: _configCoverDecodeExtent,
+              cacheHeight: _configCoverDecodeExtent,
               errorBuilder: (context, error, stackTrace) => const Icon(
                 Icons.broken_image_outlined,
                 size: 34,
@@ -551,6 +551,8 @@ class _ConfigPreviewOption extends StatelessWidget {
                 Image.memory(
                   imageBytes,
                   fit: BoxFit.cover,
+                  cacheWidth: _configPreviewDecodeExtent,
+                  cacheHeight: _configPreviewDecodeExtent,
                   errorBuilder: (context, error, stackTrace) => const Icon(
                     Icons.broken_image_outlined,
                     size: 36,
@@ -580,12 +582,26 @@ class _ConfigPreviewOption extends StatelessWidget {
 
 Uint8List? _decodePreviewImage(String? imageB64) {
   if (imageB64 == null || imageB64.isEmpty) return null;
+  if (_previewImageDecodeCache.containsKey(imageB64)) {
+    return _previewImageDecodeCache[imageB64];
+  }
   try {
-    return base64Decode(imageB64);
+    final bytes = base64Decode(imageB64);
+    if (_previewImageDecodeCache.length > 128) {
+      _previewImageDecodeCache.clear();
+    }
+    _previewImageDecodeCache[imageB64] = bytes;
+    return bytes;
   } catch (_) {
+    _previewImageDecodeCache[imageB64] = null;
     return null;
   }
 }
+
+final Map<String, Uint8List?> _previewImageDecodeCache = {};
+
+const _configCoverDecodeExtent = 256;
+const _configPreviewDecodeExtent = 384;
 
 class _ActiveBadge extends StatelessWidget {
   @override

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
 
 void main() {
@@ -108,6 +110,56 @@ void main() {
     expect(tester.widget(find.byKey(bodyKey)), isNot(isA<AnimatedContainer>()));
   });
 
+  testWidgets('previewed and selected chips get local scale feedback', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const PromptTagChip(
+          label: 'black jacket',
+          translation: '',
+          category: PromptTagCategory.upperBody,
+          bodyKey: ValueKey('scale-chip-body'),
+        ),
+      ),
+    );
+
+    AnimatedScale chipScale() =>
+        tester.widget<AnimatedScale>(find.byType(AnimatedScale));
+
+    expect(chipScale().scale, 1);
+
+    await tester.pumpWidget(
+      host(
+        const PromptTagChip(
+          label: 'black jacket',
+          translation: '',
+          category: PromptTagCategory.upperBody,
+          previewed: true,
+          bodyKey: ValueKey('scale-chip-body'),
+        ),
+      ),
+    );
+    await tester.pump(StudioMotionTokens.fast);
+
+    expect(chipScale().scale, greaterThan(1));
+
+    await tester.pumpWidget(
+      host(
+        const PromptTagChip(
+          label: 'black jacket',
+          translation: '',
+          category: PromptTagCategory.upperBody,
+          selected: true,
+          bodyKey: ValueKey('scale-chip-body'),
+        ),
+      ),
+    );
+    await tester.pump(StudioMotionTokens.fast);
+
+    expect(chipScale().scale, greaterThan(1));
+  });
+
   testWidgets('preview chrome omits action controls during drag hover', (
     tester,
   ) async {
@@ -127,5 +179,36 @@ void main() {
     );
 
     expect(find.byKey(deleteKey), findsNothing);
+  });
+
+  testWidgets('highlighted diff state uses primary gold chrome', (
+    tester,
+  ) async {
+    const bodyKey = ValueKey('highlighted-diff-chip-body');
+    const diffKey = ValueKey('highlighted-diff-chip-icon');
+
+    await tester.pumpWidget(
+      host(
+        const PromptTagChip(
+          label: 'fox ears',
+          translation: '',
+          category: PromptTagCategory.upperBody,
+          diffState: PromptTagChipDiffState.highlighted,
+          diffBadgeLabel: '角色 1',
+          bodyKey: bodyKey,
+          diffKey: diffKey,
+        ),
+      ),
+    );
+
+    final body = tester.widget<AnimatedContainer>(find.byKey(bodyKey));
+    final decoration = body.decoration! as BoxDecoration;
+    final border = decoration.border! as Border;
+    expect(border.top.color, StudioTokens.primary);
+
+    final icon = tester.widget<Icon>(find.byKey(diffKey));
+    expect(icon.color, StudioTokens.primary);
+    expect(icon.icon, Icons.check_circle_outline);
+    expect(find.text('角色 1'), findsOneWidget);
   });
 }

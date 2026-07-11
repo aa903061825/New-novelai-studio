@@ -1,27 +1,47 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_exhibition_recast_summary.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
 import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
+import 'package:novel_studio/data/studio/services/script_exhibition_image_organizer_service.dart';
+import 'package:novel_studio/data/studio/services/workbench_metadata_import_service.dart';
 
 typedef ScriptExhibitionScriptsLoader = Future<List<TokenizerScript>>
     Function();
 typedef ScriptExhibitionRecastCachesLoader = Future<List<RecastScriptCache>>
     Function();
+typedef ScriptExhibitionRecastScriptsLoader
+    = Future<List<RecastExhibitionScript>> Function();
+typedef ScriptExhibitionRecastScriptLoader = Future<RecastExhibitionScript?>
+    Function(String scriptId);
 typedef ScriptExhibitionProductionPlansLoader = Future<List<ProductionPlan>>
     Function();
 typedef ScriptExhibitionGalleryRecordsLoader = Future<List<StudioGalleryRecord>>
     Function();
+typedef ScriptExhibitionProductionPlansSaver = Future<void> Function(
+  List<ProductionPlan> plans,
+);
+typedef ScriptExhibitionGalleryRecordsSaver = Future<void> Function(
+  List<StudioGalleryRecord> records,
+);
+typedef ScriptExhibitionDefaultGeneratedImageRoot = Future<String> Function();
+typedef ScriptExhibitionImageGenerationParamsLoader
+    = Future<Map<String, dynamic>> Function(String imagePath);
+typedef ScriptExhibitionItemGenerationParamsLoader
+    = Future<Map<String, dynamic>> Function(ScriptExhibitionItem item);
 typedef ScriptExhibitionScriptDeleter = Future<void> Function(
   ScriptExhibitionScript script, {
   bool deleteLocalFiles,
 });
 typedef ScriptExhibitionItemDeleter = Future<void> Function(
-  ScriptExhibitionItem item,
-);
+  ScriptExhibitionItem item, {
+  bool deleteLocalFiles,
+});
 typedef ScriptExhibitionScriptImporter = Future<void> Function();
 typedef ScriptExhibitionScriptImageImporter = Future<void> Function(
   ScriptExhibitionScript script,
@@ -34,8 +54,19 @@ typedef ScriptExhibitionScriptCategoryAssigner = Future<void> Function(
   ScriptExhibitionScript script,
   String categoryName,
 );
+typedef ScriptExhibitionScriptsCategoryAssigner = Future<void> Function(
+  Iterable<ScriptExhibitionScript> scripts,
+  String categoryName,
+);
 typedef ScriptExhibitionScriptCategoryRemover = Future<void> Function(
   ScriptExhibitionScript script,
+  String categoryName,
+);
+typedef ScriptExhibitionUserCategoriesLoader
+    = Future<List<ScriptExhibitionUserCategory>> Function();
+typedef ScriptExhibitionCategoryAssignmentsLoader
+    = Future<Map<String, List<String>>> Function();
+typedef ScriptExhibitionCategoryCreator = Future<void> Function(
   String categoryName,
 );
 typedef ScriptExhibitionCategoryDeleter = Future<void> Function(
@@ -52,8 +83,9 @@ typedef ScriptExhibitionVersionLabelRenamer = Future<void> Function(
 );
 typedef ScriptExhibitionVersionDeleter = Future<void> Function(
   ScriptExhibitionScript script,
-  ScriptExhibitionVersion version,
-);
+  ScriptExhibitionVersion version, {
+  bool deleteLocalFiles,
+});
 typedef ScriptExhibitionItemCoverSetter = Future<void> Function(
   ScriptExhibitionItem item,
 );
@@ -61,6 +93,12 @@ typedef ScriptExhibitionItemCoverSetter = Future<void> Function(
 Future<List<TokenizerScript>> _loadNoTokenizerScripts() async => const [];
 
 Future<List<RecastScriptCache>> _loadNoRecastCaches() async => const [];
+
+Future<List<ScriptExhibitionUserCategory>> _loadNoUserCategories() async =>
+    const [];
+
+Future<Map<String, List<String>>> _loadNoCategoryAssignments() async =>
+    const {};
 
 enum ScriptExhibitionItemSourceKind {
   original,
@@ -107,31 +145,33 @@ class ScriptExhibitionFocus {
   bool get canOpenSingleWorkbench =>
       (imagePath?.trim().isNotEmpty ?? false) ||
       (sourcePath?.trim().isNotEmpty ?? false);
+
+  bool get canOpenProductionTask =>
+      (productionPlanId?.trim().isNotEmpty ?? false) &&
+      (taskId?.trim().isNotEmpty ?? false);
 }
 
 class ScriptExhibitionSnapshot {
-  static const empty = ScriptExhibitionSnapshot(scripts: []);
+  static const empty = ScriptExhibitionSnapshot(
+    scripts: [],
+    totalImageCount: 0,
+    generatedImageCount: 0,
+    needsActionCount: 0,
+  );
 
   final List<ScriptExhibitionScript> scripts;
+  final int totalImageCount;
+  final int generatedImageCount;
+  final int needsActionCount;
 
-  const ScriptExhibitionSnapshot({required this.scripts});
+  const ScriptExhibitionSnapshot({
+    required this.scripts,
+    required this.totalImageCount,
+    required this.generatedImageCount,
+    required this.needsActionCount,
+  });
 
   int get totalScriptCount => scripts.length;
-
-  int get totalImageCount => scripts.fold(
-        0,
-        (total, script) => total + script.imageLikeItemCount,
-      );
-
-  int get generatedImageCount => scripts.fold(
-        0,
-        (total, script) => total + script.generatedImageCount,
-      );
-
-  int get needsActionCount => scripts
-      .where(
-          (script) => script.status == ScriptExhibitionScriptStatus.needsAction)
-      .length;
 }
 
 class ScriptExhibitionCategory {
@@ -176,6 +216,42 @@ class ScriptExhibitionDetailFilter {
   });
 }
 
+class ScriptExhibitionSourceFolderCleanupPreview {
+  final String sourceFolder;
+  final bool sourceFolderExists;
+  final List<String> sourceImagePaths;
+  final List<String> retainedImagePaths;
+  final List<String> removableImagePaths;
+
+  const ScriptExhibitionSourceFolderCleanupPreview({
+    required this.sourceFolder,
+    required this.sourceFolderExists,
+    this.sourceImagePaths = const [],
+    this.retainedImagePaths = const [],
+    this.removableImagePaths = const [],
+  });
+
+  int get removableCount => removableImagePaths.length;
+
+  bool get canClean => sourceFolderExists && removableImagePaths.isNotEmpty;
+}
+
+class ScriptExhibitionSourceFolderCleanupResult {
+  final ScriptExhibitionSourceFolderCleanupPreview preview;
+  final List<String> deletedImagePaths;
+  final List<String> failedImagePaths;
+
+  const ScriptExhibitionSourceFolderCleanupResult({
+    required this.preview,
+    this.deletedImagePaths = const [],
+    this.failedImagePaths = const [],
+  });
+
+  int get deletedCount => deletedImagePaths.length;
+
+  int get failedCount => failedImagePaths.length;
+}
+
 class ScriptExhibitionScript {
   final String scriptId;
   final String title;
@@ -185,6 +261,15 @@ class ScriptExhibitionScript {
   final ScriptExhibitionScriptStatus status;
   final List<String> categoryNames;
   final String? coverItemId;
+  final int originalCount;
+  final int generatedImageCount;
+  final int imageLikeItemCount;
+  final bool hasImage;
+  final ScriptExhibitionItem? coverItem;
+  final int pendingCount;
+  final ScriptExhibitionItem? firstNeedsActionItem;
+  final bool summaryOnly;
+  final String searchText;
 
   const ScriptExhibitionScript({
     required this.scriptId,
@@ -195,80 +280,20 @@ class ScriptExhibitionScript {
     required this.status,
     this.categoryNames = const [],
     this.coverItemId,
+    required this.originalCount,
+    required this.generatedImageCount,
+    required this.imageLikeItemCount,
+    required this.hasImage,
+    required this.coverItem,
+    required this.pendingCount,
+    required this.firstNeedsActionItem,
+    this.summaryOnly = false,
+    this.searchText = '',
   });
 
   List<ScriptExhibitionItem> get items => [
         for (final version in versions) ...version.items,
       ];
-
-  int get originalCount => versions
-      .where((version) => version.id == ScriptExhibitionVersion.originalId)
-      .fold(0, (total, version) => total + version.items.length);
-
-  int get generatedImageCount => items
-      .where((item) =>
-          item.sourceKind == ScriptExhibitionItemSourceKind.generated ||
-          item.sourceKind == ScriptExhibitionItemSourceKind.gallery)
-      .where((item) => item.imagePath.trim().isNotEmpty)
-      .length;
-
-  int get imageLikeItemCount => items
-      .where((item) => item.sourceKind != ScriptExhibitionItemSourceKind.failed)
-      .length;
-
-  bool get hasImage => items.any((item) => item.hasImage);
-
-  ScriptExhibitionItem? get coverItem {
-    final imageItems = [
-      for (final item in items)
-        if (item.hasImage) item,
-    ];
-    if (imageItems.isEmpty) return null;
-    final coverId = coverItemId?.trim();
-    if (coverId != null && coverId.isNotEmpty) {
-      final savedCover =
-          imageItems.where((item) => item.id == coverId).firstOrNull;
-      if (savedCover != null) return savedCover;
-    }
-
-    ScriptExhibitionItem? firstWithKind(
-      Set<ScriptExhibitionItemSourceKind> kinds,
-    ) {
-      for (final item in imageItems) {
-        if (kinds.contains(item.sourceKind)) {
-          return item;
-        }
-      }
-      return null;
-    }
-
-    return firstWithKind({
-          ScriptExhibitionItemSourceKind.generated,
-          ScriptExhibitionItemSourceKind.gallery,
-        }) ??
-        firstWithKind({ScriptExhibitionItemSourceKind.attachment}) ??
-        firstWithKind({ScriptExhibitionItemSourceKind.original}) ??
-        imageItems.first;
-  }
-
-  int get pendingCount => items.where((item) => item.needsAction).length;
-
-  ScriptExhibitionItem? get firstNeedsActionItem {
-    for (final version in versions) {
-      if (version.id == ScriptExhibitionVersion.originalId) {
-        continue;
-      }
-      for (final item in version.items) {
-        if (item.needsAction) return item;
-      }
-    }
-    for (final version in versions) {
-      for (final item in version.items) {
-        if (item.needsAction) return item;
-      }
-    }
-    return null;
-  }
 
   ScriptExhibitionVersion? versionContainingItem(String itemId) {
     for (final version in versions) {
@@ -284,6 +309,79 @@ class ScriptExhibitionScript {
         scriptTitle: title,
         sourceFolder: sourceFolder,
       );
+
+  ScriptExhibitionScript copyWith({
+    List<String>? categoryNames,
+  }) {
+    final nextCategoryNames = categoryNames ?? this.categoryNames;
+    return ScriptExhibitionScript(
+      scriptId: scriptId,
+      title: title,
+      sourceFolder: sourceFolder,
+      updatedAt: updatedAt,
+      versions: versions,
+      status: status,
+      categoryNames: nextCategoryNames,
+      coverItemId: coverItemId,
+      originalCount: originalCount,
+      generatedImageCount: generatedImageCount,
+      imageLikeItemCount: imageLikeItemCount,
+      hasImage: hasImage,
+      coverItem: coverItem,
+      pendingCount: pendingCount,
+      firstNeedsActionItem: firstNeedsActionItem,
+      summaryOnly: summaryOnly,
+      searchText: categoryNames == null
+          ? searchText
+          : _scriptSearchTextFromValues(
+              scriptId: scriptId,
+              title: title,
+              sourceFolder: sourceFolder,
+              categoryNames: nextCategoryNames,
+              versions: versions,
+            ),
+    );
+  }
+}
+
+String _scriptSearchTextFromScript(ScriptExhibitionScript script) {
+  return _scriptSearchTextFromValues(
+    scriptId: script.scriptId,
+    title: script.title,
+    sourceFolder: script.sourceFolder,
+    categoryNames: script.categoryNames,
+    versions: script.versions,
+  );
+}
+
+String _scriptSearchTextFromValues({
+  required String scriptId,
+  required String title,
+  required String sourceFolder,
+  required List<String> categoryNames,
+  required List<ScriptExhibitionVersion> versions,
+}) {
+  final parts = <String>[
+    scriptId,
+    title,
+    sourceFolder,
+    ...categoryNames,
+    for (final version in versions) ...[
+      version.id,
+      version.label,
+      version.description,
+      for (final item in version.items) ...[
+        item.id,
+        item.title,
+        item.subtitle,
+        item.sourceFileName ?? '',
+        item.sourcePath ?? '',
+        item.prompt,
+        item.statusLabel,
+      ],
+    ],
+  ];
+  return parts.join('\n').toLowerCase();
 }
 
 class ScriptExhibitionVersion {
@@ -328,6 +426,7 @@ class ScriptExhibitionItem {
   final String? galleryRecordId;
   final StudioGalleryRecord? galleryRecord;
   final Map<String, dynamic>? assetCapturePayload;
+  final Map<String, dynamic> generationParams;
   final String? imageAttachmentId;
 
   const ScriptExhibitionItem({
@@ -353,6 +452,7 @@ class ScriptExhibitionItem {
     this.galleryRecordId,
     this.galleryRecord,
     this.assetCapturePayload,
+    this.generationParams = const {},
     this.imageAttachmentId,
   });
 
@@ -382,6 +482,7 @@ class ScriptExhibitionItem {
       galleryRecordId: galleryRecordId,
       galleryRecord: galleryRecord,
       assetCapturePayload: assetCapturePayload,
+      generationParams: generationParams,
       imageAttachmentId: imageAttachmentId,
     );
   }
@@ -431,6 +532,7 @@ class ScriptExhibitionItem {
 
 class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   static const allCategoryId = 'all';
+  static const uncategorizedCategoryId = 'uncategorized';
   static const activeCategoryId = 'active';
   static const archivedCategoryId = 'archived';
   static const needsActionCategoryId = 'needs-action';
@@ -440,15 +542,25 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   final ScriptExhibitionScriptsLoader loadScripts;
   final ScriptExhibitionRecastCachesLoader loadRecastCaches;
+  final ScriptExhibitionRecastScriptsLoader? loadRecastScripts;
+  final ScriptExhibitionRecastScriptLoader? loadRecastScript;
   final ScriptExhibitionProductionPlansLoader loadProductionPlans;
   final ScriptExhibitionGalleryRecordsLoader loadGalleryRecords;
+  final ScriptExhibitionProductionPlansSaver? saveProductionPlans;
+  final ScriptExhibitionGalleryRecordsSaver? saveGalleryRecords;
+  final ScriptExhibitionDefaultGeneratedImageRoot? defaultGeneratedImageRoot;
+  final ScriptExhibitionImageGenerationParamsLoader loadImageGenerationParams;
   final ScriptExhibitionScriptImporter? importScriptFolder;
   final ScriptExhibitionScriptImageImporter? importScriptImages;
   final ScriptExhibitionScriptDeleter? deleteScriptRecord;
   final ScriptExhibitionItemDeleter? deleteItemRecord;
   final ScriptExhibitionScriptRenamer? renameScriptRecord;
   final ScriptExhibitionScriptCategoryAssigner? assignScriptCategory;
+  final ScriptExhibitionScriptsCategoryAssigner? assignScriptsCategory;
   final ScriptExhibitionScriptCategoryRemover? removeScriptCategory;
+  final ScriptExhibitionUserCategoriesLoader loadCustomCategories;
+  final ScriptExhibitionCategoryAssignmentsLoader loadCustomCategoryScriptIds;
+  final ScriptExhibitionCategoryCreator? createCategoryRecord;
   final ScriptExhibitionCategoryDeleter? deleteCategoryRecord;
   final ScriptExhibitionImageAttachmentRenamer? renameImageAttachment;
   final ScriptExhibitionVersionLabelRenamer? renameVersionLabelRecord;
@@ -457,33 +569,62 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final List<ScriptExhibitionUserCategory> customCategories;
   final Map<String, List<String>> customCategoryScriptIds;
   final List<ScriptExhibitionUserCategory> _sessionCategories = [];
+  List<ScriptExhibitionUserCategory> _loadedCustomCategories = const [];
+  Map<String, List<String>> _loadedCustomCategoryScriptIds = const {};
   final Set<String> _selectedScriptIds = {};
+  final Set<String> _selectedVersionIds = {};
 
-  ScriptExhibitionSnapshot snapshot = ScriptExhibitionSnapshot.empty;
+  ScriptExhibitionSnapshot _snapshot = ScriptExhibitionSnapshot.empty;
   bool isLoading = false;
   Object? loadError;
   String selectedCategoryId = allCategoryId;
   String? selectedScriptId;
   String? selectedVersionId;
   String selectedDetailFilterId = allDetailFilterId;
+  String scriptSearchQuery = '';
   ScriptExhibitionScriptSort scriptSort = ScriptExhibitionScriptSort.recent;
   ScriptExhibitionItemSort itemSort = ScriptExhibitionItemSort.frame;
   String? focusedItemId;
   int _loadGeneration = 0;
   bool _hasLoaded = false;
+  List<RecastExhibitionScript> _loadedRecastScripts = const [];
+  List<TokenizerScript> _loadedScripts = const [];
+  List<ProductionPlan> _loadedProductionPlans = const [];
+  List<StudioGalleryRecord> _loadedGalleryRecords = const [];
+  Map<String, ScriptExhibitionScript> _scriptsById = const {};
+  Map<String, ScriptExhibitionItem> _itemsById = const {};
+  Map<String, List<ScriptExhibitionScript>> _scriptsByCategoryName = const {};
+  List<ScriptExhibitionScript> _uncategorizedScripts = const [];
+  List<ScriptExhibitionScript> _activeScripts = const [];
+  List<ScriptExhibitionScript> _archivedScripts = const [];
+  List<ScriptExhibitionScript> _needsActionScripts = const [];
+  List<ScriptExhibitionCategory>? _categoriesCache;
+  final Set<String> _loadingScriptDetails = {};
+  final Map<String, Future<Map<String, dynamic>>> _imageGenerationParamsCache =
+      {};
 
   ScriptExhibitionRoomViewModel({
     ScriptExhibitionScriptsLoader? loadScripts,
     ScriptExhibitionRecastCachesLoader? loadRecastCaches,
+    this.loadRecastScripts,
+    this.loadRecastScript,
     required this.loadProductionPlans,
     required this.loadGalleryRecords,
+    this.saveProductionPlans,
+    this.saveGalleryRecords,
+    this.defaultGeneratedImageRoot,
+    ScriptExhibitionImageGenerationParamsLoader? loadImageGenerationParams,
     this.importScriptFolder,
     this.importScriptImages,
     this.deleteScriptRecord,
     this.deleteItemRecord,
     this.renameScriptRecord,
     this.assignScriptCategory,
+    this.assignScriptsCategory,
     this.removeScriptCategory,
+    ScriptExhibitionUserCategoriesLoader? loadCustomCategories,
+    ScriptExhibitionCategoryAssignmentsLoader? loadCustomCategoryScriptIds,
+    this.createCategoryRecord,
     this.deleteCategoryRecord,
     this.renameImageAttachment,
     ScriptExhibitionVersionLabelRenamer? renameVersionLabel,
@@ -493,6 +634,11 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     this.customCategoryScriptIds = const {},
   })  : loadScripts = loadScripts ?? _loadNoTokenizerScripts,
         loadRecastCaches = loadRecastCaches ?? _loadNoRecastCaches,
+        loadCustomCategories = loadCustomCategories ?? _loadNoUserCategories,
+        loadCustomCategoryScriptIds =
+            loadCustomCategoryScriptIds ?? _loadNoCategoryAssignments,
+        loadImageGenerationParams =
+            loadImageGenerationParams ?? _loadImageGenerationParamsFromMetadata,
         renameVersionLabelRecord = renameVersionLabel;
 
   bool get canImportScripts => importScriptFolder != null;
@@ -505,13 +651,29 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   bool get canRenameScripts => renameScriptRecord != null;
 
-  bool get canCategorizeScripts => assignScriptCategory != null;
+  bool get canCategorizeScripts =>
+      assignScriptCategory != null || assignScriptsCategory != null;
 
   bool get canRemoveScriptCategories => removeScriptCategory != null;
 
   bool get canDeleteCategories => deleteCategoryRecord != null;
 
   Set<String> get selectedScriptIds => Set.unmodifiable(_selectedScriptIds);
+
+  Set<String> get selectedVersionIds => Set.unmodifiable(_selectedVersionIds);
+
+  List<ScriptExhibitionVersion> get selectedVersions {
+    final script = selectedScript;
+    if (script == null || _selectedVersionIds.isEmpty) {
+      return const [];
+    }
+    return [
+      for (final version in script.versions)
+        if (_selectedVersionIds.contains(version.id) &&
+            canDeleteVersion(script, version))
+          version,
+    ];
+  }
 
   bool get canRenameItems => renameImageAttachment != null;
 
@@ -521,92 +683,114 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   bool get canSetCoverItems => setCoverItemRecord != null;
 
-  List<ScriptExhibitionCategory> get categories => [
+  ScriptExhibitionSnapshot get snapshot => _snapshot;
+
+  set snapshot(ScriptExhibitionSnapshot value) {
+    _setSnapshot(value);
+  }
+
+  List<ScriptExhibitionCategory> get categories =>
+      _categoriesCache ??= _buildCategories();
+
+  Map<String, List<String>> get _effectiveCustomCategoryScriptIds {
+    if (customCategoryScriptIds.isEmpty &&
+        _loadedCustomCategoryScriptIds.isEmpty) {
+      return const {};
+    }
+    final merged = <String, Set<String>>{};
+    void merge(Map<String, List<String>> source) {
+      for (final entry in source.entries) {
+        final id = entry.key.trim();
+        if (id.isEmpty) continue;
+        final bucket = merged.putIfAbsent(id, () => <String>{});
+        for (final scriptId in entry.value) {
+          final normalized = scriptId.trim();
+          if (normalized.isNotEmpty) {
+            bucket.add(normalized);
+          }
+        }
+      }
+    }
+
+    merge(customCategoryScriptIds);
+    merge(_loadedCustomCategoryScriptIds);
+    return Map.unmodifiable({
+      for (final entry in merged.entries)
+        if (entry.value.isNotEmpty)
+          entry.key: List<String>.unmodifiable(entry.value),
+    });
+  }
+
+  List<ScriptExhibitionCategory> _buildCategories() {
+    return List<ScriptExhibitionCategory>.unmodifiable([
+      ScriptExhibitionCategory(
+        id: allCategoryId,
+        title: '全部馆区',
+        description: '所有剧本、原始帧和批量结果统一浏览。',
+        count: snapshot.totalScriptCount,
+        tags: const ['剧本', '原图', '新图'],
+      ),
+      ScriptExhibitionCategory(
+        id: uncategorizedCategoryId,
+        title: '未分类',
+        description: '还没有归入自定义分类的脚本。',
+        count: _uncategorizedScripts.length,
+        tags: const ['默认分类'],
+      ),
+      for (final category in _registeredCustomCategories())
         ScriptExhibitionCategory(
-          id: allCategoryId,
-          title: '全部馆区',
-          description: '所有剧本、原始帧和批量结果统一浏览。',
-          count: snapshot.totalScriptCount,
-          tags: const ['剧本', '原图', '新图'],
+          id: category.id,
+          title: category.title,
+          description: category.description,
+          count: _scriptsForCustomCategory(category.id).length,
+          tags: category.tags,
         ),
-        for (final category in customCategories)
-          ScriptExhibitionCategory(
-            id: category.id,
-            title: category.title,
-            description: category.description,
-            count: _scriptsForCustomCategory(category.id).length,
-            tags: category.tags,
-          ),
-        for (final category in _derivedCustomCategories())
-          ScriptExhibitionCategory(
-            id: category.id,
-            title: category.title,
-            description: category.description,
-            count: _scriptsForCustomCategory(category.id).length,
-            tags: category.tags,
-          ),
-      ];
+      for (final category in _derivedCustomCategories())
+        ScriptExhibitionCategory(
+          id: category.id,
+          title: category.title,
+          description: category.description,
+          count: _scriptsForCustomCategory(category.id).length,
+          tags: category.tags,
+        ),
+    ]);
+  }
 
   List<ScriptExhibitionScript> get visibleScripts {
-    final scripts = <ScriptExhibitionScript>[];
+    List<ScriptExhibitionScript> scripts;
     if (selectedCategoryId != allCategoryId) {
       final categoryName = _customCategoryNameFromId(selectedCategoryId);
       if (categoryName != null) {
-        scripts.addAll(
-          snapshot.scripts.where(
-            (script) => script.categoryNames.any(
-              (name) => name.trim().toLowerCase() == categoryName,
-            ),
-          ),
-        );
-        return _sortVisibleScripts(scripts);
+        scripts = _scriptsForCustomCategory(selectedCategoryId);
+        return _sortVisibleScripts(_filterScriptsBySearchQuery(scripts));
       }
-      final assignedIds = customCategoryScriptIds[selectedCategoryId];
+      final assignedIds = _effectiveCustomCategoryScriptIds[selectedCategoryId];
       if (assignedIds != null) {
-        final assigned = assignedIds.toSet();
-        scripts.addAll(
-          snapshot.scripts
-              .where((script) => assigned.contains(script.scriptId)),
-        );
-        return _sortVisibleScripts(scripts);
+        scripts = _scriptsForAssignedIds(assignedIds);
+        return _sortVisibleScripts(_filterScriptsBySearchQuery(scripts));
       }
     }
-    scripts.addAll(
-      snapshot.scripts.where((script) {
-        return switch (selectedCategoryId) {
-          allCategoryId => true,
-          activeCategoryId =>
-            script.status == ScriptExhibitionScriptStatus.active,
-          archivedCategoryId =>
-            script.status == ScriptExhibitionScriptStatus.archived,
-          needsActionCategoryId =>
-            script.status == ScriptExhibitionScriptStatus.needsAction,
-          _ => true,
-        };
-      }),
-    );
-    return _sortVisibleScripts(scripts);
+    scripts = switch (selectedCategoryId) {
+      allCategoryId => snapshot.scripts,
+      uncategorizedCategoryId => _uncategorizedScripts,
+      activeCategoryId => _activeScripts,
+      archivedCategoryId => _archivedScripts,
+      needsActionCategoryId => _needsActionScripts,
+      _ => snapshot.scripts,
+    };
+    return _sortVisibleScripts(_filterScriptsBySearchQuery(scripts));
   }
 
   ScriptExhibitionItem? get focusedItem {
     final itemId = focusedItemId;
     if (itemId == null) return null;
-    for (final script in snapshot.scripts) {
-      for (final version in script.versions) {
-        for (final item in version.items) {
-          if (item.id == itemId) return item;
-        }
-      }
-    }
-    return null;
+    return _itemsById[itemId];
   }
 
   ScriptExhibitionScript? get selectedScript {
     final id = selectedScriptId;
     if (id == null) return null;
-    return snapshot.scripts
-        .where((script) => script.scriptId == id)
-        .firstOrNull;
+    return _scriptsById[id];
   }
 
   ScriptExhibitionVersion? get selectedVersion {
@@ -653,6 +837,270 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     return _sortVisibleItems(filtered);
   }
 
+  Future<ScriptExhibitionSourceFolderCleanupPreview> previewSourceFolderCleanup(
+    ScriptExhibitionScript script,
+  ) async {
+    final currentScript = await _scriptForSourceFolderCleanup(script);
+    return _previewSourceFolderCleanup(currentScript);
+  }
+
+  Future<ScriptExhibitionImageOrganizationPreview>
+      previewScriptImageOrganization(
+    ScriptExhibitionScript script,
+  ) async {
+    final plans = await loadProductionPlans();
+    final records = await loadGalleryRecords();
+    final organizationScripts = _scriptsForImageOrganization(script);
+    final targetScriptTitlesById = _scriptTitlesByIdForOrganization(
+      organizationScripts,
+    );
+    final defaultOutputRoot = await _defaultOutputRootForOrganization(
+      plans,
+      targetScriptIds: targetScriptTitlesById.keys.toSet(),
+    );
+    final generatedRoots = await _generatedRootsForOrganization(plans);
+    final service = ScriptExhibitionImageOrganizerService(
+      defaultOutputRoot: () async => defaultOutputRoot,
+    );
+    return service.preview(
+      targetScriptTitlesById: targetScriptTitlesById,
+      productionPlans: plans,
+      galleryRecords: records,
+      generatedRoots: generatedRoots,
+      originalSourcePaths: _originalSourceImagePathsForScripts(
+        organizationScripts,
+      ),
+    );
+  }
+
+  Future<ScriptExhibitionImageOrganizationResult> organizeScriptImages(
+    ScriptExhibitionScript script, {
+    ScriptExhibitionImageOrganizationPreview? preview,
+  }) async {
+    final plansSaver = saveProductionPlans;
+    final recordsSaver = saveGalleryRecords;
+    if (plansSaver == null || recordsSaver == null) {
+      throw StateError(
+        'Script image organization requires production plan and gallery '
+        'record savers before moving or deleting files.',
+      );
+    }
+    final previousScriptId = selectedScriptId;
+    final previousVersionId = selectedVersionId;
+    final currentPreview =
+        preview ?? await previewScriptImageOrganization(script);
+    final defaultOutputRoot = await _defaultOutputRootForOrganization(
+      currentPreview.productionPlans,
+      targetScriptIds:
+          _scriptTitlesByIdForOrganization(_scriptsForImageOrganization(script))
+              .keys
+              .toSet(),
+    );
+    final service = ScriptExhibitionImageOrganizerService(
+      defaultOutputRoot: () async => defaultOutputRoot,
+    );
+    final result = await service.apply(currentPreview);
+    if (result.failedImagePaths.isEmpty) {
+      // The filesystem and JSON stores are not transactional here, but both
+      // stores receive updates from the same successful apply result. If either
+      // save throws, the caller sees the persistence error.
+      await plansSaver(result.updatedProductionPlans);
+      await recordsSaver(result.updatedGalleryRecords);
+      await load();
+      _restoreSelectionIfPresent(
+        scriptId: previousScriptId,
+        versionId: previousVersionId,
+      );
+    }
+    return result;
+  }
+
+  Future<String> _defaultOutputRootForOrganization(
+    List<ProductionPlan> plans, {
+    required Set<String> targetScriptIds,
+  }) async {
+    final injectedRoot = await _resolvedInjectedDefaultGeneratedRoot();
+    if (injectedRoot != null) {
+      return injectedRoot;
+    }
+    if (_organizationNeedsDefaultGeneratedRoot(
+      plans,
+      targetScriptIds: targetScriptIds,
+    )) {
+      throw StateError(
+        'Script image organization requires defaultGeneratedImageRoot when a '
+        'matching production task has no output directory.',
+      );
+    }
+    final planRoot = _firstPlanOutputRoot(plans);
+    if (planRoot != null) {
+      return planRoot;
+    }
+    throw StateError(
+      'Script image organization requires defaultGeneratedImageRoot or at '
+      'least one production plan output directory.',
+    );
+  }
+
+  Future<String?> _resolvedInjectedDefaultGeneratedRoot() async {
+    final resolver = defaultGeneratedImageRoot;
+    if (resolver == null) {
+      return null;
+    }
+    final root = (await resolver()).trim();
+    if (root.isEmpty) {
+      return null;
+    }
+    return Directory(root).absolute.path;
+  }
+
+  bool _organizationNeedsDefaultGeneratedRoot(
+    List<ProductionPlan> plans, {
+    required Set<String> targetScriptIds,
+  }) {
+    for (final plan in plans) {
+      final planRoot = plan.executionSettings?.outputDirectory.trim();
+      if (planRoot != null && planRoot.isNotEmpty) {
+        continue;
+      }
+      for (final task in plan.tasks) {
+        final outputImagePath = task.outputImagePath?.trim();
+        if (task.taskType == ProductionTaskType.scriptRecastFrame &&
+            task.status == ProductionTaskStatus.completed &&
+            targetScriptIds.contains(task.source.scriptId?.trim()) &&
+            outputImagePath != null &&
+            outputImagePath.isNotEmpty) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  String? _firstPlanOutputRoot(List<ProductionPlan> plans) {
+    for (final plan in plans) {
+      final root = plan.executionSettings?.outputDirectory.trim();
+      if (root != null && root.isNotEmpty) {
+        return Directory(root).absolute.path;
+      }
+    }
+    return null;
+  }
+
+  Future<List<String>> _generatedRootsForOrganization(
+    List<ProductionPlan> plans,
+  ) async {
+    final rootsByKey = <String, String>{};
+    void add(String? path) {
+      final trimmed = path?.trim();
+      if (trimmed == null || trimmed.isEmpty) {
+        return;
+      }
+      rootsByKey.putIfAbsent(
+        _normalizedDirectoryPathKey(trimmed),
+        () => Directory(trimmed).absolute.path,
+      );
+    }
+
+    for (final plan in plans) {
+      add(plan.executionSettings?.outputDirectory);
+    }
+    add(await _resolvedInjectedDefaultGeneratedRoot());
+    return List.unmodifiable(rootsByKey.values);
+  }
+
+  List<ScriptExhibitionScript> _scriptsForImageOrganization(
+    ScriptExhibitionScript triggerScript,
+  ) {
+    final scriptsById = <String, ScriptExhibitionScript>{};
+    for (final script in snapshot.scripts) {
+      if (script.scriptId.trim().isNotEmpty) {
+        scriptsById[script.scriptId.trim()] = script;
+      }
+    }
+    if (triggerScript.scriptId.trim().isNotEmpty) {
+      scriptsById.putIfAbsent(
+        triggerScript.scriptId.trim(),
+        () => triggerScript,
+      );
+    }
+    return List.unmodifiable(scriptsById.values);
+  }
+
+  Map<String, String> _scriptTitlesByIdForOrganization(
+    Iterable<ScriptExhibitionScript> scripts,
+  ) {
+    return Map.unmodifiable({
+      for (final script in scripts)
+        if (script.scriptId.trim().isNotEmpty)
+          script.scriptId.trim(): script.title.trim(),
+    });
+  }
+
+  Set<String> _originalSourceImagePathsForScripts(
+    Iterable<ScriptExhibitionScript> scripts,
+  ) {
+    final pathsByKey = <String, String>{};
+    for (final script in scripts) {
+      for (final item in script.items) {
+        final sourcePath = item.sourcePath?.trim();
+        if (sourcePath != null &&
+            sourcePath.isNotEmpty &&
+            _isLocalImageReference(sourcePath)) {
+          pathsByKey.putIfAbsent(
+            _normalizedFilePathKey(sourcePath),
+            () => File(sourcePath).absolute.path,
+          );
+        }
+        final imagePath = item.imagePath.trim();
+        if (item.sourceKind == ScriptExhibitionItemSourceKind.original &&
+            imagePath.isNotEmpty &&
+            _isLocalImageReference(imagePath)) {
+          pathsByKey.putIfAbsent(
+            _normalizedFilePathKey(imagePath),
+            () => File(imagePath).absolute.path,
+          );
+        }
+      }
+    }
+    return Set.unmodifiable(pathsByKey.values);
+  }
+
+  Future<ScriptExhibitionSourceFolderCleanupResult> cleanSourceFolderImages(
+    ScriptExhibitionScript script, {
+    ScriptExhibitionSourceFolderCleanupPreview? preview,
+  }) async {
+    final cleanupPreview = preview ?? await previewSourceFolderCleanup(script);
+    final deleted = <String>[];
+    final failed = <String>[];
+    for (final path in cleanupPreview.removableImagePaths) {
+      try {
+        final type = await FileSystemEntity.type(path, followLinks: false);
+        if (type != FileSystemEntityType.file) {
+          continue;
+        }
+        await File(path).delete();
+        deleted.add(path);
+      } on FileSystemException {
+        failed.add(path);
+      }
+    }
+    return ScriptExhibitionSourceFolderCleanupResult(
+      preview: cleanupPreview,
+      deletedImagePaths: List.unmodifiable(deleted),
+      failedImagePaths: List.unmodifiable(failed),
+    );
+  }
+
+  Future<ScriptExhibitionScript> _scriptForSourceFolderCleanup(
+    ScriptExhibitionScript script,
+  ) async {
+    if (script.summaryOnly) {
+      await _loadScriptDetailIfNeeded(script.scriptId);
+    }
+    return _scriptMatching(script) ?? script;
+  }
+
   List<ScriptExhibitionScript> get selectedShelfScripts {
     if (_selectedScriptIds.isEmpty) return const [];
     final selectedIds = _selectedScriptIds.toSet();
@@ -661,14 +1109,58 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         .toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> loadGenerationParamsForItem(
+    ScriptExhibitionItem item,
+  ) {
+    final existing = _knownGenerationParamsForItem(item);
+    if (_hasDisplayedGenerationParams(existing)) {
+      return Future.value(existing);
+    }
+    final imagePath = item.imagePath.trim();
+    if (!_isLocalImagePath(imagePath)) {
+      return Future.value(existing);
+    }
+    final loaded = _imageGenerationParamsCache.putIfAbsent(imagePath, () async {
+      final params = await loadImageGenerationParams(imagePath);
+      return _lightweightProductionParameters(params);
+    });
+    return loaded.then((params) {
+      if (existing.isEmpty) {
+        return params;
+      }
+      return Map<String, dynamic>.unmodifiable({
+        ...existing,
+        ...params,
+      });
+    });
+  }
+
   List<ScriptExhibitionScript> _sortVisibleScripts(
     List<ScriptExhibitionScript> scripts,
   ) {
     if (scriptSort == ScriptExhibitionScriptSort.recent) {
       return scripts;
     }
-    return scripts
+    return [...scripts]
       ..sort((left, right) => _compareScriptsForSort(left, right, scriptSort));
+  }
+
+  List<ScriptExhibitionScript> _filterScriptsBySearchQuery(
+    List<ScriptExhibitionScript> scripts,
+  ) {
+    final terms = scriptSearchQuery
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+    if (terms.isEmpty) return scripts;
+    return scripts.where((script) {
+      final searchText = script.searchText.isNotEmpty
+          ? script.searchText
+          : _scriptSearchTextFromScript(script);
+      return terms.every(searchText.contains);
+    }).toList(growable: false);
   }
 
   List<ScriptExhibitionItem> _sortVisibleItems(
@@ -691,10 +1183,48 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   Future<void> load() async {
     final generation = ++_loadGeneration;
+    var publishedBaseSnapshot = false;
     isLoading = true;
     loadError = null;
     notifyListeners();
     try {
+      final baseResults = await Future.wait<Object>([
+        _loadRecastExhibitionScripts(),
+        loadScripts(),
+        loadCustomCategories(),
+        loadCustomCategoryScriptIds(),
+      ]);
+      final recastScripts = baseResults[0] as List<RecastExhibitionScript>;
+      final scripts = baseResults[1] as List<TokenizerScript>;
+      final loadedCustomCategories =
+          baseResults[2] as List<ScriptExhibitionUserCategory>;
+      final loadedCustomCategoryScriptIds =
+          baseResults[3] as Map<String, List<String>>;
+      if (generation != _loadGeneration) {
+        return;
+      }
+      _loadedRecastScripts = recastScripts;
+      _loadedScripts = scripts;
+      _loadedCustomCategories = loadedCustomCategories;
+      _loadedCustomCategoryScriptIds = loadedCustomCategoryScriptIds;
+      _loadedProductionPlans = const [];
+      _loadedGalleryRecords = const [];
+      final baseSnapshot = await _buildSnapshotAsync(
+        recastScripts: recastScripts,
+        scripts: scripts,
+        plans: const [],
+        records: const [],
+      );
+      if (generation != _loadGeneration) {
+        return;
+      }
+      _setSnapshot(baseSnapshot);
+      _normalizeSelection();
+      _hasLoaded = true;
+      isLoading = false;
+      publishedBaseSnapshot = true;
+      notifyListeners();
+
       final galleryRecords = () async {
         try {
           return await loadGalleryRecords();
@@ -703,37 +1233,54 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         }
       }();
       final results = await Future.wait<Object>([
-        loadRecastCaches(),
-        loadScripts(),
         loadProductionPlans(),
         galleryRecords,
-      ]);
-      final caches = results[0] as List<RecastScriptCache>;
-      final scripts = results[1] as List<TokenizerScript>;
-      final plans = results[2] as List<ProductionPlan>;
-      final records = results[3] as List<StudioGalleryRecord>;
+      ]).catchError(
+          (_) => const <Object>[<ProductionPlan>[], <StudioGalleryRecord>[]]);
+      final plans = results[0] as List<ProductionPlan>;
+      final records = results[1] as List<StudioGalleryRecord>;
       if (generation != _loadGeneration) {
         return;
       }
-      snapshot = _buildSnapshot(
-        caches: caches,
-        scripts: scripts,
+      _loadedProductionPlans = plans;
+      _loadedGalleryRecords = records;
+      final fullSnapshot = await _buildSnapshotAsync(
+        recastScripts: _loadedRecastScripts,
+        scripts: _loadedScripts,
         plans: plans,
         records: records,
       );
+      if (generation != _loadGeneration) {
+        return;
+      }
+      _setSnapshot(fullSnapshot);
       _normalizeSelection();
+      notifyListeners();
     } catch (error) {
       if (generation != _loadGeneration) {
         return;
       }
       loadError = error;
     } finally {
-      if (generation == _loadGeneration) {
+      if (generation == _loadGeneration && !publishedBaseSnapshot) {
         _hasLoaded = true;
         isLoading = false;
         notifyListeners();
       }
     }
+  }
+
+  Future<List<RecastExhibitionScript>> _loadRecastExhibitionScripts() async {
+    final loader = loadRecastScripts;
+    if (loader != null) {
+      return loader();
+    }
+    final caches = await loadRecastCaches();
+    return [
+      for (final cache in caches)
+        if (RecastExhibitionScript.tryFromCache(cache) case final script?)
+          script,
+    ];
   }
 
   Future<void> importScript() async {
@@ -771,6 +1318,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         refreshedScript.versionContainingItem(focusedAttachment.id)?.id;
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = focusedAttachment.id;
+    _selectedVersionIds.clear();
     notifyListeners();
   }
 
@@ -818,6 +1366,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = null;
     _selectedScriptIds.clear();
+    _selectedVersionIds.clear();
     notifyListeners();
   }
 
@@ -827,7 +1376,42 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = null;
     _selectedScriptIds.clear();
+    _selectedVersionIds.clear();
     notifyListeners();
+    unawaited(_loadScriptDetailIfNeeded(scriptId));
+  }
+
+  Future<void> _loadScriptDetailIfNeeded(String scriptId) async {
+    final loader = loadRecastScript;
+    if (loader == null) return;
+    final current = _scriptsById[scriptId];
+    if (current == null || !current.summaryOnly) return;
+    if (!_loadingScriptDetails.add(scriptId)) return;
+    try {
+      final detail = await loader(scriptId);
+      if (detail == null || _loadGeneration == 0) return;
+      final nextRecastScripts = [
+        for (final script in _loadedRecastScripts)
+          script.scriptId == scriptId ? detail : script,
+      ];
+      _loadedRecastScripts = nextRecastScripts;
+      final nextSnapshot = await _buildSnapshotAsync(
+        recastScripts: nextRecastScripts,
+        scripts: _loadedScripts,
+        plans: _loadedProductionPlans,
+        records: _loadedGalleryRecords,
+      );
+      if (selectedScriptId != scriptId) {
+        _setSnapshot(nextSnapshot);
+        notifyListeners();
+        return;
+      }
+      _setSnapshot(nextSnapshot);
+      _normalizeSelection();
+      notifyListeners();
+    } finally {
+      _loadingScriptDetails.remove(scriptId);
+    }
   }
 
   void clearScriptSelection() {
@@ -836,6 +1420,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = null;
     _selectedScriptIds.clear();
+    _selectedVersionIds.clear();
     notifyListeners();
   }
 
@@ -868,10 +1453,44 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateScriptSearchQuery(String value) {
+    if (scriptSearchQuery == value) return;
+    scriptSearchQuery = value;
+    _normalizeShelfSelectionForVisibleScripts();
+    notifyListeners();
+  }
+
+  void clearScriptSearchQuery() {
+    updateScriptSearchQuery('');
+  }
+
   void selectVersion(String versionId) {
     selectedVersionId = versionId;
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = null;
+    notifyListeners();
+  }
+
+  void toggleVersionSelection(String versionId) {
+    final script = selectedScript;
+    if (script == null) return;
+    final version = script.versions
+        .where((candidate) => candidate.id == versionId)
+        .firstOrNull;
+    if (version == null || !canDeleteVersion(script, version)) {
+      return;
+    }
+    if (_selectedVersionIds.contains(version.id)) {
+      _selectedVersionIds.remove(version.id);
+    } else {
+      _selectedVersionIds.add(version.id);
+    }
+    notifyListeners();
+  }
+
+  void clearVersionSelection() {
+    if (_selectedVersionIds.isEmpty) return;
+    _selectedVersionIds.clear();
     notifyListeners();
   }
 
@@ -906,6 +1525,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
           script.versions.firstOrNull?.id;
       selectedDetailFilterId = needsActionDetailFilterId;
       focusedItemId = item.id;
+      _selectedVersionIds.clear();
       notifyListeners();
       return;
     }
@@ -921,15 +1541,29 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     if (selectedScriptId == script.scriptId) {
       selectedScriptId = null;
       selectedVersionId = null;
+      _selectedVersionIds.clear();
     }
     await load();
   }
 
-  Future<void> deleteItem(ScriptExhibitionItem item) async {
+  Future<void> deleteItem(
+    ScriptExhibitionItem item, {
+    bool deleteLocalFiles = false,
+  }) async {
     final deleter = deleteItemRecord;
     if (deleter == null || !item.canDelete) return;
-    await deleter(item);
-    await load();
+    await deleter(item, deleteLocalFiles: deleteLocalFiles);
+    if (_itemDeleteTouchesRecast(item)) {
+      await load();
+      return;
+    }
+    if (await _refreshAfterItemDelete(item)) {
+      return;
+    }
+    final snapshotChanged = _removeItemFromCurrentSnapshot(item);
+    if (snapshotChanged) {
+      notifyListeners();
+    }
   }
 
   bool canDeleteVersion(
@@ -946,18 +1580,198 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   Future<void> deleteVersion(
     ScriptExhibitionScript script,
-    ScriptExhibitionVersion version,
-  ) async {
+    ScriptExhibitionVersion version, {
+    bool deleteLocalFiles = false,
+  }) async {
+    await deleteVersions(
+      script,
+      [version],
+      deleteLocalFiles: deleteLocalFiles,
+    );
+  }
+
+  Future<void> deleteVersions(
+    ScriptExhibitionScript script,
+    Iterable<ScriptExhibitionVersion> versions, {
+    bool deleteLocalFiles = false,
+  }) async {
     final deleter = deleteVersionRecord;
-    if (deleter == null || !canDeleteVersion(script, version)) return;
-    await deleter(script, version);
-    if (selectedScriptId == script.scriptId &&
-        selectedVersionId == version.id) {
+    if (deleter == null) return;
+    final currentScript = _scriptsById[script.scriptId] ?? script;
+    final targetVersionsById = <String, ScriptExhibitionVersion>{};
+    for (final requestedVersion in versions) {
+      final version = currentScript.versions
+          .where((candidate) => candidate.id == requestedVersion.id)
+          .firstOrNull;
+      if (version == null || !canDeleteVersion(currentScript, version)) {
+        continue;
+      }
+      targetVersionsById[version.id] = version;
+    }
+    if (targetVersionsById.isEmpty) return;
+    final deletedItems = [
+      for (final version in targetVersionsById.values)
+        for (final item in version.items)
+          if (item.canDelete) item,
+    ];
+    for (final version in targetVersionsById.values) {
+      await deleter(
+        currentScript,
+        version,
+        deleteLocalFiles: deleteLocalFiles,
+      );
+    }
+    final deletedVersionIds = targetVersionsById.keys.toSet();
+    final selectionChanged = selectedScriptId == currentScript.scriptId &&
+        selectedVersionId != null &&
+        deletedVersionIds.contains(selectedVersionId);
+    if (selectedScriptId == currentScript.scriptId &&
+        selectedVersionId != null &&
+        deletedVersionIds.contains(selectedVersionId)) {
       selectedVersionId = null;
       selectedDetailFilterId = allDetailFilterId;
       focusedItemId = null;
     }
-    await load();
+    _selectedVersionIds.removeAll(deletedVersionIds);
+    final snapshotChanged =
+        _removeVersionsFromCurrentSnapshot(currentScript, deletedVersionIds);
+    if (selectionChanged || snapshotChanged) {
+      notifyListeners();
+    }
+    _refreshAfterVersionDelete(deletedItems);
+  }
+
+  bool _removeVersionsFromCurrentSnapshot(
+    ScriptExhibitionScript target,
+    Set<String> versionIds,
+  ) {
+    if (versionIds.isEmpty) return false;
+    var changed = false;
+    final nextScripts = <ScriptExhibitionScript>[];
+    for (final script in snapshot.scripts) {
+      if (!_scriptMatchesForLocalMutation(script, target)) {
+        nextScripts.add(script);
+        continue;
+      }
+      final nextScript = _scriptWithoutVersions(script, versionIds);
+      changed = true;
+      if (nextScript != null) {
+        nextScripts.add(nextScript);
+      }
+    }
+    if (!changed) {
+      return false;
+    }
+    _setSnapshot(_snapshotFromScripts(nextScripts));
+    _normalizeSelection();
+    return true;
+  }
+
+  bool _removeItemFromCurrentSnapshot(ScriptExhibitionItem target) {
+    var changed = false;
+    final nextScripts = <ScriptExhibitionScript>[];
+    for (final script in snapshot.scripts) {
+      final nextScript = _scriptWithoutItem(script, target.id);
+      if (identical(nextScript, script)) {
+        nextScripts.add(script);
+        continue;
+      }
+      changed = true;
+      if (nextScript != null) {
+        nextScripts.add(nextScript);
+      }
+    }
+    if (!changed) {
+      return false;
+    }
+    _setSnapshot(_snapshotFromScripts(nextScripts));
+    _normalizeSelection();
+    return true;
+  }
+
+  void _refreshAfterVersionDelete(List<ScriptExhibitionItem> deletedItems) {
+    if (_versionDeleteTouchesRecast(deletedItems)) {
+      unawaited(load());
+      return;
+    }
+    final reloadProductionPlans =
+        deletedItems.any(_itemHasProductionTaskIdentity);
+    final reloadGalleryRecords =
+        deletedItems.any(_itemHasGalleryRecordIdentity);
+    if (!reloadProductionPlans && !reloadGalleryRecords) {
+      return;
+    }
+    unawaited(_refreshDynamicVersionSources(
+      reloadProductionPlans: reloadProductionPlans,
+      reloadGalleryRecords: reloadGalleryRecords,
+    ));
+  }
+
+  Future<bool> _refreshAfterItemDelete(ScriptExhibitionItem deletedItem) async {
+    final reloadProductionPlans = _itemHasProductionTaskIdentity(deletedItem);
+    final reloadGalleryRecords = _itemHasGalleryRecordIdentity(deletedItem);
+    if (!reloadProductionPlans && !reloadGalleryRecords) {
+      return false;
+    }
+    await _refreshDynamicVersionSources(
+      reloadProductionPlans: reloadProductionPlans,
+      reloadGalleryRecords: reloadGalleryRecords,
+    );
+    return true;
+  }
+
+  Future<void> _refreshDynamicVersionSources({
+    required bool reloadProductionPlans,
+    required bool reloadGalleryRecords,
+  }) async {
+    final generation = _loadGeneration;
+    try {
+      final results = await Future.wait<Object>([
+        if (reloadProductionPlans)
+          loadProductionPlans()
+        else
+          Future<List<ProductionPlan>>.value(_loadedProductionPlans),
+        if (reloadGalleryRecords)
+          loadGalleryRecords()
+        else
+          Future<List<StudioGalleryRecord>>.value(_loadedGalleryRecords),
+      ]);
+      if (generation != _loadGeneration) {
+        return;
+      }
+      final plans = results[0] as List<ProductionPlan>;
+      final records = results[1] as List<StudioGalleryRecord>;
+      final nextSnapshot = await _buildSnapshotAsync(
+        recastScripts: _loadedRecastScripts,
+        scripts: _loadedScripts,
+        plans: plans,
+        records: records,
+      );
+      if (generation != _loadGeneration) {
+        return;
+      }
+      _loadedProductionPlans = plans;
+      _loadedGalleryRecords = records;
+      _setSnapshot(nextSnapshot);
+      _normalizeSelection();
+      notifyListeners();
+    } catch (error) {
+      if (generation != _loadGeneration) {
+        return;
+      }
+      loadError = error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshDynamicVersions({
+    bool reloadProductionPlans = true,
+    bool reloadGalleryRecords = true,
+  }) {
+    return _refreshDynamicVersionSources(
+      reloadProductionPlans: reloadProductionPlans,
+      reloadGalleryRecords: reloadGalleryRecords,
+    );
   }
 
   Future<void> renameScript(
@@ -974,6 +1788,11 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   Future<void> createCategory(String categoryName) async {
     final normalized = categoryName.trim();
     if (normalized.isEmpty) return;
+    final creator = createCategoryRecord;
+    if (creator != null) {
+      await creator(normalized);
+      _rememberLoadedCustomCategory(normalized);
+    }
     _ensureSessionCategory(normalized);
     notifyListeners();
   }
@@ -991,25 +1810,75 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     Iterable<ScriptExhibitionScript> scripts,
     String categoryName,
   ) async {
-    final assigner = assignScriptCategory;
+    final singleAssigner = assignScriptCategory;
+    final batchAssigner = assignScriptsCategory;
     final normalized = categoryName.trim();
-    if (assigner == null || normalized.isEmpty) return;
+    if ((singleAssigner == null && batchAssigner == null) ||
+        normalized.isEmpty) {
+      return;
+    }
     final uniqueScripts = <String, ScriptExhibitionScript>{};
     for (final script in scripts) {
       uniqueScripts[script.scriptId] = script;
     }
     if (uniqueScripts.isEmpty) return;
-    _ensureSessionCategory(normalized);
-    for (final script in uniqueScripts.values) {
-      await assigner(script, normalized);
+    final scriptsNeedingPersistence = <ScriptExhibitionScript>[
+      for (final script in uniqueScripts.values)
+        if (!_scriptHasCategory(
+            _scriptsById[script.scriptId] ?? script, normalized))
+          _scriptsById[script.scriptId] ?? script,
+    ];
+    final creator = createCategoryRecord;
+    if (creator != null) {
+      await creator(normalized);
+      _rememberLoadedCustomCategory(normalized);
     }
-    await load();
-    selectedCategoryId = _customCategoryId(normalized);
+    _ensureSessionCategory(normalized);
+    _applyCategoryToLoadedSources(uniqueScripts.keys, normalized);
+    _applyCategoryToSnapshot(uniqueScripts.keys, normalized);
     selectedScriptId = null;
     selectedVersionId = null;
     selectedDetailFilterId = allDetailFilterId;
     focusedItemId = null;
     _selectedScriptIds.clear();
+    _selectedVersionIds.clear();
+    notifyListeners();
+    if (scriptsNeedingPersistence.isEmpty) {
+      return;
+    }
+    try {
+      if (batchAssigner != null) {
+        await batchAssigner(scriptsNeedingPersistence, normalized);
+      } else {
+        for (final script in scriptsNeedingPersistence) {
+          await singleAssigner!(script, normalized);
+        }
+      }
+      await _refreshCategoryAssignmentsFromPersistence();
+    } catch (_) {
+      await load();
+      rethrow;
+    }
+  }
+
+  Future<void> _refreshCategoryAssignmentsFromPersistence() async {
+    final generation = _loadGeneration;
+    final loadedCustomCategoryScriptIds = await loadCustomCategoryScriptIds();
+    if (generation != _loadGeneration) {
+      return;
+    }
+    _loadedCustomCategoryScriptIds = loadedCustomCategoryScriptIds;
+    final nextSnapshot = await _buildSnapshotAsync(
+      recastScripts: _loadedRecastScripts,
+      scripts: _loadedScripts,
+      plans: _loadedProductionPlans,
+      records: _loadedGalleryRecords,
+    );
+    if (generation != _loadGeneration) {
+      return;
+    }
+    _setSnapshot(nextSnapshot);
+    _normalizeSelection();
     notifyListeners();
   }
 
@@ -1037,6 +1906,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       selectedVersionId = null;
       selectedDetailFilterId = allDetailFilterId;
       focusedItemId = null;
+      _selectedVersionIds.clear();
     }
     _selectedScriptIds.remove(script.scriptId);
     await load();
@@ -1061,6 +1931,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
           session.id == category.id ||
           session.title.trim().toLowerCase() == normalized.toLowerCase(),
     );
+    _categoriesCache = null;
     final deleter = deleteCategoryRecord;
     if (deleter != null) {
       await deleter(normalized);
@@ -1072,6 +1943,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       selectedVersionId = null;
       selectedDetailFilterId = allDetailFilterId;
       focusedItemId = null;
+      _selectedVersionIds.clear();
     }
     _selectedScriptIds.clear();
     notifyListeners();
@@ -1096,7 +1968,10 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     final trimmed = label.trim();
     if (renamer == null || trimmed.isEmpty) return;
     await renamer(script, version, trimmed);
-    await load();
+    _applyVersionLabelToLoadedSources(script, version.id, trimmed);
+    if (_applyVersionLabelToCurrentSnapshot(script, version.id, trimmed)) {
+      notifyListeners();
+    }
   }
 
   Future<void> setCoverItem(ScriptExhibitionItem item) async {
@@ -1108,14 +1983,71 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _setSnapshot(ScriptExhibitionSnapshot nextSnapshot) {
+    _snapshot = nextSnapshot;
+    final scriptsById = <String, ScriptExhibitionScript>{};
+    final itemsById = <String, ScriptExhibitionItem>{};
+    final scriptsByCategoryName = <String, List<ScriptExhibitionScript>>{};
+    final assignedCustomScriptIds = <String>{
+      for (final entry in _effectiveCustomCategoryScriptIds.entries)
+        if (!_isProtectedCategoryId(entry.key)) ...entry.value,
+    };
+    final uncategorizedScripts = <ScriptExhibitionScript>[];
+    final activeScripts = <ScriptExhibitionScript>[];
+    final archivedScripts = <ScriptExhibitionScript>[];
+    final needsActionScripts = <ScriptExhibitionScript>[];
+    for (final script in nextSnapshot.scripts) {
+      scriptsById[script.scriptId] = script;
+      switch (script.status) {
+        case ScriptExhibitionScriptStatus.active:
+          activeScripts.add(script);
+          break;
+        case ScriptExhibitionScriptStatus.archived:
+          archivedScripts.add(script);
+          break;
+        case ScriptExhibitionScriptStatus.needsAction:
+          needsActionScripts.add(script);
+          break;
+      }
+      var hasCustomCategory = assignedCustomScriptIds.contains(script.scriptId);
+      for (final categoryName in script.categoryNames) {
+        final normalized = categoryName.trim().toLowerCase();
+        if (normalized.isNotEmpty) {
+          hasCustomCategory = true;
+          scriptsByCategoryName.putIfAbsent(normalized, () => []).add(script);
+        }
+      }
+      if (!hasCustomCategory) {
+        uncategorizedScripts.add(script);
+      }
+      for (final version in script.versions) {
+        for (final item in version.items) {
+          itemsById[item.id] = item;
+        }
+      }
+    }
+    _scriptsById = Map.unmodifiable(scriptsById);
+    _itemsById = Map.unmodifiable(itemsById);
+    _scriptsByCategoryName =
+        Map<String, List<ScriptExhibitionScript>>.unmodifiable({
+      for (final entry in scriptsByCategoryName.entries)
+        entry.key: List<ScriptExhibitionScript>.unmodifiable(entry.value),
+    });
+    _uncategorizedScripts = List.unmodifiable(uncategorizedScripts);
+    _activeScripts = List.unmodifiable(activeScripts);
+    _archivedScripts = List.unmodifiable(archivedScripts);
+    _needsActionScripts = List.unmodifiable(needsActionScripts);
+    _categoriesCache = null;
+  }
+
   void _normalizeSelection() {
-    final scripts = snapshot.scripts;
     if (selectedScriptId != null &&
-        !scripts.any((script) => script.scriptId == selectedScriptId)) {
+        !_scriptsById.containsKey(selectedScriptId)) {
       selectedScriptId = null;
       selectedVersionId = null;
       selectedDetailFilterId = allDetailFilterId;
       focusedItemId = null;
+      _selectedVersionIds.clear();
     }
     final script = selectedScript;
     if (script != null &&
@@ -1123,34 +2055,239 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         !script.versions.any((version) => version.id == selectedVersionId)) {
       selectedVersionId = script.versions.firstOrNull?.id;
     }
+    if (script == null) {
+      _selectedVersionIds.clear();
+    } else {
+      final deletableVersionIds = {
+        for (final version in script.versions)
+          if (canDeleteVersion(script, version)) version.id,
+      };
+      _selectedVersionIds.removeWhere(
+        (versionId) => !deletableVersionIds.contains(versionId),
+      );
+    }
     if (focusedItemId != null && focusedItem == null) {
       focusedItemId = null;
     }
     _selectedScriptIds.removeWhere(
-      (scriptId) => !scripts.any((script) => script.scriptId == scriptId),
+      (scriptId) => !_scriptsById.containsKey(scriptId),
     );
     if (!detailFilters.any((filter) => filter.id == selectedDetailFilterId)) {
       selectedDetailFilterId = allDetailFilterId;
     }
   }
 
+  void _restoreSelectionIfPresent({
+    required String? scriptId,
+    required String? versionId,
+  }) {
+    if (scriptId == null || !_scriptsById.containsKey(scriptId)) {
+      return;
+    }
+    selectedScriptId = scriptId;
+    _selectedVersionIds.clear();
+    if (versionId != null &&
+        selectedScript?.versions.any((version) => version.id == versionId) ==
+            true) {
+      selectedVersionId = versionId;
+    }
+    _normalizeSelection();
+    notifyListeners();
+  }
+
+  void _normalizeShelfSelectionForVisibleScripts() {
+    if (_selectedScriptIds.isEmpty) return;
+    final visibleIds = visibleScripts.map((script) => script.scriptId).toSet();
+    _selectedScriptIds
+        .removeWhere((scriptId) => !visibleIds.contains(scriptId));
+  }
+
   List<ScriptExhibitionScript> _scriptsForCustomCategory(String categoryId) {
+    final scriptsById = <String, ScriptExhibitionScript>{};
     final categoryName = _customCategoryNameFromId(categoryId);
     if (categoryName != null) {
-      return snapshot.scripts
-          .where(
-            (script) => script.categoryNames.any(
-              (name) => name.trim().toLowerCase() == categoryName,
-            ),
-          )
-          .toList(growable: false);
+      for (final script in _scriptsByCategoryName[categoryName] ?? const []) {
+        scriptsById[script.scriptId] = script;
+      }
     }
-    final assignedIds = customCategoryScriptIds[categoryId];
-    if (assignedIds == null) return const [];
+    final assignedIds = _effectiveCustomCategoryScriptIds[categoryId];
+    if (assignedIds != null) {
+      for (final script in _scriptsForAssignedIds(assignedIds)) {
+        scriptsById[script.scriptId] = script;
+      }
+    }
+    if (scriptsById.isEmpty) return const [];
+    return [
+      for (final script in snapshot.scripts)
+        if (scriptsById.containsKey(script.scriptId)) script,
+    ];
+  }
+
+  List<ScriptExhibitionScript> _scriptsForAssignedIds(
+    Iterable<String> assignedIds,
+  ) {
     final assigned = assignedIds.toSet();
-    return snapshot.scripts
-        .where((script) => assigned.contains(script.scriptId))
-        .toList(growable: false);
+    if (assigned.isEmpty) return const [];
+    return [
+      for (final script in snapshot.scripts)
+        if (assigned.contains(script.scriptId)) script,
+    ];
+  }
+
+  void _applyCategoryToSnapshot(
+    Iterable<String> scriptIds,
+    String categoryName,
+  ) {
+    final normalized = categoryName.trim();
+    if (normalized.isEmpty) return;
+    final targetIds = scriptIds.toSet();
+    if (targetIds.isEmpty) return;
+    var changed = false;
+    final nextScripts = [
+      for (final script in snapshot.scripts)
+        if (targetIds.contains(script.scriptId))
+          () {
+            if (_scriptHasCategory(script, normalized)) {
+              return script;
+            }
+            changed = true;
+            return script.copyWith(
+              categoryNames: [...script.categoryNames, normalized],
+            );
+          }()
+        else
+          script,
+    ];
+    if (!changed) return;
+    _setSnapshot(ScriptExhibitionSnapshot(
+      scripts: List.unmodifiable(nextScripts),
+      totalImageCount: snapshot.totalImageCount,
+      generatedImageCount: snapshot.generatedImageCount,
+      needsActionCount: snapshot.needsActionCount,
+    ));
+  }
+
+  void _applyCategoryToLoadedSources(
+    Iterable<String> scriptIds,
+    String categoryName,
+  ) {
+    final normalized = categoryName.trim();
+    if (normalized.isEmpty) return;
+    final targetIds = scriptIds.toSet();
+    if (targetIds.isEmpty) return;
+    _loadedRecastScripts = [
+      for (final script in _loadedRecastScripts)
+        if (targetIds.contains(script.scriptId))
+          script.copyWith(
+            categoryNames:
+                _categoryNamesWithAdded(script.categoryNames, normalized),
+          )
+        else
+          script,
+    ];
+    _loadedScripts = [
+      for (final script in _loadedScripts)
+        if (targetIds.contains(script.scriptId))
+          script.copyWith(
+            categoryNames:
+                _categoryNamesWithAdded(script.categoryNames, normalized),
+          )
+        else
+          script,
+    ];
+  }
+
+  bool _applyVersionLabelToCurrentSnapshot(
+    ScriptExhibitionScript target,
+    String versionId,
+    String label,
+  ) {
+    final normalizedVersionId = versionId.trim();
+    final normalizedLabel = label.trim();
+    if (normalizedVersionId.isEmpty || normalizedLabel.isEmpty) {
+      return false;
+    }
+    var changed = false;
+    final nextScripts = [
+      for (final script in snapshot.scripts)
+        if (_scriptMatchesForLocalMutation(script, target))
+          () {
+            final nextScript = _scriptWithVersionLabel(
+              script,
+              versionId: normalizedVersionId,
+              label: normalizedLabel,
+            );
+            changed = changed || !identical(nextScript, script);
+            return nextScript;
+          }()
+        else
+          script,
+    ];
+    if (!changed) {
+      return false;
+    }
+    _setSnapshot(_snapshotFromScripts(nextScripts));
+    _normalizeSelection();
+    return true;
+  }
+
+  void _applyVersionLabelToLoadedSources(
+    ScriptExhibitionScript target,
+    String versionId,
+    String label,
+  ) {
+    final normalizedVersionId = versionId.trim();
+    final normalizedLabel = label.trim();
+    if (normalizedVersionId.isEmpty || normalizedLabel.isEmpty) {
+      return;
+    }
+    _loadedRecastScripts = [
+      for (final script in _loadedRecastScripts)
+        if (_sourceScriptMatchesTarget(
+          scriptId: script.scriptId,
+          title: script.scriptName,
+          sourceFolder: script.sourceRootPath,
+          target: target,
+        ))
+          script.copyWith(
+            versionLabels: {
+              ...script.versionLabels,
+              normalizedVersionId: normalizedLabel,
+            },
+          )
+        else
+          script,
+    ];
+    _loadedScripts = [
+      for (final script in _loadedScripts)
+        if (_sourceScriptMatchesTarget(
+          scriptId: script.scriptId,
+          title: script.name,
+          sourceFolder: script.sourceFolder,
+          target: target,
+        ))
+          script.copyWith(
+            exhibitionVersionLabels: {
+              ...script.exhibitionVersionLabels,
+              normalizedVersionId: normalizedLabel,
+            },
+          )
+        else
+          script,
+    ];
+  }
+
+  List<ScriptExhibitionUserCategory> _registeredCustomCategories() {
+    final categoriesById = <String, ScriptExhibitionUserCategory>{};
+    for (final category in customCategories) {
+      categoriesById[category.id] = category;
+    }
+    for (final category in _loadedCustomCategories) {
+      categoriesById.putIfAbsent(category.id, () => category);
+    }
+    final categories = categoriesById.values.toList(growable: false)
+      ..sort((left, right) => left.title.compareTo(right.title));
+    return categories;
   }
 
   List<ScriptExhibitionUserCategory> _derivedCustomCategories() {
@@ -1171,7 +2308,25 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         );
       }
     }
-    for (final category in customCategories) {
+    for (final entry in _effectiveCustomCategoryScriptIds.entries) {
+      if (_isProtectedCategoryId(entry.key) || entry.value.isEmpty) {
+        continue;
+      }
+      final displayName = _customCategoryDisplayNameFromId(entry.key);
+      if (displayName == null) {
+        continue;
+      }
+      categoriesById.putIfAbsent(
+        entry.key,
+        () => ScriptExhibitionUserCategory(
+          id: entry.key,
+          title: displayName,
+          description: 'Manual script category.',
+          tags: const ['Manual'],
+        ),
+      );
+    }
+    for (final category in _registeredCustomCategories()) {
       categoriesById.remove(category.id);
     }
     final categories = categoriesById.values.toList()
@@ -1182,7 +2337,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   void _ensureSessionCategory(String categoryName) {
     final normalized = categoryName.trim();
     final id = _customCategoryId(normalized);
-    if (customCategories.any((category) => category.id == id) ||
+    if (_registeredCustomCategories().any((category) => category.id == id) ||
         _sessionCategories.any((category) => category.id == id)) {
       return;
     }
@@ -1194,6 +2349,26 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         tags: const ['自由分类'],
       ),
     );
+    _categoriesCache = null;
+  }
+
+  void _rememberLoadedCustomCategory(String categoryName) {
+    final normalized = categoryName.trim();
+    if (normalized.isEmpty) return;
+    final id = _customCategoryId(normalized);
+    if (_loadedCustomCategories.any((category) => category.id == id)) {
+      return;
+    }
+    _loadedCustomCategories = [
+      ..._loadedCustomCategories,
+      ScriptExhibitionUserCategory(
+        id: id,
+        title: normalized,
+        description: '手动归入的剧本。',
+        tags: const ['自由分类'],
+      ),
+    ];
+    _categoriesCache = null;
   }
 
   String? _selectedCustomCategoryName() {
@@ -1215,6 +2390,7 @@ String _customCategoryId(String categoryName) =>
 bool _isProtectedCategoryId(String categoryId) {
   return switch (categoryId) {
     ScriptExhibitionRoomViewModel.allCategoryId ||
+    ScriptExhibitionRoomViewModel.uncategorizedCategoryId ||
     ScriptExhibitionRoomViewModel.activeCategoryId ||
     ScriptExhibitionRoomViewModel.archivedCategoryId ||
     ScriptExhibitionRoomViewModel.needsActionCategoryId =>
@@ -1248,8 +2424,25 @@ bool _scriptHasCategory(
   );
 }
 
+List<String> _categoryNamesWithAdded(
+  List<String> categoryNames,
+  String categoryName,
+) {
+  final normalized = categoryName.trim();
+  if (normalized.isEmpty) return categoryNames;
+  final next = [
+    for (final name in categoryNames)
+      if (name.trim().isNotEmpty) name,
+  ];
+  if (!next
+      .any((name) => name.trim().toLowerCase() == normalized.toLowerCase())) {
+    next.add(normalized);
+  }
+  return List.unmodifiable(next);
+}
+
 ScriptExhibitionSnapshot _buildSnapshot({
-  required List<RecastScriptCache> caches,
+  required List<RecastExhibitionScript> recastScripts,
   required List<TokenizerScript> scripts,
   required List<ProductionPlan> plans,
   required List<StudioGalleryRecord> records,
@@ -1262,15 +2455,15 @@ ScriptExhibitionSnapshot _buildSnapshot({
       _galleryRecordsByProductionTaskKey(records);
   final imagePathIndexesByRoot = <String, Map<String, String>>{};
 
-  Map<String, String> imagePathsByLeafForRoot(String? rootPath) {
+  _ImagePathsByLeafProvider imagePathsByLeafForRoot(String? rootPath) {
     final normalized = rootPath?.trim();
     if (normalized == null || normalized.isEmpty) {
-      return const {};
+      return () => const {};
     }
-    return imagePathIndexesByRoot.putIfAbsent(
-      normalized,
-      () => _imagePathsByLeaf(normalized),
-    );
+    return () => imagePathIndexesByRoot.putIfAbsent(
+          normalized,
+          () => _imagePathsByLeaf(normalized),
+        );
   }
 
   void registerAliases(
@@ -1352,24 +2545,33 @@ ScriptExhibitionSnapshot _buildSnapshot({
     return bucket;
   }
 
-  for (final cache in caches) {
-    final script = _scriptFromRecastCache(cache);
-    if (script == null) {
-      continue;
-    }
-    final scriptId = _firstNonEmpty([script.id, cache.scriptId]);
-    final sourceFolder =
-        _firstNonEmpty([script.rootPath, cache.sourceRootPath]);
+  for (final script in recastScripts) {
+    final scriptId = script.scriptId;
+    final sourceFolder = script.sourceRootPath;
     final bucket = bucketFor(
       scriptId: scriptId,
-      title: _firstNonEmpty([script.name, cache.scriptName]),
+      title: script.scriptName,
       sourceFolder: sourceFolder,
-      updatedAt: cache.updatedAt,
+      updatedAt: script.updatedAt,
     );
     final imagePathsByLeaf = imagePathsByLeafForRoot(sourceFolder);
-    bucket.mergeCategories(_legacyCategoryNamesFromRecastScript(script));
-    bucket.mergeVersionLabels(_legacyVersionLabelsFromRecastScript(script));
-    bucket.mergeCoverItemId(_legacyCoverItemIdFromRecastScript(script));
+    bucket.mergeCategories(script.categoryNames);
+    bucket.mergeVersionLabels(script.versionLabels);
+    bucket.mergeCoverItemId(script.coverItemId);
+    if (script.summaryOnly) {
+      bucket.markSummaryOnly();
+      final hasKnownOriginalImage = script.frames.any(
+        (frame) => _knownImagePathForRecastFrame(frame).isNotEmpty,
+      );
+      if (hasKnownOriginalImage) {
+        final syntheticOriginalCount = script.displayFrameCount -
+            script.frames.length -
+            script.imageAttachments.length;
+        if (syntheticOriginalCount > 0) {
+          bucket.addSyntheticOriginalImageCount(syntheticOriginalCount);
+        }
+      }
+    }
     final sourceVersionLabel = _recastSourceVersionLabel(script);
     final sourceVersionDescription = _recastSourceVersionDescription(script);
     for (final frame in script.frames) {
@@ -1386,20 +2588,23 @@ ScriptExhibitionSnapshot _buildSnapshot({
           sourceFileName: frame.fileName,
           sourcePath: frame.sourcePath,
           title: _frameTitle(frame.index, frame.fileName),
-          subtitle: _recastFrameStatusLabel(frame),
-          prompt: _promptFromRecastFrame(frame),
-          imagePath: _imagePathForRecastFrame(
-            frame,
-            imagePathsByLeaf: imagePathsByLeaf,
-          ),
-          statusLabel: _recastFrameStatusLabel(frame),
-          updatedAt: cache.updatedAt,
+          subtitle: _recastFrameStatusLabel(frame.parseStatus),
+          prompt: frame.prompt,
+          imagePath: script.summaryOnly
+              ? _knownImagePathForRecastFrame(frame)
+              : _imagePathForRecastFrame(
+                  frame,
+                  imagePathsByLeaf: imagePathsByLeaf,
+                ),
+          statusLabel: _recastFrameStatusLabel(frame.parseStatus),
+          updatedAt: script.updatedAt,
+          generationParams: frame.generationParams,
         ),
         versionDescription: sourceVersionDescription,
-        versionUpdatedAt: cache.updatedAt,
+        versionUpdatedAt: script.updatedAt,
       );
     }
-    for (final attachment in _legacyImageAttachmentsFromRecastScript(script)) {
+    for (final attachment in script.imageAttachments) {
       if (attachment.versionId.trim().isEmpty) {
         continue;
       }
@@ -1485,6 +2690,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           ),
           statusLabel: statusLabel,
           updatedAt: script.updatedAt,
+          generationParams: task.generationParams,
         ),
         versionDescription: sourceVersionDescription,
         versionUpdatedAt: script.updatedAt,
@@ -1595,6 +2801,9 @@ ScriptExhibitionSnapshot _buildSnapshot({
           ]) ??
           '';
       final assetCapturePayload = _lightweightProductionPayload(task.payload);
+      final generationParams = _lightweightProductionParameters(
+        task.payload['parameters'] ?? task.payload['param_config'],
+      );
       if (kind == ScriptExhibitionItemSourceKind.generated &&
           displayImagePath.trim().isNotEmpty) {
         final key = _productionTaskProvenanceKey(plan.id, task.id);
@@ -1624,6 +2833,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           taskId: task.id,
           galleryRecord: galleryRecord,
           assetCapturePayload: assetCapturePayload,
+          generationParams: generationParams,
         ),
         versionDescription: source.recastRunId == null
             ? '批量产线版本。'
@@ -1702,104 +2912,421 @@ ScriptExhibitionSnapshot _buildSnapshot({
       .toList()
     ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
 
-  return ScriptExhibitionSnapshot(scripts: List.unmodifiable(scriptsOut));
-}
-
-Script? _scriptFromRecastCache(RecastScriptCache cache) {
-  if (cache.scriptSnapshot.isEmpty) {
-    return null;
+  var totalImageCount = 0;
+  var generatedImageCount = 0;
+  var needsActionCount = 0;
+  for (final script in scriptsOut) {
+    totalImageCount += script.imageLikeItemCount;
+    generatedImageCount += script.generatedImageCount;
+    if (script.status == ScriptExhibitionScriptStatus.needsAction) {
+      needsActionCount += 1;
+    }
   }
-  try {
-    return Script.fromJson(cache.scriptSnapshot);
-  } catch (_) {
-    return null;
-  }
+
+  return ScriptExhibitionSnapshot(
+    scripts: List.unmodifiable(scriptsOut),
+    totalImageCount: totalImageCount,
+    generatedImageCount: generatedImageCount,
+    needsActionCount: needsActionCount,
+  );
 }
 
-List<String> _legacyCategoryNamesFromRecastScript(Script script) {
-  final raw = script.meta['legacyCategoryNames'];
-  if (raw is! List) {
-    return const [];
-  }
-  return [
-    for (final value in raw)
-      if (value.toString().trim().isNotEmpty) value.toString(),
-  ];
-}
-
-Map<String, String> _legacyVersionLabelsFromRecastScript(Script script) {
-  final raw = script.meta['legacyExhibitionVersionLabels'];
-  if (raw is! Map) {
-    return const {};
-  }
-  return {
-    for (final entry in raw.entries)
-      if (entry.key.toString().trim().isNotEmpty &&
-          entry.value.toString().trim().isNotEmpty)
-        entry.key.toString(): entry.value.toString(),
-  };
-}
-
-String? _legacyCoverItemIdFromRecastScript(Script script) {
-  final text = script.meta['legacyExhibitionCoverItemId']?.toString().trim();
-  return text == null || text.isEmpty ? null : text;
-}
-
-List<TokenizerScriptImageAttachment> _legacyImageAttachmentsFromRecastScript(
-  Script script,
+ScriptExhibitionSnapshot _snapshotFromScripts(
+  Iterable<ScriptExhibitionScript> scripts,
 ) {
-  final raw = script.meta['legacyImageAttachments'];
-  if (raw is! List) {
-    return const [];
+  final scriptsOut = scripts.where((script) => script.hasImage).toList()
+    ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  var totalImageCount = 0;
+  var generatedImageCount = 0;
+  var needsActionCount = 0;
+  for (final script in scriptsOut) {
+    totalImageCount += script.imageLikeItemCount;
+    generatedImageCount += script.generatedImageCount;
+    if (script.status == ScriptExhibitionScriptStatus.needsAction) {
+      needsActionCount += 1;
+    }
   }
-  final attachments = <TokenizerScriptImageAttachment>[];
-  for (final value in raw) {
-    if (value is! Map) {
+  return ScriptExhibitionSnapshot(
+    scripts: List.unmodifiable(scriptsOut),
+    totalImageCount: totalImageCount,
+    generatedImageCount: generatedImageCount,
+    needsActionCount: needsActionCount,
+  );
+}
+
+ScriptExhibitionScript? _scriptWithoutVersions(
+  ScriptExhibitionScript script,
+  Set<String> versionIds,
+) {
+  var removed = false;
+  var originalItemCount = 0;
+  final remainingVersions = <ScriptExhibitionVersion>[];
+  for (final version in script.versions) {
+    if (version.id == ScriptExhibitionVersion.originalId) {
+      originalItemCount += version.items.length;
+    }
+    if (versionIds.contains(version.id)) {
+      removed = true;
       continue;
     }
-    try {
-      attachments.add(
-        TokenizerScriptImageAttachment.fromJson(value.cast<String, dynamic>()),
+    remainingVersions.add(version);
+  }
+  if (!removed) {
+    return script;
+  }
+  if (remainingVersions.isEmpty) {
+    return null;
+  }
+  final updatedAt = _latestVersionUpdatedAt(remainingVersions) ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+  final bucket = _MutableScriptBucket(
+    scriptId: script.scriptId,
+    title: script.title,
+    sourceFolder: script.sourceFolder,
+    updatedAt: updatedAt,
+  );
+  bucket.mergeCategories(script.categoryNames);
+  bucket.mergeCoverItemId(script.coverItemId);
+  if (script.summaryOnly) {
+    bucket.markSummaryOnly();
+  }
+  final syntheticOriginalImageCount = script.originalCount - originalItemCount;
+  if (syntheticOriginalImageCount > 0) {
+    bucket.addSyntheticOriginalImageCount(syntheticOriginalImageCount);
+  }
+  for (final version in remainingVersions) {
+    for (final item in version.items) {
+      bucket.addItem(
+        item,
+        versionDescription: version.description,
+        versionUpdatedAt: version.updatedAt,
       );
-    } catch (_) {
-      // Ignore malformed legacy attachment records.
     }
   }
-  return attachments;
+  final nextScript = bucket.toScript();
+  return nextScript.hasImage ? nextScript : null;
 }
 
-String _recastSourceVersionLabel(Script script) {
-  return _isImageOnlyRecastScript(script) ? '默认版本' : '原始剧本';
+ScriptExhibitionScript? _scriptWithoutItem(
+  ScriptExhibitionScript script,
+  String itemId,
+) {
+  var removed = false;
+  var originalItemCount = 0;
+  final remainingVersions = <ScriptExhibitionVersion>[];
+  for (final version in script.versions) {
+    final remainingItems = <ScriptExhibitionItem>[];
+    for (final item in version.items) {
+      if (item.id == itemId) {
+        removed = true;
+        continue;
+      }
+      remainingItems.add(item);
+    }
+    if (remainingItems.isEmpty) {
+      continue;
+    }
+    if (version.id == ScriptExhibitionVersion.originalId) {
+      originalItemCount += remainingItems.length;
+    }
+    remainingVersions.add(
+      ScriptExhibitionVersion(
+        id: version.id,
+        label: version.label,
+        description: version.description,
+        updatedAt: version.updatedAt,
+        items: List.unmodifiable(remainingItems),
+      ),
+    );
+  }
+  if (!removed) {
+    return script;
+  }
+  if (remainingVersions.isEmpty) {
+    return null;
+  }
+  final updatedAt = _latestVersionUpdatedAt(remainingVersions) ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+  final bucket = _MutableScriptBucket(
+    scriptId: script.scriptId,
+    title: script.title,
+    sourceFolder: script.sourceFolder,
+    updatedAt: updatedAt,
+  );
+  bucket.mergeCategories(script.categoryNames);
+  bucket.mergeCoverItemId(script.coverItemId);
+  if (script.summaryOnly) {
+    bucket.markSummaryOnly();
+  }
+  final syntheticOriginalImageCount = script.originalCount - originalItemCount;
+  if (syntheticOriginalImageCount > 0) {
+    bucket.addSyntheticOriginalImageCount(syntheticOriginalImageCount);
+  }
+  for (final version in remainingVersions) {
+    for (final item in version.items) {
+      bucket.addItem(
+        item,
+        versionDescription: version.description,
+        versionUpdatedAt: version.updatedAt,
+      );
+    }
+  }
+  final nextScript = bucket.toScript();
+  return nextScript.hasImage ? nextScript : null;
 }
 
-String _recastSourceVersionDescription(Script script) {
-  return _isImageOnlyRecastScript(script) ? '导入时保留的默认图片版本。' : '导入时保留的原始剧本帧。';
+ScriptExhibitionScript _scriptWithVersionLabel(
+  ScriptExhibitionScript script, {
+  required String versionId,
+  required String label,
+}) {
+  final normalizedVersionId = versionId.trim();
+  final normalizedLabel = label.trim();
+  if (normalizedVersionId.isEmpty || normalizedLabel.isEmpty) {
+    return script;
+  }
+  var changed = false;
+  final nextVersions = [
+    for (final version in script.versions)
+      if (version.id == normalizedVersionId)
+        () {
+          if (version.label == normalizedLabel &&
+              version.items.every(
+                (item) => item.versionLabel == normalizedLabel,
+              )) {
+            return version;
+          }
+          changed = true;
+          return ScriptExhibitionVersion(
+            id: version.id,
+            label: normalizedLabel,
+            description: version.description,
+            updatedAt: version.updatedAt,
+            items: List.unmodifiable([
+              for (final item in version.items)
+                item.versionLabel == normalizedLabel
+                    ? item
+                    : item.copyWith(versionLabel: normalizedLabel),
+            ]),
+          );
+        }()
+      else
+        version,
+  ];
+  if (!changed) {
+    return script;
+  }
+  final nextItemsById = <String, ScriptExhibitionItem>{
+    for (final version in nextVersions)
+      for (final item in version.items) item.id: item,
+  };
+  ScriptExhibitionItem? rebaseItem(ScriptExhibitionItem? item) {
+    if (item == null) return null;
+    return nextItemsById[item.id] ?? item;
+  }
+
+  return ScriptExhibitionScript(
+    scriptId: script.scriptId,
+    title: script.title,
+    sourceFolder: script.sourceFolder,
+    updatedAt: script.updatedAt,
+    versions: List.unmodifiable(nextVersions),
+    status: script.status,
+    categoryNames: script.categoryNames,
+    coverItemId: script.coverItemId,
+    originalCount: script.originalCount,
+    generatedImageCount: script.generatedImageCount,
+    imageLikeItemCount: script.imageLikeItemCount,
+    hasImage: script.hasImage,
+    coverItem: rebaseItem(script.coverItem),
+    pendingCount: script.pendingCount,
+    firstNeedsActionItem: rebaseItem(script.firstNeedsActionItem),
+    summaryOnly: script.summaryOnly,
+    searchText: _scriptSearchTextFromValues(
+      scriptId: script.scriptId,
+      title: script.title,
+      sourceFolder: script.sourceFolder,
+      categoryNames: script.categoryNames,
+      versions: List.unmodifiable(nextVersions),
+    ),
+  );
 }
 
-bool _isImageOnlyRecastScript(Script script) {
-  if (script.frames.isEmpty) {
+DateTime? _latestVersionUpdatedAt(Iterable<ScriptExhibitionVersion> versions) {
+  DateTime? latest;
+  for (final version in versions) {
+    if (latest == null || version.updatedAt.isAfter(latest)) {
+      latest = version.updatedAt;
+    }
+  }
+  return latest;
+}
+
+bool _scriptMatchesForLocalMutation(
+  ScriptExhibitionScript script,
+  ScriptExhibitionScript target,
+) {
+  return _sourceScriptMatchesTarget(
+    scriptId: script.scriptId,
+    title: script.title,
+    sourceFolder: script.sourceFolder,
+    target: target,
+  );
+}
+
+bool _sourceScriptMatchesTarget({
+  required String? scriptId,
+  required String? title,
+  required String? sourceFolder,
+  required ScriptExhibitionScript target,
+}) {
+  final scriptAliases =
+      _scriptStrongAliases(scriptId: scriptId, sourceFolder: sourceFolder)
+          .toSet();
+  final targetAliases = _scriptStrongAliases(
+    scriptId: target.scriptId,
+    sourceFolder: target.sourceFolder,
+  ).toSet();
+  if (scriptAliases.intersection(targetAliases).isNotEmpty) {
+    return true;
+  }
+  if (scriptAliases.isNotEmpty || targetAliases.isNotEmpty) {
     return false;
   }
-  return script.frames.every((frame) => _isImagePath(frame.sourcePath));
+  final scriptTitle = _scriptTitleAlias(title);
+  final targetTitle = _scriptTitleAlias(target.title);
+  return scriptTitle != null && scriptTitle == targetTitle;
 }
 
-String _promptFromRecastFrame(ScriptFrame frame) {
-  final rows = [
-    if (frame.parsed.baseCaption.trim().isNotEmpty)
-      frame.parsed.baseCaption.trim(),
-    for (final caption in frame.parsed.charCaptions)
-      if (caption.trim().isNotEmpty) caption.trim(),
-  ];
-  return rows.join(', ');
+bool _versionDeleteTouchesRecast(Iterable<ScriptExhibitionItem> items) {
+  return items.any((item) {
+    final attachmentId = item.imageAttachmentId?.trim();
+    return attachmentId != null && attachmentId.isNotEmpty;
+  });
+}
+
+bool _itemDeleteTouchesRecast(ScriptExhibitionItem item) {
+  final attachmentId = item.imageAttachmentId?.trim();
+  return attachmentId != null && attachmentId.isNotEmpty;
+}
+
+bool _itemHasProductionTaskIdentity(ScriptExhibitionItem item) {
+  final planId = item.productionPlanId?.trim();
+  final taskId = item.taskId?.trim();
+  return planId != null &&
+      planId.isNotEmpty &&
+      taskId != null &&
+      taskId.isNotEmpty;
+}
+
+bool _itemHasGalleryRecordIdentity(ScriptExhibitionItem item) {
+  final recordId = item.galleryRecordId?.trim();
+  return recordId != null && recordId.isNotEmpty;
+}
+
+Future<ScriptExhibitionSnapshot> _buildSnapshotAsync({
+  required List<RecastExhibitionScript> recastScripts,
+  required List<TokenizerScript> scripts,
+  required List<ProductionPlan> plans,
+  required List<StudioGalleryRecord> records,
+}) {
+  if (!_shouldBuildSnapshotInBackground(
+    recastScripts: recastScripts,
+    scripts: scripts,
+    plans: plans,
+    records: records,
+  )) {
+    return Future.value(
+      _buildSnapshot(
+        recastScripts: recastScripts,
+        scripts: scripts,
+        plans: plans,
+        records: records,
+      ),
+    );
+  }
+  return compute(
+    _buildSnapshotFromRequest,
+    _ScriptExhibitionSnapshotRequest(
+      recastScripts: recastScripts,
+      scripts: scripts,
+      plans: plans,
+      records: records,
+    ),
+  );
+}
+
+bool _shouldBuildSnapshotInBackground({
+  required List<RecastExhibitionScript> recastScripts,
+  required List<TokenizerScript> scripts,
+  required List<ProductionPlan> plans,
+  required List<StudioGalleryRecord> records,
+}) {
+  if (scripts.isEmpty &&
+      plans.isEmpty &&
+      records.isEmpty &&
+      recastScripts.every((script) => script.summaryOnly)) {
+    return false;
+  }
+  var workItems = records.length;
+  for (final script in recastScripts) {
+    workItems += script.frames.length + script.imageAttachments.length;
+  }
+  for (final script in scripts) {
+    workItems += script.sourceFiles.length;
+    workItems += script.imageTasks.length;
+    workItems += script.imageAttachments.length;
+  }
+  for (final plan in plans) {
+    workItems += plan.tasks.length;
+  }
+  return workItems >= _backgroundSnapshotWorkItemThreshold;
+}
+
+const _backgroundSnapshotWorkItemThreshold = 32;
+
+ScriptExhibitionSnapshot _buildSnapshotFromRequest(
+  _ScriptExhibitionSnapshotRequest request,
+) {
+  return _buildSnapshot(
+    recastScripts: request.recastScripts,
+    scripts: request.scripts,
+    plans: request.plans,
+    records: request.records,
+  );
+}
+
+class _ScriptExhibitionSnapshotRequest {
+  final List<RecastExhibitionScript> recastScripts;
+  final List<TokenizerScript> scripts;
+  final List<ProductionPlan> plans;
+  final List<StudioGalleryRecord> records;
+
+  const _ScriptExhibitionSnapshotRequest({
+    required this.recastScripts,
+    required this.scripts,
+    required this.plans,
+    required this.records,
+  });
+}
+
+String _recastSourceVersionLabel(RecastExhibitionScript script) {
+  return script.isImageOnly ? '默认版本' : '原始剧本';
+}
+
+String _recastSourceVersionDescription(RecastExhibitionScript script) {
+  return script.isImageOnly ? '导入时保留的默认图片版本。' : '导入时保留的原始剧本帧。';
 }
 
 String _imagePathForRecastFrame(
-  ScriptFrame frame, {
-  required Map<String, String> imagePathsByLeaf,
+  RecastExhibitionFrame frame, {
+  required _ImagePathsByLeafProvider imagePathsByLeaf,
 }) {
   return _firstNonEmpty([
-        frame.sourceImagePath,
-        _isImagePath(frame.sourcePath) ? frame.sourcePath : null,
+        _existingLocalImagePath(frame.sourceImagePath),
+        _isImagePath(frame.sourcePath)
+            ? _existingLocalImagePath(frame.sourcePath)
+            : null,
         _sidecarImagePath(
           sourcePath: frame.sourcePath,
           fileName: frame.fileName,
@@ -1809,8 +3336,26 @@ String _imagePathForRecastFrame(
       '';
 }
 
-String _recastFrameStatusLabel(ScriptFrame frame) {
-  return switch (frame.parseStatus) {
+String _knownImagePathForRecastFrame(RecastExhibitionFrame frame) {
+  return _firstNonEmpty([
+        _existingLocalImagePath(frame.sourceImagePath),
+        _isImagePath(frame.sourcePath)
+            ? _existingLocalImagePath(frame.sourcePath)
+            : null,
+      ]) ??
+      '';
+}
+
+String? _existingLocalImagePath(String? path) {
+  final trimmed = path?.trim();
+  if (trimmed == null || trimmed.isEmpty || !_isImagePath(trimmed)) {
+    return null;
+  }
+  return File(trimmed).existsSync() ? trimmed : null;
+}
+
+String _recastFrameStatusLabel(ScriptFrameParseStatus status) {
+  return switch (status) {
     ScriptFrameParseStatus.parsed => '已解析',
     ScriptFrameParseStatus.error => '解析失败',
   };
@@ -1822,6 +3367,206 @@ bool _isImagePath(String path) {
 }
 
 const _imageExtensions = ['.png', '.jpg', '.jpeg', '.webp'];
+
+bool _isLocalImageReference(String path) {
+  final trimmed = path.trim();
+  if (trimmed.isEmpty) {
+    return false;
+  }
+  final lower = trimmed.toLowerCase();
+  if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    return false;
+  }
+  return _isImagePath(trimmed);
+}
+
+bool _isLocalImagePath(String path) {
+  final trimmed = path.trim();
+  return _isLocalImageReference(trimmed) && File(trimmed).existsSync();
+}
+
+Future<ScriptExhibitionSourceFolderCleanupPreview> _previewSourceFolderCleanup(
+  ScriptExhibitionScript script,
+) async {
+  final sourceFolder = script.sourceFolder.trim();
+  if (sourceFolder.isEmpty) {
+    return const ScriptExhibitionSourceFolderCleanupPreview(
+      sourceFolder: '',
+      sourceFolderExists: false,
+    );
+  }
+  final directory = Directory(sourceFolder);
+  if (!await directory.exists()) {
+    return ScriptExhibitionSourceFolderCleanupPreview(
+      sourceFolder: sourceFolder,
+      sourceFolderExists: false,
+    );
+  }
+  final sourceImages = await _listSourceFolderImagePaths(directory);
+  final retainedImages = _referencedSourceFolderImagePaths(
+    script,
+    sourceFolder: directory.path,
+  );
+  final retainedKeys = {
+    for (final path in retainedImages) _normalizedFilePathKey(path),
+  };
+  final removableImages = [
+    for (final path in sourceImages)
+      if (!retainedKeys.contains(_normalizedFilePathKey(path))) path,
+  ];
+  return ScriptExhibitionSourceFolderCleanupPreview(
+    sourceFolder: directory.path,
+    sourceFolderExists: true,
+    sourceImagePaths: List.unmodifiable(sourceImages),
+    retainedImagePaths: List.unmodifiable(retainedImages),
+    removableImagePaths: List.unmodifiable(removableImages),
+  );
+}
+
+Future<List<String>> _listSourceFolderImagePaths(Directory directory) async {
+  final paths = <String>[];
+  try {
+    await for (final entity
+        in directory.list(recursive: true, followLinks: false)) {
+      if (entity is! File || !_isImagePath(entity.path)) {
+        continue;
+      }
+      paths.add(entity.absolute.path);
+    }
+  } on FileSystemException {
+    return const [];
+  }
+  paths.sort(_compareNormalizedPaths);
+  return paths;
+}
+
+List<String> _referencedSourceFolderImagePaths(
+  ScriptExhibitionScript script, {
+  required String sourceFolder,
+}) {
+  final pathsByKey = <String, String>{};
+  void add(String? path) {
+    final trimmed = path?.trim();
+    if (trimmed == null ||
+        trimmed.isEmpty ||
+        !_isImagePath(trimmed) ||
+        !_pathIsInsideDirectory(trimmed, sourceFolder)) {
+      return;
+    }
+    pathsByKey.putIfAbsent(_normalizedFilePathKey(trimmed), () => trimmed);
+  }
+
+  for (final item in script.items) {
+    add(item.imagePath);
+    add(item.sourcePath);
+    add(item.galleryRecord?.imagePath);
+    add(item.galleryRecord?.provenance?.outputImagePath);
+  }
+  final paths = pathsByKey.values.toList(growable: false)
+    ..sort(_compareNormalizedPaths);
+  return paths;
+}
+
+bool _pathIsInsideDirectory(String path, String directoryPath) {
+  final pathKey = _normalizedFilePathKey(path);
+  final directoryKey = _normalizedDirectoryPathKey(directoryPath);
+  return pathKey == directoryKey || pathKey.startsWith('$directoryKey/');
+}
+
+int _compareNormalizedPaths(String left, String right) =>
+    _normalizedFilePathKey(left).compareTo(_normalizedFilePathKey(right));
+
+String _normalizedFilePathKey(String path) =>
+    _normalizedPathKey(File(path).absolute.path);
+
+String _normalizedDirectoryPathKey(String path) =>
+    _normalizedPathKey(Directory(path).absolute.path);
+
+String _normalizedPathKey(String path) {
+  final normalized =
+      path.trim().replaceAll('\\', '/').replaceFirst(RegExp(r'/+$'), '');
+  return Platform.isWindows ? normalized.toLowerCase() : normalized;
+}
+
+Map<String, dynamic> _knownGenerationParamsForItem(
+  ScriptExhibitionItem item,
+) {
+  if (item.generationParams.isNotEmpty) {
+    return item.generationParams;
+  }
+  final recordParamConfig = _mapValue(
+    item.galleryRecord?.document.payload['param_config'],
+  );
+  if (recordParamConfig.isNotEmpty) {
+    return _lightweightProductionParameters(recordParamConfig);
+  }
+  final lineageParams = _lightweightProductionParameters(
+    item.galleryRecord?.lineage?.parameters,
+  );
+  if (lineageParams.isNotEmpty) {
+    return lineageParams;
+  }
+  return _lightweightProductionParameters(
+      item.assetCapturePayload?['parameters']);
+}
+
+bool _hasDisplayedGenerationParams(Map<String, dynamic> params) {
+  for (final key in const [
+    'seed',
+    'steps',
+    'sampler',
+    'scale',
+    'cfg_rescale',
+    'noise_schedule',
+  ]) {
+    if (_hasGenerationParamValue(params[key])) {
+      return true;
+    }
+  }
+  return _hasGenerationParamValue(params['width']) &&
+      _hasGenerationParamValue(params['height']);
+}
+
+bool _hasGenerationParamValue(Object? value) {
+  if (value == null) {
+    return false;
+  }
+  if (value is String) {
+    return value.trim().isNotEmpty;
+  }
+  return value is num || value is bool;
+}
+
+Map<String, dynamic> _mapValue(Object? value) {
+  if (value is Map) {
+    return value.cast<String, dynamic>();
+  }
+  return const <String, dynamic>{};
+}
+
+Future<Map<String, dynamic>> _loadImageGenerationParamsFromMetadata(
+  String imagePath,
+) async {
+  final file = File(imagePath);
+  try {
+    if (!await file.exists()) {
+      return const <String, dynamic>{};
+    }
+    final parsed = await WorkbenchMetadataImportService().parseFile(file);
+    final params = <String, dynamic>{...parsed.parameters};
+    if (parsed.width != null) {
+      params.putIfAbsent('width', () => parsed.width);
+    }
+    if (parsed.height != null) {
+      params.putIfAbsent('height', () => parsed.height);
+    }
+    return _lightweightProductionParameters(params);
+  } catch (_) {
+    return const <String, dynamic>{};
+  }
+}
+
+typedef _ImagePathsByLeafProvider = Map<String, String> Function();
 
 Map<String, String> _imagePathsByLeaf(String rootPath) {
   final directory = Directory(rootPath);
@@ -1847,7 +3592,7 @@ Map<String, String> _imagePathsByLeaf(String rootPath) {
 String? _sidecarImagePath({
   required String? sourcePath,
   required String? fileName,
-  required Map<String, String> imagePathsByLeaf,
+  required _ImagePathsByLeafProvider imagePathsByLeaf,
 }) {
   final existingSibling = _existingSiblingImagePath(sourcePath);
   if (existingSibling != null) {
@@ -1857,8 +3602,9 @@ String? _sidecarImagePath({
   if (stem.isEmpty) {
     return null;
   }
+  final pathsByLeaf = imagePathsByLeaf();
   for (final extension in _imageExtensions) {
-    final match = imagePathsByLeaf['$stem$extension'];
+    final match = pathsByLeaf['$stem$extension'];
     if (match != null) {
       return match;
     }
@@ -1898,6 +3644,8 @@ class _MutableScriptBucket {
   final Set<String> categoryNames = {};
   final Map<String, String> versionLabelOverrides = {};
   String? coverItemId;
+  int syntheticOriginalImageCount = 0;
+  bool summaryOnly = false;
 
   _MutableScriptBucket({
     required this.scriptId,
@@ -1922,6 +3670,15 @@ class _MutableScriptBucket {
     if (updatedAt != null && updatedAt.isAfter(this.updatedAt)) {
       this.updatedAt = updatedAt;
     }
+  }
+
+  void markSummaryOnly() {
+    summaryOnly = true;
+  }
+
+  void addSyntheticOriginalImageCount(int count) {
+    if (count <= 0) return;
+    syntheticOriginalImageCount += count;
   }
 
   void mergeCategories(List<String> names) {
@@ -1981,17 +3738,65 @@ class _MutableScriptBucket {
         )
         .toList()
       ..sort(_compareVersions);
-    final hasNeedsAction = versionsOut
-        .expand((version) => version.items)
-        .any((item) => item.needsAction);
-    final generatedCount = versionsOut
-        .expand((version) => version.items)
-        .where((item) =>
-            item.sourceKind == ScriptExhibitionItemSourceKind.generated ||
-            item.sourceKind == ScriptExhibitionItemSourceKind.gallery)
-        .where((item) => item.imagePath.trim().isNotEmpty)
-        .length;
-    final status = hasNeedsAction
+    var originalCount = syntheticOriginalImageCount;
+    var generatedCount = 0;
+    var imageLikeCount = syntheticOriginalImageCount;
+    var pendingCount = 0;
+    var hasImage = false;
+    ScriptExhibitionItem? savedCover;
+    ScriptExhibitionItem? generatedCover;
+    ScriptExhibitionItem? attachmentCover;
+    ScriptExhibitionItem? originalCover;
+    ScriptExhibitionItem? fallbackCover;
+    ScriptExhibitionItem? firstNeedsActionOutsideOriginal;
+    ScriptExhibitionItem? firstNeedsAction;
+    final savedCoverId = coverItemId?.trim();
+    for (final version in versionsOut) {
+      if (version.id == ScriptExhibitionVersion.originalId) {
+        originalCount += version.items.length;
+      }
+      for (final item in version.items) {
+        if (item.sourceKind != ScriptExhibitionItemSourceKind.failed) {
+          imageLikeCount += 1;
+        }
+        final itemHasImage = item.hasImage;
+        if (itemHasImage) {
+          hasImage = true;
+          fallbackCover ??= item;
+          if (savedCoverId != null &&
+              savedCoverId.isNotEmpty &&
+              item.id == savedCoverId) {
+            savedCover ??= item;
+          }
+          switch (item.sourceKind) {
+            case ScriptExhibitionItemSourceKind.generated:
+            case ScriptExhibitionItemSourceKind.gallery:
+              generatedCover ??= item;
+              generatedCount += 1;
+            case ScriptExhibitionItemSourceKind.attachment:
+              attachmentCover ??= item;
+            case ScriptExhibitionItemSourceKind.original:
+              originalCover ??= item;
+            case ScriptExhibitionItemSourceKind.queued:
+            case ScriptExhibitionItemSourceKind.failed:
+              break;
+          }
+        }
+        if (item.needsAction) {
+          pendingCount += 1;
+          firstNeedsAction ??= item;
+          if (version.id != ScriptExhibitionVersion.originalId) {
+            firstNeedsActionOutsideOriginal ??= item;
+          }
+        }
+      }
+    }
+    final coverItem = savedCover ??
+        generatedCover ??
+        attachmentCover ??
+        originalCover ??
+        fallbackCover;
+    final status = pendingCount > 0
         ? ScriptExhibitionScriptStatus.needsAction
         : generatedCount > 0
             ? ScriptExhibitionScriptStatus.archived
@@ -2005,6 +3810,21 @@ class _MutableScriptBucket {
       status: status,
       categoryNames: List.unmodifiable(categoryNames),
       coverItemId: coverItemId,
+      originalCount: originalCount,
+      generatedImageCount: generatedCount,
+      imageLikeItemCount: imageLikeCount,
+      hasImage: hasImage,
+      coverItem: coverItem,
+      pendingCount: pendingCount,
+      firstNeedsActionItem: firstNeedsActionOutsideOriginal ?? firstNeedsAction,
+      summaryOnly: summaryOnly,
+      searchText: _scriptSearchTextFromValues(
+        scriptId: scriptId,
+        title: title,
+        sourceFolder: sourceFolder,
+        categoryNames: List.unmodifiable(categoryNames),
+        versions: List.unmodifiable(versionsOut),
+      ),
     );
   }
 }
@@ -2070,7 +3890,9 @@ int _compareItems(ScriptExhibitionItem left, ScriptExhibitionItem right) {
   final rightFrame = right.frameIndex ?? 1 << 30;
   final frameCompare = leftFrame.compareTo(rightFrame);
   if (frameCompare != 0) return frameCompare;
-  return right.updatedAt.compareTo(left.updatedAt);
+  final updatedCompare = left.updatedAt.compareTo(right.updatedAt);
+  if (updatedCompare != 0) return updatedCompare;
+  return left.id.compareTo(right.id);
 }
 
 int _compareScriptsForSort(
@@ -2083,7 +3905,7 @@ int _compareScriptsForSort(
       right.updatedAt.compareTo(left.updatedAt),
     ScriptExhibitionScriptSort.title => _compareText(left.title, right.title),
     ScriptExhibitionScriptSort.imageCount =>
-      right.imageLikeItemCount.compareTo(left.imageLikeItemCount),
+      right.originalCount.compareTo(left.originalCount),
     ScriptExhibitionScriptSort.needsAction =>
       right.pendingCount.compareTo(left.pendingCount),
   };
@@ -2295,7 +4117,7 @@ String? _firstNonEmpty(Iterable<String?> values) {
 
 String _defaultImagePathForSource(
   TokenizerSourceFile sourceFile, {
-  required Map<String, String> imagePathsByLeaf,
+  required _ImagePathsByLeafProvider imagePathsByLeaf,
 }) {
   final defaultImagePath = sourceFile.defaultImagePath.trim();
   if (defaultImagePath.isNotEmpty) {
@@ -2453,6 +4275,14 @@ Map<String, dynamic> _lightweightProductionParameters(Object? value) {
     'prompt',
     'uc',
     'negative_prompt',
+    'seed',
+    'steps',
+    'sampler',
+    'scale',
+    'cfg_rescale',
+    'width',
+    'height',
+    'noise_schedule',
   ]) {
     final entry = parameters[key];
     if (entry == null) {

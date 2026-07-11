@@ -9,17 +9,28 @@ class VibeConfigV4 {
 
   String fileName;
   String vibeB64;
+  double infoExtracted;
   double referenceStrength;
   Uint8List? imageBytes;
   String? sourceImagePath;
+  String? legacyImageB64;
 
   VibeConfigV4({
     required this.fileName,
     required this.vibeB64,
+    double infoExtracted = 1.0,
     required this.referenceStrength,
     this.imageBytes,
     this.sourceImagePath,
-  });
+    this.legacyImageB64,
+  }) : infoExtracted = infoExtracted.clamp(0.0, 1.0).toDouble();
+
+  static double _parseDouble(dynamic value, double fallback) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? fallback;
+    return fallback;
+  }
 
   factory VibeConfigV4.fromPngBytes(
     String fileName,
@@ -96,18 +107,20 @@ class VibeConfigV4 {
   ) {
     final name = jsonData['name'] as String? ?? originalFileName;
 
-    var strength = defaultReferenceStrength;
     final importInfo = jsonData['importInfo'] as Map<String, dynamic>?;
+    var strength = defaultReferenceStrength;
     if (importInfo != null && importInfo['strength'] != null) {
-      final strengthValue = importInfo['strength'];
-      if (strengthValue is double) {
-        strength = strengthValue;
-      } else if (strengthValue is int) {
-        strength = strengthValue.toDouble();
-      } else if (strengthValue is String) {
-        strength = double.tryParse(strengthValue) ?? defaultReferenceStrength;
-      }
+      strength = _parseDouble(importInfo['strength'], defaultReferenceStrength);
     }
+    final infoExtracted = importInfo == null
+        ? 1.0
+        : _parseDouble(
+            importInfo['information_extracted'] ??
+                importInfo['info_extracted'] ??
+                importInfo['infoExtracted'] ??
+                importInfo['informationExtracted'],
+            1.0,
+          );
 
     String? vibeB64String;
     final encodingsMap = jsonData['encodings'] as Map<String, dynamic>?;
@@ -139,6 +152,7 @@ class VibeConfigV4 {
     return VibeConfigV4(
       fileName: name,
       vibeB64: vibeB64String,
+      infoExtracted: infoExtracted.clamp(0.0, 1.0),
       referenceStrength: strength.clamp(0.0, 1.0),
     );
   }
@@ -147,40 +161,36 @@ class VibeConfigV4 {
     return {
       'file_name': fileName,
       'vibe_b64': vibeB64,
+      if (infoExtracted != 1.0) 'info_extracted': infoExtracted,
       'reference_strength': referenceStrength,
       if (sourceImagePath != null && sourceImagePath!.trim().isNotEmpty)
         'source_image_path': sourceImagePath,
+      if ((sourceImagePath == null || sourceImagePath!.trim().isEmpty) &&
+          legacyImageB64 != null &&
+          legacyImageB64!.trim().isNotEmpty)
+        'image_b64': legacyImageB64,
     };
   }
 
   factory VibeConfigV4.fromJson(Map<String, dynamic> json) {
-    double parseDouble(dynamic value, double fallback) {
-      if (value is double) return value;
-      if (value is int) return value.toDouble();
-      if (value is String) return double.tryParse(value) ?? fallback;
-      return fallback;
-    }
-
-    Uint8List? parsedImageBytes;
     final imageB64 = json['image_b64'];
-    if (imageB64 is String &&
-        imageB64.isNotEmpty &&
-        imageB64.length <= _maxLegacyImageB64Length) {
-      try {
-        parsedImageBytes = base64Decode(imageB64);
-      } catch (_) {
-        parsedImageBytes = null;
-      }
-    }
 
     final sourceImagePath = json['source_image_path'];
     return VibeConfigV4(
       fileName: json['file_name'] as String? ?? 'Unnamed vibe',
       vibeB64: json['vibe_b64'] as String? ?? '',
+      infoExtracted: _parseDouble(
+        json['info_extracted'] ?? json['infoExtracted'],
+        1.0,
+      ).clamp(0.0, 1.0),
       referenceStrength:
-          parseDouble(json['reference_strength'], 0.2).clamp(0.0, 1.0),
-      imageBytes: parsedImageBytes,
+          _parseDouble(json['reference_strength'], 0.2).clamp(0.0, 1.0),
       sourceImagePath: sourceImagePath is String ? sourceImagePath : null,
+      legacyImageB64: imageB64 is String &&
+              imageB64.isNotEmpty &&
+              imageB64.length <= _maxLegacyImageB64Length
+          ? imageB64
+          : null,
     );
   }
 }

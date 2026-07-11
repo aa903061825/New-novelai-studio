@@ -132,16 +132,16 @@ class ConfigService {
       jsonData = saveBox.get('savedConfig-$savedUuid');
     }
     jsonData ??= await loadDefaultConfig();
+    final decodedConfig = await _decodeConfigJson(jsonData);
 
     // Set current UUID
     if (savedUuid == null) {
       currentUuid = const Uuid().v4();
-      await saveConfig(json.decode(jsonData));
+      await saveConfig(decodedConfig);
     } else {
       currentUuid = savedUuid;
     }
     await saveBox.delete('savedConfig');
-    await saveBox.compact();
 
     if (kDebugMode) {
       print('Loaded keys:\n${saveBox.keys.toList().join('\n')}');
@@ -149,13 +149,14 @@ class ConfigService {
       print('Saved UUID: $savedUuid');
     }
 
-    return json.decode(jsonData);
+    return decodedConfig;
   }
 
   Future<void> saveConfig(Map<String, dynamic> jsonData) async {
     if (!_hasSaveBox) return;
-    await saveBox.put('savedUuid', currentUuid);
-    saveConfigByUuid(currentUuid, jsonData);
+    final targetUuid = currentUuid;
+    await saveBox.put('savedUuid', targetUuid);
+    await saveConfigByUuid(targetUuid, jsonData);
   }
 
   Future<String> saveV4VibeSourceImage({
@@ -251,16 +252,17 @@ class ConfigService {
     saveConfigIndex();
   }
 
-  void saveConfigByUuid(String uuid, Map<String, dynamic> jsonData) {
+  Future<void> saveConfigByUuid(
+      String uuid, Map<String, dynamic> jsonData) async {
     if (!_hasSaveBox) return;
     if (kDebugMode) {
       print('Saving config: $uuid');
     }
-    saveBox.put('savedConfig-$uuid', json.encode(jsonData));
     if (!configIndex.containsKey(uuid)) {
       configIndex[uuid] = SavedConfigInfo.fromEmpty();
     }
     configIndex[uuid]!.lastModified = DateTime.now();
+    await saveBox.put('savedConfig-$uuid', json.encode(jsonData));
     saveConfigIndex();
   }
 
@@ -269,6 +271,7 @@ class ConfigService {
     if (uuid == currentUuid) return;
     saveBox.delete('savedConfig-$uuid');
     configIndex.remove(uuid);
+    saveConfigIndex();
   }
 
   GlobalGenerationParams? loadGlobalGenerationParams() {
@@ -316,4 +319,17 @@ class ConfigService {
     if (!_hasSaveBox) return;
     await saveBox.put(_generationRuntimeStateKey, json.encode(state.toJson()));
   }
+
+  Future<Map<String, dynamic>> _decodeConfigJson(String jsonData) async {
+    if (jsonData.length < _backgroundConfigDecodeThreshold) {
+      return (json.decode(jsonData) as Map).cast<String, dynamic>();
+    }
+    return compute(_configJsonFromString, jsonData);
+  }
+}
+
+const _backgroundConfigDecodeThreshold = 1024 * 1024;
+
+Map<String, dynamic> _configJsonFromString(String source) {
+  return (json.decode(source) as Map).cast<String, dynamic>();
 }

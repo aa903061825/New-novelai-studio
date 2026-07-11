@@ -882,7 +882,6 @@ function containsGarmentOrClothingToken(normalized) {
 
 function isRoleAccessoryPromptTerm(normalized) {
   if (!normalized) return false;
-  if (isHardNonAccessoryTerm(normalized)) return false;
   return (
     /\b(glasses|sunglasses|eyewear|goggles|monocle|eyepatch|eye patch)\b/.test(
       normalized,
@@ -905,13 +904,12 @@ function isRoleAccessoryPromptTerm(normalized) {
 
 function isRoleBodyPromptTerm(tag, normalized = normalizedTagKey(tag)) {
   if (!normalized) return false;
-  if (isHardNonRoleBodyTerm(normalized)) return false;
   if (
     /\b(tail|tails?|paw|paws|hooves?)\b/.test(normalized) ||
-    /\b(hair|eyes?|iris|pupils?|ears?|animal ears|cat ears|fox ears|dog ears|wolf ears|rabbit ears|bunny ears|pointy ears|long ears|horns?|halo|fangs?|skin|face|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs)\b/.test(
+    /\b(hair|eyes?|iris|pupils?|ears?|animal ears|cat ears|fox ears|dog ears|wolf ears|rabbit ears|bunny ears|pointy ears|long ears|horns?|halo|fangs?|skin|face|twintails?|twin tails?|pony ?tail|pigtails?|braids?|bangs?|tattoo|mole|cleavage|collarbone|shoulders?|armpits?|ribs?|chest|breasts?|bust|flat chest|midriff|abs|nipples?|areola)\b/.test(
       normalized,
     ) ||
-    /\b(thighs?|thick thighs?|bare legs?|legs?|navel|stomach|hips?|waist|barefoot|feet|foot|toes?|thighcut)\b/.test(
+    /\b(thighs?|thick thighs?|bare legs?|legs?|navel|stomach|hips?|waist|barefoot|feet|foot|toes?|thighcut|ass|butt|pussy|penis|testicles?|erection|vaginal|anal|pubic|cameltoe|cleft of venus)\b/.test(
       normalized,
     ) ||
     /(兽耳|獸耳|猫耳|貓耳|狐耳|犬耳|兔耳|角|尾巴|尻尾|しっぽ|髪|发|髮|眼|瞳|肌|皮肤|皮膚|刺青|纹身|紋身)/.test(
@@ -922,38 +920,6 @@ function isRoleBodyPromptTerm(tag, normalized = normalizedTagKey(tag)) {
   }
   const classified = classificationCategoryForTag(tag);
   return classified === 'upperBody' || classified === 'lowerBody';
-}
-
-function isHardNonAccessoryTerm(normalized) {
-  if (/^(?:bow|collarbone|bag|box|condom box|condom wrapper)$/.test(normalized)) {
-    return true;
-  }
-  return /\b(?:looking|watching|holding|grabbing|pulling|touching|sex|cum|on table|on the table)\b/.test(
-    normalized,
-  );
-}
-
-function isHardNonRoleBodyTerm(normalized) {
-  if (/\b(?:male|female|man|woman|girl|boy|loli|child)\b/.test(normalized)) {
-    return true;
-  }
-  if (
-    /\b(averting eyes?|looking|watching|staring|closed eyes?|closed eye|one eye closed|open mouth|blush|crying|smile|pain|panic|dazed|motion blur|sound effects?|heart[- ]shaped pupils?|heart pupils?|heart in eyes?|rape eyes?|no highlights|no eyes|empty eyes|evil eyes|wild eyes|tired eyes|surprised face|constricted pupils?|wide eyes?|dull eyes?|vacant eyes?|eyes rolled back|rolling eyes?|uneven eyes?|covered eyes?|sharp eyes?|naughty face|angry|despair|scared)\b/.test(
-      normalized,
-    )
-  ) {
-    return true;
-  }
-  if (
-    /\b(lick(?:ing)?|suck(?:ing)?|touch(?:ing)?|caress(?:ing)?|grab(?:bing)?|grip(?:ping)?|grop(?:ing)?|fondling|pull(?:ing|ed)?|hold(?:ing)?|shake|shaking|lift(?:ing|ed)?|push(?:ing|ed)?|spread(?:ing)?|standing|sitting|lying|kneeling|close[- ]?up|front face view|monitor on wall|face focus|side face|head back|head down|head tilt|out of frame|on floor|on bed|on stomach|pressed into|pressed against|face in|face on|face to|water splash|adjusting hair|fixing hair|brushing hair|combing hair|messy hair|wet hair|hair grab|grab .*hair|grabbing .*hair|pulling .*hair|shading eyes|cover(?:ing|ed)? .*eyes|cover(?:ing|ed)? .*mouth|covered navel|disembodied hands?|hand(?:s)?[ _-]|arms? around|arms? over|leg up|legs? up|legs? together|legs? apart|leg apart|plantar flexion|soles? on feet|feet in mid-air|paw pose|thighhold|squeezing thighs?|rapid hip movement|stomach punch|foot job|view between legs|streching legs|stretching legs|hanging breasts?|m legs|leg lock|another(?:'s| s)? hand|hand on|hands? on)\b/.test(
-      normalized,
-    )
-  ) {
-    return true;
-  }
-  return /\b(wet|sweaty|sweat|stained|torn|ripped|damaged|sex|cum|semen|saliva|orgy|penetration|missionary|doggystyle|position|facial|ass|pussy|penis|nipples?|areola|pubic|vaginal|anal|censored|mosaic|crime scene|corpse|dead|kidnapping|chloroform|strangle|punishment|body writing|stomach bulge|breast press|bouncing breasts?|breasts? out|squeezed together|hard nipple|hide nipple|tattoo machine)\b/.test(
-    normalized,
-  );
 }
 
 function isCrossSubjectClothingCompositionTerm(normalized) {

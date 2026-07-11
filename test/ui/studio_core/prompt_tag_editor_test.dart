@@ -143,6 +143,110 @@ void main() {
     expect(find.text('蓝眼睛'), findsNothing);
   });
 
+  testWidgets('single editor tag drag feedback reuses chip presentation', (
+    tester,
+  ) async {
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000)
+        ..setManual('blue eyes', 'blue translated'),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: 'blue eyes, long hair',
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    final chip = _editorChip(0);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(chip));
+    await tester.pump();
+    await gesture.moveBy(const Offset(72, 24));
+    await tester.pump();
+
+    final feedbackBody = find.byKey(
+      const ValueKey('prompt-tag-drag-feedback-chip-body'),
+    );
+    expect(feedbackBody, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-selection-rectangle')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: feedbackBody,
+        matching: find.text('blue translated'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-chip-check')),
+      findsNothing,
+    );
+    final marker = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-chip-marker')),
+    );
+    expect(
+      (marker.decoration as BoxDecoration).color,
+      const Color(0xFF5B8DEF),
+    );
+    final body = tester.widget<AnimatedContainer>(feedbackBody);
+    expect((body.decoration! as BoxDecoration).color, StudioTokens.surface3);
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('multi editor tag drag feedback uses the drag start chip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: 'blue eyes, long hair',
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    await _dragSelectionAround(tester, _editorChip(0), _editorChip(1));
+
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(_editorChip(1)));
+    await tester.pump();
+    await gesture.moveBy(const Offset(72, 24));
+    await tester.pump();
+
+    final feedbackBody = find.byKey(
+      const ValueKey('prompt-tag-drag-feedback-chip-body'),
+    );
+    expect(
+      find.descendant(of: feedbackBody, matching: find.text('long hair')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: feedbackBody, matching: find.text('blue eyes')),
+      findsNothing,
+    );
+    expect(find.text('x2'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-count-badge')),
+      findsOneWidget,
+    );
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
   testWidgets('preferTranslatedLabels promotes cached translation to primary',
       (tester) async {
     GetIt.I.registerSingleton<TranslationCache>(
@@ -1615,8 +1719,42 @@ void main() {
     expect(value, 'hair ornament, cat ears, cat tail');
   });
 
+  testWidgets('alt dragging editor tags copies when enabled', (tester) async {
+    var value = 'cat ears, hair ornament, cat tail';
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              copyDraggedTagsWithAlt: true,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    final start = tester.getCenter(_editorChip(0));
+    final end = tester.getCenter(_editorChip(2));
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+
+    expect(value, 'cat ears, hair ornament, cat ears, cat tail');
+  });
+
   testWidgets(
-      'unselected editor tag can be dragged directly and stays selected',
+      'unselected editor tag can be dragged directly without becoming selected',
       (tester) async {
     var value = 'cat ears, hair ornament, cat tail';
 
@@ -1648,8 +1786,55 @@ void main() {
     expect(value, 'hair ornament, cat ears, cat tail');
     expect(
       find.byKey(const ValueKey('prompt-tag-editor-chip-check-1')),
-      findsOneWidget,
+      findsNothing,
     );
+  });
+
+  testWidgets('ctrl v pastes clipboard tags into enabled editor selection',
+      (tester) async {
+    var value = 'blue eyes, long hair';
+
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return {'text': 'silver hair, 1.2:: red eyes ::'};
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              enableKeyboardPaste: true,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(_editorChip(0));
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(value, 'silver hair, 1.2:: red eyes ::, long hair');
+    expect(find.text('silver hair'), findsOneWidget);
+    expect(find.text('red eyes'), findsOneWidget);
+    expect(find.text('x1.20'), findsOneWidget);
   });
 
   testWidgets('cross-editor drop changes can be wrapped in one batch',

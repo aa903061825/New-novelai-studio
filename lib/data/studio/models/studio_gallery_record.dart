@@ -100,6 +100,32 @@ class StudioGalleryRecord {
     );
   }
 
+  factory StudioGalleryRecord.fromRecastSummaryJson(
+    Map<String, dynamic> json,
+  ) {
+    final additionalInfo = _dynamicMap(json['additionalInfo']);
+    final provenance = StudioRecastProvenance.fromJsonOrNull(
+      json['provenance'] ?? additionalInfo['provenance'],
+    );
+    if (provenance == null) {
+      throw const FormatException('Gallery recast provenance is missing.');
+    }
+    return StudioGalleryRecord(
+      id: _stringValue(json['id'], 'id'),
+      createdAt: DateTime.parse(_stringValue(json['createdAt'], 'createdAt')),
+      title: json['title'] as String? ?? '',
+      imagePath: json['imagePath'] as String?,
+      info: json['info'] as String? ?? '',
+      additionalInfo: additionalInfo,
+      provenance: provenance,
+      lineage: StudioGalleryLineage.fromJsonOrNull(
+        json['lineage'] ?? additionalInfo['lineage'],
+      ),
+      document: WorkbenchDocument.trySummaryFromJson(json['document']) ??
+          WorkbenchDocument.empty,
+    );
+  }
+
   factory StudioGalleryRecord.fromPayloadConfig({
     required PayloadConfig config,
     required String id,

@@ -99,5 +99,52 @@ void main() {
       expect(configService.configIndex['active']!.previewCoverIndex, 0);
       expect(configService.configIndex['active']!.coverPreviewImage, 'thumb-a');
     });
+
+    test('saveConfig keeps the uuid captured before its first await', () async {
+      configService.currentUuid = 'source-config';
+
+      final save = configService.saveConfig({'name': 'source payload'});
+      configService.currentUuid = 'other-config';
+      await save;
+
+      expect(
+        configService.loadConfigByUuid('source-config'),
+        {'name': 'source payload'},
+      );
+      expect(configService.loadConfigByUuid('other-config'), isNull);
+    });
+
+    test('saveConfigByUuid allows an immediate title update', () async {
+      final save = configService.saveConfigByUuid(
+        'copied-config',
+        {'name': 'copy payload'},
+      );
+
+      configService.renameConfigByUuid('copied-config', 'Copied config');
+      await save;
+
+      expect(
+          configService.configIndex['copied-config']!.title, 'Copied config');
+      expect(
+        configService.loadConfigIndex()['copied-config']!.title,
+        'Copied config',
+      );
+    });
+
+    test('deleteConfigByUuid persists the removed index entry', () async {
+      await configService.saveConfigByUuid(
+        'deleted-config',
+        {'name': 'delete me'},
+      );
+      configService.renameConfigByUuid('deleted-config', 'Delete me');
+      await Future<void>.delayed(Duration.zero);
+
+      configService.deleteConfigByUuid('deleted-config');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+          configService.loadConfigIndex(), isNot(contains('deleted-config')));
+      expect(configService.loadConfigByUuid('deleted-config'), isNull);
+    });
   });
 }

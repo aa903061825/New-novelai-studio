@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:novel_studio/ui/core/app_display_settings.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_scrollbar.dart';
 
 const studioImagePreviewDialogConstraints = BoxConstraints(
   maxWidth: 1180,
@@ -133,7 +134,9 @@ class StudioImagePreviewPromptScroll extends StatelessWidget {
       constraints: const BoxConstraints(
         maxHeight: studioImagePreviewPromptMaxHeight,
       ),
-      child: SingleChildScrollView(child: child),
+      child: StudioScrollbar(
+        child: SingleChildScrollView(child: child),
+      ),
     );
   }
 }

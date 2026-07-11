@@ -767,6 +767,137 @@ void main() {
     expect(copiedText, 'blue eyes, long hair');
   });
 
+  testWidgets('alt dragging editable display tags copies when enabled', (
+    tester,
+  ) async {
+    var value = 'fox ears, red halo, fox tail';
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              copyDraggedTagsWithAlt: true,
+              initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+              respectInitialLayoutMode: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    final start = tester.getCenter(chipKey('fox ears', 0, selected: false));
+    final end = tester.getCenter(chipKey('fox tail', 2, selected: false));
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+
+    expect(value, 'fox ears, red halo, fox ears, fox tail');
+  });
+
+  testWidgets('alt dragging display tags moves when copy is not enabled', (
+    tester,
+  ) async {
+    var value = 'fox ears, red halo, fox tail';
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+              respectInitialLayoutMode: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    final start = tester.getCenter(chipKey('fox ears', 0, selected: false));
+    final end = tester.getCenter(chipKey('fox tail', 2, selected: false));
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await mouse.removePointer();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+
+    expect(value, 'red halo, fox ears, fox tail');
+  });
+
+  testWidgets('ctrl v pastes clipboard tags into enabled editable display', (
+    tester,
+  ) async {
+    var value = 'blue eyes, long hair';
+
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return {'text': 'silver hair, 1.2:: red eyes ::'};
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagDisplay(
+              text: value,
+              enableTagActions: true,
+              enableKeyboardPaste: true,
+              initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+              respectInitialLayoutMode: true,
+              translationCache: cache(),
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(chipKey('blue eyes', 0, selected: false));
+    await tester.pump();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(value, 'silver hair, 1.2:: red eyes ::, long hair');
+    expect(find.text('silver hair'), findsOneWidget);
+    expect(find.text('red eyes'), findsOneWidget);
+    expect(find.text('x1.20'), findsOneWidget);
+  });
+
   testWidgets(
     'selected editable display tags can be dragged between displays',
     (tester) async {
@@ -838,6 +969,15 @@ void main() {
       expect(lower, 'fox tail, 1.4:: fox ears ::');
       expect(find.descendant(of: lowerDisplay, matching: find.text('x1.40')),
           findsOneWidget);
+      expect(
+        find.descendant(
+          of: lowerDisplay,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-check-fox ears-1'),
+          ),
+        ),
+        findsNothing,
+      );
     },
   );
 
@@ -1161,6 +1301,144 @@ void main() {
     await mouse.up();
     await tester.pump();
     await mouse.removePointer();
+  });
+
+  testWidgets('single display tag drag feedback reuses chip presentation', (
+    tester,
+  ) async {
+    final translationCache = TranslationCache(clock: () => 1710000000)
+      ..setManual('blue eyes', 'blue translated');
+
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair',
+          defaultTranslated: true,
+          enableTagActions: true,
+          translationCache: translationCache,
+        ),
+      ),
+    );
+
+    final chip = chipKey('blue eyes', 0, selected: false);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(chip));
+    await tester.pump();
+    await gesture.moveBy(const Offset(72, 24));
+    await tester.pump();
+
+    final feedbackBody = find.byKey(
+      const ValueKey('prompt-tag-drag-feedback-chip-body'),
+    );
+    expect(feedbackBody, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-selection-rectangle')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: feedbackBody,
+        matching: find.text('blue translated'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-chip-check')),
+      findsNothing,
+    );
+    final marker = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-chip-marker')),
+    );
+    expect(
+      (marker.decoration as BoxDecoration).color,
+      const Color(0xFF5B8DEF),
+    );
+    final feedbackChip = chipDecoration(tester, feedbackBody);
+    expect(feedbackChip.decoration.color, const Color(0xFF181818));
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('multi-tag drag feedback uses origin chip with count badge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        const PromptTagDragFeedback(
+          tags: ['blue eyes', 'long hair'],
+          previewItems: [
+            PromptTagDragPreviewItem(
+              label: 'blue eyes',
+              translation: 'blue translated',
+              category: PromptTagCategory.upperBody,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final feedbackBody = find.byKey(
+      const ValueKey('prompt-tag-drag-feedback-chip-body'),
+    );
+    expect(feedbackBody, findsOneWidget);
+    expect(find.text('x2'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('prompt-tag-drag-feedback-count-badge')),
+      findsOneWidget,
+    );
+    expect(find.text('2 tags'), findsNothing);
+  });
+
+  testWidgets('multi display tag drag feedback uses the drag start chip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair',
+          enableTagActions: true,
+          initialLayoutMode: PromptTagLayoutMode.sourceOrder,
+          respectInitialLayoutMode: true,
+          translationCache: cache(),
+        ),
+      ),
+    );
+
+    await dragSelectionAround(
+      tester,
+      chipKey('blue eyes', 0, selected: false),
+      chipKey('long hair', 1, selected: false),
+    );
+
+    final dragStartChip = chipKey('long hair', 1, selected: true);
+    final gesture = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+      buttons: kPrimaryMouseButton,
+    );
+    await gesture.down(tester.getCenter(dragStartChip));
+    await tester.pump();
+    await gesture.moveBy(const Offset(72, 24));
+    await tester.pump();
+
+    final feedbackBody = find.byKey(
+      const ValueKey('prompt-tag-drag-feedback-chip-body'),
+    );
+    expect(
+      find.descendant(of: feedbackBody, matching: find.text('long hair')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: feedbackBody, matching: find.text('blue eyes')),
+      findsNothing,
+    );
+    expect(find.text('x2'), findsOneWidget);
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
   });
 
   testWidgets('right click opens the Danbooru wiki for normalized tags', (
@@ -1828,6 +2106,52 @@ void main() {
 
     expect(classificationCache.entryFor('eonsang'), isNotNull);
     expect(saveCount, 0);
+  });
+
+  testWidgets('open display updates after classification cache is merged', (
+    tester,
+  ) async {
+    final classificationCache = PromptTagClassificationCache(
+      clock: () => 1710000000,
+    );
+
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, standing',
+          initialLayoutMode: PromptTagLayoutMode.grouped,
+          translationCache: cache(),
+          classificationCache: classificationCache,
+        ),
+      ),
+    );
+
+    final actionGroup = find.byKey(const ValueKey('prompt-tag-group-action'));
+    final artistGroup = find.byKey(const ValueKey('prompt-tag-group-artist'));
+    expect(
+      find.descendant(of: actionGroup, matching: find.text('standing')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: artistGroup, matching: find.text('standing')),
+      findsNothing,
+    );
+
+    classificationCache.mergeMissingFrom(
+      PromptTagClassificationCache.fromJson({
+        'positive:standing': {
+          'category': PromptTagCategory.artist.name,
+          'source': 'manual',
+          'updatedAt': 1710000001,
+        },
+      }),
+    );
+    await tester.pump();
+
+    expect(
+      find.descendant(of: artistGroup, matching: find.text('standing')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

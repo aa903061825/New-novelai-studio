@@ -1,0 +1,44 @@
+[
+  {
+    "id": "qaq1-suzuran-safe-abtest-low-vibe",
+    "type": "artist_chain_abtest",
+    "artistChainId": "legacy-artist-sheet-r12c5",
+    "artistChainName": "QAQ1",
+    "characterName": "Suzuran",
+    "imageRef": "assets/references/qaq1-abtest/qaq1-suzuran-safe-low-vibe-seed4106132026.png",
+    "title": "QAQ1 / Suzuran safe / low vibe / seed 4106132026",
+    "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, adult Suzuran-inspired cosplayer (arknights), adult woman, mature proportions, fox girl, fox ears, fox tail, long hair, green eyes, best quality, amazing quality, very aesthetic, absurdres, 1girl, solo, full body, standing pose, straight-on eye-level camera, centered composition, looking at viewer, hands relaxed, skirt hem down, modest frilled dress, black semi-sheer pantyhose, subtle fabric translucency around knees and calves, gentle stocking sheen, soft luminous skin, natural warm skin tones, gentle blush, soft clean lineart, delicate eyes, bright pastel color, gentle cel shading, polished anime illustration, plain warm white studio background, soft natural light, balanced exposure, clean readable pose, safe, non-explicit, tasteful outfit, no text, no watermark",
+    "negativePrompt": "lowres, bad anatomy, bad hands, missing fingers, extra fingers, worst quality, low quality, blurry, text, watermark, logo, signature, child, loli, underage, childlike body, nsfw, nude, explicit, erotic, suggestive, fetish pose, low angle, from below, dutch angle, close-up thighs, close-up crotch, crotch focus, upskirt, skirt lift, lifted skirt, clothes lift, panty shot, exposed underwear, see-through underwear, bare legs, bare feet, sitting, reclining, lying down, spread legs, multiple girls, 2girls, 3girls, group, crowd, multiple views, character sheet, reference sheet, collage, grid, panel, comic, manga panel, speech bubble, chibi, mascot, creature, monster, censored, mosaic censoring, black bars, cropped, out of frame, extra arms, extra legs, duplicate, clone, bad feet, malformed feet",
+    "model": "nai-diffusion-4-5-full",
+    "action": "generate",
+    "width": 832,
+    "height": 1216,
+    "steps": 28,
+    "sampler": "k_euler_ancestral",
+    "noise_schedule": "karras",
+    "scale": 6.6,
+    "cfg_rescale": 0.1,
+    "ucPreset": 2,
+    "qualityToggle": false,
+    "dynamic_thresholding": false,
+    "legacy": false,
+    "legacy_uc": false,
+    "use_coords": true,
+    "use_order": true,
+    "vibeReferences": [
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/2d0e77-8b0dd8.naiv4vibe",
+        "strength": 0.08
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/264960-51baec.naiv4vibe",
+        "strength": 0.08
+      },
+      {
+        "path": "E:/NAI的脚本群/QAQ的画风/1/e08a30-3a2899.naiv4vibe",
+        "strength": 0.08
+      }
+    ],
+    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\Novel Studio\\Novel Studio\\novel_studio\\assets\\references\\qaq1-abtest\\qaq1-suzuran-safe-low-vibe-seed4106132026.png"
+  }
+]
