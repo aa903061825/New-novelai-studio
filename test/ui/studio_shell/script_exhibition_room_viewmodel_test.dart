@@ -331,6 +331,92 @@ void main() {
     expect(script.versions.single.items.last.prompt, 'second prompt');
   });
 
+  test('ignores stale summary detail after a newer full load publishes',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-stale-detail-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final image = File('${tempDir.path}${Platform.pathSeparator}001.png');
+    await image.writeAsBytes(const [0, 1, 2, 3]);
+    final initialSummary = RecastExhibitionScript(
+      scriptId: 'summary-script',
+      scriptName: 'Initial summary',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-06-04T10:00:00Z'),
+      detectedSchema: ScriptSchema.unknown,
+      summaryOnly: true,
+      frameCount: 1,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: image.path,
+        ),
+      ],
+    );
+    final refreshedSummary = RecastExhibitionScript(
+      scriptId: 'summary-script',
+      scriptName: 'Fresh summary',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-06-05T10:00:00Z'),
+      detectedSchema: ScriptSchema.unknown,
+      summaryOnly: true,
+      frameCount: 1,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: image.path,
+        ),
+      ],
+    );
+    final staleDetail = RecastExhibitionScript(
+      scriptId: 'summary-script',
+      scriptName: 'Stale detail',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-06-04T10:00:00Z'),
+      detectedSchema: ScriptSchema.baseInline,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: image.path,
+          prompt: 'stale prompt',
+        ),
+      ],
+    );
+    final pendingDetail = Completer<RecastExhibitionScript?>();
+    var recastLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async {
+        recastLoadCount += 1;
+        return recastLoadCount == 1 ? [initialSummary] : [refreshedSummary];
+      },
+      loadRecastScript: (_) => pendingDetail.future,
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('summary-script');
+    await pumpEventQueue();
+
+    await viewModel.load();
+    expect(viewModel.snapshot.scripts.single.title, 'Fresh summary');
+
+    pendingDetail.complete(staleDetail);
+    await pumpEventQueue();
+
+    expect(viewModel.snapshot.scripts.single.title, 'Fresh summary');
+    expect(viewModel.snapshot.scripts.single.summaryOnly, isTrue);
+  });
+
   test('hides summary-only recast scripts when original images are missing',
       () async {
     final summary = RecastExhibitionScript(

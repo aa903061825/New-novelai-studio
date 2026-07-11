@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -273,6 +274,141 @@ void main() {
     ]);
     expect(lines, hasLength(2));
     expect(await service.loadInspirations(), isEmpty);
+  });
+
+  test('serializes same-path JSON saves in invocation order', () async {
+    final initialService = WorkspaceService();
+    await initialService.createWorkspace(tempDir.path);
+
+    final firstCommitRelease = Completer<void>();
+    final firstCommitStarted = Completer<void>();
+    var commitCount = 0;
+    final service = WorkspaceService(
+      atomicFileCommitter: (source, targetPath) async {
+        commitCount += 1;
+        if (commitCount == 1) {
+          firstCommitStarted.complete();
+          await firstCommitRelease.future;
+        }
+        await source.rename(targetPath);
+      },
+    );
+    await service.openWorkspace(tempDir.path);
+
+    final firstSave = service.saveCharacters([
+      const CharacterEntry(
+        id: 'first',
+        name: 'First',
+        traits: ViewVariantTexts(frontFull: ''),
+      ),
+    ]);
+    await firstCommitStarted.future.timeout(const Duration(seconds: 1));
+    final secondSave = service.saveCharacters([
+      const CharacterEntry(
+        id: 'second',
+        name: 'Second',
+        traits: ViewVariantTexts(frontFull: ''),
+      ),
+    ]);
+    expect(commitCount, 1);
+
+    firstCommitRelease.complete();
+    await Future.wait([firstSave, secondSave]);
+
+    expect((await service.loadCharacters()).single.id, 'second');
+  });
+
+  test('serializes Codex JSONL saves without changing its newline format',
+      () async {
+    final initialService = WorkspaceService();
+    await initialService.createWorkspace(tempDir.path);
+    await initialService.saveCodexEntries(const []);
+
+    final firstCommitRelease = Completer<void>();
+    final firstCommitStarted = Completer<void>();
+    var commitCount = 0;
+    final service = WorkspaceService(
+      atomicFileCommitter: (source, targetPath) async {
+        commitCount += 1;
+        if (commitCount == 1) {
+          firstCommitStarted.complete();
+          await firstCommitRelease.future;
+        }
+        await source.rename(targetPath);
+      },
+    );
+    await service.openWorkspace(tempDir.path);
+
+    final firstSave = service.saveCodexEntries([
+      const InspirationEntry(id: 'first', name: 'First', prompt: 'first'),
+    ]);
+    await firstCommitStarted.future.timeout(const Duration(seconds: 1));
+    final secondSave = service.saveCodexEntries([
+      const InspirationEntry(id: 'second', name: 'Second', prompt: 'second'),
+    ]);
+    expect(commitCount, 1);
+
+    firstCommitRelease.complete();
+    await Future.wait([firstSave, secondSave]);
+
+    final codexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.codexEntries.replaceAll('/', Platform.pathSeparator)}',
+    );
+    expect((await service.loadCodexEntries()).single.id, 'second');
+    expect(await codexFile.readAsString(), endsWith('\n'));
+  });
+
+  test('keeps the old JSON file and cleans its temp file when commit fails',
+      () async {
+    final initialService = WorkspaceService();
+    await initialService.createWorkspace(tempDir.path);
+    await initialService.saveCharacters([
+      const CharacterEntry(
+        id: 'old',
+        name: 'Old',
+        traits: ViewVariantTexts(frontFull: ''),
+      ),
+    ]);
+    final charactersFile = File(
+      '${tempDir.path}${Platform.pathSeparator}library'
+      '${Platform.pathSeparator}characters.json',
+    );
+    final oldContents = await charactersFile.readAsString();
+
+    final service = WorkspaceService(
+      atomicFileCommitter: (_, targetPath) {
+        return Future<void>.error(
+          FileSystemException('Injected commit failure', targetPath),
+        );
+      },
+    );
+    await service.openWorkspace(tempDir.path);
+
+    await expectLater(
+      service.saveCharacters([
+        const CharacterEntry(
+          id: 'new',
+          name: 'New',
+          traits: ViewVariantTexts(frontFull: ''),
+        ),
+      ]),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await charactersFile.readAsString(), oldContents);
+    final temporaryFiles = await charactersFile.parent
+        .list()
+        .where(
+          (entry) =>
+              entry is File &&
+              entry.path
+                  .split(Platform.pathSeparator)
+                  .last
+                  .startsWith('characters.json.tmp-'),
+        )
+        .toList();
+    expect(temporaryFiles, isEmpty);
   });
 
   test('writes and reads ArtistChain structured Recast fields', () async {

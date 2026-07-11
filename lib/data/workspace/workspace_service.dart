@@ -28,9 +28,20 @@ const _atomicRenameRetryDelays = [
   Duration(milliseconds: 350),
 ];
 
+typedef WorkspaceAtomicFileCommitter = Future<void> Function(
+  File source,
+  String targetPath,
+);
+
 class WorkspaceService {
+  WorkspaceService({WorkspaceAtomicFileCommitter? atomicFileCommitter})
+      : _atomicFileCommitter =
+            atomicFileCommitter ?? _renameFileWithTransientAccessRetries;
+
   Directory? _root;
   WorkspaceManifest? _currentManifest;
+  final WorkspaceAtomicFileCommitter _atomicFileCommitter;
+  final Map<String, Future<void>> _pendingWritesByRelativePath = {};
 
   Directory? get root => _root;
 
@@ -189,16 +200,12 @@ class WorkspaceService {
   }
 
   Future<void> saveCodexEntries(List<InspirationEntry> entries) async {
-    final file = _file(WorkspacePaths.codexEntries);
-    await file.parent.create(recursive: true);
-    final sink = file.openWrite();
-    try {
-      for (final entry in entries) {
-        sink.writeln(jsonEncode(entry.toJson()));
-      }
-    } finally {
-      await sink.close();
+    final contents = StringBuffer();
+    for (final entry in entries) {
+      contents.writeln(jsonEncode(entry.toJson()));
     }
+    await _writeFileAtomically(
+        WorkspacePaths.codexEntries, contents.toString());
   }
 
   Future<List<PromptChunkEntry>> loadPromptChunks() {
@@ -1092,24 +1099,45 @@ class WorkspaceService {
     return Isolate.run(() => _decodeJsonFileFromPath(path));
   }
 
-  Future<void> _writeJsonFile(String relativePath, Object? value) async {
-    final file = _file(relativePath);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(_encodedJsonFile(value));
+  Future<void> _writeJsonFile(String relativePath, Object? value) {
+    return _writeFileAtomically(relativePath, _encodedJsonFile(value));
   }
 
-  Future<void> _writeJsonFileAtomically(
+  Future<void> _writeFileAtomically(
     String relativePath,
-    Object? value,
-  ) async {
+    String contents,
+  ) {
     final file = _file(relativePath);
+    final previousWrite =
+        _pendingWritesByRelativePath[relativePath] ?? Future<void>.value();
+    final nextWrite = previousWrite
+        .catchError((Object _) {})
+        .then((_) => _writeFileAtomicallyNow(file, contents));
+    _pendingWritesByRelativePath[relativePath] = nextWrite;
+    nextWrite.then<void>(
+      (_) => _clearPendingWrite(relativePath, nextWrite),
+      onError: (_, __) => _clearPendingWrite(relativePath, nextWrite),
+    );
+    return nextWrite;
+  }
+
+  void _clearPendingWrite(String relativePath, Future<void> write) {
+    if (identical(_pendingWritesByRelativePath[relativePath], write)) {
+      _pendingWritesByRelativePath.remove(relativePath);
+    }
+  }
+
+  Future<void> _writeFileAtomicallyNow(
+    File file,
+    String contents,
+  ) async {
     await file.parent.create(recursive: true);
     final tempFile = File(
       '${file.path}.tmp-${DateTime.now().toUtc().microsecondsSinceEpoch}',
     );
     try {
-      await tempFile.writeAsString(_encodedJsonFile(value));
-      await _renameFileWithTransientAccessRetries(tempFile, file.path);
+      await tempFile.writeAsString(contents);
+      await _atomicFileCommitter(tempFile, file.path);
     } catch (_) {
       try {
         if (await tempFile.exists()) {
@@ -1283,7 +1311,7 @@ class WorkspaceService {
     for (final value in values) {
       final fileName = '${idOf(value)}.json';
       nextFileNames.add(fileName);
-      await _writeJsonFileAtomically('$relativePath/$fileName', toJson(value));
+      await _writeJsonFile('$relativePath/$fileName', toJson(value));
     }
     for (final file in existing) {
       final fileName = file.path.split(Platform.pathSeparator).last;

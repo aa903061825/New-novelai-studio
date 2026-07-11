@@ -1384,16 +1384,20 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   Future<void> _loadScriptDetailIfNeeded(String scriptId) async {
     final loader = loadRecastScript;
     if (loader == null) return;
+    final generation = _loadGeneration;
     final current = _scriptsById[scriptId];
     if (current == null || !current.summaryOnly) return;
     if (!_loadingScriptDetails.add(scriptId)) return;
     try {
       final detail = await loader(scriptId);
-      if (detail == null || _loadGeneration == 0) return;
+      if (detail == null || generation == 0 || generation != _loadGeneration) {
+        return;
+      }
       final nextRecastScripts = [
         for (final script in _loadedRecastScripts)
           script.scriptId == scriptId ? detail : script,
       ];
+      if (generation != _loadGeneration) return;
       _loadedRecastScripts = nextRecastScripts;
       final nextSnapshot = await _buildSnapshotAsync(
         recastScripts: nextRecastScripts,
@@ -1401,11 +1405,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         plans: _loadedProductionPlans,
         records: _loadedGalleryRecords,
       );
-      if (selectedScriptId != scriptId) {
-        _setSnapshot(nextSnapshot);
-        notifyListeners();
-        return;
-      }
+      if (generation != _loadGeneration) return;
       _setSnapshot(nextSnapshot);
       _normalizeSelection();
       notifyListeners();
