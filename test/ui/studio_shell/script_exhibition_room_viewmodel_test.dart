@@ -81,17 +81,27 @@ void main() {
   });
 
   test('loads original exhibition frames from recast script caches', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-recast-cache-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final image = File('${tempDir.path}${Platform.pathSeparator}001.png');
+    await image.writeAsBytes(const [0, 1, 2, 3]);
     final script = Script(
       id: 'recast-script',
       name: '重铸剧本',
-      rootPath: r'C:\stories\recast',
+      rootPath: tempDir.path,
       detectedSchema: ScriptSchema.baseInline,
       frames: [
         ScriptFrame(
           index: 1,
           fileName: '001.png',
-          sourcePath: r'C:\stories\recast\001.png',
-          sourceImagePath: r'C:\stories\recast\001.png',
+          sourcePath: image.path,
+          sourceImagePath: image.path,
           rawJson: '{}',
           parsed: const ParsedFrame(baseCaption: 'recast prompt'),
           detectedSchema: ScriptSchema.baseInline,
@@ -104,7 +114,7 @@ void main() {
         RecastScriptCache(
           scriptId: 'recast-script',
           scriptName: '重铸剧本',
-          sourceRootPath: r'C:\stories\recast',
+          sourceRootPath: tempDir.path,
           sourceFingerprint: 'fingerprint',
           updatedAt: DateTime.parse('2026-06-04T10:00:00Z'),
           mapping: RecastMapping.defaults('recast-script'),
@@ -124,7 +134,7 @@ void main() {
     final item = exhibitionScript.versions.single.items.single;
     expect(item.sourceKind, ScriptExhibitionItemSourceKind.original);
     expect(item.sourceFileName, '001.png');
-    expect(item.imagePath, r'C:\stories\recast\001.png');
+    expect(item.imagePath, image.path);
     expect(item.prompt, 'recast prompt');
   });
 
@@ -390,14 +400,21 @@ void main() {
         ),
       ],
     );
-    final pendingDetail = Completer<RecastExhibitionScript?>();
+    final stalePendingDetail = Completer<RecastExhibitionScript?>();
+    final currentPendingDetail = Completer<RecastExhibitionScript?>();
     var recastLoadCount = 0;
+    var detailLoadCount = 0;
     final viewModel = ScriptExhibitionRoomViewModel(
       loadRecastScripts: () async {
         recastLoadCount += 1;
         return recastLoadCount == 1 ? [initialSummary] : [refreshedSummary];
       },
-      loadRecastScript: (_) => pendingDetail.future,
+      loadRecastScript: (_) {
+        detailLoadCount += 1;
+        return detailLoadCount == 1
+            ? stalePendingDetail.future
+            : currentPendingDetail.future;
+      },
       loadScripts: () async => const [],
       loadProductionPlans: () async => const [],
       loadGalleryRecords: () async => const [],
@@ -408,13 +425,234 @@ void main() {
     await pumpEventQueue();
 
     await viewModel.load();
+    expect(detailLoadCount, 2);
     expect(viewModel.snapshot.scripts.single.title, 'Fresh summary');
 
-    pendingDetail.complete(staleDetail);
+    stalePendingDetail.complete(staleDetail);
     await pumpEventQueue();
 
     expect(viewModel.snapshot.scripts.single.title, 'Fresh summary');
     expect(viewModel.snapshot.scripts.single.summaryOnly, isTrue);
+
+    currentPendingDetail.complete(null);
+    await pumpEventQueue();
+  });
+
+  test(
+      'restarts selected summary detail when an older generation request is still pending',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-detail-generation-retry-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final firstImage = File(
+      '${tempDir.path}${Platform.pathSeparator}001.png',
+    );
+    final secondImage = File(
+      '${tempDir.path}${Platform.pathSeparator}002.png',
+    );
+    await firstImage.writeAsBytes(const [0, 1, 2, 3]);
+    await secondImage.writeAsBytes(const [0, 1, 2, 3]);
+
+    RecastExhibitionScript summary(String id) => RecastExhibitionScript(
+          scriptId: id,
+          scriptName: 'Summary $id',
+          sourceRootPath: '${tempDir.path}${Platform.pathSeparator}summary-$id',
+          updatedAt: DateTime.parse('2026-07-13T09:00:00Z'),
+          detectedSchema: ScriptSchema.unknown,
+          frames: [
+            RecastExhibitionFrame(
+              index: 1,
+              fileName: '001.png',
+              sourcePath: firstImage.path,
+            ),
+          ],
+          frameCount: 2,
+          summaryOnly: true,
+        );
+    RecastExhibitionScript detail(String id) => RecastExhibitionScript(
+          scriptId: id,
+          scriptName: 'Detail $id',
+          sourceRootPath: '${tempDir.path}${Platform.pathSeparator}summary-$id',
+          updatedAt: DateTime.parse('2026-07-13T09:00:00Z'),
+          detectedSchema: ScriptSchema.baseInline,
+          frames: [
+            RecastExhibitionFrame(
+              index: 1,
+              fileName: '001.png',
+              sourcePath: firstImage.path,
+              prompt: '$id first prompt',
+            ),
+            RecastExhibitionFrame(
+              index: 2,
+              fileName: '002.png',
+              sourcePath: secondImage.path,
+              prompt: '$id second prompt',
+            ),
+          ],
+        );
+
+    final oldScriptADetail = Completer<RecastExhibitionScript?>();
+    var scriptADetailLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async => [summary('script-a'), summary('script-b')],
+      loadRecastScript: (scriptId) {
+        if (scriptId == 'script-a') {
+          scriptADetailLoadCount += 1;
+          if (scriptADetailLoadCount == 1) {
+            return oldScriptADetail.future;
+          }
+        }
+        return Future.value(detail(scriptId));
+      },
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-a');
+    await pumpEventQueue();
+
+    await viewModel.load();
+    expect(scriptADetailLoadCount, 2);
+    viewModel.selectScript('script-b');
+    await pumpEventQueue();
+    viewModel.selectScript('script-a');
+    await pumpEventQueue();
+
+    oldScriptADetail.complete(detail('script-a'));
+    await pumpEventQueue();
+
+    expect(scriptADetailLoadCount, 2);
+    expect(viewModel.selectedScript?.scriptId, 'script-a');
+    expect(viewModel.selectedScript?.summaryOnly, isFalse);
+    expect(viewModel.selectedScript?.versions.single.items, hasLength(2));
+  });
+
+  test('does not publish an older detail snapshot after a newer script switch',
+      () async {
+    final updatedAt = DateTime.parse('2026-07-13T09:00:00Z');
+    RecastExhibitionScript recastScript(
+      String id, {
+      required bool summaryOnly,
+    }) {
+      return RecastExhibitionScript(
+        scriptId: id,
+        scriptName: id,
+        sourceRootPath: 'root-$id',
+        updatedAt: updatedAt,
+        detectedSchema:
+            summaryOnly ? ScriptSchema.unknown : ScriptSchema.baseInline,
+        frames: [
+          RecastExhibitionFrame(
+            index: 1,
+            fileName: '001.png',
+            sourcePath: 'root-$id/001.png',
+            prompt: summaryOnly ? '' : '$id detail prompt',
+          ),
+        ],
+        frameCount: 1,
+        summaryOnly: summaryOnly,
+      );
+    }
+
+    ScriptExhibitionSnapshot snapshotFor(
+      List<RecastExhibitionScript> recastScripts,
+    ) {
+      return ScriptExhibitionSnapshot(
+        scripts: [
+          for (final script in recastScripts)
+            ScriptExhibitionScript(
+              scriptId: script.scriptId,
+              title: script.scriptName,
+              sourceFolder: script.sourceRootPath,
+              updatedAt: script.updatedAt,
+              versions: const [],
+              status: ScriptExhibitionScriptStatus.active,
+              originalCount: script.displayFrameCount,
+              generatedImageCount: 0,
+              imageLikeItemCount: script.displayFrameCount,
+              hasImage: true,
+              coverItem: null,
+              pendingCount: 0,
+              firstNeedsActionItem: null,
+              summaryOnly: script.summaryOnly,
+            ),
+        ],
+        totalImageCount: recastScripts.length,
+        generatedImageCount: 0,
+        needsActionCount: 0,
+      );
+    }
+
+    final summaryA = recastScript('script-a', summaryOnly: true);
+    final summaryB = recastScript('script-b', summaryOnly: true);
+    final detailA = recastScript('script-a', summaryOnly: false);
+    final detailB = recastScript('script-b', summaryOnly: false);
+    final olderBuild = Completer<ScriptExhibitionSnapshot>();
+    final newerBuild = Completer<ScriptExhibitionSnapshot>();
+    late ScriptExhibitionSnapshot olderSnapshot;
+    late ScriptExhibitionSnapshot newerSnapshot;
+    var scriptBDetailLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async => [summaryA, summaryB],
+      loadRecastScript: (scriptId) {
+        if (scriptId == 'script-b') {
+          scriptBDetailLoadCount += 1;
+          return Future.value(detailB);
+        }
+        return Future.value(detailA);
+      },
+      snapshotBuilder: ({
+        required recastScripts,
+        required scripts,
+        required plans,
+        required records,
+      }) {
+        final scriptA = recastScripts.singleWhere(
+          (script) => script.scriptId == 'script-a',
+        );
+        final scriptB = recastScripts.singleWhere(
+          (script) => script.scriptId == 'script-b',
+        );
+        final snapshot = snapshotFor(recastScripts);
+        if (scriptA.summaryOnly && scriptB.summaryOnly) {
+          return Future.value(snapshot);
+        }
+        if (!scriptA.summaryOnly && scriptB.summaryOnly) {
+          olderSnapshot = snapshot;
+          return olderBuild.future;
+        }
+        newerSnapshot = snapshot;
+        return newerBuild.future;
+      },
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-a');
+    await pumpEventQueue();
+    viewModel.selectScript('script-b');
+    await pumpEventQueue();
+
+    newerBuild.complete(newerSnapshot);
+    await pumpEventQueue();
+    expect(viewModel.selectedScript?.scriptId, 'script-b');
+    expect(viewModel.selectedScript?.summaryOnly, isFalse);
+
+    olderBuild.complete(olderSnapshot);
+    await pumpEventQueue();
+
+    expect(scriptBDetailLoadCount, 1);
+    expect(viewModel.selectedScript?.scriptId, 'script-b');
+    expect(viewModel.selectedScript?.summaryOnly, isFalse);
   });
 
   test('hides summary-only recast scripts when original images are missing',
@@ -724,21 +962,31 @@ void main() {
 
   test('uses lightweight recast exhibition scripts before full caches',
       () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-lightweight-cache-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final image = File('${tempDir.path}${Platform.pathSeparator}001.png');
+    await image.writeAsBytes(const [0, 1, 2, 3]);
     var fullCacheLoadCount = 0;
     final viewModel = ScriptExhibitionRoomViewModel(
       loadRecastScripts: () async => [
         RecastExhibitionScript(
           scriptId: 'light-script',
           scriptName: 'Light Script',
-          sourceRootPath: r'C:\stories\light',
+          sourceRootPath: tempDir.path,
           updatedAt: DateTime.parse('2026-06-04T10:00:00Z'),
           detectedSchema: ScriptSchema.baseInline,
-          frames: const [
+          frames: [
             RecastExhibitionFrame(
               index: 1,
               fileName: '001.json',
-              sourcePath: r'C:\stories\light\001.json',
-              sourceImagePath: r'C:\stories\light\001.png',
+              sourcePath: '${tempDir.path}${Platform.pathSeparator}001.json',
+              sourceImagePath: image.path,
               prompt: 'light prompt',
               parseStatus: ScriptFrameParseStatus.parsed,
             ),
@@ -762,7 +1010,7 @@ void main() {
     final item = exhibitionScript.versions.single.items.single;
     expect(item.sourceKind, ScriptExhibitionItemSourceKind.original);
     expect(item.sourceFileName, '001.json');
-    expect(item.imagePath, r'C:\stories\light\001.png');
+    expect(item.imagePath, image.path);
     expect(item.prompt, 'light prompt');
   });
 

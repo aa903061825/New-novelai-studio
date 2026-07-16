@@ -257,6 +257,7 @@ class ScriptRecastEngine {
             caption: resolvedCaption,
             frameIndex: frame.index,
             mapping: mapping,
+            captions: frame.parsed.charCaptions,
           );
     final sceneResolvedCaption = _applyScenePromptReplacements(
       caption: roleResolvedCaption,
@@ -294,20 +295,29 @@ class ScriptRecastEngine {
     required String caption,
     required int frameIndex,
     required RecastMapping mapping,
+    required List<String> captions,
   }) {
     var resolved = caption;
     for (final replacement in mapping.rolePromptReplacements) {
-      if (!_rolePromptReplacementTargetsBase(
+      final fallbackLocations = _fallbackPromptLocationsForReplacement(
         replacement: replacement,
         mapping: mapping,
         frameIndex: frameIndex,
-      )) {
+        captions: captions,
+      );
+      final rules = _rolePromptReplacementRulesForLocation(
+        replacement: replacement,
+        frameIndex: frameIndex,
+        location: null,
+        fallbackLocations: fallbackLocations,
+      );
+      if (rules.isEmpty) {
         continue;
       }
-      resolved = _applyRolePromptReplacement(
+      resolved = _applyPromptReplacementRules(
         caption: resolved,
         frameIndex: frameIndex,
-        replacement: replacement,
+        rules: rules,
       );
     }
     return resolved;
@@ -337,18 +347,27 @@ class ScriptRecastEngine {
             }
           }
         }
-        final slotIndexes = _rolePromptReplacementSlotIndexes(
+        final fallbackLocations = _fallbackPromptLocationsForReplacement(
           replacement: replacement,
           mapping: mapping,
           frameIndex: frame.index,
           captions: captions,
         );
-        for (final slotIndex in slotIndexes) {
+        for (var slotIndex = 0; slotIndex < captions.length; slotIndex += 1) {
+          final rules = _rolePromptReplacementRulesForLocation(
+            replacement: replacement,
+            frameIndex: frame.index,
+            location: slotIndex,
+            fallbackLocations: fallbackLocations,
+          );
+          if (rules.isEmpty) {
+            continue;
+          }
           roleReplacementSlotIndexes.add(slotIndex);
-          captions[slotIndex] = _applyRolePromptReplacement(
+          captions[slotIndex] = _applyPromptReplacementRules(
             caption: captions[slotIndex],
             frameIndex: frame.index,
-            replacement: replacement,
+            rules: rules,
           );
         }
       }
@@ -408,13 +427,13 @@ class ScriptRecastEngine {
     return List.unmodifiable(captions);
   }
 
-  List<int> _rolePromptReplacementSlotIndexes({
+  Set<int?> _fallbackPromptLocationsForReplacement({
     required ScriptRolePromptReplacement replacement,
     required RecastMapping mapping,
     required int frameIndex,
     required List<String> captions,
   }) {
-    final appearanceSlotIndexes = <int>{};
+    final locations = <int?>{};
     var hasAppearanceMapping = false;
     var hasCaptionAppearanceMapping = false;
     for (final assembly in _roleAssembliesForReplacement(
@@ -427,8 +446,8 @@ class ScriptRecastEngine {
       hasAppearanceMapping = true;
       hasCaptionAppearanceMapping = hasCaptionAppearanceMapping ||
           assembly.sourceAppearances.any(_appearanceCanTargetCaption);
-      appearanceSlotIndexes.addAll(
-        _appearanceSlotIndexesForFrame(
+      locations.addAll(
+        _appearancePromptLocationsForFrame(
           assembly: assembly,
           frameIndex: frameIndex,
           captionsLength: captions.length,
@@ -436,24 +455,147 @@ class ScriptRecastEngine {
       );
     }
     if (hasAppearanceMapping) {
-      if (appearanceSlotIndexes.isNotEmpty) {
-        return List.unmodifiable(appearanceSlotIndexes.toList()..sort());
+      if (locations.isNotEmpty) {
+        return locations;
       }
       if (hasCaptionAppearanceMapping) {
-        return _captionSlotIndexesMatchingReplacement(
-          replacement: replacement,
-          frameIndex: frameIndex,
-          captions: captions,
+        locations.addAll(
+          _captionSlotIndexesMatchingReplacement(
+            replacement: replacement,
+            frameIndex: frameIndex,
+            captions: captions,
+          ),
         );
       }
-      return const [];
+      return locations;
     }
 
-    final slotIndex = _slotIndex(replacement.sourceRoleId.trim());
-    if (slotIndex == null || slotIndex < 0 || slotIndex >= captions.length) {
-      return const [];
+    final sourceRoleId = replacement.sourceRoleId.trim();
+    final slotIndex = _slotIndex(sourceRoleId);
+    if (slotIndex != null && slotIndex >= 0 && slotIndex < captions.length) {
+      locations.add(slotIndex);
+    } else if (_isBaseRoleSource(sourceRoleId)) {
+      locations.add(null);
     }
-    return [slotIndex];
+    return locations;
+  }
+
+  List<ScriptPromptReplacementRule> _rolePromptReplacementRulesForLocation({
+    required ScriptRolePromptReplacement replacement,
+    required int frameIndex,
+    required int? location,
+    required Set<int?> fallbackLocations,
+  }) {
+    final rules = <ScriptPromptReplacementRule>[];
+    for (final rule in replacement.rules) {
+      final terms = [
+        for (final term in _includedReplacementTerms(rule))
+          if (_replacementTermCanApplyToFrame(term, frameIndex) &&
+              _promptLocationsForTerm(
+                term: term,
+                frameIndex: frameIndex,
+                fallbackLocations: fallbackLocations,
+              ).contains(location))
+            term,
+      ];
+      if (terms.isEmpty) {
+        continue;
+      }
+      rules.add(
+        rule.copyWith(
+          sourceTerms: List.unmodifiable(terms),
+          excludedTermIds: const [],
+        ),
+      );
+    }
+    return List.unmodifiable(rules);
+  }
+
+  Set<int?> _promptLocationsForTerm({
+    required ScriptPromptReplacementTerm term,
+    required int frameIndex,
+    required Set<int?> fallbackLocations,
+  }) {
+    final sourceOccurrences = term.sourceOccurrences;
+    if (sourceOccurrences.isNotEmpty) {
+      final locations = <int?>{};
+      var hasCurrentFrameOccurrence = false;
+      for (final occurrence in sourceOccurrences) {
+        if (occurrence.frameIndex != frameIndex) {
+          continue;
+        }
+        hasCurrentFrameOccurrence = true;
+        locations.addAll(_physicalPromptLocations(occurrence.sourceLocation));
+      }
+      if (locations.isNotEmpty) {
+        return locations;
+      }
+      // A populated occurrence list is authoritative. If this frame has no
+      // occurrence, do not rebuild a cross-frame location from legacy fields.
+      return hasCurrentFrameOccurrence ? fallbackLocations : const <int?>{};
+    }
+
+    // Legacy caches flatten source occurrences into sourceLocation and
+    // frameIndexes. Keep this fallback only when structured occurrences are
+    // absent.
+    final physicalLocations = _physicalPromptLocations(term.sourceLocation);
+    if (physicalLocations.isNotEmpty) {
+      return physicalLocations;
+    }
+    return fallbackLocations;
+  }
+
+  Set<int?> _physicalPromptLocations(String sourceLocation) {
+    final normalized = sourceLocation.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return const <int?>{};
+    }
+    final locations = <int?>{};
+    final basePattern = RegExp(
+      r'(?<![a-z0-9])base(?:[\s_-]+(?:prompt|caption))?(?![a-z0-9])',
+    );
+    if (basePattern.hasMatch(normalized)) {
+      locations.add(null);
+    }
+    final slotPattern = RegExp(
+      r'(?<![a-z0-9])slot[-_\s]?(\d+)(?!\d)',
+    );
+    for (final match in slotPattern.allMatches(normalized)) {
+      final slotIndex = int.tryParse(match.group(1) ?? '');
+      if (slotIndex != null && slotIndex >= 0) {
+        locations.add(slotIndex);
+      }
+    }
+    return locations;
+  }
+
+  Set<int?> _appearancePromptLocationsForFrame({
+    required RoleAssembly assembly,
+    required int frameIndex,
+    required int captionsLength,
+  }) {
+    final locations = <int?>{};
+    for (final appearance in assembly.sourceAppearances) {
+      if (appearance.frameIndexes.isNotEmpty &&
+          !appearance.frameIndexes.contains(frameIndex)) {
+        continue;
+      }
+      final sourceId = appearance.sourceId.trim().toLowerCase();
+      final sourceKind = appearance.sourceKind.trim().toLowerCase();
+      if (_isBaseRoleSource(sourceId) || _isBaseRoleSource(sourceKind)) {
+        locations.add(null);
+        continue;
+      }
+      if (!_appearanceCanTargetCaption(appearance)) {
+        continue;
+      }
+      final slotIndex = _slotIndex(sourceId);
+      if (slotIndex == null || slotIndex < 0 || slotIndex >= captionsLength) {
+        continue;
+      }
+      locations.add(slotIndex);
+    }
+    return locations;
   }
 
   bool _appearanceCanTargetCaption(RoleAssemblySourceAppearance appearance) {
@@ -657,23 +799,13 @@ class ScriptRecastEngine {
     required int frameIndex,
     required int captionsLength,
   }) {
-    final slotIndexes = <int>{};
-    for (final appearance in assembly.sourceAppearances) {
-      if (appearance.frameIndexes.isNotEmpty &&
-          !appearance.frameIndexes.contains(frameIndex)) {
-        continue;
-      }
-      if (appearance.sourceKind.trim().isNotEmpty &&
-          appearance.sourceKind.trim() != 'slot') {
-        continue;
-      }
-      final slotIndex = _slotIndex(appearance.sourceId);
-      if (slotIndex == null || slotIndex < 0 || slotIndex >= captionsLength) {
-        continue;
-      }
-      slotIndexes.add(slotIndex);
-    }
-    return List.unmodifiable(slotIndexes.toList()..sort());
+    final slotIndexes = _appearancePromptLocationsForFrame(
+      assembly: assembly,
+      frameIndex: frameIndex,
+      captionsLength: captionsLength,
+    ).whereType<int>().toList()
+      ..sort();
+    return List.unmodifiable(slotIndexes);
   }
 
   bool _shouldApplyAssemblyToBase(RoleAssembly assembly, int frameIndex) {
@@ -705,28 +837,6 @@ class ScriptRecastEngine {
     return _isBaseRoleSource(sourceId) || _isBaseRoleSource(sourceKind);
   }
 
-  bool _rolePromptReplacementTargetsBase({
-    required ScriptRolePromptReplacement replacement,
-    required RecastMapping mapping,
-    required int frameIndex,
-  }) {
-    final sourceRoleId = replacement.sourceRoleId.trim().toLowerCase();
-    if (_isBaseRoleSource(sourceRoleId)) {
-      return true;
-    }
-    for (final assembly in _roleAssembliesForReplacement(
-      mapping: mapping,
-      replacement: replacement,
-    )) {
-      if (assembly.sourceAppearances.any(
-        (appearance) => _appearanceTargetsBaseForFrame(appearance, frameIndex),
-      )) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   Iterable<RoleAssembly> _roleAssembliesForReplacement({
     required RecastMapping mapping,
     required ScriptRolePromptReplacement replacement,
@@ -743,10 +853,11 @@ class ScriptRecastEngine {
   }
 
   bool _isBaseRoleSource(String value) {
-    return value == 'base' ||
-        value == 'global' ||
-        value.startsWith('global-') ||
-        value.startsWith('base-');
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'base' ||
+        normalized == 'global' ||
+        normalized.startsWith('global-') ||
+        normalized.startsWith('base-');
   }
 
   String _resolveNegativeBase({
@@ -1631,14 +1742,14 @@ String _applyScenePromptReplacements({
   );
 }
 
-String _applyRolePromptReplacement({
+String _applyPromptReplacementRules({
   required String caption,
   required int frameIndex,
-  required ScriptRolePromptReplacement replacement,
+  required List<ScriptPromptReplacementRule> rules,
 }) {
   return _promptReplacementEngine.applyRules(
     prompt: caption,
     frameIndex: frameIndex,
-    rules: replacement.rules,
+    rules: rules,
   );
 }

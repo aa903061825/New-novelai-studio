@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 const defaultCacheDir = path.join(
   'build',
@@ -251,6 +252,9 @@ const classificationCache = loadJson(
   options.classificationCache ?? defaultClassificationCache,
   {},
 );
+const termReview = loadTermReview(options.termReview, {
+  requireComplete: options.requireCompleteTermReview,
+});
 
 if (!fs.existsSync(cacheDir)) {
   throw new Error(`Missing cache dir: ${cacheDir}`);
@@ -267,16 +271,56 @@ const files = fs
   )
   .slice(0, options.limit ?? undefined);
 
+const termReviewCoverage = auditTermReviewCoverage(files);
+if (
+  options.requireCompleteTermReview &&
+  (termReviewCoverage.missingTerms.length > 0 ||
+    termReviewCoverage.baselineMismatches.length > 0)
+) {
+  if (termReviewCoverage.baselineMismatches.length > 0) {
+    throw new Error(
+      `Term review baseline drift detected for ` +
+        `${termReviewCoverage.baselineMismatches.length} cache file(s): ` +
+        termReviewCoverage.baselineMismatches.slice(0, 40).join(', '),
+    );
+  }
+  throw new Error(
+    `Complete term review is missing ${termReviewCoverage.missingTerms.length} ` +
+      `positive source term(s): ` +
+      termReviewCoverage.missingTerms.slice(0, 40).join(', '),
+  );
+}
+
 const report = {
   cache_dir: cacheDir,
   output_dir: outputDir,
   apply: options.apply,
+  api_used: false,
   files_scanned: files.length,
   files_changed: 0,
   role_count: 0,
   stage_count: 0,
   role_display_fallback_count: 0,
   stage_label_fallback_count: 0,
+  source_content_fingerprint_missing_count: 0,
+  source_content_fingerprint_mismatch_count: 0,
+  source_content_fingerprint_repaired_count: 0,
+  source_fingerprint_missing_count: 0,
+  source_fingerprint_invalid_count: 0,
+  source_fingerprint_path_normalized_count: 0,
+  term_review_file: termReview.filePath,
+  term_review_decision_count: termReview.decisions.size,
+  term_review_missing_term_count: termReviewCoverage.missingTerms.length,
+  term_review_baseline_mismatch_count:
+    termReviewCoverage.baselineMismatches.length,
+  term_review_positive_evidence_match_after_raw_drift_count:
+    termReviewCoverage.positiveEvidenceMatchesAfterRawDrift.length,
+  term_review_positive_evidence_match_after_raw_drift_files:
+    termReviewCoverage.positiveEvidenceMatchesAfterRawDrift,
+  term_review_complete:
+    termReview.enabled &&
+    termReviewCoverage.missingTerms.length === 0 &&
+    termReviewCoverage.baselineMismatches.length === 0,
   rows: [],
 };
 
@@ -289,9 +333,50 @@ for (const file of files) {
   const cache = loadJson(sourcePath, null);
   if (!cache) continue;
   const result = buildExtraction(cache);
+  const existingSourceContentFingerprint = stringValue(
+    cache.sourceContentFingerprint,
+  ).trim();
+  if (!existingSourceContentFingerprint) {
+    report.source_content_fingerprint_missing_count += 1;
+  }
+  const existingSourceFingerprint = stringValue(cache.sourceFingerprint).trim();
+  const sourceFingerprintNormalization = normalizeStoredSourceFingerprintPaths(
+    existingSourceFingerprint,
+    cache.scriptId,
+    cache.scriptSnapshot,
+  );
+  if (!existingSourceFingerprint) {
+    report.source_fingerprint_missing_count += 1;
+  } else if (!sourceFingerprintNormalization.valid) {
+    report.source_fingerprint_invalid_count += 1;
+  } else if (sourceFingerprintNormalization.changed) {
+    report.source_fingerprint_path_normalized_count += 1;
+  }
+  const sourceContentFingerprint = sourceContentFingerprintFromStoredSource(
+    sourceFingerprintNormalization,
+    cache.scriptSnapshot,
+  );
+  const sourceContentFingerprintMismatch =
+    sourceContentFingerprint.length > 0 &&
+    existingSourceContentFingerprint.length > 0 &&
+    existingSourceContentFingerprint !== sourceContentFingerprint;
+  if (sourceContentFingerprintMismatch) {
+    report.source_content_fingerprint_mismatch_count += 1;
+  }
+  if (
+    sourceContentFingerprint &&
+    (!existingSourceContentFingerprint || sourceContentFingerprintMismatch)
+  ) {
+    report.source_content_fingerprint_repaired_count += 1;
+  }
   const updated = {
     ...cache,
-    updatedAt: new Date().toISOString(),
+    ...(sourceFingerprintNormalization.changed
+      ? { sourceFingerprint: sourceFingerprintNormalization.value }
+      : {}),
+    ...(sourceContentFingerprint
+      ? { sourceContentFingerprint }
+      : {}),
     aiRoleExtraction: result.extraction,
     aiRoleExtractionChunks: [],
     aiRoleExtractionDraftCollapsed: false,
@@ -441,7 +526,11 @@ function buildExtraction(cache) {
     }
   }
 
-  attachUnmatchedPromptEvidenceToGroups(frames, groups);
+  if (termReview.enabled) {
+    attachReviewedSupplementalPromptEvidenceToGroups(frames, groups);
+  } else {
+    attachUnmatchedPromptEvidenceToGroups(frames, groups);
+  }
 
   const roles = [];
   const usedRoleIds = new Set();
@@ -488,6 +577,9 @@ function buildExtraction(cache) {
           evidence_terms: stageFields.evidenceTerms,
           missing_fields: missingFields(stageFields),
           warnings: label.fallback ? ['stage_label_needs_manual_review'] : [],
+          ...(termReview.enabled
+            ? { non_role: '', non_role_materialized: true }
+            : {}),
         };
         }),
       ),
@@ -502,11 +594,12 @@ function buildExtraction(cache) {
     roles.push({
       source_role_id: roleId,
       source_kind:
-        appearances.length > 1
+        group.sourceKindOverride ||
+        (appearances.length > 1
           ? 'cross_slot'
           : appearances[0]?.source_kind === 'base'
             ? 'base'
-            : 'slot',
+            : 'slot'),
       display_name: display.name,
       role_reason:
         'Offline Codex rebuild from scriptSnapshot frame tag evidence; no user API used.',
@@ -597,10 +690,16 @@ function mappingWithRoleAssemblies(cache, extraction) {
   const previousAssemblies = Array.isArray(cache.mapping?.roleAssemblies)
     ? cache.mapping.roleAssemblies
     : [];
+  const previousRoleMatches = previousRoleMatchesForExtraction(
+    previousAssemblies,
+    extraction.roles,
+  );
   return {
     ...mapping,
+    id: `mapping-${cache.scriptId}`,
+    scriptId: cache.scriptId,
     roleAssemblies: extraction.roles.map((role) => {
-      const previous = previousAssemblyForRole(previousAssemblies, role);
+      const previous = previousRoleMatches.get(role.source_role_id) ?? null;
       return {
         sourceRoleId: role.source_role_id,
         displayLabel: role.display_name,
@@ -626,12 +725,17 @@ function mappingWithRoleAssemblies(cache, extraction) {
     rolePromptReplacements: rolePromptReplacementsForExtraction(
       extraction,
       mapping.rolePromptReplacements,
+      previousRoleMatches,
     ),
     scenePromptReplacements: scenePromptReplacementsForExtraction(extraction),
   };
 }
 
-function rolePromptReplacementsForExtraction(extraction, existingReplacements = []) {
+function rolePromptReplacementsForExtraction(
+  extraction,
+  existingReplacements = [],
+  previousRoleMatches = new Map(),
+) {
   const existingByRoleId = new Map();
   for (const replacement of Array.isArray(existingReplacements)
     ? existingReplacements
@@ -646,7 +750,12 @@ function rolePromptReplacementsForExtraction(extraction, existingReplacements = 
       const sourceRoleId = stringValue(role.source_role_id).trim();
       const terms = nonEmptyPromptTerms(role.prompt_terms);
       if (!sourceRoleId || terms.length === 0) return null;
-      const existing = existingByRoleId.get(sourceRoleId);
+      const previousRoleId = stringValue(
+        previousRoleMatches.get(sourceRoleId)?.sourceRoleId,
+      ).trim();
+      const existing =
+        existingByRoleId.get(sourceRoleId) ??
+        (previousRoleId ? existingByRoleId.get(previousRoleId) : null);
       const sourcePreview = terms.map((term) => term.text).join(', ');
       return {
         sourceRoleId,
@@ -674,6 +783,7 @@ function promptReplacementRulesForExtractionTerms({
   existingRules,
 }) {
   const existingByTerm = new Map();
+  const identityFallback = genericIdentityReplacementFallback(existingRules);
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     for (const term of Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : []) {
       for (const key of promptReplacementTermMatchKeys(term)) {
@@ -694,9 +804,20 @@ function promptReplacementRulesForExtractionTerms({
       existing = existingByTerm.get(key);
       if (existing) break;
     }
+    const canUseIdentityFallback =
+      !existing &&
+      normalizedTagKey(sourceTerm.category) === 'character' &&
+      !isGenericPromptIdentityTerm(sourceTerm.text) &&
+      identityFallback;
     const next = existing
       ? { ...existing, sourceTerms: [sourceTerm] }
-      : generated;
+      : canUseIdentityFallback
+        ? {
+            ...generated,
+            action: identityFallback.action,
+            targetPrompt: identityFallback.targetPrompt,
+          }
+        : generated;
     if (
       stringValue(next.anchorTermId).trim() &&
       stringValue(next.anchorTermId).trim() !== sourceTerm.id
@@ -720,6 +841,30 @@ function promptReplacementRulesForExtractionTerms({
     emitted.add(id);
   }
   return rules;
+}
+
+function genericIdentityReplacementFallback(existingRules) {
+  const candidates = [];
+  for (const rule of Array.isArray(existingRules) ? existingRules : []) {
+    const action = normalizedTagKey(rule?.action);
+    const targetPrompt = stringValue(rule?.targetPrompt).trim();
+    if (action !== 'replace' || !targetPrompt) continue;
+    const hasGenericIdentitySource = (
+      Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : []
+    ).some(
+      (term) =>
+        ['character', 'identity'].includes(normalizedTagKey(term?.category)) &&
+        isGenericPromptIdentityTerm(term?.text),
+    );
+    if (!hasGenericIdentitySource) continue;
+    candidates.push({ action: 'replace', targetPrompt });
+  }
+  const signatures = uniqueExact(
+    candidates.map(
+      (candidate) => `${candidate.action}\u001f${candidate.targetPrompt}`,
+    ),
+  );
+  return signatures.length === 1 ? candidates[0] : null;
 }
 
 function promptReplacementTermMatchKeys(term) {
@@ -756,6 +901,7 @@ function nonEmptyPromptTerms(terms) {
 }
 
 function promptReplacementTermFromAi(term) {
+  const sourceOccurrences = physicalSourceOccurrencesFromAiTerm(term);
   return {
     id: stringValue(term.id).trim() || `term-${safeId(term.text)}`,
     text: stringValue(term.text).trim(),
@@ -769,7 +915,37 @@ function promptReplacementTermFromAi(term) {
     ...(Array.isArray(term.frame_indexes) && term.frame_indexes.length > 0
       ? { frameIndexes: term.frame_indexes }
       : {}),
+    ...(sourceOccurrences.length > 0
+      ? { sourceOccurrences }
+      : {}),
   };
+}
+
+function physicalSourceOccurrencesFromAiTerm(term) {
+  const occurrences = new Map();
+  for (const occurrence of Array.isArray(term?.source_occurrences)
+    ? term.source_occurrences
+    : []) {
+    const frameIndex = Number(occurrence?.frame_index);
+    const sourceLocation = physicalPromptSourceLocation(
+      occurrence?.source_location,
+    );
+    if (!Number.isInteger(frameIndex) || !sourceLocation) continue;
+    occurrences.set(`${frameIndex}\u001f${sourceLocation}`, {
+      frameIndex,
+      sourceLocation,
+    });
+  }
+  return [...occurrences.values()]
+    .sort(
+      (left, right) =>
+        left.frameIndex - right.frameIndex ||
+        left.sourceLocation.localeCompare(right.sourceLocation),
+    )
+    .map((occurrence) => ({
+      frameIndex: occurrence.frameIndex,
+      sourceLocation: occurrence.sourceLocation,
+    }));
 }
 
 function rolePromptReplacementRuleId(sourceRoleId, term) {
@@ -784,19 +960,189 @@ function scenePromptReplacementRuleId(term) {
   return termId ? `scene-${termId}` : `scene-term-${safeId(term.text)}`;
 }
 
-function previousAssemblyForRole(previousAssemblies, role) {
-  return (
-    previousAssemblies.find(
-      (assembly) => assembly.sourceRoleId === role.source_role_id,
-    ) ??
-    previousAssemblies.find(
-      (assembly) =>
-        normalizedTagKey(assembly.displayLabel) ===
-          normalizedTagKey(role.display_name) ||
-        normalizedTagKey(assembly.sourceName) === normalizedTagKey(role.display_name),
-    ) ??
-    null
+function previousRoleMatchesForExtraction(previousAssemblies, roles) {
+  const matches = new Map();
+  const usedPrevious = new Set();
+  const previousPositions = new Map(
+    previousAssemblies.map((assembly) => [
+      assembly,
+      appearancePositionSet(assembly.sourceAppearances),
+    ]),
   );
+  const rolePositions = new Map(
+    roles.map((role) => [role, appearancePositionSet(role.appearances)]),
+  );
+
+  for (const role of roles) {
+    const exact = previousAssemblies.find(
+      (assembly) => assembly.sourceRoleId === role.source_role_id,
+    );
+    if (!exact) continue;
+    matches.set(role.source_role_id, exact);
+    usedPrevious.add(exact);
+  }
+
+  const exactPositionCandidates = new Map();
+  for (const role of roles) {
+    if (matches.has(role.source_role_id)) continue;
+    const positions = rolePositions.get(role) ?? new Set();
+    if (positions.size === 0) continue;
+    const candidates = previousAssemblies.filter(
+      (assembly) =>
+        !usedPrevious.has(assembly) &&
+        setsEqualExact(positions, previousPositions.get(assembly) ?? new Set()),
+    );
+    exactPositionCandidates.set(role, candidates);
+  }
+  const exactPositionClaims = candidateClaimCounts(exactPositionCandidates);
+  for (const [role, candidates] of exactPositionCandidates) {
+    if (candidates.length !== 1) continue;
+    const previous = candidates[0];
+    if (exactPositionClaims.get(previous) !== 1) continue;
+    matches.set(role.source_role_id, previous);
+    usedPrevious.add(previous);
+  }
+
+  const splitCandidates = [];
+  for (const previous of previousAssemblies) {
+    if (usedPrevious.has(previous) || !isGenericFemalePreviousAssembly(previous)) {
+      continue;
+    }
+    const previousSet = previousPositions.get(previous) ?? new Set();
+    if (previousSet.size === 0) continue;
+    const splitRoles = roles.filter((role) => {
+      if (matches.has(role.source_role_id) || !isFemaleExtractionRole(role)) {
+        return false;
+      }
+      const positions = rolePositions.get(role) ?? new Set();
+      return positions.size > 0 && isSubsetOf(positions, previousSet);
+    });
+    if (splitRoles.length < 2) continue;
+    const union = new Set();
+    let disjoint = true;
+    for (const role of splitRoles) {
+      for (const position of rolePositions.get(role) ?? []) {
+        if (union.has(position)) disjoint = false;
+        union.add(position);
+      }
+    }
+    if (!disjoint || !setsEqualExact(union, previousSet)) continue;
+    splitCandidates.push({ previous, roles: splitRoles });
+  }
+  const splitRoleClaims = new Map();
+  for (const candidate of splitCandidates) {
+    for (const role of candidate.roles) {
+      splitRoleClaims.set(role, (splitRoleClaims.get(role) ?? 0) + 1);
+    }
+  }
+  for (const candidate of splitCandidates) {
+    if (candidate.roles.some((role) => splitRoleClaims.get(role) !== 1)) {
+      continue;
+    }
+    for (const role of candidate.roles) {
+      matches.set(role.source_role_id, candidate.previous);
+    }
+    usedPrevious.add(candidate.previous);
+  }
+
+  const nameCandidates = new Map();
+  for (const role of roles) {
+    if (matches.has(role.source_role_id)) continue;
+    const roleName = normalizedTagKey(role.display_name);
+    if (!roleName) continue;
+    const positions = rolePositions.get(role) ?? new Set();
+    const candidates = previousAssemblies.filter((assembly) => {
+      if (usedPrevious.has(assembly)) return false;
+      const sameName =
+        normalizedTagKey(assembly.displayLabel) === roleName ||
+        normalizedTagKey(assembly.sourceName) === roleName;
+      if (!sameName) return false;
+      const previousSet = previousPositions.get(assembly) ?? new Set();
+      return (
+        positions.size === 0 ||
+        previousSet.size === 0 ||
+        setsIntersect(positions, previousSet)
+      );
+    });
+    nameCandidates.set(role, candidates);
+  }
+  const nameClaims = candidateClaimCounts(nameCandidates);
+  for (const [role, candidates] of nameCandidates) {
+    if (candidates.length !== 1) continue;
+    const previous = candidates[0];
+    if (nameClaims.get(previous) !== 1) continue;
+    matches.set(role.source_role_id, previous);
+    usedPrevious.add(previous);
+  }
+  return matches;
+}
+
+function candidateClaimCounts(candidatesByRole) {
+  const counts = new Map();
+  for (const candidates of candidatesByRole.values()) {
+    for (const candidate of candidates) {
+      counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function appearancePositionSet(appearances) {
+  const result = new Set();
+  for (const appearance of Array.isArray(appearances) ? appearances : []) {
+    const sourceId = stringValue(
+      appearance?.sourceId ?? appearance?.source_id,
+    ).trim();
+    if (!sourceId) continue;
+    const sourceKind =
+      stringValue(appearance?.sourceKind ?? appearance?.source_kind).trim() ||
+      (sourceId === 'base' ? 'base' : 'slot');
+    const frameIndexes =
+      appearance?.frameIndexes ?? appearance?.frame_indexes ?? [];
+    for (const rawFrameIndex of Array.isArray(frameIndexes) ? frameIndexes : []) {
+      const frameIndex = Number(rawFrameIndex);
+      if (!Number.isInteger(frameIndex)) continue;
+      result.add(`${sourceKind}\u001f${sourceId}\u001f${frameIndex}`);
+    }
+  }
+  return result;
+}
+
+function setsEqualExact(left, right) {
+  return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
+function setsIntersect(left, right) {
+  return [...left].some((value) => right.has(value));
+}
+
+function isSubsetOf(subset, superset) {
+  return [...subset].every((value) => superset.has(value));
+}
+
+function isGenericFemalePreviousAssembly(assembly) {
+  const roleId = normalizedTagKey(assembly?.sourceRoleId);
+  const label = normalizedTagKey(
+    assembly?.sourceName ?? assembly?.displayLabel,
+  );
+  return (
+    /(?:^| )(?:girl|female|woman|loli)(?: |$)/.test(roleId) ||
+    /^(?:1 )?(?:girl|female|woman|loli)(?: |$)/.test(label)
+  );
+}
+
+function isFemaleExtractionRole(role) {
+  const text = normalizedTagKey(
+    [
+      role?.source_role_id,
+      role?.display_name,
+      role?.canonical_name,
+      ...(Array.isArray(role?.raw_identity_tags) ? role.raw_identity_tags : []),
+    ].join(' '),
+  );
+  const female = /(?:^| )(?:girl|girls|female|woman|women|loli)(?: |$)/.test(text);
+  const male = /(?:^| )(?:boy|boys|male|man|men)(?: |$)/.test(text);
+  return female && !male;
 }
 
 function previousStageForStage(previousAssembly, stage) {
@@ -875,6 +1221,9 @@ function countBaseFrameGroupMemberships(groups) {
 }
 
 function promptTermsForRoleGroup(roleId, group, context = {}) {
+  if (termReview.enabled) {
+    return reviewedPromptTermsForRoleGroup(roleId, group, context);
+  }
   const terms = new Map();
   for (const entry of group.frameTags ?? []) {
     const frameIndex = Number(entry.frameIndex);
@@ -984,6 +1333,76 @@ function promptTermsForRoleGroup(roleId, group, context = {}) {
   return promptTermRowsFromMap(terms, `role-${safeId(roleId)}`);
 }
 
+function reviewedPromptTermsForRoleGroup(roleId, group, context = {}) {
+  const terms = new Map();
+  for (const entry of group.frameTags ?? []) {
+    const frameIndex = Number(entry.frameIndex);
+    if (!Number.isInteger(frameIndex)) continue;
+    for (const tag of entry.tags ?? []) {
+      const decision = termReviewDecisionForTag(tag);
+      if (decision?.placement !== 'role') continue;
+      if (!isReviewedRoleTermGenderCompatibleWithGroup(tag, decision, group)) {
+        continue;
+      }
+      if (
+        decision.category === 'character' &&
+        isGenericPromptIdentityTerm(tag) &&
+        (group.identity?.concrete ?? []).length > 0
+      ) {
+        continue;
+      }
+      addPromptTerm(
+        terms,
+        {
+          category: decision.category,
+          text: cleanTag(tag),
+          frameIndex,
+          sourcePhrase: cleanTag(tag),
+          sourceLocation: `${entry.sourceId || 'slot'} prompt`,
+        },
+        { force: true },
+      );
+    }
+  }
+  for (const evidence of group.reviewedPromptEvidence ?? []) {
+    const frameIndex = Number(evidence.frameIndex);
+    if (!Number.isInteger(frameIndex)) continue;
+    const decision = termReviewDecisionForTag(evidence.tag);
+    if (decision?.placement !== 'role') continue;
+    if (
+      !isReviewedRoleTermGenderCompatibleWithGroup(
+        evidence.tag,
+        decision,
+        group,
+      )
+    ) {
+      continue;
+    }
+    if (
+      decision.category === 'character' &&
+      isGenericPromptIdentityTerm(evidence.tag) &&
+      (group.identity?.concrete ?? []).length > 0
+    ) {
+      continue;
+    }
+    addPromptTerm(
+      terms,
+      {
+        category: decision.category,
+        text: cleanTag(evidence.tag),
+        frameIndex,
+        sourcePhrase: cleanTag(evidence.tag),
+        sourceLocation: evidence.sourceLocation,
+        physicalSourceLocation: physicalPromptSourceLocation(
+          evidence.sourceLocation,
+        ),
+      },
+      { force: true },
+    );
+  }
+  return promptTermRowsFromMap(terms, `role-${safeId(roleId)}`);
+}
+
 function shouldSkipBaseClothingPromptTerm(entry, context) {
   if (entry?.sourceId !== 'base') return false;
   const frameIndex = Number(entry.frameIndex);
@@ -996,12 +1415,27 @@ function promptTermsWithIdentityAnchors(promptTerms, rawIdentityTags, frameIndex
   const terms = new Map();
   for (const term of promptTerms) {
     const key = `${term.category}\u001f${normalizedTagKey(term.text)}`;
+    const occurrences = new Map();
+    for (const occurrence of Array.isArray(term.source_occurrences)
+      ? term.source_occurrences
+      : []) {
+      const frameIndex = Number(occurrence?.frame_index);
+      const sourceLocation = physicalPromptSourceLocation(
+        occurrence?.source_location,
+      );
+      if (!Number.isInteger(frameIndex) || !sourceLocation) continue;
+      occurrences.set(`${frameIndex}\u001f${sourceLocation}`, {
+        frameIndex,
+        sourceLocation,
+      });
+    }
     terms.set(key, {
       category: term.category,
       text: term.text,
       sourcePhrase: term.source_phrase,
       sourceLocation: term.source_location,
       frames: new Set(term.frame_indexes ?? []),
+      occurrences,
     });
   }
   for (const tag of rawIdentityTags ?? []) {
@@ -1022,6 +1456,9 @@ function promptTermsWithIdentityAnchors(promptTerms, rawIdentityTags, frameIndex
 }
 
 function scenePromptTermsForFrames(frames) {
+  if (termReview.enabled) {
+    return reviewedScenePromptTermsForFrames(frames);
+  }
   const terms = new Map();
   for (const frame of frames) {
     const frameIndex = Number(frame.index);
@@ -1055,6 +1492,41 @@ function scenePromptTermsForFrames(frames) {
   return promptTermRowsFromMap(terms, 'scene');
 }
 
+function reviewedScenePromptTermsForFrames(frames) {
+  const terms = new Map();
+  for (const frame of frames) {
+    const frameIndex = Number(frame.index);
+    if (!Number.isInteger(frameIndex)) continue;
+    const sources = [
+      { value: frame.parsed?.baseCaption, location: 'base prompt' },
+      ...(Array.isArray(frame.parsed?.charCaptions)
+        ? frame.parsed.charCaptions.map((value, slot) => ({
+            value,
+            location: `slot-${slot} prompt`,
+          }))
+        : []),
+    ];
+    for (const source of sources) {
+      for (const tag of parseTags(source.value)) {
+        const decision = termReviewDecisionForTag(tag);
+        if (decision?.placement !== 'scene') continue;
+        addPromptTerm(
+          terms,
+          {
+            category: 'scene',
+            text: cleanTag(tag),
+            frameIndex,
+            sourcePhrase: cleanTag(tag),
+            sourceLocation: source.location,
+          },
+          { force: true },
+        );
+      }
+    }
+  }
+  return promptTermRowsFromMap(terms, 'scene');
+}
+
 function isScenePromptReplacementTerm(tag) {
   const normalized = normalizedTagKey(tag);
   if (!normalized) return false;
@@ -1081,11 +1553,11 @@ function isScenePromptReplacementTerm(tag) {
   );
 }
 
-function addPromptTerm(terms, item) {
+function addPromptTerm(terms, item, { force = false } = {}) {
   const text = cleanTag(item.text);
   if (!text) return;
   const category = item.category || 'identity';
-  if (shouldSkipPromptReplacementTerm(text, category)) return;
+  if (!force && shouldSkipPromptReplacementTerm(text, category)) return;
   const key = `${category}\u001f${normalizedTagKey(text)}`;
   const existing = terms.get(key) ?? {
     category,
@@ -1093,17 +1565,46 @@ function addPromptTerm(terms, item) {
     sourcePhrase: cleanTag(item.sourcePhrase),
     sourceLocation: stringValue(item.sourceLocation).trim(),
     frames: new Set(),
+    occurrences: new Map(),
   };
+  if (!(existing.occurrences instanceof Map)) {
+    existing.occurrences = new Map();
+  }
   if (Number.isInteger(item.frameIndex)) {
     existing.frames.add(item.frameIndex);
   }
   if (!existing.sourcePhrase && cleanTag(item.sourcePhrase)) {
     existing.sourcePhrase = cleanTag(item.sourcePhrase);
   }
-  if (!existing.sourceLocation && stringValue(item.sourceLocation).trim()) {
-    existing.sourceLocation = stringValue(item.sourceLocation).trim();
+  const nextSourceLocation = stringValue(item.sourceLocation).trim();
+  if (nextSourceLocation) {
+    const locations = stringValue(existing.sourceLocation)
+      .split(';')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!locations.includes(nextSourceLocation)) locations.push(nextSourceLocation);
+    existing.sourceLocation = locations.join('; ');
+  }
+  const physicalSourceLocation = physicalPromptSourceLocation(
+    item.physicalSourceLocation ?? nextSourceLocation,
+  );
+  if (Number.isInteger(item.frameIndex) && physicalSourceLocation) {
+    const occurrenceKey = `${item.frameIndex}\u001f${physicalSourceLocation}`;
+    existing.occurrences.set(occurrenceKey, {
+      frameIndex: item.frameIndex,
+      sourceLocation: physicalSourceLocation,
+    });
   }
   terms.set(key, existing);
+}
+
+function physicalPromptSourceLocation(value) {
+  const location = stringValue(value).trim();
+  if (/^base prompt(?:\s+\([^)]*\))?$/.test(location)) {
+    return 'base prompt';
+  }
+  const slot = location.match(/^(slot-\d+) prompt(?:\s+\([^)]*\))?$/);
+  return slot ? `${slot[1]} prompt` : '';
 }
 
 function promptTermRowsFromMap(terms, idPrefix) {
@@ -1134,6 +1635,16 @@ function promptTermRowsFromMap(terms, idPrefix) {
       source_phrase: term.sourcePhrase || term.text,
       source_location: term.sourceLocation,
       frame_indexes: sortedInts(term.frames),
+      source_occurrences: [...(term.occurrences?.values() ?? [])]
+        .sort(
+          (left, right) =>
+            left.frameIndex - right.frameIndex ||
+            left.sourceLocation.localeCompare(right.sourceLocation),
+        )
+        .map((occurrence) => ({
+          frame_index: occurrence.frameIndex,
+          source_location: occurrence.sourceLocation,
+        })),
     }));
 }
 
@@ -1406,7 +1917,7 @@ function isGenericPromptIdentityTerm(term) {
   const normalized = normalizedTagKey(term);
   if (!normalized) return true;
   if (isBasicGenericIdentity(normalized)) return true;
-  return /^(?:solo|1girl|2girls|girls?|1boy|2boys|boys?|female|male|woman|man|women|men)$/.test(
+  return /^(?:solo|\d+\s*girls?|girls?|\d+\s*boys?|boys?|female|male|woman|man|women|men)$/.test(
     normalized,
   );
 }
@@ -1417,7 +1928,15 @@ function identityForTags(tags) {
   const rawGeneric = [];
   for (const tag of tags) {
     const normalized = normalizedTagKey(tag);
-    const genericIdentity = genericIdentityForNormalized(normalized);
+    const reviewedCharacterDecision = termReview.enabled
+      ? termReviewDecisionForTag(tag)
+      : null;
+    const genericIdentity =
+      genericIdentityForNormalized(normalized) ??
+      (reviewedCharacterDecision?.placement === 'role' &&
+      reviewedCharacterDecision.category === 'character'
+        ? { tag: cleanTag(tag) }
+        : null);
     if (isConcreteCharacterTag(tag)) {
       concrete.push(tag);
       continue;
@@ -1460,7 +1979,7 @@ function inferredGenericIdentityFromEvidence(tags) {
   ) {
     return genericIdentityMap.male;
   }
-  if (/\b(huge penis|pov penis|male black|male white|male shirt|male swimsuit)\b/.test(normalized)) {
+  if (/\b(huge penis|pov penis|male black|male white|male shirt|male swim(?:suit|wear))\b/.test(normalized)) {
     return genericIdentityMap.male;
   }
   return null;
@@ -1582,11 +2101,11 @@ function preferredIdentityGender(identity) {
 
 function genderForIdentityTerm(term) {
   const normalized = normalizedTagKey(term);
-  if (/\b(1girl|2girls|girl|female|woman|loli)\b/.test(normalized)) return 'female';
+  if (/^(?:\d+\s*)?girls?$/.test(normalized)) return 'female';
+  if (/\b(female|woman|women|loli)\b/.test(normalized)) return 'female';
   if (
-    /\b(1boy|boy|male|man|men|guy|guys|shota|faceless male|fat man|dark skinned male|dark-skinned male|black man|black skinned male|muscular male|musclar male|bald man|old man|mature man|rugged man|big man|bandit|homeless man|homless man)\b/.test(
-      normalized,
-    )
+    /^(?:\d+\s*)?boys?$/.test(normalized) ||
+    /\b(male|man|men|guy|guys|shota|faceless male|fat man|dark skinned male|dark-skinned male|black man|black skinned male|muscular male|musclar male|bald man|old man|mature man|rugged man|big man|bandit|homeless man|homless man)\b/.test(normalized)
   ) {
     return 'male';
   }
@@ -1595,6 +2114,17 @@ function genderForIdentityTerm(term) {
 
 function genericIdentityForNormalized(normalized) {
   if (genericIdentityMap[normalized]) return genericIdentityMap[normalized];
+  if (/^(?:\d+\s*)?girls?$/.test(normalized)) return genericIdentityMap.girl;
+  if (/^(?:\d+\s*)?boys?$/.test(normalized)) return genericIdentityMap.boy;
+  if (/^(?:women|woman)$/.test(normalized)) return genericIdentityMap.woman;
+  if (/^(?:men|man)$/.test(normalized)) return genericIdentityMap.man;
+  if (
+    /\b(?:very\s+)?(?:dark|black)(?:\s+skin(?:ned)?|[- ]skinned)\s+male\b/.test(
+      normalized,
+    )
+  ) {
+    return genericIdentityMap['dark-skinned male'];
+  }
   if (/\bgiant\s+orc\b/.test(normalized)) {
     return genericIdentityMap['giant orc'];
   }
@@ -1803,6 +2333,229 @@ function attachUnmatchedPromptEvidenceToGroups(frames, groups) {
   }
 }
 
+function attachReviewedSupplementalPromptEvidenceToGroups(frames, groups) {
+  const groupList = [...groups.values()];
+  const ownersBySourceFrame = new Map();
+  for (const group of groupList) {
+    for (const [sourceId, sourceFrames] of group.sourceIds ?? []) {
+      for (const rawFrameIndex of sourceFrames ?? []) {
+        const frameIndex = Number(rawFrameIndex);
+        if (!Number.isInteger(frameIndex)) continue;
+        const key = reviewedSourceFrameKey(sourceId, frameIndex);
+        const owners = ownersBySourceFrame.get(key) ?? [];
+        owners.push(group);
+        ownersBySourceFrame.set(key, owners);
+      }
+    }
+  }
+
+  for (const frame of frames) {
+    const frameIndex = Number(frame.index);
+    if (!Number.isInteger(frameIndex)) continue;
+    const sources = [
+      { sourceId: 'base', caption: frame.parsed?.baseCaption },
+      ...(Array.isArray(frame.parsed?.charCaptions)
+        ? frame.parsed.charCaptions.map((caption, slot) => ({
+            sourceId: `slot-${slot}`,
+            caption,
+          }))
+        : []),
+    ];
+    for (const source of sources) {
+      const tags = parseTags(source.caption);
+      if (tags.length === 0) continue;
+      const reviewedRoleTags = tags.filter(
+        (tag) => termReviewDecisionForTag(tag)?.placement === 'role',
+      );
+      if (reviewedRoleTags.length === 0) continue;
+      const owners =
+        ownersBySourceFrame.get(
+          reviewedSourceFrameKey(source.sourceId, frameIndex),
+        ) ?? [];
+
+      for (const tag of reviewedRoleTags) {
+        const decision = termReviewDecisionForTag(tag);
+        const compatibleOwners = owners.filter((owner) =>
+          isReviewedRoleTermGenderCompatibleWithGroup(tag, decision, owner),
+        );
+        if (compatibleOwners.length > 0) continue;
+        let target = chooseGroupForReviewedSupplementalEvidence(groupList, {
+          sourceId: source.sourceId,
+          frameIndex,
+          tags,
+          reviewedRoleTags,
+          tag,
+          decision,
+        });
+        if (!target) {
+          target = reviewedSupplementalFallbackGroup(groups, groupList, {
+            sourceId: source.sourceId,
+            frameIndex,
+            tags,
+            reviewedRoleTags,
+            tag,
+            decision,
+            baseTags: parseTags(frame.parsed?.baseCaption),
+          });
+        }
+        target.frames.add(frameIndex);
+        addReviewedPromptEvidence(target, {
+          frameIndex,
+          tag,
+          sourceLocation:
+            source.sourceId === 'base'
+              ? 'base prompt (reviewed role evidence)'
+              : `${source.sourceId} prompt (reviewed supplemental role evidence)`,
+        });
+      }
+    }
+  }
+}
+
+function reviewedSourceFrameKey(sourceId, frameIndex) {
+  return `${stringValue(sourceId)}\u001f${Number(frameIndex)}`;
+}
+
+function chooseGroupForReviewedSupplementalEvidence(groups, context) {
+  const termGender = reviewedRoleTermGender(context.tag, context.decision);
+  const sourceGender =
+    context.sourceId === 'base'
+      ? ''
+      : identityGender(
+          sanitizeIdentityForRole(identityForTags(context.tags), context.tags),
+        );
+  const desiredGender = termGender || sourceGender;
+  const promptEvidenceTerms = new Set(
+    context.reviewedRoleTags.map(normalizedTagKey).filter(Boolean),
+  );
+  const scored = [];
+  for (const group of groups) {
+    const groupGender = identityGender(group.identity);
+    if (desiredGender && groupGender && desiredGender !== groupGender) continue;
+    let score = 0;
+    if (group.sourceIds?.has(context.sourceId)) score += 70;
+    if (group.frames?.has(context.frameIndex)) score += 40;
+    if (desiredGender && groupGender === desiredGender) score += 30;
+    const groupTerms = reviewedRoleTermKeysForGroup(group);
+    for (const term of promptEvidenceTerms) {
+      if (groupTerms.has(term)) score += 25;
+    }
+    if (groupTerms.has(normalizedTagKey(context.tag))) score += 80;
+    const distance = nearestSourceFrameDistance(
+      group,
+      context.sourceId,
+      context.frameIndex,
+    );
+    if (Number.isFinite(distance)) score += Math.max(0, 30 - distance);
+    if (score > 0) scored.push({ group, score });
+  }
+  scored.sort(
+    (left, right) =>
+      right.score - left.score || compareGroups(left.group, right.group),
+  );
+  if (scored.length === 0) return null;
+  if (scored[1] && scored[0].score === scored[1].score) return null;
+  return scored[0].group;
+}
+
+function reviewedRoleTermKeysForGroup(group) {
+  const result = new Set();
+  for (const entry of group.frameTags ?? []) {
+    for (const tag of entry.tags ?? []) {
+      if (termReviewDecisionForTag(tag)?.placement !== 'role') continue;
+      const key = normalizedTagKey(tag);
+      if (key) result.add(key);
+    }
+  }
+  for (const evidence of group.reviewedPromptEvidence ?? []) {
+    const key = normalizedTagKey(evidence.tag);
+    if (key) result.add(key);
+  }
+  return result;
+}
+
+function nearestSourceFrameDistance(group, sourceId, frameIndex) {
+  let distance = Number.POSITIVE_INFINITY;
+  for (const rawFrameIndex of group.sourceIds?.get(sourceId) ?? []) {
+    const candidate = Number(rawFrameIndex);
+    if (!Number.isInteger(candidate)) continue;
+    distance = Math.min(distance, Math.abs(candidate - frameIndex));
+  }
+  return distance;
+}
+
+function reviewedSupplementalFallbackGroup(groups, groupList, context) {
+  const scope = context.sourceId === 'base' ? 'base' : context.sourceId;
+  const groupKey = `reviewed-evidence:${scope}:shared`;
+  let group = groups.get(groupKey);
+  if (group) {
+    group.frames.add(context.frameIndex);
+    return group;
+  }
+  group = {
+    key: groupKey,
+    sourceIds: new Map(),
+    frames: new Set([context.frameIndex]),
+    frameTags: [],
+    identity: emptyIdentity(),
+    reviewedPromptEvidence: [],
+    reviewedEvidenceOnly: true,
+    displayNameOverride: 'shared evidence / pending ownership',
+    sourceKindOverride: 'global',
+  };
+  groups.set(groupKey, group);
+  groupList.push(group);
+  return group;
+}
+
+function addReviewedPromptEvidence(group, evidence) {
+  const rows = group.reviewedPromptEvidence ?? [];
+  const key = `${Number(evidence.frameIndex)}\u001f${normalizedTagKey(
+    evidence.tag,
+  )}\u001f${stringValue(evidence.sourceLocation)}`;
+  if (
+    !rows.some(
+      (row) =>
+        `${Number(row.frameIndex)}\u001f${normalizedTagKey(row.tag)}\u001f${stringValue(
+          row.sourceLocation,
+        )}` === key,
+    )
+  ) {
+    rows.push(evidence);
+  }
+  group.reviewedPromptEvidence = rows;
+}
+
+function reviewedRoleTermGender(tag, decision) {
+  const identityTermGender = genderForIdentityTerm(tag);
+  if (identityTermGender) return identityTermGender;
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return '';
+  if (
+    /\b(penis|testicles?|testis|scrotum|foreskin|glans|male genitalia|male pubic hair)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'male';
+  }
+  if (
+    decision?.category !== 'character' &&
+    /\b(vagina|vaginal|vulva|pussy|clitoris|labia|female pubic hair|breasts?|nipples?)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'female';
+  }
+  return '';
+}
+
+function isReviewedRoleTermGenderCompatibleWithGroup(tag, decision, group) {
+  const termGender = reviewedRoleTermGender(tag, decision);
+  if (!termGender) return true;
+  const groupGender = identityGender(group?.identity);
+  return !groupGender || groupGender === termGender;
+}
+
 function chooseGroupForUnmatchedPromptEvidence(groups, context) {
   const sourceIdentity = sanitizeIdentityForRole(identityForTags(context.tags), context.tags);
   const sourceGender = identityGender(sourceIdentity);
@@ -1880,10 +2633,33 @@ function canAttachGenericCaptionToAnchor(tags, identity, anchor) {
   if (!hasStableRoleEvidence(tags) && !hasSpecificGenericIdentity(identity)) {
     return false;
   }
+  // Clothing-only evidence is not enough to identify the anchored role.  In
+  // particular, an unowned swimsuit caption in a reused slot must remain
+  // independently routable instead of becoming a male/female stage label.
+  if (!hasAnchorCompatibleRoleEvidence(tags, identity)) return false;
   const sourceGender = identityGender(identity);
   const anchorGender = identityGender(anchor.identity);
   if (sourceGender && anchorGender && sourceGender !== anchorGender) return false;
   return true;
+}
+
+function hasAnchorCompatibleRoleEvidence(tags, identity) {
+  if (hasSpecificGenericIdentity(identity)) return true;
+  if (hasWholeCharacterPresenceEvidence(tags)) return true;
+  return tags.some((tag) => {
+    const normalized = normalizedTagKey(tag);
+    if (!normalized) return false;
+    if (
+      isTransientRoleFieldTerm(tag) ||
+      isStageContextTerm(normalized) ||
+      isVisualDisplacementTermForStageKey(normalized) ||
+      isHeldOrUnwornClothingTag(normalized, tags.map(normalizedTagKey)) ||
+      isHeldTowelTag(normalized, tags.map(normalizedTagKey))
+    ) {
+      return false;
+    }
+    return ['identity', 'upperBody', 'lowerBody'].includes(categoryForTag(tag));
+  });
 }
 
 function genericRoleIdentityKey(identity, tags, sourceId) {
@@ -1928,6 +2704,13 @@ function genericRoleIdentityKey(identity, tags, sourceId) {
 }
 
 function hasStableRoleEvidence(tags) {
+  const normalizedTags = tags.map(normalizedTagKey).filter(Boolean);
+  if (
+    normalizedTags.some((tag) => /^(?:1\s*)?(?:boy|male|man)$/.test(tag)) &&
+    normalizedTags.some((tag) => /\bmuscular\b/.test(tag))
+  ) {
+    return true;
+  }
   for (const tag of tags) {
     const normalized = normalizedTagKey(tag);
     if (!normalized) continue;
@@ -1952,12 +2735,14 @@ function hasSpecificGenericIdentity(identity) {
 
 function hasNonHumanGenericIdentity(identity) {
   return (identity.generic ?? []).some((term) =>
-    /\b(goblin|monster|tentacle|orc)\b/.test(normalizedTagKey(term)),
+    /\b(goblin|monster|tentacle|orc|dog|canine|wolf)\b/.test(
+      normalizedTagKey(term),
+    ),
   );
 }
 
 function isBasicGenericIdentity(term) {
-  return /^(1girl|2girls|girl|girls|woman|female|1boy|boy|boys|man|men|male|guy|guys|child|student|loli)$/.test(
+  return /^(?:\d+\s*girls?|girls?|woman|women|female|\d+\s*boys?|boys?|man|men|male|guy|guys|child|student|loli)$/.test(
     normalizedTagKey(term),
   );
 }
@@ -2020,7 +2805,7 @@ function hasExplicitBasicIdentity(tags) {
   return tags
     .map(normalizedTagKey)
     .some((tag) =>
-      /^(?:1\s*)?(?:girl|girls|female|woman|loli|boy|boys|male|males|man|men|guy|guys)$|^2\s*(?:girls|boys|males|men|guys)$/.test(
+      /^(?:\d+\s*)?(?:girl|girls|female|woman|women|loli|boy|boys|male|males|man|men|guy|guys)$/.test(
         tag,
       ),
     );
@@ -2064,15 +2849,9 @@ function stageGroupsForGroup(group) {
     (left, right) => left.frameIndex - right.frameIndex,
   );
   const stagesByKey = new Map();
-  const recentConcreteStateKeys = new Map();
   for (const entry of entries) {
     const signature = stageSignatureForEntry(entry);
-    let replacementKey = frameReplacementKeyForStageTags(entry.tags);
-    replacementKey = smoothSparseStateReplacementKey(
-      replacementKey,
-      entry.frameIndex,
-      recentConcreteStateKeys,
-    );
+    const replacementKey = frameReplacementKeyForStageTags(entry.tags);
     const stageKey =
       replacementKey === 'unspecified'
         ? signature.mergeKey
@@ -2110,20 +2889,6 @@ function stageGroupsForGroup(group) {
       left.key.localeCompare(right.key),
   );
   return stages.length > 0 ? stages : [group];
-}
-
-function smoothSparseStateReplacementKey(key, frameIndex, recentStateKeys) {
-  const sparse = key.match(/^state:(topless|bottomless)(?::no-(?:upper|lower)-clothing)?$/);
-  const concrete = key.match(/^state:(topless|bottomless):(.+)$/);
-  if (sparse) {
-    const recent = recentStateKeys.get(sparse[1]);
-    if (recent && frameIndex - recent.frameIndex <= 12) return recent.key;
-    return key;
-  }
-  if (concrete && !/^no-(?:upper|lower)-clothing$/.test(concrete[2])) {
-    recentStateKeys.set(concrete[1], { key, frameIndex });
-  }
-  return key;
 }
 
 function frameReplacementKeyForStageTags(tags) {
@@ -2220,12 +2985,17 @@ function canonicalReplacementTermsForStageKey(terms) {
 
 function replacementClothingTermForStageKey(tag, allTags = []) {
   if (isOtherCharacterClothingActionTag(tag)) return '';
-  if (isHeldOrUnwornClothingTag(tag, allTags)) return '';
   if (isHeldTowelTag(tag, allTags)) return '';
+  // A caption tag can combine a physical clothing transition with transient
+  // action evidence (for example, "bikini aside. sex").  Preserve the
+  // displacement term for stage grouping before dropping the rest of the
+  // transient tag; otherwise normal and aside frames collapse into one stage.
   if (isVisualReplacementEvidenceTermForStageKey(tag)) {
     const visual = visualReplacementTermForStageKey(tag, allTags);
     if (visual) return visual;
   }
+  if (isTransientRoleFieldTerm(tag)) return '';
+  if (isHeldOrUnwornClothingTag(tag, allTags)) return '';
   if (isActualTowelForStageKey(tag)) return 'towel';
   if (/\b(no bra)\b/.test(tag)) return 'no-bra';
   if (/\b(no panties|no underwear)\b/.test(tag)) return 'no-underwear';
@@ -2253,7 +3023,9 @@ function visualReplacementTermForStageKey(tag, allTags = []) {
     return term('bunny-suit');
   }
   if (/\b(fundoshi|loincloth)\b/.test(tag)) return term('fundoshi');
-  if (/\bmale\b.*\bswimsuit\b/.test(tag)) return term('swimsuit-bottom');
+  if (/\bmale\b.*\bswim(?:suit|wear)\b/.test(tag)) {
+    return term('swimsuit-bottom');
+  }
   if (/\b(bikini bottom only)\b/.test(tag)) return term('bikini-bottom-only');
   if (/\b(side tie bikini bottom|side-tie bikini bottom)\b/.test(tag)) {
     return term('side-tie-bikini-bottom');
@@ -2844,7 +3616,42 @@ function hasSemanticReplacementContrastAcrossStages(stages) {
       )
       .filter(Boolean),
   );
-  return signatures.length > 1;
+  if (signatures.length > 1) return true;
+  const transitionSignatures = uniqueExact(
+    stages
+      .map((stage) =>
+        semanticTransitionSignatureForFinalMerge(stage.semantic_merge_key),
+      )
+      .filter(Boolean),
+  );
+  return transitionSignatures.length > 1;
+}
+
+function semanticTransitionSignatureForFinalMerge(key) {
+  const normalized = stringValue(key).replace(/^replacement:/, '');
+  if (!normalized || normalized.startsWith('state:')) return '';
+  const pieces = normalized
+    .split(/[;|]/g)
+    .map((rawPiece) => rawPiece.replace(/^(?:upper|lower|clothing):/, ''))
+    .filter(Boolean)
+    .map((piece) => {
+      const separator = piece.indexOf(':');
+      const base = separator >= 0 ? piece.slice(0, separator) : piece;
+      const modifiers = separator >= 0
+        ? piece
+            .slice(separator + 1)
+            .split('+')
+            .filter(Boolean)
+        : [];
+      const transitions = modifiers
+        .filter((modifier) =>
+          /^(?:aside|lifted|open|torn|under-skirt)$/.test(modifier),
+        )
+        .sort();
+      return `${base}:${transitions.join('+') || 'normal'}`;
+    })
+    .sort();
+  return pieces.join('|');
 }
 
 function semanticReplacementSignatureForFinalMerge(key) {
@@ -2878,7 +3685,6 @@ function criticalSemanticReplacementTerms(text) {
       .map((part) => {
         const base = baseReplacementTermForStageKey(part);
         const modifiers = [...replacementModifierSetForStageKey(part)]
-          .filter((modifier) => modifier !== 'aside' && modifier !== 'lifted')
           .sort();
         return modifiers.length > 0 ? `${base}:${modifiers.join('+')}` : base;
       }),
@@ -3501,6 +4307,9 @@ function isIdentityTermAllowedForGroup(group, tag) {
 }
 
 function fieldsForGroup(group) {
+  if (termReview.enabled) {
+    return reviewedFieldsForGroup(group);
+  }
   const counts = {
     identity: new Map(),
     upperBody: new Map(),
@@ -3515,6 +4324,7 @@ function fieldsForGroup(group) {
     for (const tag of entry.tags) {
       const normalized = normalizedTagKey(tag);
       if (
+        isTransientRoleFieldTerm(tag) ||
         (isVisualDisplacementTermForStageKey(normalized) &&
           !hasTornReplacementEvidence(normalized)) ||
         isHeldOrUnwornClothingTag(normalized, normalizedEntryTags) ||
@@ -3640,6 +4450,135 @@ function fieldsForGroup(group) {
   };
 }
 
+function reviewedFieldsForGroup(group) {
+  const counts = {
+    identity: new Map(),
+    upperBody: new Map(),
+    lowerBody: new Map(),
+    upperClothing: new Map(),
+    lowerClothing: new Map(),
+    nonRole: new Map(),
+    context: new Map(),
+  };
+  const fieldForCategory = {
+    character: 'identity',
+    upperBody: 'upperBody',
+    lowerBody: 'lowerBody',
+    upperClothing: 'upperClothing',
+    lowerClothing: 'lowerClothing',
+  };
+  for (const entry of group.frameTags ?? []) {
+    for (const tag of entry.tags ?? []) {
+      const decision = termReviewDecisionForTag(tag);
+      if (
+        decision?.placement === 'role' &&
+        !isReviewedRoleTermGenderCompatibleWithGroup(tag, decision, group)
+      ) {
+        continue;
+      }
+      const isRedundantGenericIdentity =
+        decision?.category === 'character' &&
+        isGenericPromptIdentityTerm(tag) &&
+        (group.identity?.concrete ?? []).length > 0;
+      const field =
+        decision?.placement === 'role' && !isRedundantGenericIdentity
+          ? fieldForCategory[decision.category]
+          : undefined;
+      if (field) {
+        addTerm(counts[field], cleanTag(tag));
+      } else if (decision?.placement !== 'scene') {
+        addTerm(counts.nonRole, cleanTag(tag));
+      }
+    }
+    for (const tag of entry.baseTags ?? []) {
+      if (termReviewDecisionForTag(tag)?.placement === 'scene') {
+        addTerm(counts.context, cleanTag(tag));
+      }
+    }
+  }
+
+  const frameCount = Math.max(1, group.frames.size);
+  const identityTerms = topTerms(counts.identity, 1, 8);
+  const upperBodyTerms = topStableTerms(counts.upperBody, frameCount, 12);
+  const lowerBodyTerms = topStableTerms(counts.lowerBody, frameCount, 8);
+  const upperClothingTerms = topStableTerms(
+    counts.upperClothing,
+    frameCount,
+    12,
+  );
+  const lowerClothingTerms = topStableTerms(
+    counts.lowerClothing,
+    frameCount,
+    12,
+  );
+  const evidenceTerms = unique([
+    ...identityTerms,
+    ...upperBodyTerms,
+    ...lowerBodyTerms,
+    ...upperClothingTerms,
+    ...lowerClothingTerms,
+  ]);
+  return {
+    identityTerms,
+    upperBodyTerms,
+    lowerBodyTerms,
+    upperClothingTerms,
+    lowerClothingTerms,
+    contextTerms: topTerms(counts.context, 1, 20),
+    nonRoleTerms: topTerms(counts.nonRole, 1, 20),
+    identity: identityTerms.join(', '),
+    upperBody: upperBodyTerms.join(', '),
+    lowerBody: lowerBodyTerms.join(', '),
+    upperClothing: upperClothingTerms.join(', '),
+    lowerClothing: lowerClothingTerms.join(', '),
+    evidenceTerms,
+  };
+}
+
+function isTransientRoleFieldTerm(tag) {
+  const normalized = normalizedTagKey(tag);
+  if (!normalized) return true;
+  if (isSpecificDamagedGarmentTerm(normalized)) return false;
+  if (
+    /\bhands? (?:in|inside|under) .*\b(?:bikini bottoms?|panties|underwear|bra|shirt|dress|skirt|pants|shorts|clothes)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return (
+    /\b(facial|sex|intercourse|masturbat|penetrat|cum|semen|saliva|pussy|penis|vibrator|sex toy|orgasm|licking|sucking|fingering|rape|molest|assault|tentacle bind|tentacle between breasts?)\b/.test(
+      normalized,
+    ) ||
+    /\b(pose|pov|camera|close up|close-up|from side|side view|dutch angle|looking|standing|sitting|kneeling|lying|face down|running|walking|bending|squatting|spread legs|open legs|arms up|hands up|holding|grabbing|touching|hands on|floor|sofa|bed|pillow|room|hallway|background|indoors|outdoors)\b/.test(
+      normalized,
+    ) ||
+    /\b(blush|smile|open mouth|dashed eyes|wide eyes?|dead eyes?|vacant eyes?|eyes? rolled back|half closed eyes?|closed eyes|one eye closed|covering eyes|covering one eye|flushed face|face flushed|(?:deep|extremely) flushed face|(?:deep|extremely) red face|shocked face|face not visible|heavy breathing|tears|crying|angry|embarrassed|tired|scared|surprised|heart in eyes?)\b/.test(
+      normalized,
+    ) ||
+    /\b(wet|sweaty|sweat|stained|torn|ripped|damaged|lifted|lifting|pulled|pulling|taking off|take off|undressing|clothing aside|clothes aside)\b/.test(
+      normalized,
+    ) ||
+    /\b(face in crotch|face to crotch|face in ass|face smushed|squished face|stomach bulge|ass visible through thighs|foot on another(?: s)? face|legs wrapped around waist|legs together legs up|thighhold|breast press|bouncing breasts|breasts? fully bouncing|breasts? bouncing|jiggling|groping .*breasts?|breasts? out|exposed breasts?|nude breasts?|exposed nipples?|squeezed together|liquid on skin|clitoral hood|tattoo machine(?: laser)?|skirt flip|(?:pants?|trousers?|shorts?|shirt|blouse|kimono|yukata|dress|skirt|panties|underwear|bra|bikini(?: top| bottom)?|swimsuit|leotard) (?:pull|tug)|adjusting clothes|fingering through clothes|hand under clothes|forced exposure|hands on bikini top|tear another(?: s)? (?:pantyhose|stockings?)|(?:pantyhose|stockings?) tear|undressing another)\b/.test(
+      normalized,
+    )
+  );
+}
+
+function isSpecificDamagedGarmentTerm(normalized) {
+  if (!/\b(torn|ripped|damaged)\b/.test(normalized)) return false;
+  if (
+    /\b(lifted|lifting|pulled|pulling|taking off|take off|undressing|holding|grabbing|other'?s?|another)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /\b(pantyhose|stockings?|thighhighs?|socks?|legwear|panties|underwear|briefs|bikini|swimsuit|bra|bodysuit|leotard|dress|shirt|blouse|jacket|coat|outerwear|skirt|pants|shorts)\b/.test(
+    normalized,
+  );
+}
+
 function isVisualDisplacementTermForStageKey(normalized) {
   return /\b(aside|pulled aside|pull aside|swimsuit pull|bikini pull|panty pull|panties pull|bra pull|leotard aside|bikini bottom aside|panties aside|swimsuit aside|shirt aside|skirt aside|bikini top lift|top lift|shirt lift|skirt lift|dress lift|open shorts|open shirt|open_shorts|open_shirt|shoes? off|shoe removed|shoes removed)\b/.test(
     normalized,
@@ -3715,6 +4654,12 @@ function firstColorForRoleFieldTerm(normalized) {
 }
 
 function displayNameForGroup(group, identityTerms) {
+  if (stringValue(group.displayNameOverride).trim()) {
+    return {
+      name: stringValue(group.displayNameOverride).trim(),
+      fallback: false,
+    };
+  }
   const sanitized = sanitizeIdentityForRole(group.identity);
   const genericPrimary =
     group.key === 'generic:male'
@@ -4007,7 +4952,9 @@ function outfitLabelKind(term, label) {
   if (isActualTowelForStageKey(normalized)) return 'towel';
   if (/\b(bikini bottom|side tie bikini bottom|side-tie bikini bottom)\b/.test(normalized)) return 'bikini-bottom';
   if (/\b(fundoshi|loincloth)\b/.test(normalized)) return 'fundoshi';
-  if (/\b(swimsuit-bottom|male\b.*\bswimsuit)\b/.test(normalized)) return 'swimsuit-bottom';
+  if (/\b(swimsuit-bottom|male\b.*\bswim(?:suit|wear))\b/.test(normalized)) {
+    return 'swimsuit-bottom';
+  }
   if (/\b(bikini)\b/.test(normalized)) return 'bikini';
   if (/\b(swimsuit)\b/.test(normalized)) return 'swimsuit';
   if (/\b(bunny suit|bunny girl outfit|bunny outfit)\b/.test(normalized)) return 'bunny-suit';
@@ -4075,7 +5022,9 @@ function outfitLabelText(term) {
     return `${color}\u4fa7\u7cfb\u5e26\u6bd4\u57fa\u5c3c\u4e0b\u88c5`;
   }
   if (has(/\b(fundoshi|loincloth)\b/)) return `${color}\u515c\u88c6\u5e03`;
-  if (has(/\b(swimsuit-bottom|male\b.*\bswimsuit)\b/)) return `${color}\u6cf3\u88e4`;
+  if (has(/\b(swimsuit-bottom|male\b.*\bswim(?:suit|wear))\b/)) {
+    return `${color}\u6cf3\u88e4`;
+  }
   if (has(/\b(bikini bottom|bikini bottoms)\b/)) return `${color}\u6bd4\u57fa\u5c3c\u4e0b\u88c5`;
   if (has(/\b(bikini)\b/)) return `${color}\u6bd4\u57fa\u5c3c`;
   if (has(/\b(old school swimsuit|school swimsuit)\b/)) return `${color}\u5b66\u6821\u6cf3\u88c5`;
@@ -4230,7 +5179,7 @@ function categoryForTag(tag) {
   }
   if (/\b(tail|paw|hooves?)\b/.test(normalized)) return 'lowerBody';
   if (
-    /\b(fundoshi|loincloth|male\b.*\bswimsuit|shoes?|boots?|sneakers?|socks?|thighhigs|thighhighs?|pantyhose|stockings?|sandals?|heels?|pants|shorts|skirt|miniskirt|panties|underwear|briefs|trousers|leggings|garter|legwear|buruma|bikini bottoms?|bikini bottom only|side tie bikini bottom|side-tie bikini bottom)\b/.test(
+    /\b(fundoshi|loincloth|male\b.*\bswim(?:suit|wear)|shoes?|boots?|sneakers?|socks?|thighhigs|thighhighs?|pantyhose|stockings?|sandals?|heels?|pants|shorts|skirt|miniskirt|panties|underwear|briefs|trousers|leggings|garter|legwear|buruma|bikini bottoms?|bikini bottom only|side tie bikini bottom|side-tie bikini bottom)\b/.test(
       normalized,
     )
   ) {
@@ -4317,9 +5266,19 @@ function isWeightedBodyNoiseTag(tag) {
 
 function isConcreteCharacterTag(tag) {
   const normalized = normalizedTagKey(tag);
-  if (!normalized || genericIdentityMap[normalized]) return false;
+  if (
+    !normalized ||
+    genericIdentityMap[normalized] ||
+    isIntrinsicNonCharacterIdentityTag(tag)
+  ) {
+    return false;
+  }
   const parsed = parseCharacterTag(tag);
-  if (!parsed.canonicalName || isPseudoCharacterActionTag(parsed.canonicalName)) {
+  if (
+    !parsed.canonicalName ||
+    isIntrinsicNonCharacterIdentityTag(parsed.canonicalName) ||
+    isPseudoCharacterActionTag(parsed.canonicalName)
+  ) {
     return false;
   }
   if (isPseudoCharacterActionTag(normalized)) return false;
@@ -4352,8 +5311,43 @@ function isVariantNamedCharacterTag(tag) {
 function isPseudoCharacterActionTag(normalized) {
   const parsed = parseCharacterTag(normalized);
   const name = normalizedTagKey(parsed.canonicalName || normalized);
-  return /\b(watching|looking|holding|grabbing|pressing|fondling|slapping|slap|kneeling|standing|sitting|lying|smil(?:e|ing)|grin(?:ning)?|blush(?:ing)?|cry(?:ing)?|angry|scared|dazed|ahegao|on top of|against|under|over|inside|bathroom|shower|recruitment|ui|screen|source|vision|object|dutch angle|dynamic angle|pov hands?)\b/.test(
+  return /\b(watching|looking|holding|grabbing|touching|behind|pressing|fondling|slapping|slap|kneeling|standing|sitting|lying|smil(?:e|ing)|grin(?:ning)?|blush(?:ing)?|cry(?:ing)?|angry|scared|dazed|ahegao|on top of|against|under|over|inside|bathroom|shower|recruitment|ui|screen|source|vision|object|dutch angle|dynamic angle|pov hands?)\b/.test(
     name,
+  );
+}
+
+function isIntrinsicNonCharacterIdentityTag(tag) {
+  const raw = stringValue(tag)
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const normalized = normalizedTagKey(tag);
+  return (
+    /^(?:no humans?|foreskin|clitoral hood|labia|vulva|vagina|penis|testicles?|scrotum|nipples?|areolae?)$/.test(
+      normalized,
+    ) ||
+    isParentheticalObjectIdentityTag(raw)
+  );
+}
+
+function isParentheticalObjectIdentityTag(tag) {
+  const normalized = stringValue(tag)
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/^(?:ring of light|light ring|halo)$/.test(normalized)) return true;
+  const match = normalized.match(/^([^()]+) \(([^()]+)\)$/);
+  if (!match) return false;
+  const base = match[1].trim();
+  const qualifier = match[2].trim();
+  return (
+    /^(?:sword|weapon|object|item|vehicle)$/.test(qualifier) ||
+    /^(?:ring of light|light ring|halo)$/.test(base) ||
+    /\b(?:sword|weapon|shield|gun|rifle|pistol|staff|wand|spear|axe|dagger|knife|blade|hammer|vehicle|motorcycle)$/.test(
+      base,
+    )
   );
 }
 
@@ -4370,6 +5364,12 @@ function isKnownFranchiseCharacterTag(tag, normalized) {
 function categoryForTagWithoutCharacter(tag) {
   const normalized = normalizedTagKey(tag);
   if (isRolePromptTermContractExcludedTag(tag)) {
+    return 'knownNonCharacter';
+  }
+  if (
+    isIntrinsicNonCharacterIdentityTag(tag) ||
+    isPseudoCharacterActionTag(normalized)
+  ) {
     return 'knownNonCharacter';
   }
   if (/\b(dutch angle|dynamic angle|pov hands?)\b/.test(normalized)) {
@@ -4553,6 +5553,9 @@ function cleanTag(value) {
       text = next[1].trim();
     }
   }
+  text = text
+    .replace(/^[{}\[\]]+|[{}\[\]]+$/g, '')
+    .trim();
   text = text.replace(/\s+/g, ' ').trim();
   if (!text || text === '-' || text === '::') return '';
   return text;
@@ -4880,6 +5883,109 @@ function normalizedTagKey(value) {
     .trim();
 }
 
+function normalizeStoredSourceFingerprintPaths(value, expectedScriptId, snapshot) {
+  const fingerprint = stringValue(value).trim();
+  if (!fingerprint) {
+    return { value: fingerprint, valid: false, changed: false, frames: [] };
+  }
+  const parts = fingerprint.split('|');
+  const snapshotId = stringValue(snapshot?.id).trim();
+  if (
+    parts.length < 2 ||
+    !parts[0].trim() ||
+    !parts[1].trim() ||
+    parts[0] !== stringValue(expectedScriptId).trim() ||
+    parts[0] !== snapshotId
+  ) {
+    return { value: fingerprint, valid: false, changed: false, frames: [] };
+  }
+
+  const normalized = [...parts];
+  const frames = [];
+  normalized[1] = normalizeScriptPath(parts[1]);
+  for (let index = 2; index < parts.length; index += 1) {
+    const entry = parts[index];
+    const indexSeparator = entry.indexOf(':');
+    const fileSeparator = entry.indexOf(':', indexSeparator + 1);
+    const hashSeparator = entry.lastIndexOf(':');
+    if (
+      indexSeparator <= 0 ||
+      fileSeparator <= indexSeparator + 1 ||
+      hashSeparator <= fileSeparator + 1 ||
+      !/^\d+$/.test(entry.slice(0, indexSeparator)) ||
+      !/^[0-9a-f]{8}$/i.test(entry.slice(hashSeparator + 1))
+    ) {
+      return { value: fingerprint, valid: false, changed: false, frames: [] };
+    }
+    frames.push({
+      index: Number(entry.slice(0, indexSeparator)),
+      fileName: entry.slice(indexSeparator + 1, fileSeparator),
+      hash: entry.slice(hashSeparator + 1),
+    });
+    normalized[index] =
+      entry.slice(0, fileSeparator + 1) +
+      normalizeScriptPath(entry.slice(fileSeparator + 1, hashSeparator)) +
+      entry.slice(hashSeparator);
+  }
+
+  const snapshotFrames = Array.isArray(snapshot?.frames) ? snapshot.frames : [];
+  if (frames.length !== snapshotFrames.length) {
+    return { value: fingerprint, valid: false, changed: false, frames: [] };
+  }
+  for (let index = 0; index < snapshotFrames.length; index += 1) {
+    if (
+      frames[index].index !== Number(snapshotFrames[index]?.index) ||
+      frames[index].fileName !== stringValue(snapshotFrames[index]?.fileName)
+    ) {
+      return { value: fingerprint, valid: false, changed: false, frames: [] };
+    }
+  }
+
+  const normalizedFingerprint = normalized.join('|');
+  return {
+    value: normalizedFingerprint,
+    valid: true,
+    changed: normalizedFingerprint !== fingerprint,
+    frames,
+  };
+}
+
+function sourceContentFingerprintFromStoredSource(normalization, snapshot) {
+  if (
+    !normalization.valid ||
+    !snapshot ||
+    typeof snapshot !== 'object' ||
+    Array.isArray(snapshot)
+  ) {
+    return '';
+  }
+  const snapshotFrames = Array.isArray(snapshot.frames) ? snapshot.frames : [];
+  if (normalization.frames.length !== snapshotFrames.length) return '';
+  for (let index = 0; index < snapshotFrames.length; index += 1) {
+    const sourceFrame = normalization.frames[index];
+    const snapshotFrame = snapshotFrames[index];
+    if (
+      sourceFrame.index !== Number(snapshotFrame?.index) ||
+      sourceFrame.fileName !== stringValue(snapshotFrame?.fileName)
+    ) {
+      return '';
+    }
+  }
+  const schema = stringValue(snapshot.detectedSchema).trim() || 'unknown';
+  return [
+    `schema:${schema}`,
+    `frames:${snapshotFrames.length}`,
+    ...normalization.frames.map(
+      (frame) => `${frame.index}:${frame.fileName}:${frame.hash}`,
+    ),
+  ].join('|');
+}
+
+function normalizeScriptPath(value) {
+  const normalized = stringValue(value).trim().replaceAll('\\', '/');
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
 function classificationCategoryForTag(tag) {
   const raw = cleanTag(tag);
   if (!raw) return undefined;
@@ -4917,6 +6023,290 @@ function stringValue(value) {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 }
 
+function loadTermReview(filePath, { requireComplete = false } = {}) {
+  const rawPath = stringValue(filePath).trim();
+  if (!rawPath) {
+    if (requireComplete) {
+      throw new Error(
+        '--require-complete-term-review requires --term-review <file>.',
+      );
+    }
+    return {
+      enabled: false,
+      filePath: '',
+      decisions: new Map(),
+      baselineFiles: new Map(),
+    };
+  }
+  const resolved = path.resolve(rawPath);
+  let document;
+  try {
+    document = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+  } catch (error) {
+    throw new Error(`Unable to read term review ${resolved}: ${error.message}`);
+  }
+  if (document?.kind !== 'script_recast_term_membership_review') {
+    throw new Error(
+      `Invalid term review kind in ${resolved}: ` +
+        `${stringValue(document?.kind) || '<missing>'}`,
+    );
+  }
+  if (Number(document?.schema_version) !== 1) {
+    throw new Error(`Unsupported term review schema in ${resolved}.`);
+  }
+  if (document?.api_used !== false) {
+    throw new Error(
+      `Term review ${resolved} must explicitly declare api_used=false.`,
+    );
+  }
+  if (!Array.isArray(document?.decisions)) {
+    throw new Error(`Term review ${resolved} has no decisions array.`);
+  }
+
+  const allowedRoleCategories = new Set([
+    'character',
+    'upperBody',
+    'lowerBody',
+    'upperClothing',
+    'lowerClothing',
+    'accessory',
+    'clothingState',
+    'clothing',
+    'other',
+  ]);
+  const decisions = new Map();
+  for (const [index, rawDecision] of document.decisions.entries()) {
+    const term = cleanTag(rawDecision?.term);
+    const key = normalizedTagKey(term);
+    const placement = stringValue(rawDecision?.placement).trim();
+    if (!key) {
+      throw new Error(`Term review decision ${index + 1} has no term.`);
+    }
+    if (!['role', 'scene', 'exclude', 'unresolved'].includes(placement)) {
+      throw new Error(
+        `Term review decision for "${term}" has invalid placement "${placement}".`,
+      );
+    }
+    let category = stringValue(rawDecision?.category).trim();
+    if (placement === 'role') {
+      if (category === 'identity') category = 'character';
+      if (!allowedRoleCategories.has(category)) {
+        throw new Error(
+          `Term review role decision for "${term}" has invalid category ` +
+            `"${category || '<missing>'}".`,
+        );
+      }
+    } else if (placement === 'scene') {
+      category = 'scene';
+    } else {
+      category = '';
+    }
+    if (decisions.has(key)) {
+      throw new Error(`Duplicate term review decision for "${term}".`);
+    }
+    decisions.set(key, {
+      term,
+      placement,
+      category,
+      reason: stringValue(rawDecision?.reason).trim(),
+    });
+  }
+  const baselineFiles = new Map();
+  for (const rawFile of Array.isArray(document?.cache_files)
+    ? document.cache_files
+    : []) {
+    const fileName = path.basename(stringValue(rawFile?.file_name).trim());
+    const rawDigest = stringValue(rawFile?.sha256).trim().toLowerCase();
+    const positiveEvidenceDigest = stringValue(
+      rawFile?.positive_evidence_sha256,
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      !fileName ||
+      !/^[0-9a-f]{64}$/.test(rawDigest) ||
+      (positiveEvidenceDigest &&
+        !/^[0-9a-f]{64}$/.test(positiveEvidenceDigest))
+    ) {
+      throw new Error(`Term review ${resolved} has an invalid cache baseline.`);
+    }
+    if (baselineFiles.has(fileName)) {
+      throw new Error(`Term review ${resolved} repeats cache ${fileName}.`);
+    }
+    baselineFiles.set(fileName, {
+      rawSha256: rawDigest,
+      positiveEvidenceSha256: positiveEvidenceDigest,
+    });
+  }
+  return { enabled: true, filePath: resolved, decisions, baselineFiles };
+}
+
+function termReviewDecisionForTag(tag) {
+  if (!termReview.enabled) return null;
+  return termReview.decisions.get(normalizedTagKey(cleanTag(tag))) ?? null;
+}
+
+function auditTermReviewCoverage(files) {
+  if (!termReview.enabled) {
+    return {
+      missingTerms: [],
+      baselineMismatches: [],
+      positiveEvidenceMatchesAfterRawDrift: [],
+    };
+  }
+  const missing = new Map();
+  const baselineMismatches = [];
+  const positiveEvidenceMatchesAfterRawDrift = [];
+  for (const file of files) {
+    const sourcePath = path.join(cacheDir, file);
+    const cache = loadJson(sourcePath, null);
+    if (termReview.baselineFiles.size > 0) {
+      const expected = termReview.baselineFiles.get(file);
+      const actual = sha256(fs.readFileSync(sourcePath));
+      if (!expected || actual !== expected.rawSha256) {
+        const positiveEvidenceMatches =
+          expected?.positiveEvidenceSha256 && cache
+            ? positiveEvidenceSha256ForTermReviewCache(cache) ===
+              expected.positiveEvidenceSha256
+            : false;
+        if (positiveEvidenceMatches) {
+          positiveEvidenceMatchesAfterRawDrift.push(file);
+        } else {
+          baselineMismatches.push(file);
+        }
+      }
+    }
+    if (!cache) continue;
+    for (const term of positiveSourceTermsForCache(cache)) {
+      const key = normalizedTagKey(term);
+      if (!key) continue;
+      const decision = termReview.decisions.get(key);
+      if (!decision || decision.placement === 'unresolved') {
+        if (!missing.has(key)) missing.set(key, cleanTag(term));
+      }
+    }
+  }
+  return {
+    missingTerms: [...missing.values()].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    baselineMismatches,
+    positiveEvidenceMatchesAfterRawDrift,
+  };
+}
+
+function positiveEvidenceSha256ForTermReviewCache(cache) {
+  return sha256(JSON.stringify(positiveEvidenceForTermReviewCache(cache)));
+}
+
+// This intentionally mirrors build_script_recast_term_review_manifest.mjs.
+// Term-review baselines must follow that tool's raw-caption/tag bytes, not the
+// builder's newer prompt-cleaning semantics.
+function positiveEvidenceForTermReviewCache(cache) {
+  const rows = [];
+  for (const frame of frameList(cache)) {
+    if (!isTermReviewParsedFrame(frame)) continue;
+    const frameIndex = Number(frame.index);
+    const baseCaption = stringValue(frame.parsed?.baseCaption);
+    rows.push({
+      frameIndex,
+      sourceId: 'base',
+      sourceKind: 'base',
+      caption: baseCaption,
+      tags: termReviewManifestParseTags(baseCaption),
+    });
+    const captions = Array.isArray(frame.parsed?.charCaptions)
+      ? frame.parsed.charCaptions
+      : [];
+    captions.forEach((caption, slot) => {
+      const value = stringValue(caption);
+      rows.push({
+        frameIndex,
+        sourceId: `slot-${slot}`,
+        sourceKind: 'slot',
+        caption: value,
+        tags: termReviewManifestParseTags(value),
+      });
+    });
+  }
+  return rows;
+}
+
+function isTermReviewParsedFrame(frame) {
+  return frame?.parsed && frame.parseStatus !== 'failed';
+}
+
+function termReviewManifestParseTags(text) {
+  return termReviewManifestStripNegativeWeightedGroups(
+    stringValue(text).replace(/\r?\n/g, ','),
+  )
+    .replace(/::\s*[+-]?\d+(?:\.\d+)?\s*::/g, ',')
+    .replace(/::+/g, ',')
+    .replace(/[\uFF0C\u3001\uFF1B]/g, ',')
+    .replace(/[\u951b\u007b\u20ac\u4f8a\u7d31;|]+/g, ',')
+    .split(',')
+    .map(termReviewManifestCleanTag)
+    .filter(Boolean);
+}
+
+function termReviewManifestStripNegativeWeightedGroups(text) {
+  return stringValue(text).replace(
+    /-\d+(?:\.\d+)?\s*::[\s\S]*?::/g,
+    ',',
+  );
+}
+
+function termReviewManifestCleanTag(value) {
+  let text = stringValue(value).trim();
+  if (!text) return '';
+  text = text.replace(/^["']|["']$/g, '').trim();
+  if (/^-\d+(?:\.\d+)?\s*::\s*/.test(text)) return '';
+  let changed = true;
+  while (changed) {
+    const match = text.match(/^([+-]?\d+(?:\.\d+)?)\s*::\s*/);
+    if (match && Number(match[1]) <= 0) return '';
+    const next = text.replace(/^[+]?\d+(?:\.\d+)?\s*::\s*/g, '').trim();
+    changed = next !== text;
+    text = next;
+  }
+  text = text.replace(/::+$/g, '').replace(/^:+|:+$/g, '').trim();
+  const weighted = text.match(/^\((.*):([+-]?\d+(?:\.\d+)?)\)$/);
+  if (weighted) {
+    if (Number(weighted[2]) <= 0) return '';
+    text = weighted[1].trim();
+  }
+  let unwrapped = true;
+  while (unwrapped) {
+    const match = text.match(/^\(([^()]+)\)$/);
+    if (!match) {
+      unwrapped = false;
+    } else {
+      text = match[1].trim();
+    }
+  }
+  return text
+    .replace(/^[{}\[\]]+|[{}\[\]]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function positiveSourceTermsForCache(cache) {
+  const terms = [];
+  for (const frame of frameList(cache).filter((item) => isParsedFrame(item))) {
+    terms.push(...parseTags(frame.parsed?.baseCaption));
+    for (const caption of Array.isArray(frame.parsed?.charCaptions)
+      ? frame.parsed.charCaptions
+      : []) {
+      terms.push(...parseTags(caption));
+    }
+  }
+  return unique(terms);
+}
+
 function loadJson(filePath, fallback) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -4934,6 +6324,8 @@ function parseArgs(args) {
     report: undefined,
     limit: undefined,
     nameContains: undefined,
+    termReview: undefined,
+    requireCompleteTermReview: false,
     apply: false,
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -4942,6 +6334,10 @@ function parseArgs(args) {
     const key = arg.slice(2);
     if (key === 'apply') {
       parsed.apply = true;
+      continue;
+    }
+    if (key === 'require-complete-term-review') {
+      parsed.requireCompleteTermReview = true;
       continue;
     }
     const value = args[index + 1];
@@ -4953,6 +6349,7 @@ function parseArgs(args) {
     if (key === 'report') parsed.report = value;
     if (key === 'limit') parsed.limit = Number(value);
     if (key === 'name-contains') parsed.nameContains = value;
+    if (key === 'term-review') parsed.termReview = value;
   }
   return parsed;
 }

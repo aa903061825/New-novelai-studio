@@ -268,7 +268,7 @@ function collectSourceTerms(cache) {
       if (existing) {
         addSorted(existing.frame_indexes, frameIndex);
         existing.sources.add(sourceId);
-        return;
+        continue;
       }
       terms.set(key, {
         text,

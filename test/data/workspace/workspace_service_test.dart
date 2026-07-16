@@ -625,6 +625,8 @@ void main() {
     expect(rawText.contains(heavyReference), isFalse);
     expect(rawText.contains('reference_image_multiple'), isFalse);
     expect(frame.rawJson.contains(heavyReference), isFalse);
+    expect(cache.sourceFingerprint, 'fingerprint');
+    expect(cache.sourceContentFingerprint, 'content-fingerprint');
     expect(frame.parsed.generationParams['seed'], 123456);
     expect(frame.parsed.generationParams.containsKey('reference_strength'),
         isFalse);

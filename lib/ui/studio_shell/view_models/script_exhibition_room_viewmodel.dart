@@ -19,6 +19,13 @@ typedef ScriptExhibitionRecastScriptsLoader
     = Future<List<RecastExhibitionScript>> Function();
 typedef ScriptExhibitionRecastScriptLoader = Future<RecastExhibitionScript?>
     Function(String scriptId);
+typedef ScriptExhibitionSnapshotBuilder = Future<ScriptExhibitionSnapshot>
+    Function({
+  required List<RecastExhibitionScript> recastScripts,
+  required List<TokenizerScript> scripts,
+  required List<ProductionPlan> plans,
+  required List<StudioGalleryRecord> records,
+});
 typedef ScriptExhibitionProductionPlansLoader = Future<List<ProductionPlan>>
     Function();
 typedef ScriptExhibitionGalleryRecordsLoader = Future<List<StudioGalleryRecord>>
@@ -544,6 +551,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final ScriptExhibitionRecastCachesLoader loadRecastCaches;
   final ScriptExhibitionRecastScriptsLoader? loadRecastScripts;
   final ScriptExhibitionRecastScriptLoader? loadRecastScript;
+  final ScriptExhibitionSnapshotBuilder _snapshotBuilder;
   final ScriptExhibitionProductionPlansLoader loadProductionPlans;
   final ScriptExhibitionGalleryRecordsLoader loadGalleryRecords;
   final ScriptExhibitionProductionPlansSaver? saveProductionPlans;
@@ -586,6 +594,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   ScriptExhibitionItemSort itemSort = ScriptExhibitionItemSort.frame;
   String? focusedItemId;
   int _loadGeneration = 0;
+  int _snapshotBuildRevision = 0;
   bool _hasLoaded = false;
   List<RecastExhibitionScript> _loadedRecastScripts = const [];
   List<TokenizerScript> _loadedScripts = const [];
@@ -599,7 +608,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   List<ScriptExhibitionScript> _archivedScripts = const [];
   List<ScriptExhibitionScript> _needsActionScripts = const [];
   List<ScriptExhibitionCategory>? _categoriesCache;
-  final Set<String> _loadingScriptDetails = {};
+  final Set<({int generation, String scriptId})> _loadingScriptDetails = {};
   final Map<String, Future<Map<String, dynamic>>> _imageGenerationParamsCache =
       {};
 
@@ -608,6 +617,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     ScriptExhibitionRecastCachesLoader? loadRecastCaches,
     this.loadRecastScripts,
     this.loadRecastScript,
+    @visibleForTesting ScriptExhibitionSnapshotBuilder? snapshotBuilder,
     required this.loadProductionPlans,
     required this.loadGalleryRecords,
     this.saveProductionPlans,
@@ -632,7 +642,8 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     this.setCoverItemRecord,
     this.customCategories = const [],
     this.customCategoryScriptIds = const {},
-  })  : loadScripts = loadScripts ?? _loadNoTokenizerScripts,
+  })  : _snapshotBuilder = snapshotBuilder ?? _buildSnapshotAsync,
+        loadScripts = loadScripts ?? _loadNoTokenizerScripts,
         loadRecastCaches = loadRecastCaches ?? _loadNoRecastCaches,
         loadCustomCategories = loadCustomCategories ?? _loadNoUserCategories,
         loadCustomCategoryScriptIds =
@@ -791,6 +802,15 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     final id = selectedScriptId;
     if (id == null) return null;
     return _scriptsById[id];
+  }
+
+  bool get isSelectedScriptDetailLoading {
+    final scriptId = selectedScriptId;
+    if (scriptId == null) return false;
+    return _loadingScriptDetails.contains((
+      generation: _loadGeneration,
+      scriptId: scriptId,
+    ));
   }
 
   ScriptExhibitionVersion? get selectedVersion {
@@ -1209,21 +1229,22 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       _loadedCustomCategoryScriptIds = loadedCustomCategoryScriptIds;
       _loadedProductionPlans = const [];
       _loadedGalleryRecords = const [];
-      final baseSnapshot = await _buildSnapshotAsync(
+      final baseBuild = await _buildSnapshotForPublication(
         recastScripts: recastScripts,
         scripts: scripts,
         plans: const [],
         records: const [],
       );
-      if (generation != _loadGeneration) {
+      if (!_canPublishSnapshotBuild(
+        generation: generation,
+        revision: baseBuild.revision,
+      )) {
         return;
       }
-      _setSnapshot(baseSnapshot);
-      _normalizeSelection();
       _hasLoaded = true;
       isLoading = false;
       publishedBaseSnapshot = true;
-      notifyListeners();
+      _publishSnapshot(baseBuild.snapshot);
 
       final galleryRecords = () async {
         try {
@@ -1244,18 +1265,19 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       }
       _loadedProductionPlans = plans;
       _loadedGalleryRecords = records;
-      final fullSnapshot = await _buildSnapshotAsync(
+      final fullBuild = await _buildSnapshotForPublication(
         recastScripts: _loadedRecastScripts,
         scripts: _loadedScripts,
         plans: plans,
         records: records,
       );
-      if (generation != _loadGeneration) {
+      if (!_canPublishSnapshotBuild(
+        generation: generation,
+        revision: fullBuild.revision,
+      )) {
         return;
       }
-      _setSnapshot(fullSnapshot);
-      _normalizeSelection();
-      notifyListeners();
+      _publishSnapshot(fullBuild.snapshot);
     } catch (error) {
       if (generation != _loadGeneration) {
         return;
@@ -1387,7 +1409,9 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     final generation = _loadGeneration;
     final current = _scriptsById[scriptId];
     if (current == null || !current.summaryOnly) return;
-    if (!_loadingScriptDetails.add(scriptId)) return;
+    final requestKey = (generation: generation, scriptId: scriptId);
+    if (!_loadingScriptDetails.add(requestKey)) return;
+    notifyListeners();
     try {
       final detail = await loader(scriptId);
       if (detail == null || generation == 0 || generation != _loadGeneration) {
@@ -1399,19 +1423,37 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       ];
       if (generation != _loadGeneration) return;
       _loadedRecastScripts = nextRecastScripts;
-      final nextSnapshot = await _buildSnapshotAsync(
+      final detailBuild = await _buildSnapshotForPublication(
         recastScripts: nextRecastScripts,
         scripts: _loadedScripts,
         plans: _loadedProductionPlans,
         records: _loadedGalleryRecords,
       );
-      if (generation != _loadGeneration) return;
-      _setSnapshot(nextSnapshot);
-      _normalizeSelection();
-      notifyListeners();
+      if (!_canPublishSnapshotBuild(
+        generation: generation,
+        revision: detailBuild.revision,
+      )) {
+        return;
+      }
+      _publishSnapshot(detailBuild.snapshot);
+    } catch (error, stackTrace) {
+      if (generation == _loadGeneration) {
+        debugPrint(
+            'Script exhibition detail load failed for $scriptId: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     } finally {
-      _loadingScriptDetails.remove(scriptId);
+      _loadingScriptDetails.remove(requestKey);
+      if (generation == _loadGeneration && selectedScriptId == scriptId) {
+        notifyListeners();
+      }
     }
+  }
+
+  void retrySelectedScriptDetail() {
+    final script = selectedScript;
+    if (script == null || !script.summaryOnly) return;
+    unawaited(_loadScriptDetailIfNeeded(script.scriptId));
   }
 
   void clearScriptSelection() {
@@ -1741,20 +1783,21 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       }
       final plans = results[0] as List<ProductionPlan>;
       final records = results[1] as List<StudioGalleryRecord>;
-      final nextSnapshot = await _buildSnapshotAsync(
+      _loadedProductionPlans = plans;
+      _loadedGalleryRecords = records;
+      final dynamicBuild = await _buildSnapshotForPublication(
         recastScripts: _loadedRecastScripts,
         scripts: _loadedScripts,
         plans: plans,
         records: records,
       );
-      if (generation != _loadGeneration) {
+      if (!_canPublishSnapshotBuild(
+        generation: generation,
+        revision: dynamicBuild.revision,
+      )) {
         return;
       }
-      _loadedProductionPlans = plans;
-      _loadedGalleryRecords = records;
-      _setSnapshot(nextSnapshot);
-      _normalizeSelection();
-      notifyListeners();
+      _publishSnapshot(dynamicBuild.snapshot);
     } catch (error) {
       if (generation != _loadGeneration) {
         return;
@@ -1868,18 +1911,19 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       return;
     }
     _loadedCustomCategoryScriptIds = loadedCustomCategoryScriptIds;
-    final nextSnapshot = await _buildSnapshotAsync(
+    final categoryBuild = await _buildSnapshotForPublication(
       recastScripts: _loadedRecastScripts,
       scripts: _loadedScripts,
       plans: _loadedProductionPlans,
       records: _loadedGalleryRecords,
     );
-    if (generation != _loadGeneration) {
+    if (!_canPublishSnapshotBuild(
+      generation: generation,
+      revision: categoryBuild.revision,
+    )) {
       return;
     }
-    _setSnapshot(nextSnapshot);
-    _normalizeSelection();
-    notifyListeners();
+    _publishSnapshot(categoryBuild.snapshot);
   }
 
   String? selectedCategoryNameForScript(ScriptExhibitionScript script) {
@@ -1983,7 +2027,50 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _setSnapshot(ScriptExhibitionSnapshot nextSnapshot) {
+  Future<({int revision, ScriptExhibitionSnapshot snapshot})>
+      _buildSnapshotForPublication({
+    required List<RecastExhibitionScript> recastScripts,
+    required List<TokenizerScript> scripts,
+    required List<ProductionPlan> plans,
+    required List<StudioGalleryRecord> records,
+  }) async {
+    final revision = ++_snapshotBuildRevision;
+    final snapshot = await _snapshotBuilder(
+      recastScripts: recastScripts,
+      scripts: scripts,
+      plans: plans,
+      records: records,
+    );
+    return (revision: revision, snapshot: snapshot);
+  }
+
+  bool _canPublishSnapshotBuild({
+    required int generation,
+    required int revision,
+  }) {
+    return generation == _loadGeneration && revision == _snapshotBuildRevision;
+  }
+
+  void _publishSnapshot(ScriptExhibitionSnapshot nextSnapshot) {
+    _setSnapshot(nextSnapshot, invalidatePendingBuilds: false);
+    _normalizeSelection();
+    notifyListeners();
+    _ensureSelectedScriptDetailLoaded();
+  }
+
+  void _ensureSelectedScriptDetailLoaded() {
+    final script = selectedScript;
+    if (script == null || !script.summaryOnly) return;
+    unawaited(_loadScriptDetailIfNeeded(script.scriptId));
+  }
+
+  void _setSnapshot(
+    ScriptExhibitionSnapshot nextSnapshot, {
+    bool invalidatePendingBuilds = true,
+  }) {
+    if (invalidatePendingBuilds) {
+      _snapshotBuildRevision += 1;
+    }
     _snapshot = nextSnapshot;
     final scriptsById = <String, ScriptExhibitionScript>{};
     final itemsById = <String, ScriptExhibitionItem>{};

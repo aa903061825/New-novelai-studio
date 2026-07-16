@@ -506,30 +506,6 @@
       "previewStrategy": "background-first"
     },
     {
-      "id": "legacy-artist-sheet-r12c5",
-      "name": "画师串 24",
-      "tags": [
-        "画师串 24"
-      ],
-      "prompt": "0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::,",
-      "source": {
-        "type": "legacy_artist_workbook",
-        "id": "画风!R12C5"
-      },
-      "imageRefs": [
-        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r13-portrait-832x1216-nai-v45-varsize-b1-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r21-bg-5-qaq1-vibe.png",
-        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r26-square-1024x1024-nai-v45-varsize-b1-qaq1-vibe.png",
-        "assets/references/artist-chain-varsize-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-wide-1216x832-nai-v45-varsize-b1-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r5-outfit-3-bg-1-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r8-plain-2-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r11-bg-3-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r15-plain-4-qaq1-vibe.png",
-        "assets/references/strict-artist-chain-previews/legacy-artist-sheet-r12c5-legacy-character-sheet-r22-outfit-6-plain-6-qaq1-vibe.png"
-      ],
-      "previewStrategy": "character-first"
-    },
-    {
       "id": "legacy-artist-sheet-r12c7",
       "name": "搭配vibe：QAQ 2号",
       "tags": [

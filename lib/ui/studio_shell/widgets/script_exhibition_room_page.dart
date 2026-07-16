@@ -425,8 +425,34 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     return ListenableBuilder(
       listenable: viewModel,
       builder: (context, _) {
-        if (viewModel.selectedScript == null) {
+        final selectedScript = viewModel.selectedScript;
+        if (selectedScript == null) {
           return const SliverToBoxAdapter(child: SizedBox.shrink());
+        }
+        if (selectedScript.summaryOnly) {
+          final isLoading = viewModel.isSelectedScriptDetailLoading;
+          return SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              pagePadding,
+              12,
+              pagePadding,
+              pagePadding,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: _StatusPanel(
+                key: const ValueKey(
+                  'script-exhibition-detail-loading-status',
+                ),
+                icon: isLoading
+                    ? Icons.hourglass_empty_outlined
+                    : Icons.error_outline,
+                title: isLoading ? '正在加载完整剧本' : '完整剧本尚未加载',
+                subtitle:
+                    isLoading ? '正在读取全部图片与版本，请稍候。' : '摘要封面已显示，但完整内容读取失败，可以重试。',
+                onRetry: isLoading ? null : viewModel.retrySelectedScriptDetail,
+              ),
+            ),
+          );
         }
         final focusedItemId = viewModel.focusedItemId;
         return SliverPadding(
@@ -4034,6 +4060,7 @@ class _StatusPanel extends StatelessWidget {
   final VoidCallback? onRetry;
 
   const _StatusPanel({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,

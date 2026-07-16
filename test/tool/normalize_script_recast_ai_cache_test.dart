@@ -108,7 +108,7 @@ void main() {
     expect(role.stages.single.upperBody, 'blue eyes');
     expect(role.stages.single.nonRole, isEmpty);
     expect(role.stages.single.upperBody, isNot(contains('smile')));
-    expect(role.stages.single.evidenceTerms, contains('looking at viewer'));
+    expect(role.stages.single.evidenceTerms, ['blue eyes']);
 
     final assembly = normalized.mapping.roleAssemblies.single;
     expect(assembly.sourceRoleId, 'global-0');
@@ -1052,13 +1052,44 @@ void main() {
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
   return Process.run(
-    Platform.resolvedExecutable,
+    _dartExecutableForSubprocess(),
     [
       '--packages=.dart_tool/package_config.json',
       'tool/normalize_script_recast_ai_cache.dart',
       ...args,
     ],
     workingDirectory: Directory.current.path,
+  );
+}
+
+String _dartExecutableForSubprocess() {
+  final resolvedExecutable = File(Platform.resolvedExecutable);
+  final executableName = resolvedExecutable.uri.pathSegments.last.toLowerCase();
+  if (executableName == 'dart' || executableName == 'dart.exe') {
+    return resolvedExecutable.path;
+  }
+
+  var directory = resolvedExecutable.parent;
+  while (true) {
+    final separator = Platform.pathSeparator;
+    final dartName = Platform.isWindows ? 'dart.exe' : 'dart';
+    final candidate = File(
+      '${directory.path}${separator}dart-sdk${separator}bin$separator$dartName',
+    );
+    if (candidate.existsSync()) {
+      return candidate.path;
+    }
+
+    final parent = directory.parent;
+    if (parent.path == directory.path) {
+      break;
+    }
+    directory = parent;
+  }
+
+  throw StateError(
+    'Could not locate a Dart SDK executable from '
+    '${resolvedExecutable.path}.',
   );
 }
 

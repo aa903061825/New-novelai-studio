@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_merger.dart';
 
 void main() {
@@ -53,6 +54,66 @@ void main() {
       expect(result.roles.single.stages.map((stage) => stage.stageId), [
         'stage-a',
         'stage-b',
+      ]);
+    });
+
+    test('merges same prompt term source occurrence pairs across chunks', () {
+      final result = merger.merge([
+        _extraction(
+          roles: [
+            _role(
+              sourceRoleId: 'slot-0',
+              promptTerms: [
+                const ScriptAiExtractedPromptTerm(
+                  id: 'term-red-jacket',
+                  text: 'red jacket',
+                  sourceLocation: 'legacy source location',
+                  sourceOccurrences: [
+                    ScriptPromptSourceOccurrence(
+                      frameIndex: 2,
+                      sourceLocation: 'slot-1 prompt',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        _extraction(
+          roles: [
+            _role(
+              sourceRoleId: 'slot-0',
+              promptTerms: [
+                const ScriptAiExtractedPromptTerm(
+                  id: 'term-red-jacket',
+                  text: 'red jacket',
+                  sourceLocation: 'legacy source location',
+                  sourceOccurrences: [
+                    ScriptPromptSourceOccurrence(
+                      frameIndex: 1,
+                      sourceLocation: 'slot-0 prompt',
+                    ),
+                    ScriptPromptSourceOccurrence(
+                      frameIndex: 2,
+                      sourceLocation: 'slot-1 prompt',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ]);
+
+      expect(result.roles.single.promptTerms.single.sourceOccurrences, const [
+        ScriptPromptSourceOccurrence(
+          frameIndex: 1,
+          sourceLocation: 'slot-0 prompt',
+        ),
+        ScriptPromptSourceOccurrence(
+          frameIndex: 2,
+          sourceLocation: 'slot-1 prompt',
+        ),
       ]);
     });
 
@@ -453,6 +514,7 @@ ScriptAiExtractedRole _role({
   List<ScriptAiRoleAppearance> appearances = const [],
   List<ScriptAiExtractedStage> stages = const [],
   List<ScriptAiUnassignedTerm> unassignedTerms = const [],
+  List<ScriptAiExtractedPromptTerm> promptTerms = const [],
 }) {
   return ScriptAiExtractedRole(
     sourceRoleId: sourceRoleId,
@@ -464,6 +526,7 @@ ScriptAiExtractedRole _role({
     appearances: appearances,
     stages: stages,
     unassignedTerms: unassignedTerms,
+    promptTerms: promptTerms,
   );
 }
 

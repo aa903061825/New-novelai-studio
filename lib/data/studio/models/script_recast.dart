@@ -561,6 +561,96 @@ PromptTagCategory promptTagCategoryFromReplacementValue(
   return fallback;
 }
 
+class ScriptPromptSourceOccurrence {
+  final int frameIndex;
+  final String sourceLocation;
+
+  const ScriptPromptSourceOccurrence({
+    required this.frameIndex,
+    required this.sourceLocation,
+  });
+
+  factory ScriptPromptSourceOccurrence.fromJson(Map<String, dynamic> json) {
+    final rawFrameIndex = json['frameIndex'] ?? json['frame_index'];
+    final frameIndex = rawFrameIndex is num
+        ? rawFrameIndex.toInt()
+        : int.tryParse(rawFrameIndex?.toString() ?? '') ?? 0;
+    final rawSourceLocation = json['sourceLocation'] ?? json['source_location'];
+    return ScriptPromptSourceOccurrence(
+      frameIndex: frameIndex,
+      sourceLocation: rawSourceLocation?.toString().trim() ?? '',
+    );
+  }
+
+  static List<ScriptPromptSourceOccurrence> fromJsonList(Object? value) {
+    if (value is! List) {
+      return const [];
+    }
+    return normalize([
+      for (final item in value)
+        if (item is Map)
+          ScriptPromptSourceOccurrence.fromJson(
+            item.cast<String, dynamic>(),
+          ),
+    ]);
+  }
+
+  static List<ScriptPromptSourceOccurrence> normalize(
+    Iterable<ScriptPromptSourceOccurrence> occurrences,
+  ) {
+    final byKey = <String, ScriptPromptSourceOccurrence>{};
+    for (final occurrence in occurrences) {
+      final normalized = ScriptPromptSourceOccurrence(
+        frameIndex: occurrence.frameIndex,
+        sourceLocation: occurrence.sourceLocation.trim(),
+      );
+      byKey['${normalized.frameIndex}\u001f${normalized.sourceLocation}'] =
+          normalized;
+    }
+    final result = byKey.values.toList()
+      ..sort((left, right) {
+        final frameComparison = left.frameIndex.compareTo(right.frameIndex);
+        if (frameComparison != 0) {
+          return frameComparison;
+        }
+        return left.sourceLocation.compareTo(right.sourceLocation);
+      });
+    return List.unmodifiable(result);
+  }
+
+  ScriptPromptSourceOccurrence copyWith({
+    int? frameIndex,
+    String? sourceLocation,
+  }) {
+    return ScriptPromptSourceOccurrence(
+      frameIndex: frameIndex ?? this.frameIndex,
+      sourceLocation: sourceLocation ?? this.sourceLocation,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'frameIndex': frameIndex,
+        'sourceLocation': sourceLocation,
+      };
+
+  Map<String, dynamic> toSnakeCaseJson() => {
+        'frame_index': frameIndex,
+        'source_location': sourceLocation,
+      };
+
+  Map<String, dynamic> toAiJson() => toSnakeCaseJson();
+
+  @override
+  bool operator ==(Object other) {
+    return other is ScriptPromptSourceOccurrence &&
+        other.frameIndex == frameIndex &&
+        other.sourceLocation == sourceLocation;
+  }
+
+  @override
+  int get hashCode => Object.hash(frameIndex, sourceLocation);
+}
+
 enum ScriptPromptReplacementAction { none, replace, delete }
 
 enum ScriptPromptReplacementMatchMode { any, all, anchor }
@@ -572,6 +662,7 @@ class ScriptPromptReplacementTerm {
   final String sourcePhrase;
   final String sourceLocation;
   final List<int> frameIndexes;
+  final List<ScriptPromptSourceOccurrence> _sourceOccurrences;
 
   const ScriptPromptReplacementTerm({
     required this.id,
@@ -580,7 +671,11 @@ class ScriptPromptReplacementTerm {
     this.sourcePhrase = '',
     this.sourceLocation = '',
     this.frameIndexes = const [],
-  });
+    List<ScriptPromptSourceOccurrence> sourceOccurrences = const [],
+  }) : _sourceOccurrences = sourceOccurrences;
+
+  List<ScriptPromptSourceOccurrence> get sourceOccurrences =>
+      ScriptPromptSourceOccurrence.normalize(_sourceOccurrences);
 
   factory ScriptPromptReplacementTerm.fromJson(Map<String, dynamic> json) {
     return ScriptPromptReplacementTerm(
@@ -590,12 +685,20 @@ class ScriptPromptReplacementTerm {
         json['category'],
         fallback: PromptTagCategory.character,
       ),
-      sourcePhrase: json['sourcePhrase'] as String? ?? '',
-      sourceLocation: json['sourceLocation'] as String? ?? '',
-      frameIndexes: _listOfDynamic(json['frameIndexes'])
-          .whereType<num>()
-          .map((value) => value.toInt())
-          .toList(growable: false),
+      sourcePhrase: json['sourcePhrase'] as String? ??
+          json['source_phrase'] as String? ??
+          '',
+      sourceLocation: json['sourceLocation'] as String? ??
+          json['source_location'] as String? ??
+          '',
+      frameIndexes:
+          _listOfDynamic(json['frameIndexes'] ?? json['frame_indexes'])
+              .whereType<num>()
+              .map((value) => value.toInt())
+              .toList(growable: false),
+      sourceOccurrences: ScriptPromptSourceOccurrence.fromJsonList(
+        json['sourceOccurrences'] ?? json['source_occurrences'],
+      ),
     );
   }
 
@@ -606,6 +709,7 @@ class ScriptPromptReplacementTerm {
     String? sourcePhrase,
     String? sourceLocation,
     List<int>? frameIndexes,
+    List<ScriptPromptSourceOccurrence>? sourceOccurrences,
   }) {
     return ScriptPromptReplacementTerm(
       id: id ?? this.id,
@@ -614,6 +718,7 @@ class ScriptPromptReplacementTerm {
       sourcePhrase: sourcePhrase ?? this.sourcePhrase,
       sourceLocation: sourceLocation ?? this.sourceLocation,
       frameIndexes: frameIndexes ?? this.frameIndexes,
+      sourceOccurrences: sourceOccurrences ?? this.sourceOccurrences,
     );
   }
 
@@ -624,6 +729,10 @@ class ScriptPromptReplacementTerm {
         if (sourcePhrase.trim().isNotEmpty) 'sourcePhrase': sourcePhrase,
         if (sourceLocation.trim().isNotEmpty) 'sourceLocation': sourceLocation,
         if (frameIndexes.isNotEmpty) 'frameIndexes': frameIndexes,
+        if (sourceOccurrences.isNotEmpty)
+          'sourceOccurrences': sourceOccurrences
+              .map((occurrence) => occurrence.toJson())
+              .toList(),
       };
 }
 

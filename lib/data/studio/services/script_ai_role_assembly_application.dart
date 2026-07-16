@@ -487,6 +487,9 @@ class ScriptAiRoleAssemblyApplication {
       sourcePhrase: term.sourcePhrase.trim(),
       sourceLocation: term.sourceLocation.trim(),
       frameIndexes: List.unmodifiable(term.frameIndexes),
+      sourceOccurrences: ScriptPromptSourceOccurrence.normalize(
+        term.sourceOccurrences,
+      ),
     );
   }
 
@@ -1108,7 +1111,11 @@ class ScriptAiRoleAssemblyApplication {
           leftTerm.category != rightTerm.category ||
           leftTerm.sourcePhrase != rightTerm.sourcePhrase ||
           leftTerm.sourceLocation != rightTerm.sourceLocation ||
-          !_listEquals(leftTerm.frameIndexes, rightTerm.frameIndexes)) {
+          !_listEquals(leftTerm.frameIndexes, rightTerm.frameIndexes) ||
+          !_listEquals(
+            leftTerm.sourceOccurrences,
+            rightTerm.sourceOccurrences,
+          )) {
         return false;
       }
     }

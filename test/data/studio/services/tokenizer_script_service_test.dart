@@ -880,7 +880,7 @@ void main() {
       'blue eyes',
       'unknown tag',
     ]);
-    expect(preview.tags.map((tag) => tag.translation), ['1个女孩', '蓝眼', '']);
+    expect(preview.tags.map((tag) => tag.translation), ['1个女孩', '蓝眼睛', '']);
     expect(preview.missingTranslations, ['unknown tag']);
   });
 

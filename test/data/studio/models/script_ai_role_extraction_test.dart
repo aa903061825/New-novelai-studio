@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 
 void main() {
   group('ScriptAiRoleExtraction', () {
@@ -99,6 +100,68 @@ void main() {
 
       final restored = ScriptAiRoleExtraction.fromJson(json);
       expect(restored.toJson(), json);
+    });
+
+    test(
+        'round trips and merges AI source occurrence pairs without a cross product',
+        () {
+      final extraction = ScriptAiRoleExtraction.fromJson({
+        'status': 'ready',
+        'roles': [
+          {
+            'source_role_id': 'role-a',
+            'canonical_name': 'alice',
+            'prompt_terms': [
+              {
+                'id': 'term-jacket',
+                'text': 'red jacket',
+                'category': 'clothing',
+                'source_occurrences': [
+                  {'frame_index': 1, 'source_location': 'slot-0 prompt'},
+                ],
+              },
+            ],
+          },
+          {
+            'source_role_id': 'role-b',
+            'merge_with_role_id': 'role-a',
+            'canonical_name': 'alice',
+            'prompt_terms': [
+              {
+                'id': 'term-jacket',
+                'text': 'red jacket',
+                'category': 'clothing',
+                'source_occurrences': [
+                  {'frame_index': 2, 'source_location': 'slot-1 prompt'},
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      final merged = extraction.collapseEquivalentStages();
+      expect(merged.roles, hasLength(1));
+      expect(merged.roles.single.promptTerms.single.sourceOccurrences, const [
+        ScriptPromptSourceOccurrence(
+          frameIndex: 1,
+          sourceLocation: 'slot-0 prompt',
+        ),
+        ScriptPromptSourceOccurrence(
+          frameIndex: 2,
+          sourceLocation: 'slot-1 prompt',
+        ),
+      ]);
+
+      final termJson = merged.roles.single.promptTerms.single.toJson();
+      expect(termJson['source_occurrences'], [
+        {'frame_index': 1, 'source_location': 'slot-0 prompt'},
+        {'frame_index': 2, 'source_location': 'slot-1 prompt'},
+      ]);
+      expect(
+        ScriptAiExtractedPromptTerm.fromJson(termJson).sourceOccurrences,
+        merged.roles.single.promptTerms.single.sourceOccurrences,
+      );
     });
 
     test('prompt term category parsing accepts clothing state aliases', () {
@@ -584,6 +647,7 @@ void main() {
       expect(stage.upperClothing, 'school uniform');
       expect(stage.nonRole, isEmpty);
       expect(stage.nonRoleMaterialized, isFalse);
+      expect(stage.evidenceTerms, ['blue eyes']);
     });
 
     test('demotes underscore action terms from stable fields', () {

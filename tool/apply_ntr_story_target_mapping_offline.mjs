@@ -139,7 +139,6 @@ for (const file of files) {
 
   if (changed) {
     report.files_changed += 1;
-    cache.updatedAt = new Date().toISOString();
     if (args.apply) {
       fs.mkdirSync(backupDir, { recursive: true });
       fs.copyFileSync(cachePath, path.join(backupDir, file));

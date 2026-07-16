@@ -1,4 +1,5 @@
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 class ScriptAiRoleExtractionMerger {
@@ -284,9 +285,11 @@ class _StrongFilterAccumulator {
 class _PromptTermAccumulator {
   ScriptAiExtractedPromptTerm term;
   final List<int> frameIndexes = [];
+  final List<ScriptPromptSourceOccurrence> sourceOccurrences = [];
 
   _PromptTermAccumulator(this.term) {
     _addInts(frameIndexes, term.frameIndexes);
+    sourceOccurrences.addAll(term.sourceOccurrences);
   }
 
   void add(ScriptAiExtractedPromptTerm next) {
@@ -294,10 +297,16 @@ class _PromptTermAccumulator {
       term = next;
     }
     _addInts(frameIndexes, next.frameIndexes);
+    sourceOccurrences.addAll(next.sourceOccurrences);
   }
 
   ScriptAiExtractedPromptTerm build() {
-    return term.copyWith(frameIndexes: List.unmodifiable(frameIndexes));
+    return term.copyWith(
+      frameIndexes: List.unmodifiable(frameIndexes),
+      sourceOccurrences: ScriptPromptSourceOccurrence.normalize(
+        sourceOccurrences,
+      ),
+    );
   }
 }
 

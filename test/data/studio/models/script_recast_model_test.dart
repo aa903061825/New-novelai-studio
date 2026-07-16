@@ -338,6 +338,78 @@ void main() {
       expect(rule.toJson()['targetWeightMultiplier'], 1.2);
     });
 
+    test(
+        'round trips replacement source occurrence pairs without a cross product',
+        () {
+      final term = ScriptPromptReplacementTerm.fromJson({
+        'id': 'term-jacket',
+        'text': 'red jacket',
+        'category': 'clothing',
+        'sourceLocation': 'legacy slot-0 prompt',
+        'frameIndexes': [1, 2],
+        'sourceOccurrences': [
+          {'frameIndex': 2, 'sourceLocation': 'slot-1 prompt'},
+          {'frameIndex': 1, 'sourceLocation': 'slot-0 prompt'},
+          {'frameIndex': 1, 'sourceLocation': 'slot-0 prompt'},
+        ],
+      });
+
+      const expected = [
+        ScriptPromptSourceOccurrence(
+          frameIndex: 1,
+          sourceLocation: 'slot-0 prompt',
+        ),
+        ScriptPromptSourceOccurrence(
+          frameIndex: 2,
+          sourceLocation: 'slot-1 prompt',
+        ),
+      ];
+      expect(term.sourceOccurrences, expected);
+      expect(
+        expected.first.copyWith(sourceLocation: 'slot-0 prompt'),
+        expected.first,
+      );
+      expect(term.toJson()['sourceOccurrences'], [
+        {'frameIndex': 1, 'sourceLocation': 'slot-0 prompt'},
+        {'frameIndex': 2, 'sourceLocation': 'slot-1 prompt'},
+      ]);
+      expect(
+        ScriptPromptReplacementTerm.fromJson(term.toJson()).sourceOccurrences,
+        expected,
+      );
+      expect(
+        term.copyWith(sourceOccurrences: [
+          expected.last,
+          expected.first,
+          expected.first,
+        ]).sourceOccurrences,
+        expected,
+      );
+    });
+
+    test('reads snake case replacement source occurrence pairs', () {
+      final term = ScriptPromptReplacementTerm.fromJson(const {
+        'id': 'term-jacket',
+        'text': 'red jacket',
+        'category': 'clothing',
+        'source_occurrences': [
+          {'frame_index': 2, 'source_location': 'slot-1 prompt'},
+          {'frame_index': 1, 'source_location': 'slot-0 prompt'},
+        ],
+      });
+
+      expect(term.sourceOccurrences, const [
+        ScriptPromptSourceOccurrence(
+          frameIndex: 1,
+          sourceLocation: 'slot-0 prompt',
+        ),
+        ScriptPromptSourceOccurrence(
+          frameIndex: 2,
+          sourceLocation: 'slot-1 prompt',
+        ),
+      ]);
+    });
+
     test('target weight multiplier without target prompt is effective', () {
       const rule = ScriptPromptReplacementRule(
         id: 'rule-source-weight',

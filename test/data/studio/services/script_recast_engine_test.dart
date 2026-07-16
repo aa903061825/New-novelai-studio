@@ -287,6 +287,371 @@ void main() {
     );
 
     test(
+      'role prompt replacements honor base-prompt source provenance',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['wet hair, outdoors', 'wet hair, indoors'],
+          charCaptions: const [
+            ['reisa (blue archive), wet hair'],
+            ['reisa (blue archive), wet hair'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-reisa',
+                displayLabel: 'Reisa',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-0',
+                    sourceKind: 'slot',
+                    frameIndexes: [1, 2],
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-reisa',
+                displayLabel: 'Reisa',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-wet-hair',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-wet-hair',
+                        text: 'wet hair',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation:
+                            'slot-0 prompt; base prompt (reviewed role evidence)',
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    targetPrompt: 'dry hair',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final first = result.frames.first;
+        final last = result.frames.last;
+        expect(
+          _resolvedBaseCaption(_resultForFrame(result, first)),
+          'dry hair, outdoors',
+        );
+        expect(
+            _resolvedCharCaptions(first.payload).single, contains('dry hair'));
+        expect(
+          _resolvedBaseCaption(_resultForFrame(result, last)),
+          'wet hair, indoors',
+        );
+        expect(
+            _resolvedCharCaptions(last.payload).single, contains('wet hair'));
+      },
+    );
+
+    test(
+      'supplemental role terms honor slot source provenance without appearances',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['indoors', 'indoors'],
+          charCaptions: const [
+            ['alice, red jacket', 'disembodied penis, foreskin'],
+            ['alice, red jacket', 'disembodied penis, foreskin'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-reviewed-evidence-slot-1-male',
+                displayLabel: 'Supplemental male evidence',
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-reviewed-evidence-slot-1-male',
+                displayLabel: 'Supplemental male evidence',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-foreskin',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-foreskin',
+                        text: 'foreskin',
+                        category: PromptTagCategory.lowerBody,
+                        sourceLocation:
+                            'slot-1 prompt (reviewed supplemental role evidence)',
+                        frameIndexes: [1],
+                      ),
+                    ],
+                    targetPrompt: 'circumcised',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final firstCaptions =
+            _resolvedCharCaptions(result.frames.first.payload);
+        final lastCaptions = _resolvedCharCaptions(result.frames.last.payload);
+        expect(firstCaptions.first, 'alice, red jacket');
+        expect(firstCaptions.last, 'disembodied penis, circumcised');
+        expect(lastCaptions.first, 'alice, red jacket');
+        expect(lastCaptions.last, 'disembodied penis, foreskin');
+      },
+    );
+
+    test(
+      'a no-op base rule cannot route an active slot rule into base',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['base evidence, shared term, outdoors'],
+          charCaptions: const [
+            ['shared term'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-shared',
+                displayLabel: 'Shared role',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-no-op-base',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-base-evidence',
+                        text: 'base evidence',
+                        category: PromptTagCategory.scene,
+                        sourceLocation: 'base prompt',
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-active-slot',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-shared',
+                        text: 'shared term',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation: 'slot-0 prompt',
+                      ),
+                    ],
+                    targetPrompt: 'slot replacement',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        expect(
+          _resolvedBaseCaption(result),
+          'base evidence, shared term, outdoors',
+        );
+        expect(
+          _resolvedCharCaptions(result.frames.single.payload).single,
+          'slot replacement',
+        );
+      },
+    );
+
+    test(
+      'rules with different slot provenance stay on their own captions',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['outdoors'],
+          charCaptions: const [
+            ['term A, term B', 'term A, term B'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-shared',
+                displayLabel: 'Shared role',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-slot-0',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-a',
+                        text: 'term A',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation: 'slot-0 prompt',
+                      ),
+                    ],
+                    targetPrompt: 'replacement A',
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-slot-1',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-b',
+                        text: 'term B',
+                        category: PromptTagCategory.lowerBody,
+                        sourceLocation: 'slot-1 prompt',
+                      ),
+                    ],
+                    targetPrompt: 'replacement B',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        expect(
+          _resolvedCharCaptions(result.frames.single.payload),
+          ['replacement A, term B', 'term A, replacement B'],
+        );
+      },
+    );
+
+    test(
+      'physical term provenance overrides a semantic appearance slot',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const ['outdoors'],
+          charCaptions: const [
+            ['shared term', 'other role', 'shared term'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            roleAssemblies: const [
+              RoleAssembly(
+                sourceRoleId: 'role-shared',
+                displayLabel: 'Shared role',
+                sourceAppearances: [
+                  RoleAssemblySourceAppearance(
+                    sourceId: 'slot-2',
+                    sourceKind: 'slot',
+                    frameIndexes: [1],
+                  ),
+                ],
+              ),
+            ],
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-shared',
+                displayLabel: 'Shared role',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-slot-0-term',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-shared',
+                        text: 'shared term',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation: 'slot-0 prompt',
+                      ),
+                    ],
+                    targetPrompt: 'slot 0 replacement',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        expect(
+          _resolvedCharCaptions(result.frames.single.payload),
+          ['slot 0 replacement', 'other role', 'shared term'],
+        );
+      },
+    );
+
+    test(
+      'structured source occurrences prevent cross-frame location cross product',
+      () {
+        final script = _scriptWithFramePrompts(
+          baseCaptions: const [
+            'shared term, frame one',
+            'shared term, frame two',
+          ],
+          charCaptions: const [
+            ['shared term'],
+            ['shared term'],
+          ],
+        );
+        final result = ScriptRecastEngine().resolvePayloads(
+          script: script,
+          mapping: RecastMapping.defaults(script.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'role-shared',
+                displayLabel: 'Shared role',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-shared-term',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-shared',
+                        text: 'shared term',
+                        category: PromptTagCategory.upperBody,
+                        sourceLocation: 'base prompt; slot-0 prompt',
+                        frameIndexes: [1, 2],
+                        sourceOccurrences: [
+                          ScriptPromptSourceOccurrence(
+                            frameIndex: 1,
+                            sourceLocation: 'base prompt',
+                          ),
+                          ScriptPromptSourceOccurrence(
+                            frameIndex: 2,
+                            sourceLocation: 'slot-0 prompt',
+                          ),
+                        ],
+                      ),
+                    ],
+                    targetPrompt: 'replacement',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          characters: const [],
+          artistChains: const [],
+        );
+
+        final frameOne = _resultForFrame(result, result.frames.first);
+        final frameTwo = _resultForFrame(result, result.frames.last);
+        expect(_resolvedBaseCaption(frameOne), 'replacement, frame one');
+        expect(
+          _resolvedCharCaptions(frameOne.frames.single.payload),
+          ['shared term'],
+        );
+        expect(_resolvedBaseCaption(frameTwo), 'shared term, frame two');
+        expect(
+          _resolvedCharCaptions(frameTwo.frames.single.payload),
+          ['replacement'],
+        );
+      },
+    );
+
+    test(
       'role prompt replacements follow assembly source appearances',
       () {
         final script = _scriptWithFramePrompts(

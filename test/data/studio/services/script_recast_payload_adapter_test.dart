@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
 import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
@@ -74,6 +75,53 @@ void main() {
       final negative = parameters['v4_negative_prompt'] as Map<String, dynamic>;
       final negativeCaption = negative['caption'] as Map<String, dynamic>;
       expect(negativeCaption['base_caption'], contains('lowres'));
+    });
+
+    test('merges the batch default with original negative prompts once', () {
+      final firstRequest =
+          const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'direct prompt',
+          'parameters': {
+            'negative_prompt': 'bad anatomy, custom legacy negative',
+            'v4_negative_prompt': {
+              'caption': {
+                'base_caption': 'bad anatomy, custom v4 negative',
+                'char_captions': [
+                  {'char_caption': 'bad hands'},
+                ],
+              },
+            },
+          },
+        },
+      );
+
+      final firstParameters =
+          firstRequest['parameters'] as Map<String, dynamic>;
+      final firstNegative =
+          firstParameters['v4_negative_prompt'] as Map<String, dynamic>;
+      final firstCaption = firstNegative['caption'] as Map<String, dynamic>;
+      final expected = '$defaultBatchNegativePrompt, '
+          'bad anatomy, custom v4 negative, '
+          'bad anatomy, custom legacy negative';
+
+      expect(firstParameters['negative_prompt'], expected);
+      expect(firstCaption['base_caption'], expected);
+      expect(
+        ((firstCaption['char_captions'] as List).single as Map)['char_caption'],
+        'bad hands',
+      );
+
+      final secondRequest =
+          const ScriptRecastPayloadAdapter().toNaiRequestPayload(firstRequest);
+      final secondParameters =
+          secondRequest['parameters'] as Map<String, dynamic>;
+      final secondNegative =
+          secondParameters['v4_negative_prompt'] as Map<String, dynamic>;
+      final secondCaption = secondNegative['caption'] as Map<String, dynamic>;
+
+      expect(secondParameters['negative_prompt'], expected);
+      expect(secondCaption['base_caption'], expected);
     });
 
     test('preserves already direct request payloads while filling defaults',

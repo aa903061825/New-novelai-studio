@@ -7,6 +7,7 @@ import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.d
 import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_reveal.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_spotlight_surface.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/studio_metric_card.dart';
@@ -230,74 +231,78 @@ class _HomeHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final promptPreview = prompt.trim().isEmpty ? '当前工作台还没有内容' : prompt;
-    return StudioPanel(
-      color: StudioTokens.surface2,
-      padding: const EdgeInsets.all(24),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 760;
-          final title = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Novel Studio',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: StudioTokens.textPrimary,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '本地 Prompt 与生成工作台',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: StudioTokens.textSecondary,
-                    ),
-              ),
-              const SizedBox(height: 18),
-              _HomePromptCard(
-                  prompt: promptPreview, isEmpty: prompt.trim().isEmpty),
-            ],
-          );
-          final actions = Column(
-            crossAxisAlignment:
-                compact ? CrossAxisAlignment.stretch : CrossAxisAlignment.end,
-            children: [
-              _FragmentBadge(count: fragmentCount),
-              const SizedBox(height: 16),
-              StudioButton(
-                label: '继续创作',
-                icon: Icons.play_arrow_rounded,
-                onPressed: onContinue,
-              ),
-              const SizedBox(height: 10),
-              StudioButton(
-                label: '打开素材库',
-                icon: Icons.inventory_2_outlined,
-                tone: StudioButtonTone.ghost,
-                onPressed: onOpenAssets,
-              ),
-            ],
-          );
-
-          if (compact) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    return StudioSpotlightSurface(
+      key: const ValueKey('home-hero-spotlight'),
+      radius: 480,
+      child: StudioPanel(
+        color: StudioTokens.surface2,
+        padding: const EdgeInsets.all(24),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 760;
+            final title = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                title,
-                const SizedBox(height: 20),
-                actions,
+                Text(
+                  'Novel Studio',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: StudioTokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '本地 Prompt 与生成工作台',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: StudioTokens.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 18),
+                _HomePromptCard(
+                    prompt: promptPreview, isEmpty: prompt.trim().isEmpty),
               ],
             );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: title),
-              const SizedBox(width: 24),
-              SizedBox(width: 190, child: actions),
-            ],
-          );
-        },
+            final actions = Column(
+              crossAxisAlignment:
+                  compact ? CrossAxisAlignment.stretch : CrossAxisAlignment.end,
+              children: [
+                _FragmentBadge(count: fragmentCount),
+                const SizedBox(height: 16),
+                StudioButton(
+                  label: '继续创作',
+                  icon: Icons.play_arrow_rounded,
+                  onPressed: onContinue,
+                ),
+                const SizedBox(height: 10),
+                StudioButton(
+                  label: '打开素材库',
+                  icon: Icons.inventory_2_outlined,
+                  tone: StudioButtonTone.ghost,
+                  onPressed: onOpenAssets,
+                ),
+              ],
+            );
+
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  title,
+                  const SizedBox(height: 20),
+                  actions,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: title),
+                const SizedBox(width: 24),
+                SizedBox(width: 190, child: actions),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -463,24 +468,28 @@ class _MetricStrip extends StatelessWidget {
               label: '素材库',
               value: value ?? assetCount.toString(),
               icon: Icons.inventory_2_outlined,
+              animateNumericValue: true,
             ),
             StudioMetricCard(
               label: '画廊记录',
               value: value ?? galleryCount.toString(),
               icon: Icons.photo_library_outlined,
               accentColor: StudioTokens.info,
+              animateNumericValue: true,
             ),
             StudioMetricCard(
               label: '当前素材栈',
               value: workbenchCount.toString(),
               icon: Icons.dashboard_customize_outlined,
               accentColor: StudioTokens.active,
+              animateNumericValue: true,
             ),
             StudioMetricCard(
               label: '批量目标',
               value: batchCount <= 0 ? '不限' : batchCount.toString(),
               icon: Icons.account_tree_outlined,
               accentColor: StudioTokens.warning,
+              animateNumericValue: true,
             ),
           ],
         );

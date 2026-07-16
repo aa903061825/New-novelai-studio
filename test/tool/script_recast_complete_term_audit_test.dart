@@ -4,6 +4,72 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('collects terms after a duplicate within the same caption', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-recast-complete-term-duplicate-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final cacheDir = Directory('${tempDir.path}${Platform.pathSeparator}cache')
+      ..createSync(recursive: true);
+    final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+    final reportFile =
+        File('${tempDir.path}${Platform.pathSeparator}report.json');
+    final cacheFile =
+        File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+    final cache = _cacheJson(
+      sourceRootPath: sourceRoot,
+      promptTerms: const [],
+      sceneTerms: const [],
+      roleRules: const [],
+      sceneRules: const [],
+    );
+    final snapshot = cache['scriptSnapshot'] as Map<String, dynamic>;
+    final frame = (snapshot['frames'] as List).single as Map<String, dynamic>;
+    final parsed = frame['parsed'] as Map<String, dynamic>;
+    parsed
+      ..['baseCaption'] = 'shared term'
+      ..['charCaptions'] = ['shared term, trailing role term']
+      ..['negativeBase'] = ''
+      ..['negativeCharCaptions'] = <String>[];
+    await cacheFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(cache),
+      encoding: utf8,
+    );
+
+    final result = await Process.run(
+      'node',
+      [
+        'tool/script_recast_complete_term_audit.mjs',
+        '--cache-dir',
+        cacheDir.path,
+        '--source-root',
+        sourceRoot,
+        '--report',
+        reportFile.path,
+        '--report-unchanged',
+      ],
+      workingDirectory: Directory.current.path,
+      runInShell: Platform.isWindows,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr.toString());
+    final report = jsonDecode(await reportFile.readAsString(encoding: utf8))
+        as Map<String, dynamic>;
+    final row = (report['rows'] as List).single as Map<String, dynamic>;
+    expect(row['source_term_count'], 2);
+    expect(
+      (row['uncovered_source_terms_sample'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((term) => term['normalized']),
+      containsAll(<String>['shared term', 'trailing role term']),
+    );
+  });
+
   test('audits complete source terms without local repair', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'script-recast-complete-term-audit-test-',

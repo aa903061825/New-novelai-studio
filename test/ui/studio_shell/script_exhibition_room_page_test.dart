@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
+import 'package:novel_studio/data/studio/models/script_exhibition_recast_summary.dart';
+import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
 import 'package:novel_studio/data/studio/services/script_exhibition_image_organizer_service.dart';
@@ -185,6 +187,129 @@ void main() {
       find.byKey(const ValueKey('script-exhibition-room-page')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('summary cover is replaced by a detail loading state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final tempDir = Directory.systemTemp.createTempSync(
+      'script-exhibition-summary-loading-',
+    );
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+    final firstImage = File(
+      '${tempDir.path}${Platform.pathSeparator}001.png',
+    );
+    final secondImage = File(
+      '${tempDir.path}${Platform.pathSeparator}002.png',
+    );
+    firstImage.writeAsBytesSync(const [0, 1, 2, 3]);
+    secondImage.writeAsBytesSync(const [0, 1, 2, 3]);
+
+    final summary = RecastExhibitionScript(
+      scriptId: 'summary-script',
+      scriptName: 'Summary Script',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-07-13T09:00:00Z'),
+      detectedSchema: ScriptSchema.unknown,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: firstImage.path,
+        ),
+      ],
+      frameCount: 2,
+      summaryOnly: true,
+    );
+    final detail = RecastExhibitionScript(
+      scriptId: 'summary-script',
+      scriptName: 'Summary Script',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-07-13T09:00:00Z'),
+      detectedSchema: ScriptSchema.baseInline,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: firstImage.path,
+          prompt: 'first prompt',
+        ),
+        RecastExhibitionFrame(
+          index: 2,
+          fileName: '002.png',
+          sourcePath: secondImage.path,
+          prompt: 'second prompt',
+        ),
+      ],
+    );
+    final detailCompleter = Completer<RecastExhibitionScript?>();
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async => [summary],
+      loadRecastScript: (_) => detailCompleter.future,
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: ScriptExhibitionRoomPage(
+            viewModel: viewModel,
+            onSendToScriptWorkbench: (_) {},
+            onSendToWorkbench: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-script-card-summary-script'),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-detail-loading-status'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('正在加载完整剧本'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-item-original-summary-script-frame-1',
+        ),
+      ),
+      findsNothing,
+    );
+
+    detailCompleter.complete(detail);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-detail-loading-status'),
+      ),
+      findsNothing,
+    );
+    expect(viewModel.selectedScript?.summaryOnly, isFalse);
+    expect(viewModel.visibleVersionItems, hasLength(2));
   });
 
   testWidgets('browses versions, previews an image, and reruns a frame', (

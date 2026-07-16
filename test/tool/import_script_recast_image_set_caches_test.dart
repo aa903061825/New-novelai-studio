@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 
 import '../../tool/import_script_recast_image_set_caches.dart';
@@ -192,6 +193,67 @@ void main() {
       expect(report.rows.single.preservedAiDraft, isFalse);
       expect(imported.scriptBlockWords, 'keep low-risk import state');
       expect(imported.mapping.roleAssemblies, isEmpty);
+    });
+
+    test('Node importer keeps legacy IDs while normalizing fingerprint paths',
+        () async {
+      final script =
+          Directory('${sourceRoot.path}${Platform.pathSeparator}MixedCase');
+      await script.create();
+      final frame = File('${script.path}${Platform.pathSeparator}p1.json');
+      await frame.writeAsString(
+        jsonEncode({'Description': 'alice, red jacket'}),
+      );
+      await Directory(
+        '${workspaceRoot.path}${Platform.pathSeparator}script_recast'
+        '${Platform.pathSeparator}cache',
+      ).create(recursive: true);
+
+      final result = await Process.run(
+        'node',
+        [
+          'tool/import_script_recast_image_set_caches_node_20260620.mjs',
+          '--source-root',
+          sourceRoot.path,
+          '--workspace',
+          workspaceRoot.path,
+          '--recursive',
+          '--apply',
+        ],
+        workingDirectory: Directory.current.path,
+      );
+      expect(
+        result.exitCode,
+        0,
+        reason: 'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
+      );
+
+      final report = jsonDecode(result.stdout as String) as Map;
+      final row = (report['rows'] as List)
+          .cast<Map>()
+          .singleWhere((entry) => entry['script_name'] == 'MixedCase');
+      final scriptId = row['script_id'] as String;
+      expect(
+        scriptId,
+        ScriptRecastParserService.scriptIdForDirectory(script),
+      );
+      final cacheFile = File(
+        '${workspaceRoot.path}${Platform.pathSeparator}script_recast'
+        '${Platform.pathSeparator}cache${Platform.pathSeparator}$scriptId.json',
+      );
+      final cache = jsonDecode(await cacheFile.readAsString()) as Map;
+      final fingerprint = (cache['sourceFingerprint'] as String).split('|');
+      final expectedRoot = script.path.replaceAll('\\', '/');
+      final expectedFrame = frame.path.replaceAll('\\', '/');
+      expect(
+        fingerprint[1],
+        Platform.isWindows ? expectedRoot.toLowerCase() : expectedRoot,
+      );
+      expect(
+        fingerprint[2],
+        contains(
+            Platform.isWindows ? expectedFrame.toLowerCase() : expectedFrame),
+      );
     });
   });
 }

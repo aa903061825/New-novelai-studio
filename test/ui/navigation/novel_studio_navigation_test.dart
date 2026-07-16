@@ -397,7 +397,10 @@ class _SendReadyScriptViewModel extends StudioScriptViewModel {
 class _RecordingScriptViewModel extends StudioScriptViewModel {
   final importedPaths = <String>[];
   final openedExhibitionScripts = <({String scriptId, String sourceFolder})>[];
+  final VoidCallback? onOpenExhibitionScript;
   int? selectedFrame;
+
+  _RecordingScriptViewModel({this.onOpenExhibitionScript});
 
   @override
   Future<void> importScriptPath(String path) async {
@@ -410,6 +413,7 @@ class _RecordingScriptViewModel extends StudioScriptViewModel {
     required String sourceFolder,
     int? frameIndex,
   }) async {
+    onOpenExhibitionScript?.call();
     openedExhibitionScripts.add((
       scriptId: scriptId,
       sourceFolder: sourceFolder,
@@ -1085,6 +1089,92 @@ void main() {
     );
   });
 
+  testWidgets(
+      'script exhibition re-entry from batch returns to the script shelf',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceRoot = Directory.systemTemp.createTempSync(
+      'script-exhibition-batch-reentry-test-',
+    );
+    addTearDown(() {
+      if (workspaceRoot.existsSync()) {
+        workspaceRoot.deleteSync(recursive: true);
+      }
+    });
+    final image = File(
+      '${workspaceRoot.path}${Platform.pathSeparator}001.png',
+    );
+    image.writeAsBytesSync([1, 2, 3]);
+    final summary = RecastExhibitionScript(
+      scriptId: 'script-1',
+      scriptName: 'Summary script',
+      sourceRootPath: workspaceRoot.path,
+      updatedAt: DateTime.parse('2026-07-13T09:00:00Z'),
+      detectedSchema: ScriptSchema.baseInline,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: image.path,
+          sourceImagePath: image.path,
+        ),
+      ],
+      frameCount: 1,
+      summaryOnly: true,
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(
+        root: workspaceRoot,
+        caches: [
+          _exhibitionRecastCache(rootPath: workspaceRoot.path),
+        ],
+        summaryScripts: [summary],
+      ),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(
+      _FakeProductionQueueService([_exhibitionProductionPlan()]),
+    );
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    var page = tester.widget<ScriptExhibitionRoomPage>(
+      find.byType(ScriptExhibitionRoomPage).first,
+    );
+    expect(page.viewModel.selectedScript?.scriptId, 'script-1');
+
+    await tester.tap(find.byKey(const ValueKey('studio-nav-batch')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+
+    page = tester.widget<ScriptExhibitionRoomPage>(
+      find.byType(ScriptExhibitionRoomPage).first,
+    );
+    expect(page.viewModel.selectedScript, isNull);
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('studio shell reuses cached stable pages across navigation',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
@@ -1566,6 +1656,59 @@ void main() {
       (scriptId: 'script-1', sourceFolder: r'C:\stories\rain'),
     ]);
     expect(scriptViewModel.selectedFrame, isNull);
+  });
+
+  testWidgets(
+      'script exhibition starts loading before mounting the script workbench',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final handoffEvents = <String>[];
+    final scriptViewModel = _RecordingScriptViewModel(
+      onOpenExhibitionScript: () => handoffEvents.add('start-open'),
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(
+      _FakeProductionQueueService([_exhibitionProductionPlan()]),
+    );
+    await GetIt.I.unregister<StudioScriptViewModel>();
+    GetIt.I.registerSingleton<StudioScriptViewModel>(scriptViewModel);
+
+    await tester.pumpWidget(
+      _buildStudioShellApp(
+        debugOnCreatePage: (section) {
+          if (section == StudioShellSection.script) {
+            handoffEvents.add('mount-workbench');
+          }
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-detail-send-script-workbench'),
+      ),
+    );
+    await tester.pump();
+    await tester.idle();
+
+    expect(handoffEvents, ['start-open', 'mount-workbench']);
   });
 
   testWidgets('startup open request opens cached script in script workbench',

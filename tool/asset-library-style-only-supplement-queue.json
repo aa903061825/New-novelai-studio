@@ -8,16 +8,5 @@
     "title": "红云 / 表情包",
     "prompt": "masterpiece, best quality, anime illustration, 0.5::jazz jack::, 0.7::yunayuispink::, 0.7::ao kaeru::, miratsu (miratsu169), year 2023, year 2024, great quality, sd, chibi, jaggy lines, outline, -6::artist collaboration::, Vermeil_(arknights), character reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
     "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r6-legacy-artist-sheet-r6c3-supplement.png"
-  },
-  {
-    "id": "legacy-character-sheet-r15-outfit-8-legacy-artist-sheet-r12c5-supplement",
-    "sourceId": "legacy-character-sheet-r15-outfit-8",
-    "type": "outfit",
-    "characterId": "legacy-character-sheet-r15",
-    "artistChainId": "legacy-artist-sheet-r12c5",
-    "artistChainName": "画师串 24",
-    "title": "迷迭香 / 上半身 / 画师串 24",
-    "prompt": "masterpiece, best quality, anime illustration, 0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, 2::loli::, rosmontis_(arknights), cat_girl, 1.5::cat_ears, cat_tail, animal_ear_fluff, animal_ears, cat_ears, cat_girl, cat_tail::, animal_ear_fluff, animal_ears, cat_ears, cat_girl, dress, long_hair, sidelocks, white_dress, white_hair, outfit reference, full body, front view, single character, clean standing pose, clear silhouette, plain light background, no text, no watermark, safe, non-explicit, modest outfit",
-    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\styled\\legacy-character-sheet-r15-outfit-8-legacy-artist-sheet-r12c5-supplement.png"
   }
 ]

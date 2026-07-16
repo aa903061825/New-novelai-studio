@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "bootstrapVersion": "2.0.0",
+  "projectSchemaVersion": 2,
+  "installedAt": "2026-07-14T05:18:58.4086727Z",
+  "updatedAt": "2026-07-14T05:18:58.4086727Z",
+  "managedFiles": [
+    {
+      "path": "agents/openai.yaml",
+      "sourceHash": "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2",
+      "installedHash": "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2"
+    },
+    {
+      "path": "scripts/capture-accepted-change.ps1",
+      "sourceHash": "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea",
+      "installedHash": "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea"
+    },
+    {
+      "path": "scripts/doctor-context.ps1",
+      "sourceHash": "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df",
+      "installedHash": "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df"
+    },
+    {
+      "path": "scripts/record-history.ps1",
+      "sourceHash": "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56",
+      "installedHash": "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56"
+    },
+    {
+      "path": "scripts/refresh-context.ps1",
+      "sourceHash": "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9",
+      "installedHash": "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9"
+    },
+    {
+      "path": "scripts/review-history-cleanup.ps1",
+      "sourceHash": "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38",
+      "installedHash": "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38"
+    },
+    {
+      "path": "SKILL.md",
+      "sourceHash": "987fa268a26a5179e3de2c98029b044fb633644139c106feca85feb8635c5dc9",
+      "installedHash": "987fa268a26a5179e3de2c98029b044fb633644139c106feca85feb8635c5dc9"
+    }
+  ],
+  "migrations": [
+    {
+      "id": "project-context-v1-to-v2",
+      "appliedAt": "2026-07-14T05:18:58.4086727Z"
+    }
+  ]
+}

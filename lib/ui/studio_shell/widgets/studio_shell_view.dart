@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -505,6 +504,14 @@ class _StudioShellViewState extends State<StudioShellView> {
     if (index < 0) {
       return;
     }
+    if (section == StudioShellSection.scriptExhibition &&
+        wasMounted &&
+        _scriptExhibitionRoomViewModel.selectedScriptId != null) {
+      // A main-navigation entry starts at the room shelf. Keeping the cached
+      // nested detail selection makes the refreshed room look as though all
+      // but that script's few images disappeared.
+      _scriptExhibitionRoomViewModel.clearScriptSelection();
+    }
     widget.viewModel.changeIndex(index);
     setState(() {
       _currentSection = section;
@@ -541,14 +548,14 @@ class _StudioShellViewState extends State<StudioShellView> {
     }
     _scriptExhibitionOpenNonce += 1;
     final openNonce = _scriptExhibitionOpenNonce;
-    _changeSection(StudioShellSection.script);
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || openNonce != _scriptExhibitionOpenNonce) return;
-    await _scriptViewModel.openScriptFromExhibition(
+    final openFuture = _scriptViewModel.openScriptFromExhibition(
       scriptId: focus.scriptId,
       sourceFolder: sourceFolder,
       frameIndex: focus.frameIndex,
     );
+    if (!mounted || openNonce != _scriptExhibitionOpenNonce) return;
+    _changeSection(StudioShellSection.script);
+    await openFuture;
   }
 
   Future<void> _openStartupScriptRequest(
@@ -1196,7 +1203,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       scriptName: scriptName ?? cache.scriptName,
       sourceRootPath: cache.sourceRootPath,
       sourceFingerprint: cache.sourceFingerprint,
-      sourceContentFingerprint: fingerprintJson(jsonEncode(snapshot)),
+      sourceContentFingerprint: cache.sourceContentFingerprint,
       updatedAt: DateTime.now().toUtc(),
       roleCandidates: cache.roleCandidates,
       mapping: cache.mapping,
@@ -1278,9 +1285,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       scriptName: cache.scriptName,
       sourceRootPath: cache.sourceRootPath,
       sourceFingerprint: cache.sourceFingerprint,
-      sourceContentFingerprint: snapshotChanged
-          ? fingerprintJson(jsonEncode(nextSnapshotJson))
-          : cache.sourceContentFingerprint,
+      sourceContentFingerprint: cache.sourceContentFingerprint,
       updatedAt: DateTime.now().toUtc(),
       roleCandidates: cache.roleCandidates,
       mapping: cache.mapping,

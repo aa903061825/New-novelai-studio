@@ -1,3 +1,4 @@
+import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
 import 'package:novel_studio/data/studio/tools/generation_prompt_sanitizer.dart';
 
@@ -31,6 +32,7 @@ class ScriptRecastPayloadAdapter {
 
     parameters['v4_prompt'] = v4Prompt;
     parameters['v4_negative_prompt'] = v4NegativePrompt;
+    _applyDefaultBatchNegativePrompt(parameters);
     parameters.putIfAbsent('params_version', () => 3);
     parameters.putIfAbsent('n_samples', () => 1);
     parameters.putIfAbsent('legacy_v3_extend', () => false);
@@ -65,6 +67,7 @@ class ScriptRecastPayloadAdapter {
     _normalizePromptGenerationRequest(parameters);
     _sanitizePromptParameter(parameters, 'v4_prompt');
     _sanitizePromptParameter(parameters, 'v4_negative_prompt');
+    _applyDefaultBatchNegativePrompt(parameters);
     parameters.putIfAbsent('params_version', () => 3);
     parameters.putIfAbsent('n_samples', () => 1);
     parameters.putIfAbsent('legacy_v3_extend', () => false);
@@ -77,6 +80,20 @@ class ScriptRecastPayloadAdapter {
       'action': _stringValue(payload['action']) ?? 'generate',
       'parameters': _deepImmutableMap(parameters),
     };
+  }
+
+  void _applyDefaultBatchNegativePrompt(Map<String, dynamic> parameters) {
+    final prompt = _deepMutableMap(_mapValue(parameters['v4_negative_prompt']));
+    final caption = _ensureCaption(prompt);
+    final merged = _mergeDefaultBatchNegativePrompt([
+      _captionText(caption),
+      _stringValue(parameters['negative_prompt']),
+    ]);
+    caption['base_caption'] = merged;
+    caption.putIfAbsent('char_captions', () => const []);
+    prompt.putIfAbsent('legacy_uc', () => false);
+    parameters['negative_prompt'] = merged;
+    parameters['v4_negative_prompt'] = _deepImmutableMap(prompt);
   }
 
   String _baseCaption(
@@ -228,6 +245,30 @@ class ScriptRecastPayloadAdapter {
     }
     return _deepImmutableMap(mutable);
   }
+}
+
+String _mergeDefaultBatchNegativePrompt(Iterable<String?> originalPrompts) {
+  final originals = <String>[];
+  for (final value in originalPrompts) {
+    var normalized = value?.trim() ?? '';
+    if (normalized == defaultBatchNegativePrompt) {
+      continue;
+    }
+    final generatedPrefix = '$defaultBatchNegativePrompt, ';
+    if (normalized.startsWith(generatedPrefix)) {
+      normalized = normalized.substring(generatedPrefix.length).trim();
+    }
+    if (normalized.isNotEmpty && !originals.contains(normalized)) {
+      originals.add(normalized);
+    }
+  }
+  return [defaultBatchNegativePrompt, ...originals].join(', ');
+}
+
+String? _captionText(Map<String, dynamic> caption) {
+  return _stringValue(caption['base_caption']) ??
+      _stringValue(caption['baseCaption']) ??
+      _stringValue(caption['prompt']);
 }
 
 Map<String, dynamic> _mapValue(Object? value) {

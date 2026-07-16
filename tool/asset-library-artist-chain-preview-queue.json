@@ -693,50 +693,6 @@
     "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-previews\\legacy-artist-sheet-r12c3-background-6.png"
   },
   {
-    "id": "legacy-artist-sheet-r12c5-background-3",
-    "type": "artist_chain_preview",
-    "artistChainId": "legacy-artist-sheet-r12c5",
-    "artistChainName": "画师串 24",
-    "mode": "background",
-    "quality": "best quality, amazing quality, very aesthetic, absurdres",
-    "title": "画师串 24 / background 3",
-    "prompt": "best quality, amazing quality, very aesthetic, absurdres, 0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, 1girl, solo, adult original character, full body, front view, finished illustration sample with background, cozy sunlit atelier background, art desk, soft daylight, depth of field, clean linework, detailed eyes, balanced color palette, safe, non-explicit, tasteful outfit, no text, no watermark, no logo, no signature, style sample for 画师串 24",
-    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-previews\\legacy-artist-sheet-r12c5-background-3.png"
-  },
-  {
-    "id": "legacy-artist-sheet-r12c5-plain-4",
-    "type": "artist_chain_preview",
-    "artistChainId": "legacy-artist-sheet-r12c5",
-    "artistChainName": "画师串 24",
-    "mode": "plain",
-    "quality": "best quality, amazing quality, very aesthetic, absurdres",
-    "title": "画师串 24 / plain 4",
-    "prompt": "best quality, amazing quality, very aesthetic, absurdres, 0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, 1girl, solo, adult original character, cowboy shot, looking at viewer, character reference sample without background, plain light gray background, no props, crisp silhouette, clean linework, detailed eyes, balanced color palette, safe, non-explicit, tasteful outfit, no text, no watermark, no logo, no signature, style sample for 画师串 24",
-    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-previews\\legacy-artist-sheet-r12c5-plain-4.png"
-  },
-  {
-    "id": "legacy-artist-sheet-r12c5-background-5",
-    "type": "artist_chain_preview",
-    "artistChainId": "legacy-artist-sheet-r12c5",
-    "artistChainName": "画师串 24",
-    "mode": "background",
-    "quality": "best quality, amazing quality, very aesthetic, absurdres",
-    "title": "画师串 24 / background 5",
-    "prompt": "best quality, amazing quality, very aesthetic, absurdres, 0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, 1girl, solo, adult original character, upper body portrait, expressive eyes, finished illustration sample with background, night city street background, neon reflections, cinematic rim lighting, clean linework, detailed eyes, balanced color palette, safe, non-explicit, tasteful outfit, no text, no watermark, no logo, no signature, style sample for 画师串 24",
-    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-previews\\legacy-artist-sheet-r12c5-background-5.png"
-  },
-  {
-    "id": "legacy-artist-sheet-r12c5-plain-6",
-    "type": "artist_chain_preview",
-    "artistChainId": "legacy-artist-sheet-r12c5",
-    "artistChainName": "画师串 24",
-    "mode": "plain",
-    "quality": "best quality, amazing quality, very aesthetic, absurdres",
-    "title": "画师串 24 / plain 6",
-    "prompt": "best quality, amazing quality, very aesthetic, absurdres, 0.9:: kedama_milk ::, 1.2::ciloranko ::, 0.35:: ask_(askzy)::, 0.6:::mignon, 0.85::rhasta ::, 0.2::icecake::, 0.85:: chen_bin ::, 1.5::detailed ::, 0.8::docyacico, chack520, 1.35::kimhiro, nanmokaken ::, 0.5::as109 ::, 1girl, solo, adult original character, full body, front view, character reference sample without background, simple white background, no scenery, clean studio lighting, clean linework, detailed eyes, balanced color palette, safe, non-explicit, tasteful outfit, no text, no watermark, no logo, no signature, style sample for 画师串 24",
-    "outputPath": "C:\\Users\\admin\\AppData\\Roaming\\org.exception0x0194\\nai3_autodraw\\novel_studio\\assets\\references\\artist-previews\\legacy-artist-sheet-r12c5-plain-6.png"
-  },
-  {
     "id": "legacy-artist-sheet-r12c7-background-3",
     "type": "artist_chain_preview",
     "artistChainId": "legacy-artist-sheet-r12c7",

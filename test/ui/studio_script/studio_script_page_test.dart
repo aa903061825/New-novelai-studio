@@ -864,6 +864,8 @@ void main() {
       expect(viewModel.frameCount, 1);
       expect(viewModel.selectedFrameIndex, 1);
 
+      await viewModel.saveScriptBlockWords('fox ears');
+
       pendingAssetContext.complete(
         ScriptRecastAssetContext(
           characters: const [],
@@ -874,6 +876,8 @@ void main() {
         ),
       );
       await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(viewModel.scriptBlockWords, 'fox ears');
     });
 
     test('opens exhibition cache through async snapshot hydrator with timings',

@@ -213,6 +213,7 @@ class ScriptAiExtractedPromptTerm {
   final String sourcePhrase;
   final String sourceLocation;
   final List<int> frameIndexes;
+  final List<ScriptPromptSourceOccurrence> _sourceOccurrences;
 
   const ScriptAiExtractedPromptTerm({
     this.id = '',
@@ -221,7 +222,11 @@ class ScriptAiExtractedPromptTerm {
     this.sourcePhrase = '',
     this.sourceLocation = '',
     this.frameIndexes = const [],
-  });
+    List<ScriptPromptSourceOccurrence> sourceOccurrences = const [],
+  }) : _sourceOccurrences = sourceOccurrences;
+
+  List<ScriptPromptSourceOccurrence> get sourceOccurrences =>
+      ScriptPromptSourceOccurrence.normalize(_sourceOccurrences);
 
   factory ScriptAiExtractedPromptTerm.fromJson(
     Map<String, dynamic> json, {
@@ -238,6 +243,9 @@ class ScriptAiExtractedPromptTerm {
       sourceLocation:
           _stringValue(json['source_location'] ?? json['sourceLocation']),
       frameIndexes: _intList(json['frame_indexes'] ?? json['frameIndexes']),
+      sourceOccurrences: ScriptPromptSourceOccurrence.fromJsonList(
+        json['source_occurrences'] ?? json['sourceOccurrences'],
+      ),
     );
   }
 
@@ -248,6 +256,7 @@ class ScriptAiExtractedPromptTerm {
     String? sourcePhrase,
     String? sourceLocation,
     List<int>? frameIndexes,
+    List<ScriptPromptSourceOccurrence>? sourceOccurrences,
   }) {
     return ScriptAiExtractedPromptTerm(
       id: id ?? this.id,
@@ -256,6 +265,7 @@ class ScriptAiExtractedPromptTerm {
       sourcePhrase: sourcePhrase ?? this.sourcePhrase,
       sourceLocation: sourceLocation ?? this.sourceLocation,
       frameIndexes: frameIndexes ?? this.frameIndexes,
+      sourceOccurrences: sourceOccurrences ?? this.sourceOccurrences,
     );
   }
 
@@ -266,6 +276,10 @@ class ScriptAiExtractedPromptTerm {
         if (sourcePhrase.trim().isNotEmpty) 'source_phrase': sourcePhrase,
         if (sourceLocation.trim().isNotEmpty) 'source_location': sourceLocation,
         if (frameIndexes.isNotEmpty) 'frame_indexes': frameIndexes,
+        if (sourceOccurrences.isNotEmpty)
+          'source_occurrences': sourceOccurrences
+              .map((occurrence) => occurrence.toSnakeCaseJson())
+              .toList(),
       };
 }
 
@@ -1726,7 +1740,9 @@ List<ScriptAiExtractedPromptTerm> _promptTermsForSourceAppearance(
 ) {
   final appearanceFrames = appearance.frameIndexes.toSet();
   final hasDeterministicScopingEvidence = appearanceFrames.isNotEmpty &&
-          terms.any((term) => term.frameIndexes.isNotEmpty) ||
+          terms.any((term) =>
+              term.frameIndexes.isNotEmpty ||
+              term.sourceOccurrences.isNotEmpty) ||
       _hasPromptTermSourceReference(terms, appearances);
   return List.unmodifiable([
     for (final term in terms)
@@ -1746,15 +1762,27 @@ ScriptAiExtractedPromptTerm? _promptTermForSourceAppearance(
   required bool hasDeterministicScopingEvidence,
 }) {
   final appearanceFrames = appearance.frameIndexes.toSet();
-  if (appearanceFrames.isNotEmpty && term.frameIndexes.isNotEmpty) {
-    final frames = term.frameIndexes
+  final evidenceFrames = term.frameIndexes.isNotEmpty
+      ? term.frameIndexes
+      : term.sourceOccurrences.map((occurrence) => occurrence.frameIndex);
+  if (appearanceFrames.isNotEmpty && evidenceFrames.isNotEmpty) {
+    final frames = evidenceFrames
         .where(appearanceFrames.contains)
+        .toSet()
         .toList(growable: false)
       ..sort();
     if (frames.isEmpty) {
       return null;
     }
-    return term.copyWith(frameIndexes: List.unmodifiable(frames));
+    return term.copyWith(
+      frameIndexes: term.frameIndexes.isEmpty
+          ? term.frameIndexes
+          : List.unmodifiable(frames),
+      sourceOccurrences: term.sourceOccurrences
+          .where(
+              (occurrence) => appearanceFrames.contains(occurrence.frameIndex))
+          .toList(growable: false),
+    );
   }
   if (_promptTermReferencesAppearance(term, appearance)) {
     return term;
@@ -1785,6 +1813,7 @@ bool _promptTermReferencesAppearance(
   final sourceText = [
     term.sourcePhrase,
     term.sourceLocation,
+    ...term.sourceOccurrences.map((occurrence) => occurrence.sourceLocation),
   ].join(' ').trim().toLowerCase();
   if (sourceText.isEmpty) {
     return false;
@@ -1822,6 +1851,10 @@ ScriptAiExtractedPromptTerm _mergePromptTerm(
         ? left.sourceLocation
         : right.sourceLocation,
     frameIndexes: _mergedInts(left.frameIndexes, right.frameIndexes),
+    sourceOccurrences: ScriptPromptSourceOccurrence.normalize([
+      ...left.sourceOccurrences,
+      ...right.sourceOccurrences,
+    ]),
   );
 }
 

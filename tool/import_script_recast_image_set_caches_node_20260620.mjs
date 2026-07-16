@@ -626,7 +626,7 @@ function sourceFingerprint(script) {
 }
 
 function scriptIdForDirectory(directory) {
-  const normalizedPath = normalizeScriptPath(path.resolve(directory));
+  const normalizedPath = normalizeScriptIdPath(path.resolve(directory));
   const parts = normalizedPath.split('/').filter(Boolean);
   const label = parts.at(-1) || 'script';
   return stableIdFromText('script', normalizedPath, label);
@@ -681,6 +681,11 @@ function asciiSlug(value) {
 }
 
 function normalizeScriptPath(value) {
+  const normalized = String(value).replaceAll('\\', '/');
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function normalizeScriptIdPath(value) {
   return String(value).replaceAll('\\', '/');
 }
 

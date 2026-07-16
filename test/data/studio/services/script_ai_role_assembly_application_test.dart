@@ -120,6 +120,125 @@ void main() {
     );
   });
 
+  test('passes source occurrence pairs through AI replacement application', () {
+    final result = application.apply(
+      mapping: RecastMapping.defaults('script-1'),
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourceOccurrences: [
+                  ScriptPromptSourceOccurrence(
+                    frameIndex: 1,
+                    sourceLocation: 'slot-0 prompt',
+                  ),
+                  ScriptPromptSourceOccurrence(
+                    frameIndex: 2,
+                    sourceLocation: 'slot-1 prompt',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    final term = result
+        .mapping.rolePromptReplacements.single.rules.single.sourceTerms.single;
+    expect(term.sourceOccurrences, const [
+      ScriptPromptSourceOccurrence(
+        frameIndex: 1,
+        sourceLocation: 'slot-0 prompt',
+      ),
+      ScriptPromptSourceOccurrence(
+        frameIndex: 2,
+        sourceLocation: 'slot-1 prompt',
+      ),
+    ]);
+    expect(term.toJson()['sourceOccurrences'], [
+      {'frameIndex': 1, 'sourceLocation': 'slot-0 prompt'},
+      {'frameIndex': 2, 'sourceLocation': 'slot-1 prompt'},
+    ]);
+  });
+
+  test('replacement equality notices changed source occurrence pairs', () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      rolePromptReplacements: [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Heroine',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'role-slot-0-red-jacket',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                  sourceOccurrences: [
+                    ScriptPromptSourceOccurrence(
+                      frameIndex: 1,
+                      sourceLocation: 'slot-0 prompt',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Heroine',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'red-jacket',
+                text: 'red jacket',
+                category: PromptTagCategory.clothing,
+                sourceOccurrences: [
+                  ScriptPromptSourceOccurrence(
+                    frameIndex: 2,
+                    sourceLocation: 'slot-1 prompt',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.changed, isTrue);
+    expect(
+      result.mapping.rolePromptReplacements.single.rules.single.sourceTerms
+          .single.sourceOccurrences,
+      const [
+        ScriptPromptSourceOccurrence(
+          frameIndex: 2,
+          sourceLocation: 'slot-1 prompt',
+        ),
+      ],
+    );
+  });
+
   test('preserves user edits when refreshing replacement groups', () {
     const mapping = RecastMapping(
       id: 'mapping-script-1',

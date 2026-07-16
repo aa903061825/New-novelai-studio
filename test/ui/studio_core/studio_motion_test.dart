@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_animated_number.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_animated_presence.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_drawer_motion.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
@@ -9,6 +10,8 @@ import 'package:novel_studio/ui/studio_core/motion/studio_motion_tokens.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_page_transition.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_reveal.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_staggered_reveal.dart';
+import 'package:novel_studio/ui/studio_core/motion/studio_spotlight_surface.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_metric_card.dart';
 
 void main() {
   testWidgets('StudioReveal renders final state when animations are disabled',
@@ -388,5 +391,115 @@ void main() {
     expect(find.text('Drawer'), findsOneWidget);
     expect(reveal.beginOffset.dx, lessThan(0));
     expect(reveal.beginOffset.dy, 0);
+  });
+
+  testWidgets('StudioAnimatedNumber counts to the target without overshoot',
+      (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: StudioAnimatedNumber(value: 42),
+      ),
+    );
+
+    Text animatedText() => tester.widget<Text>(
+          find.descendant(
+            of: find.byType(StudioAnimatedNumber),
+            matching: find.byType(Text),
+          ),
+        );
+
+    expect(animatedText().data, '0');
+    await tester.pump(const Duration(milliseconds: 160));
+    final middle = int.parse(animatedText().data!);
+    expect(middle, inInclusiveRange(1, 41));
+    await tester.pumpAndSettle();
+    expect(animatedText().data, '42');
+  });
+
+  testWidgets('StudioAnimatedNumber respects reduced motion', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: true),
+          child: StudioAnimatedNumber(value: 42),
+        ),
+      ),
+    );
+
+    expect(find.text('42'), findsOneWidget);
+  });
+
+  testWidgets(
+      'StudioAnimatedNumber animates from its displayed value on update',
+      (tester) async {
+    Widget buildNumber(int value) {
+      return MaterialApp(home: StudioAnimatedNumber(value: value));
+    }
+
+    await tester.pumpWidget(buildNumber(12));
+    await tester.pumpAndSettle();
+    expect(find.text('12'), findsOneWidget);
+
+    await tester.pumpWidget(buildNumber(24));
+    await tester.pump(const Duration(milliseconds: 160));
+    final text = tester.widget<Text>(
+      find.descendant(
+        of: find.byType(StudioAnimatedNumber),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(int.parse(text.data!), inInclusiveRange(13, 23));
+    await tester.pumpAndSettle();
+    expect(find.text('24'), findsOneWidget);
+  });
+
+  testWidgets('StudioSpotlightSurface reveals its glow only on hover',
+      (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: StudioSpotlightSurface(child: SizedBox.expand()),
+          ),
+        ),
+      ),
+    );
+
+    AnimatedOpacity spotlightOpacity() => tester.widget<AnimatedOpacity>(
+          find.descendant(
+            of: find.byType(StudioSpotlightSurface),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        );
+
+    expect(spotlightOpacity().opacity, 0);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+      location: tester.getCenter(find.byType(StudioSpotlightSurface)),
+    );
+    await tester.pump();
+    expect(spotlightOpacity().opacity, 1);
+
+    await mouse.moveTo(Offset.zero);
+    await tester.pump();
+    expect(spotlightOpacity().opacity, 0);
+  });
+
+  testWidgets('StudioMetricCard opts into numeric animation', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: StudioMetricCard(
+          label: 'Assets',
+          value: '12',
+          icon: Icons.inventory_2_outlined,
+          animateNumericValue: true,
+        ),
+      ),
+    );
+
+    expect(find.byType(StudioAnimatedNumber), findsOneWidget);
   });
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
 import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
@@ -484,6 +485,52 @@ void main() {
       {'x': 0.5, 'y': 0.5},
     ]);
     expect(parameters['seed'], 1);
+  });
+
+  test('start merges the batch default into the outgoing negative prompt',
+      () async {
+    final requestedPayloads = <Map<String, dynamic>>[];
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([
+          _scriptTask(
+            id: 'task-1',
+            payload: const {
+              'input': 'frame 1',
+              'parameters': {
+                'negative_prompt': 'source negative',
+                'v4_negative_prompt': {
+                  'caption': {
+                    'base_caption': 'source negative',
+                    'char_captions': [],
+                  },
+                },
+                'seed': 1,
+              },
+            },
+          ),
+        ])
+      ],
+      settings: const ProductionQueueExecutionSettings(
+        useOriginalGenerationSettings: true,
+      ),
+      executorService: _executor(
+        requestImage: (payload) async {
+          requestedPayloads.add(payload);
+          return _fakePngBytes;
+        },
+      ),
+    );
+
+    await viewModel.start();
+
+    final parameters =
+        requestedPayloads.single['parameters'] as Map<String, dynamic>;
+    final expected = '$defaultBatchNegativePrompt, source negative';
+    expect(parameters['negative_prompt'], expected);
+    final negative = parameters['v4_negative_prompt'] as Map<String, dynamic>;
+    final caption = negative['caption'] as Map<String, dynamic>;
+    expect(caption['base_caption'], expected);
   });
 
   test('start can mix original and custom generation settings', () async {

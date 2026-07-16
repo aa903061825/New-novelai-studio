@@ -29,15 +29,6 @@ const planPath = path.join(
 const qaqRoot = 'E:/NAI\u7684\u811a\u672c\u7fa4/QAQ\u7684\u753b\u98ce';
 const targets = [
   {
-    artistChainId: 'legacy-artist-sheet-r12c5',
-    suffix: 'qaq1-vibe',
-    vibeReferences: [
-      { path: `${qaqRoot}/1/2d0e77-8b0dd8.naiv4vibe` },
-      { path: `${qaqRoot}/1/264960-51baec.naiv4vibe` },
-      { path: `${qaqRoot}/1/e08a30-3a2899.naiv4vibe` },
-    ],
-  },
-  {
     artistChainId: 'legacy-artist-sheet-r12c7',
     suffix: 'qaq2-vibe',
     vibeReferences: [

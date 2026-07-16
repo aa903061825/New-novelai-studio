@@ -14,6 +14,7 @@ dist/
 .superpowers/
 .codex-run/
 .codex-runtime/
+.agents/skills/project-context/.locks/
 
 # IntelliJ related
 *.iml

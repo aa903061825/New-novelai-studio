@@ -27,7 +27,9 @@ project-stored credential.
 - Treat this as a hard project rule for "改剧本", "剧本缓存", "翻译缓存", and
   related Script Recast work.
 
-For non-trivial project-specific work, first decide whether the on-demand project knowledge index at `.agents/skills/project-context` is needed. It is not automatic context injection. Use it when the task may depend on architecture, conventions, verification, or known failure patterns. When used, read `references/index.md` first and only load relevant references.
+<!-- project-context:begin -->
+For non-trivial project-specific work, use an ephemeral goal brief and decide whether the on-demand project knowledge index at `.agents/skills/project-context` is needed. When it is needed, read `references/index.md` first and only load relevant references; keep them limited to current references. Never read project history unless the user explicitly asks to consult history. Never read `history/index.md` or history records unless the user explicitly asks to consult project history.
+<!-- project-context:end -->
 
 ## Project Update Shortcut
 

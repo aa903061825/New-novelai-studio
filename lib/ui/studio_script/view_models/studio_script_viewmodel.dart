@@ -618,6 +618,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   final StudioScriptTagClassificationCacheSaver? saveClassificationCache;
 
   Script? _script;
+  _ScriptSourceTermFrameIndex? _sourceTermFrameIndex;
   RecastMapping? _mapping;
   RecastScriptCache? _changedSourceCache;
   ScriptRecastResult? _previewResult;
@@ -684,7 +685,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   int _pendingAiRoleExtractionStreamChars = 0;
   Timer? _aiRoleExtractionStreamNotifyTimer;
   Timer? _cacheSaveDebounceTimer;
-  Future<void> _cacheSaveTail = Future<void>.value();
+  Future<void>? _cacheSaveTail;
   int _deferredAssetRefreshGeneration = 0;
   int _scriptOpenGeneration = 0;
   int _productionSendGeneration = 0;
@@ -901,7 +902,7 @@ class StudioScriptViewModel extends ChangeNotifier {
             _clearImportProgress();
             notifyListeners();
             _selectFrameIfAvailable(frameIndex);
-            _scheduleDeferredAssetRefresh(restored.cache, normalizedScriptId);
+            _scheduleDeferredAssetRefresh(normalizedScriptId);
             _recordOpenTiming(
               operation: timingOperation,
               stage: 'complete-cache-hit',
@@ -955,7 +956,7 @@ class StudioScriptViewModel extends ChangeNotifier {
           _clearImportProgress();
           notifyListeners();
           _selectFrameIfAvailable(frameIndex);
-          _scheduleDeferredAssetRefresh(cache, normalizedScriptId);
+          _scheduleDeferredAssetRefresh(normalizedScriptId);
           _recordOpenTiming(
             operation: timingOperation,
             stage: 'complete-cache-hit',
@@ -1185,6 +1186,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       _ensureTemporaryArtistChainFromScript(script);
       _setImportProgress('正在整理角色映射...');
       _script = script;
+      _sourceTermFrameIndex = null;
       sentToProduction = false;
       isSendingToProduction = false;
       lastProductionPlanId = null;
@@ -1232,7 +1234,10 @@ class StudioScriptViewModel extends ChangeNotifier {
         await _saveCurrentCache();
         return;
       }
-      await _cacheSaveTail;
+      final pendingSave = _cacheSaveTail;
+      if (pendingSave != null) {
+        await pendingSave;
+      }
     } catch (error, stackTrace) {
       debugPrint(
         'Failed to flush pending script cache before import: '
@@ -1452,6 +1457,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     _ensureTemporaryArtistChainFromScript(script);
     _script = script;
+    _sourceTermFrameIndex = null;
     sentToProduction = false;
     isSendingToProduction = false;
     lastProductionPlanId = null;
@@ -1501,23 +1507,18 @@ class StudioScriptViewModel extends ChangeNotifier {
     return true;
   }
 
-  void _scheduleDeferredAssetRefresh(
-    RecastScriptCache cache,
-    String scriptId,
-  ) {
+  void _scheduleDeferredAssetRefresh(String scriptId) {
     final normalizedScriptId = scriptId.trim();
-    if (normalizedScriptId.isEmpty) return;
+    if (normalizedScriptId.isEmpty || _assetsLoaded) return;
     _deferredAssetRefreshGeneration += 1;
     final generation = _deferredAssetRefreshGeneration;
     unawaited(_refreshAssetsAfterFastOpen(
-      cache: cache,
       scriptId: normalizedScriptId,
       generation: generation,
     ));
   }
 
   Future<void> _refreshAssetsAfterFastOpen({
-    required RecastScriptCache cache,
     required String scriptId,
     required int generation,
   }) async {
@@ -1530,8 +1531,11 @@ class StudioScriptViewModel extends ChangeNotifier {
         return;
       }
       _ensureTemporaryArtistChainFromScript(script);
-      _applyCache(cache, refreshPreview: false);
-      _applyScript(script, mappingOverride: _mapping);
+      final mapping = _mapping;
+      if (mapping == null) {
+        return;
+      }
+      _applyScript(script, mappingOverride: mapping);
       notifyListeners();
     } catch (error, stackTrace) {
       debugPrint(
@@ -1571,6 +1575,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     debugPrint('Failed to import script: $error\n$stackTrace');
     final message = _importErrorMessage(error);
     _script = null;
+    _sourceTermFrameIndex = null;
     _mapping = null;
     _changedSourceCache = null;
     _previewResult = null;
@@ -6757,17 +6762,30 @@ class StudioScriptViewModel extends ChangeNotifier {
     });
   }
 
-  Future<void> _enqueueCurrentCacheSave() {
+  Future<void> _enqueueCurrentCacheSave() async {
     final previous = _cacheSaveTail;
-    final next = previous.catchError((_) {}).then((_) async {
+    final next = () async {
+      if (previous != null) {
+        try {
+          await previous;
+        } catch (_) {
+          // A failed earlier save must not permanently block later saves.
+        }
+      }
       final script = _script;
       if (script == null) {
         return;
       }
       await _saveCache(script);
-    });
+    }();
     _cacheSaveTail = next;
-    return next;
+    try {
+      await next;
+    } finally {
+      if (identical(_cacheSaveTail, next)) {
+        _cacheSaveTail = null;
+      }
+    }
   }
 
   Future<void> _saveClassificationCacheBestEffort() async {
@@ -8976,52 +8994,68 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (termKey.isEmpty) {
       return const [];
     }
-    final frames = <int>[];
+    return _sourceTermFrameIndexFor(script).lookup(
+      termKey: termKey,
+      slotIndex: sceneScope ? null : _slotIndexForRole(sourceRoleId),
+      baseScope: !sceneScope && _isBaseSourceRoleId(sourceRoleId),
+      sceneScope: sceneScope,
+    );
+  }
+
+  _ScriptSourceTermFrameIndex _sourceTermFrameIndexFor(Script script) {
+    final current = _sourceTermFrameIndex;
+    if (current != null && identical(current.script, script)) {
+      return current;
+    }
+
+    final tagsByCaption = <String, Set<String>>{};
+    Set<String> tagsForCaption(String caption) {
+      return tagsByCaption.putIfAbsent(caption, () {
+        final tags = <String>{};
+        for (final rawTag in PromptTagProcessor.splitWorkshopTags(caption)) {
+          final key = PromptTagProcessor.normalizeMatchKey(
+            PromptTagProcessor.cleanTagDisplay(rawTag),
+          );
+          if (key.isNotEmpty) {
+            tags.add(key);
+          }
+        }
+        return Set.unmodifiable(tags);
+      });
+    }
+
+    final indexedFrames = <_ScriptSourceTermFrameTags>[];
     for (final frame in script.frames) {
       if (frame.parseStatus != ScriptFrameParseStatus.parsed) {
         continue;
       }
-      final captions = sceneScope
-          ? _positiveCaptionsForSceneReplacementFrame(frame)
-          : _positiveCaptionsForReplacementSourceRole(frame, sourceRoleId);
-      if (captions.any((caption) => _captionContainsTagKey(caption, termKey))) {
-        frames.add(frame.index);
-      }
-    }
-    return List.unmodifiable(frames);
-  }
-
-  List<String> _positiveCaptionsForReplacementSourceRole(
-    ScriptFrame frame,
-    String sourceRoleId,
-  ) {
-    final scoped = _positiveCaptionsForSourceRole(frame, sourceRoleId);
-    if (scoped.isNotEmpty) {
-      return scoped;
-    }
-    if (_isBaseSourceRoleId(sourceRoleId)) {
-      return [_frameBaseCaption(frame)];
-    }
-    return frame.parsed.charCaptions;
-  }
-
-  List<String> _positiveCaptionsForSceneReplacementFrame(ScriptFrame frame) {
-    return [
-      _frameBaseCaption(frame),
-      ...frame.parsed.charCaptions,
-    ];
-  }
-
-  bool _captionContainsTagKey(String caption, String wantedKey) {
-    for (final rawTag in PromptTagProcessor.splitWorkshopTags(caption)) {
-      final key = PromptTagProcessor.normalizeMatchKey(
-        PromptTagProcessor.cleanTagDisplay(rawTag),
+      final characterTags = [
+        for (final caption in frame.parsed.charCaptions)
+          tagsForCaption(caption),
+      ];
+      final allCharacterTags = <String>{
+        for (final tags in characterTags) ...tags,
+      };
+      final sceneTags = <String>{
+        ...tagsForCaption(_frameBaseCaption(frame)),
+        ...allCharacterTags,
+      };
+      indexedFrames.add(
+        _ScriptSourceTermFrameTags(
+          frameIndex: frame.index,
+          baseRoleTags: tagsForCaption(frame.parsed.baseCaption),
+          characterTags: List.unmodifiable(characterTags),
+          allCharacterTags: Set.unmodifiable(allCharacterTags),
+          sceneTags: Set.unmodifiable(sceneTags),
+        ),
       );
-      if (key == wantedKey) {
-        return true;
-      }
     }
-    return false;
+    final index = _ScriptSourceTermFrameIndex(
+      script: script,
+      frames: List.unmodifiable(indexedFrames),
+    );
+    _sourceTermFrameIndex = index;
+    return index;
   }
 
   void _refreshPreview() {
@@ -10942,4 +10976,82 @@ double _doubleAt(List<dynamic> values, int index, {required double fallback}) {
     return value.toDouble().clamp(0.0, 1.0);
   }
   return fallback;
+}
+
+class _ScriptSourceTermFrameIndex {
+  final Script script;
+  final List<_ScriptSourceTermFrameTags> frames;
+  final Map<
+      ({
+        String termKey,
+        int? slotIndex,
+        bool baseScope,
+        bool sceneScope,
+      }),
+      List<int>> _lookupCache = {};
+
+  _ScriptSourceTermFrameIndex({
+    required this.script,
+    required this.frames,
+  });
+
+  List<int> lookup({
+    required String termKey,
+    required int? slotIndex,
+    required bool baseScope,
+    required bool sceneScope,
+  }) {
+    final lookupKey = (
+      termKey: termKey,
+      slotIndex: slotIndex,
+      baseScope: baseScope,
+      sceneScope: sceneScope,
+    );
+    return _lookupCache.putIfAbsent(lookupKey, () {
+      return List.unmodifiable([
+        for (final frame in frames)
+          if (frame
+              .tagsFor(
+                slotIndex: slotIndex,
+                baseScope: baseScope,
+                sceneScope: sceneScope,
+              )
+              .contains(termKey))
+            frame.frameIndex,
+      ]);
+    });
+  }
+}
+
+class _ScriptSourceTermFrameTags {
+  final int frameIndex;
+  final Set<String> baseRoleTags;
+  final List<Set<String>> characterTags;
+  final Set<String> allCharacterTags;
+  final Set<String> sceneTags;
+
+  const _ScriptSourceTermFrameTags({
+    required this.frameIndex,
+    required this.baseRoleTags,
+    required this.characterTags,
+    required this.allCharacterTags,
+    required this.sceneTags,
+  });
+
+  Set<String> tagsFor({
+    required int? slotIndex,
+    required bool baseScope,
+    required bool sceneScope,
+  }) {
+    if (sceneScope) {
+      return sceneTags;
+    }
+    if (slotIndex != null) {
+      if (slotIndex >= 0 && slotIndex < characterTags.length) {
+        return characterTags[slotIndex];
+      }
+      return allCharacterTags;
+    }
+    return baseScope ? baseRoleTags : allCharacterTags;
+  }
 }
