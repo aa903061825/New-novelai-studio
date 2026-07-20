@@ -39,6 +39,9 @@ When the user says "更新一下当前项目" or an equivalent instruction, trea
 - Run `git fetch origin` first. If the current branch has a clear upstream, merge or fast-forward from that upstream. If the merge target is ambiguous, or the worktree has unrelated dirty changes that could be affected, stop and ask before merging, stashing, staging, or committing.
 - Update the app version in `pubspec.yaml`; by default use the next patch version from the currently checked-out file unless the user specifies another version.
 - Run the appropriate lightweight verification for the touched files, and report any skipped verification explicitly.
+- After source synchronization and the version update, build the current Windows Release application with `flutter build windows --release`; the local update is not complete until the runnable Release package contains the new code.
+- Before the build, record its start time. After a successful build, verify that both `build/windows/x64/runner/Release/Novel_Studio.exe` and `build/windows/x64/runner/Release/data/app.so` exist and have fresh `LastWriteTime` values at or after that build start time. Report both absolute artifact paths and timestamps.
+- If `Novel_Studio.exe` is already running, never terminate or restart it automatically. First tell the user to save their work and obtain explicit confirmation; only after confirmation may the old process be terminated and the new Release build launched. Without confirmation, leave the existing process untouched and report the built artifact paths instead.
 
 ## NAI / Vibe Experiment Reporting
 
