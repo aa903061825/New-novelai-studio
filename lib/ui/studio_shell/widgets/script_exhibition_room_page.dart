@@ -1007,6 +1007,7 @@ class _ScriptSortMenu extends StatelessWidget {
         _scriptSortItem(ScriptExhibitionScriptSort.title),
         _scriptSortItem(ScriptExhibitionScriptSort.imageCount),
         _scriptSortItem(ScriptExhibitionScriptSort.needsAction),
+        _scriptSortItem(ScriptExhibitionScriptSort.unbatchedFirst),
       ],
       child: _SortMenuButton(label: _scriptSortLabel(value)),
     );
@@ -1103,6 +1104,7 @@ String _scriptSortLabel(ScriptExhibitionScriptSort sort) {
     ScriptExhibitionScriptSort.title => '名称 A-Z',
     ScriptExhibitionScriptSort.imageCount => '图片数多到少',
     ScriptExhibitionScriptSort.needsAction => '需处理优先',
+    ScriptExhibitionScriptSort.unbatchedFirst => '未批量生成优先',
   };
 }
 

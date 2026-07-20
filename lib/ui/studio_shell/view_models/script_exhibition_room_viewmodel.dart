@@ -118,7 +118,13 @@ enum ScriptExhibitionItemSourceKind {
 
 enum ScriptExhibitionScriptStatus { active, archived, needsAction }
 
-enum ScriptExhibitionScriptSort { recent, title, imageCount, needsAction }
+enum ScriptExhibitionScriptSort {
+  recent,
+  title,
+  imageCount,
+  needsAction,
+  unbatchedFirst,
+}
 
 enum ScriptExhibitionItemSort { frame, recent, oldest }
 
@@ -1409,18 +1415,34 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     final generation = _loadGeneration;
     final current = _scriptsById[scriptId];
     if (current == null || !current.summaryOnly) return;
+    final identityMembers = _recastIdentityComponent(
+      scripts: _loadedRecastScripts,
+      scriptId: scriptId,
+      sourceFolder: current.sourceFolder,
+    );
+    final candidateIds = _recastDetailCandidateIds(
+      primaryScriptId: scriptId,
+      identityMembers: identityMembers,
+    );
+    if (candidateIds.isEmpty) return;
     final requestKey = (generation: generation, scriptId: scriptId);
     if (!_loadingScriptDetails.add(requestKey)) return;
     notifyListeners();
     try {
-      final detail = await loader(scriptId);
-      if (detail == null || generation == 0 || generation != _loadGeneration) {
-        return;
+      RecastExhibitionScript? detail;
+      for (final candidateId in candidateIds) {
+        detail = await loader(candidateId);
+        if (generation == 0 || generation != _loadGeneration) return;
+        if (detail != null) break;
       }
-      final nextRecastScripts = [
-        for (final script in _loadedRecastScripts)
-          script.scriptId == scriptId ? detail : script,
-      ];
+      if (detail == null) return;
+      final nextRecastScripts = _coalesceRecastIdentityComponent(
+        scripts: _loadedRecastScripts,
+        stableScriptId: scriptId,
+        sourceFolder: current.sourceFolder,
+        displayTitle: current.title,
+        detail: detail,
+      );
       if (generation != _loadGeneration) return;
       _loadedRecastScripts = nextRecastScripts;
       final detailBuild = await _buildSnapshotForPublication(
@@ -3995,6 +4017,10 @@ int _compareScriptsForSort(
       right.originalCount.compareTo(left.originalCount),
     ScriptExhibitionScriptSort.needsAction =>
       right.pendingCount.compareTo(left.pendingCount),
+    ScriptExhibitionScriptSort.unbatchedFirst =>
+      _batchProductionVersionRank(left).compareTo(
+        _batchProductionVersionRank(right),
+      ),
   };
   if (primary != 0) return primary;
   final recentCompare = right.updatedAt.compareTo(left.updatedAt);
@@ -4002,6 +4028,18 @@ int _compareScriptsForSort(
   final titleCompare = _compareText(left.title, right.title);
   if (titleCompare != 0) return titleCompare;
   return left.scriptId.compareTo(right.scriptId);
+}
+
+int _batchProductionVersionRank(ScriptExhibitionScript script) {
+  for (final version in script.versions) {
+    for (final item in version.items) {
+      final planId = item.productionPlanId?.trim();
+      if (planId != null && planId.isNotEmpty) {
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 int _compareItemsForSort(
@@ -4107,6 +4145,201 @@ List<String> _scriptStrongAliases({
     if (_scriptIdAlias(scriptId) case final alias?) alias,
     if (_sourceFolderAlias(sourceFolder) case final alias?) alias,
   ];
+}
+
+List<RecastExhibitionScript> _recastIdentityComponent({
+  required List<RecastExhibitionScript> scripts,
+  required String? scriptId,
+  required String? sourceFolder,
+}) {
+  final aliases = <String>{
+    ..._scriptStrongAliases(
+      scriptId: scriptId,
+      sourceFolder: sourceFolder,
+    ),
+  };
+  if (aliases.isEmpty) return const [];
+
+  final matchingIndexes = <int>{};
+  var foundMatch = true;
+  while (foundMatch) {
+    foundMatch = false;
+    for (final (index, script) in scripts.indexed) {
+      if (matchingIndexes.contains(index)) continue;
+      final scriptAliases = _scriptStrongAliases(
+        scriptId: script.scriptId,
+        sourceFolder: script.sourceRootPath,
+      );
+      if (!scriptAliases.any(aliases.contains)) continue;
+      matchingIndexes.add(index);
+      aliases.addAll(scriptAliases);
+      foundMatch = true;
+    }
+  }
+
+  return List.unmodifiable([
+    for (final (index, script) in scripts.indexed)
+      if (matchingIndexes.contains(index)) script,
+  ]);
+}
+
+List<String> _recastDetailCandidateIds({
+  required String primaryScriptId,
+  required List<RecastExhibitionScript> identityMembers,
+}) {
+  final idsByKey = <String, String>{};
+  for (final value in [
+    primaryScriptId,
+    ...identityMembers.map((script) => script.scriptId),
+  ]) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) continue;
+    idsByKey.putIfAbsent(normalized.toLowerCase(), () => normalized);
+  }
+  return List.unmodifiable(idsByKey.values);
+}
+
+List<RecastExhibitionScript> _coalesceRecastIdentityComponent({
+  required List<RecastExhibitionScript> scripts,
+  required String stableScriptId,
+  required String sourceFolder,
+  required String displayTitle,
+  required RecastExhibitionScript detail,
+}) {
+  final identityMembers = _recastIdentityComponent(
+    scripts: scripts,
+    scriptId: stableScriptId,
+    sourceFolder: sourceFolder,
+  );
+  if (identityMembers.isEmpty) return scripts;
+
+  final canonical = _canonicalRecastDetail(
+    stableScriptId: stableScriptId,
+    displayTitle: displayTitle,
+    detail: detail,
+    identityMembers: identityMembers,
+  );
+  final aliases = _recastIdentityAliasRecords(
+    canonical: canonical,
+    identityMembers: identityMembers,
+  );
+  final memberSet = Set<RecastExhibitionScript>.identity()
+    ..addAll(identityMembers);
+  final result = <RecastExhibitionScript>[];
+  var insertedReplacement = false;
+  for (final script in scripts) {
+    if (!memberSet.contains(script)) {
+      result.add(script);
+      continue;
+    }
+    if (insertedReplacement) continue;
+    result.add(canonical);
+    result.addAll(aliases);
+    insertedReplacement = true;
+  }
+  return List.unmodifiable(result);
+}
+
+RecastExhibitionScript _canonicalRecastDetail({
+  required String stableScriptId,
+  required String displayTitle,
+  required RecastExhibitionScript detail,
+  required List<RecastExhibitionScript> identityMembers,
+}) {
+  final categoryNamesByKey = <String, String>{};
+  final versionLabels = <String, String>{};
+  String? coverItemId;
+  var updatedAt = detail.updatedAt;
+
+  void mergeMetadata(RecastExhibitionScript script) {
+    if (script.updatedAt.isAfter(updatedAt)) {
+      updatedAt = script.updatedAt;
+    }
+    for (final name in script.categoryNames) {
+      final normalized = name.trim();
+      if (normalized.isEmpty) continue;
+      categoryNamesByKey.putIfAbsent(
+        normalized.toLowerCase(),
+        () => normalized,
+      );
+    }
+    for (final entry in script.versionLabels.entries) {
+      final versionId = entry.key.trim();
+      final label = entry.value.trim();
+      if (versionId.isNotEmpty && label.isNotEmpty) {
+        versionLabels[versionId] = label;
+      }
+    }
+    final normalizedCoverItemId = script.coverItemId?.trim();
+    if (normalizedCoverItemId != null && normalizedCoverItemId.isNotEmpty) {
+      coverItemId = normalizedCoverItemId;
+    }
+  }
+
+  for (final script in identityMembers) {
+    mergeMetadata(script);
+  }
+  mergeMetadata(detail);
+
+  return RecastExhibitionScript(
+    scriptId: stableScriptId,
+    scriptName: _firstNonEmpty([
+          detail.scriptName,
+          displayTitle,
+          ...identityMembers.map((script) => script.scriptName),
+        ]) ??
+        stableScriptId,
+    sourceRootPath: _firstNonEmpty([
+          detail.sourceRootPath,
+          ...identityMembers.map((script) => script.sourceRootPath),
+        ]) ??
+        '',
+    updatedAt: updatedAt,
+    detectedSchema: detail.detectedSchema,
+    frames: detail.frames,
+    frameCount: detail.frameCount,
+    summaryOnly: false,
+    imageAttachments: detail.imageAttachments,
+    categoryNames: List.unmodifiable(categoryNamesByKey.values),
+    versionLabels: Map.unmodifiable(versionLabels),
+    coverItemId: coverItemId,
+  );
+}
+
+List<RecastExhibitionScript> _recastIdentityAliasRecords({
+  required RecastExhibitionScript canonical,
+  required List<RecastExhibitionScript> identityMembers,
+}) {
+  final registeredAliases = <String>{
+    ..._scriptStrongAliases(
+      scriptId: canonical.scriptId,
+      sourceFolder: canonical.sourceRootPath,
+    ),
+  };
+  final aliases = <RecastExhibitionScript>[];
+  for (final member in identityMembers) {
+    final memberAliases = _scriptStrongAliases(
+      scriptId: member.scriptId,
+      sourceFolder: member.sourceRootPath,
+    );
+    if (memberAliases.isEmpty ||
+        memberAliases.every(registeredAliases.contains)) {
+      continue;
+    }
+    // Register old cache IDs and paths without re-adding their duplicate frames.
+    aliases.add(
+      RecastExhibitionScript(
+        scriptId: member.scriptId,
+        scriptName: canonical.scriptName,
+        sourceRootPath: member.sourceRootPath,
+        updatedAt: canonical.updatedAt,
+        detectedSchema: canonical.detectedSchema,
+        frameCount: 0,
+      ),
+    );
+    registeredAliases.addAll(memberAliases);
+  }
+  return List.unmodifiable(aliases);
 }
 
 String? _scriptIdAlias(String? scriptId) =>

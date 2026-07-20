@@ -2466,6 +2466,19 @@ void main() {
       'script-alpha',
       'script-beta',
     ]);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-script-sort-unbatchedFirst'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.scriptSort, ScriptExhibitionScriptSort.unbatchedFirst);
   });
 
   testWidgets('searches the script shelf and clears the query', (tester) async {

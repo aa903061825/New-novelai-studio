@@ -341,6 +341,99 @@ void main() {
     expect(script.versions.single.items.last.prompt, 'second prompt');
   });
 
+  test(
+      'coalesces duplicate summary cache ids when loading a displayed script detail',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-duplicate-summary-detail-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final firstImage = File('${tempDir.path}${Platform.pathSeparator}001.png');
+    final secondImage = File('${tempDir.path}${Platform.pathSeparator}002.png');
+    await firstImage.writeAsBytes(const [0, 1, 2, 3]);
+    await secondImage.writeAsBytes(const [0, 1, 2, 3]);
+
+    RecastExhibitionScript summary(
+      String scriptId, {
+      List<String> categoryNames = const [],
+    }) {
+      return RecastExhibitionScript(
+        scriptId: scriptId,
+        scriptName: 'Duplicate Summary Script',
+        sourceRootPath: tempDir.path,
+        updatedAt: DateTime.parse('2026-07-11T10:00:00Z'),
+        detectedSchema: ScriptSchema.unknown,
+        summaryOnly: true,
+        frameCount: 2,
+        frames: [
+          RecastExhibitionFrame(
+            index: 1,
+            fileName: '001.png',
+            sourcePath: firstImage.path,
+          ),
+        ],
+        categoryNames: categoryNames,
+      );
+    }
+
+    final detail = RecastExhibitionScript(
+      scriptId: 'script-primary',
+      scriptName: 'Duplicate Summary Script',
+      sourceRootPath: tempDir.path,
+      updatedAt: DateTime.parse('2026-07-11T10:00:00Z'),
+      detectedSchema: ScriptSchema.baseInline,
+      frames: [
+        RecastExhibitionFrame(
+          index: 1,
+          fileName: '001.png',
+          sourcePath: firstImage.path,
+          prompt: 'first prompt',
+        ),
+        RecastExhibitionFrame(
+          index: 2,
+          fileName: '002.png',
+          sourcePath: secondImage.path,
+          prompt: 'second prompt',
+        ),
+      ],
+    );
+    final loadedScriptIds = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async => [
+        summary('script-primary'),
+        summary('script-legacy', categoryNames: const ['NTR']),
+      ],
+      loadRecastScript: (scriptId) async {
+        loadedScriptIds.add(scriptId);
+        return scriptId == 'script-primary' ? detail : null;
+      },
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+    expect(viewModel.snapshot.scripts, hasLength(1));
+    expect(viewModel.snapshot.scripts.single.summaryOnly, isTrue);
+    expect(viewModel.snapshot.scripts.single.originalCount, 4);
+
+    viewModel.selectScript('script-primary');
+    await pumpEventQueue();
+
+    final script = viewModel.selectedScript!;
+    expect(loadedScriptIds, ['script-primary']);
+    expect(script.scriptId, 'script-primary');
+    expect(script.summaryOnly, isFalse);
+    expect(script.categoryNames, contains('NTR'));
+    expect(script.originalCount, 2);
+    expect(script.versions.single.items, hasLength(2));
+    expect(script.versions.single.items.last.prompt, 'second prompt');
+  });
+
   test('ignores stale summary detail after a newer full load publishes',
       () async {
     final tempDir = await Directory.systemTemp.createTemp(
@@ -2865,6 +2958,15 @@ void main() {
       'script-alpha',
       'script-gamma',
       'script-beta',
+    ]);
+
+    viewModel.selectScriptSort(ScriptExhibitionScriptSort.unbatchedFirst);
+
+    expect(viewModel.scriptSort, ScriptExhibitionScriptSort.unbatchedFirst);
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'script-alpha',
+      'script-beta',
+      'script-gamma',
     ]);
 
     viewModel.selectScriptSort(ScriptExhibitionScriptSort.needsAction);
