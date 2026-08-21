@@ -2260,11 +2260,20 @@ void main() {
 
     final source =
         find.byKey(const ValueKey('workbench-drawer-card-tag-tag-1'));
-    final target = find.byKey(const ValueKey('prompt-drop-target-0'));
-    await tester.dragFrom(
-      tester.getCenter(source),
-      tester.getCenter(target) - tester.getCenter(source),
-    );
+    final target =
+        find.byKey(const ValueKey('workbench-manual-positive-editor'));
+    final insertionSlot = find.byKey(const ValueKey('prompt-drop-target-0'));
+    expect(tester.getSize(insertionSlot).height, 0);
+
+    final gesture = await tester.startGesture(tester.getCenter(source));
+    await gesture.moveTo(tester.getCenter(target));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(tester.getSize(insertionSlot).height, greaterThan(0));
+    expect(find.text('松开插入到这里'), findsOneWidget);
+
+    await gesture.up();
     await tester.pumpAndSettle();
 
     expect(workbench.fragments.single.positiveText, 'cinematic lighting');

@@ -74,6 +74,24 @@ void main() {
       ),
       findsNothing,
     );
+    final promptEditor = tester.widget<PromptTagEditor>(
+      find.descendant(of: editor, matching: find.byType(PromptTagEditor)),
+    );
+    expect(promptEditor.subtleAddButton, isTrue);
+    expect(
+      tester.getSize(
+        find.descendant(
+          of: editor,
+          matching: find.byKey(const ValueKey('prompt-tag-editor-add')),
+        ),
+      ),
+      const Size.square(30),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('prompt-drop-target-0'))).height,
+      0,
+    );
+    expect(find.text('拖到这里'), findsNothing);
 
     await _addPromptTags(tester, editor, 'golden hour, rim light');
 
@@ -188,7 +206,7 @@ void main() {
     );
   });
 
-  testWidgets('composer blocks can be dragged to another drop position',
+  testWidgets('composer broad surface expands the nearest hidden drop position',
       (tester) async {
     final payload = _payload();
     final service = StudioWorkbenchAssetService(payloadConfig: payload);
@@ -207,11 +225,20 @@ void main() {
     await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
 
     final source = find.text('Rain Street');
-    final target = find.byKey(const ValueKey('prompt-drop-target-0'));
+    final broadTarget =
+        find.byKey(const ValueKey('workbench-manual-positive-editor'));
+    final insertionSlot = find.byKey(const ValueKey('prompt-drop-target-0'));
+    expect(tester.getSize(insertionSlot).height, 0);
+
     final gesture = await tester.startGesture(tester.getCenter(source));
     await tester.pump(const Duration(milliseconds: 650));
-    await gesture.moveTo(tester.getCenter(target));
+    await gesture.moveTo(tester.getCenter(broadTarget));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(tester.getSize(insertionSlot).height, greaterThan(0));
+    expect(find.text('松开插入到这里'), findsOneWidget);
+
     await gesture.up();
     await tester.pumpAndSettle();
 
@@ -219,5 +246,72 @@ void main() {
       payload.overridePrompt,
       'wet pavement, cinematic lighting',
     );
+  });
+
+  testWidgets('inline layout becomes one surface while preserving tag editors',
+      (tester) async {
+    final payload = _payload(prompt: 'manual base');
+    final service = StudioWorkbenchAssetService(payloadConfig: payload);
+    service.appendTag(
+      const TagEntry(id: 'tag-1', tag: 'cinematic lighting', block: 'camera'),
+    );
+    service.appendRecipe(
+      const Recipe(
+        id: 'recipe-1',
+        name: 'Rain Street',
+        block: 'scene',
+        tags: 'wet pavement',
+      ),
+    );
+
+    await tester.pumpWidget(_studioApp(PromptComposerPanel(service: service)));
+    final fragmentIds =
+        service.fragments.map((fragment) => fragment.id).toList();
+
+    await tester.tap(find.text('整条'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('workbench-prompt-inline-editor')),
+      findsOneWidget,
+    );
+    expect(find.text('整条 Prompt'), findsOneWidget);
+    expect(find.text('manual base'), findsOneWidget);
+    expect(find.text('cinematic lighting'), findsOneWidget);
+    expect(find.text('wet pavement'), findsOneWidget);
+    for (final id in fragmentIds) {
+      final editor = find.byKey(ValueKey('workbench-inline-fragment-$id'));
+      expect(editor, findsOneWidget);
+      expect(
+        find.descendant(of: editor, matching: find.byType(PromptTagEditor)),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.byKey(ValueKey('prompt-block-editor-${fragmentIds.first}')),
+      findsNothing,
+    );
+    expect(service.fragments, hasLength(2));
+    expect(
+      payload.overridePrompt,
+      'manual base, cinematic lighting, wet pavement',
+    );
+
+    final addButton = find.byKey(const ValueKey('workbench-inline-prompt-add'));
+    expect(tester.getSize(addButton), const Size.square(30));
+    await tester.tap(addButton);
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('workbench-inline-prompt-input')),
+      'golden hour',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(
+      payload.overridePrompt,
+      'manual base, golden hour, cinematic lighting, wet pavement',
+    );
+    expect(service.fragments, hasLength(2));
   });
 }

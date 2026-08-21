@@ -66,6 +66,8 @@ class PromptTagEditor extends StatefulWidget {
   final bool preferTranslatedLabels;
   final bool copyDraggedTagsWithAlt;
   final bool enableKeyboardPaste;
+  final bool inlineSurface;
+  final bool subtleAddButton;
 
   const PromptTagEditor({
     super.key,
@@ -97,6 +99,8 @@ class PromptTagEditor extends StatefulWidget {
     this.preferTranslatedLabels = false,
     this.copyDraggedTagsWithAlt = false,
     this.enableKeyboardPaste = false,
+    this.inlineSurface = false,
+    this.subtleAddButton = false,
   });
 
   @override
@@ -283,6 +287,10 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           _buildLayeredTags(context, tags, translationCache),
       },
     );
+
+    if (widget.inlineSurface) {
+      return tagContent;
+    }
 
     return Container(
       key: const ValueKey('prompt-tag-editor'),
@@ -489,9 +497,13 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
         final active = candidates.isNotEmpty;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          width: double.infinity,
-          constraints: BoxConstraints(minHeight: widget.dense ? 40 : 48),
-          padding: EdgeInsets.symmetric(vertical: widget.dense ? 3 : 5),
+          width: widget.inlineSurface ? null : double.infinity,
+          constraints: BoxConstraints(
+            minHeight: widget.inlineSurface ? 32 : (widget.dense ? 40 : 48),
+          ),
+          padding: EdgeInsets.symmetric(
+            vertical: widget.inlineSurface ? 0 : (widget.dense ? 3 : 5),
+          ),
           decoration: BoxDecoration(
             color: active
                 ? StudioTokens.primary.withAlpha(12)
@@ -792,6 +804,29 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
             }
           },
         ),
+      );
+    }
+    if (widget.subtleAddButton) {
+      return IconButton.outlined(
+        key: const ValueKey('prompt-tag-editor-add'),
+        tooltip: '添加标签',
+        icon: const Icon(Icons.add),
+        iconSize: 15,
+        style: IconButton.styleFrom(
+          foregroundColor: widget.enabled
+              ? StudioTokens.textSecondary
+              : StudioTokens.textMuted,
+          side: BorderSide(
+            color: widget.enabled
+                ? StudioTokens.borderStrong
+                : StudioTokens.border,
+          ),
+          minimumSize: const Size.square(30),
+          maximumSize: const Size.square(30),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        onPressed: widget.enabled ? _startEditing : null,
       );
     }
     return IconButton.filled(
