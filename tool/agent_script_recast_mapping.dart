@@ -83,6 +83,7 @@ RecastScriptCache _cacheWithAppliedPatch(
     aiRoleExtraction: cache.aiRoleExtraction,
     aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
     aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
+    aiRoleExtractionFinalized: cache.aiRoleExtractionFinalized,
     scriptBlockWords: cache.scriptBlockWords,
     knowledgeSnapshot: cache.knowledgeSnapshot,
     exhibitionCategoryNames: cache.exhibitionCategoryNames,

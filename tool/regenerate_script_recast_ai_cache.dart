@@ -150,7 +150,8 @@ Future<void> runRegenerateScriptRecastAiCache(List<String> args) async {
       ),
       aiRoleExtraction: extraction,
       aiRoleExtractionChunks: const [],
-      aiRoleExtractionDraftCollapsed: false,
+      aiRoleExtractionDraftCollapsed: true,
+      aiRoleExtractionFinalized: true,
       scriptBlockWords: plan.cache.scriptBlockWords,
       scriptSnapshot: plan.script.toJson(),
     );

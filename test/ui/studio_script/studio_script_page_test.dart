@@ -3457,6 +3457,8 @@ void main() {
           viewModel.aiRoleExtraction.status,
           ScriptAiRoleExtractionStatus.ready,
         );
+        expect(viewModel.isAiRoleExtractionDraftSuppressed, isFalse);
+        expect(viewModel.showAiRoleExtractionDraftPanel, isTrue);
         expect(viewModel.aiRoleExtraction.roles.single.displayName, 'AI Hero');
         expect(viewModel.aiRoleExtractionRequestPreview['schema_version'], 1);
         expect(viewModel.diff.recast, beforeDiff);
@@ -6276,7 +6278,7 @@ void main() {
           ScriptAiRoleExtractionStatus.ready,
         );
         expect(viewModel.aiRoleExtraction.roles.single.displayName, 'AI Hero');
-        expect(viewModel.aiStatus, contains('AI 瑙掕壊瀛楁鑽夌'));
+        expect(viewModel.aiStatus, contains('AI 角色字段草稿'));
       },
     );
 
@@ -7627,7 +7629,7 @@ void main() {
 
       expect(viewModel.sentToProduction, isTrue);
       expect(viewModel.lastProductionPlanId, 'script-recast-v4_slotted');
-      expect(viewModel.lastProductionPlanName, 'v4_slotted Recast');
+      expect(viewModel.lastProductionPlanName, 'v4_slotted版本2');
 
       final plans = await workspaceService.loadProductionPlans();
       expect(plans.single.id, viewModel.lastProductionPlanId);
@@ -12518,7 +12520,7 @@ void main() {
     });
 
     testWidgets(
-      'script asset drawer character card can be dropped into replacement pending area',
+      'script asset drawer exposes compatible categories and routes dropped assets',
       (tester) async {
         tester.view.physicalSize = const Size(1600, 3600);
         tester.view.devicePixelRatio = 1;
@@ -12585,6 +12587,44 @@ void main() {
               imageRefs: [previewPath],
             ),
           ],
+          loadRecipes: () async => const [
+            Recipe(
+              id: 'recipe-style-1',
+              name: 'cinematic recipe',
+              block: 'style',
+              tags: 'cinematic lighting, film grain',
+            ),
+            Recipe(
+              id: 'recipe-hidden-1',
+              name: 'hidden recipe',
+              block: 'hidden',
+              tags: 'hidden prompt',
+            ),
+          ],
+          loadTags: () async => const [
+            TagEntry(
+              id: 'tag-blue-ribbon',
+              tag: 'blue ribbon',
+              zh: '蓝色丝带',
+              block: 'character',
+            ),
+          ],
+          loadPromptAssetCategories: () async => const [
+            PromptAssetCategory(
+              id: 'style',
+              name: '风格套装',
+              showInScriptDrawer: true,
+            ),
+            PromptAssetCategory(
+              id: 'character',
+              name: '角色细节',
+              showInScriptDrawer: true,
+            ),
+            PromptAssetCategory(
+              id: 'hidden',
+              name: '仅素材库',
+            ),
+          ],
           loadRecastCaches: () async => [cache],
         );
         await tester.runAsync(() async {
@@ -12613,6 +12653,28 @@ void main() {
         expect(
           find.byKey(const ValueKey('script-drawer-category-artist')),
           findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('script-drawer-category-recipe')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('script-drawer-category-tag')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('script-drawer-category-prompt-style')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(
+            const ValueKey('script-drawer-category-prompt-character'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('script-drawer-category-prompt-hidden')),
+          findsNothing,
         );
         final drawer = find.byKey(const ValueKey('script-layout-left-drawer'));
         expect(
@@ -12662,15 +12724,16 @@ void main() {
         expect(identityDropTarget, findsOneWidget);
         await tester.pump(const Duration(milliseconds: 300));
 
-        Future<void> dragToPendingArea(Finder draggable) async {
+        Future<void> dragAsset(Finder draggable, Finder target) async {
           final dragStart = tester.getCenter(draggable);
-          final dragEnd =
-              tester.getTopLeft(identityDropTarget) + const Offset(120, 24);
-          await tester.timedDragFrom(
-            dragStart,
-            dragEnd - dragStart,
-            const Duration(milliseconds: 450),
-          );
+          final dragEnd = tester.getCenter(target);
+          final gesture = await tester.startGesture(dragStart);
+          await tester.pump();
+          await gesture.moveBy(const Offset(24, 0));
+          await tester.pump(const Duration(milliseconds: 120));
+          await gesture.moveTo(dragEnd);
+          await tester.pump(const Duration(milliseconds: 240));
+          await gesture.up();
           await tester.pumpAndSettle();
         }
 
@@ -12701,7 +12764,7 @@ void main() {
               matching: find.byWidgetPredicate((widget) => widget is Draggable),
             )
             .first;
-        await dragToPendingArea(upperBodyDraggable);
+        await dragAsset(upperBodyDraggable, identityDropTarget);
 
         expect(
           viewModel.roleReplacementMappings.first.targetIdentityPrompt,
@@ -12714,7 +12777,7 @@ void main() {
               matching: find.byWidgetPredicate((widget) => widget is Draggable),
             )
             .last;
-        await dragToPendingArea(characterDraggable);
+        await dragAsset(characterDraggable, identityDropTarget);
 
         expect(
           viewModel.roleReplacementMappings.first.targetCharacterId,
@@ -12735,6 +12798,64 @@ void main() {
         expect(
           viewModel.roleReplacementMappings.first.targetIdentityPrompt,
           contains('silver hair'),
+        );
+
+        await tester.tap(find.byKey(const ValueKey('script-drawer-back')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('script-drawer-category-prompt-style')),
+        );
+        await tester.pumpAndSettle();
+        final recipeCard = find.byKey(
+          const ValueKey('script-asset-recipe-recipe-style-1'),
+        );
+        final recipeDraggable = find
+            .ancestor(
+              of: recipeCard,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is Draggable,
+              ),
+            )
+            .last;
+        final styleDropTarget = find.byKey(
+          const ValueKey('prompt-block-asset-drop-style'),
+        );
+        expect(recipeCard, findsOneWidget);
+        expect(styleDropTarget, findsOneWidget);
+        await dragAsset(recipeDraggable, styleDropTarget);
+
+        expect(
+          viewModel.promptBlockMappings
+              .firstWhere((item) => item.block == 'style')
+              .manualPrompt,
+          'cinematic lighting, film grain',
+        );
+
+        await tester.tap(find.byKey(const ValueKey('script-drawer-back')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(
+            const ValueKey('script-drawer-category-prompt-character'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final tagCard = find.byKey(
+          const ValueKey('script-asset-tag-tag-blue-ribbon'),
+        );
+        final tagDraggable = find
+            .ancestor(
+              of: tagCard,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is Draggable,
+              ),
+            )
+            .last;
+        expect(tagCard, findsOneWidget);
+        await dragAsset(tagDraggable, identityDropTarget);
+
+        expect(
+          viewModel.roleReplacementMappings.first.targetIdentityPrompt,
+          contains('blue ribbon'),
         );
       },
     );
@@ -13603,6 +13724,16 @@ void main() {
                   sourceRoleId: 'slot-0',
                   displayLabel: 'AI Hero',
                   sourcePreview: 'source hero',
+                  layerOverrides: [
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-wakamo',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-pepe',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                  ],
                   rules: [
                     ScriptPromptReplacementRule(
                       id: 'rule-wakamo',
@@ -14340,6 +14471,16 @@ void main() {
                   sourceRoleId: 'slot-0',
                   displayLabel: 'AI Hero',
                   sourcePreview: 'source hero',
+                  layerOverrides: [
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-wakamo',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-pepe',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                  ],
                   rules: [
                     ScriptPromptReplacementRule(
                       id: 'rule-wakamo',
@@ -14428,6 +14569,16 @@ void main() {
                   sourceRoleId: 'slot-0',
                   displayLabel: 'AI Hero',
                   sourcePreview: 'source hero',
+                  layerOverrides: [
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-wakamo',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                    ScriptRoleReplacementRuleLayerOverride(
+                      ruleId: 'rule-pepe',
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    ),
+                  ],
                   rules: [
                     ScriptPromptReplacementRule(
                       id: 'rule-wakamo',
@@ -17124,7 +17275,7 @@ void main() {
           findsOneWidget,
         );
 
-        final expandButton = find.byTooltip('灞曞紑 AI 瑙掕壊瀛楁鑽夌');
+        final expandButton = find.byTooltip('展开 AI 角色字段草稿');
         await tester.ensureVisible(expandButton);
         await tester.pumpAndSettle();
         await tester.tap(expandButton);
@@ -17139,7 +17290,7 @@ void main() {
     );
 
     testWidgets(
-      'AI role extraction draft collapse persists through cache import',
+      'already applied cache hides AI role draft through cache import',
       (tester) async {
         var caches = <RecastScriptCache>[];
         final seedViewModel = StudioScriptViewModel(
@@ -17157,7 +17308,10 @@ void main() {
           await seedViewModel.importScriptPath(_fixturePath);
           await seedViewModel.generateAiRoleExtraction();
           await seedViewModel.applyHighConfidenceAiRoleExtraction();
+          await seedViewModel.expandAiRoleExtractionDraft();
         });
+        expect(caches.single.aiRoleExtractionDraftCollapsed, isFalse);
+        expect(caches.single.aiRoleExtractionFinalized, isTrue);
 
         final viewModel = StudioScriptViewModel(
           loadRecastCaches: () async => caches,
@@ -17178,8 +17332,137 @@ void main() {
           find.byKey(
             const ValueKey('script-ai-role-extraction-draft-collapsed'),
           ),
-          findsOneWidget,
+          findsNothing,
         );
+        expect(viewModel.isAiRoleExtractionDraftSuppressed, isTrue);
+        expect(viewModel.aiStatus, contains('已应用角色字段'));
+      },
+    );
+
+    testWidgets(
+      'already applied cache normalizes same-slot canonical variants on import',
+      (tester) async {
+        var caches = <RecastScriptCache>[];
+        final seedViewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+          scriptAiRoleExtractionService: const _FakeRoleExtractionService(
+            _highConfidenceSlotExtraction,
+          ),
+          scriptAiBaseUrlProvider: () => 'https://script.example/v1',
+          scriptAiTokenProvider: () => 'token',
+          scriptAiModelProvider: () => 'gpt-4.1-mini',
+        );
+
+        await tester.runAsync(() async {
+          await seedViewModel.importScriptPath(_fixturePath);
+          await seedViewModel.generateAiRoleExtraction();
+          await seedViewModel.applyHighConfidenceAiRoleExtraction();
+        });
+        final original = caches.single;
+        const splitExtraction = ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              sourceKind: 'slot',
+              displayName: 'kamisato ayaka / 神里绫华',
+              canonicalName: 'kamisato ayaka',
+              rawIdentityTags: ['kamisato ayaka'],
+              frameIndexes: [1],
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [1],
+                ),
+              ],
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'ayaka-base',
+                  text: 'kamisato ayaka',
+                  category: PromptTagCategory.character,
+                  frameIndexes: [1],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'base',
+                  frameIndexes: [1],
+                  identity: 'kamisato ayaka',
+                ),
+              ],
+            ),
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-kamisato-ayaka-springbloom-missive',
+              sourceKind: 'slot',
+              displayName: 'kamisato ayaka (springbloom missive) / 神里绫华（春绽来信）',
+              canonicalName: 'kamisato ayaka',
+              franchise: 'springbloom missive',
+              rawIdentityTags: ['kamisato ayaka (springbloom missive)'],
+              frameIndexes: [2],
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [2],
+                ),
+              ],
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'ayaka-springbloom',
+                  text: 'kamisato ayaka (springbloom missive)',
+                  category: PromptTagCategory.character,
+                  frameIndexes: [2],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'springbloom',
+                  frameIndexes: [2],
+                  identity: 'kamisato ayaka (springbloom missive)',
+                ),
+              ],
+            ),
+          ],
+        );
+        caches = [
+          RecastScriptCache(
+            scriptId: original.scriptId,
+            scriptName: original.scriptName,
+            sourceRootPath: original.sourceRootPath,
+            sourceFingerprint: original.sourceFingerprint,
+            sourceContentFingerprint: original.sourceContentFingerprint,
+            updatedAt: original.updatedAt,
+            roleCandidates: original.roleCandidates,
+            mapping: original.mapping,
+            aiRoleExtraction: splitExtraction,
+            aiRoleExtractionChunks: original.aiRoleExtractionChunks,
+            aiRoleExtractionDraftCollapsed:
+                original.aiRoleExtractionDraftCollapsed,
+            aiRoleExtractionFinalized: true,
+            scriptBlockWords: original.scriptBlockWords,
+            knowledgeSnapshot: original.knowledgeSnapshot,
+            exhibitionCategoryNames: original.exhibitionCategoryNames,
+            scriptSnapshot: original.scriptSnapshot,
+          ),
+        ];
+
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => caches,
+          saveRecastCaches: (next) async => caches = next,
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        expect(viewModel.aiRoleExtraction.roles, hasLength(1));
+        expect(
+          viewModel.aiRoleExtraction.roles.single.sourceRoleId,
+          'slot-0',
+        );
+        expect(viewModel.roleReplacementMappings, hasLength(1));
+        expect(viewModel.isAiRoleExtractionDraftSuppressed, isTrue);
       },
     );
 

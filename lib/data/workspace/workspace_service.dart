@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/workspace/importers/artist_studio_importer.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/models/script_exhibition_recast_summary.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/services/script_recast_cache_path_rebinder.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
 import 'package:novel_studio/data/studio/tools/stable_id.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
@@ -42,10 +44,13 @@ class WorkspaceService {
   WorkspaceManifest? _currentManifest;
   final WorkspaceAtomicFileCommitter _atomicFileCommitter;
   final Map<String, Future<void>> _pendingWritesByRelativePath = {};
+  final ValueNotifier<int> _artistChainRevision = ValueNotifier<int>(0);
 
   Directory? get root => _root;
 
   WorkspaceManifest? get currentManifest => _currentManifest;
+
+  ValueListenable<int> get artistChainRevision => _artistChainRevision;
 
   Future<void> createWorkspace(
     String path, {
@@ -118,11 +123,16 @@ class WorkspaceService {
     );
   }
 
-  Future<void> saveArtistChains(List<ArtistChain> artistChains) {
-    return _writeJsonFile(
+  Future<void> saveArtistChains(List<ArtistChain> artistChains) async {
+    await _writeJsonFile(
       WorkspacePaths.artistChains,
       artistChains.map((artistChain) => artistChain.toJson()).toList(),
     );
+    notifyArtistChainsChanged();
+  }
+
+  void notifyArtistChainsChanged() {
+    _artistChainRevision.value += 1;
   }
 
   Future<Set<String>> loadAssetFavorites() async {
@@ -289,6 +299,22 @@ class WorkspaceService {
     );
   }
 
+  Future<List<PromptAssetCategory>> loadPromptAssetCategories() {
+    return _readList(
+      WorkspacePaths.promptAssetCategories,
+      PromptAssetCategory.fromJson,
+    );
+  }
+
+  Future<void> savePromptAssetCategories(
+    List<PromptAssetCategory> categories,
+  ) {
+    return _writeJsonFile(
+      WorkspacePaths.promptAssetCategories,
+      categories.map((category) => category.toJson()).toList(),
+    );
+  }
+
   Future<List<String>> listRecipeBlocks() {
     return _listLibraryBlocks('library/recipes');
   }
@@ -341,6 +367,25 @@ class WorkspaceService {
     return _readProductionPlanDirectory();
   }
 
+  Future<ProductionPlan?> loadProductionPlan(String planId) async {
+    final normalizedPlanId = planId.trim();
+    if (normalizedPlanId.isEmpty) return null;
+    final relativePath = WorkspacePaths.productionPlanFile(normalizedPlanId);
+    final file = _file(relativePath);
+    if (!await file.exists()) return null;
+    try {
+      return await Isolate.run(
+        () => _readProductionPlanFromFilePath(file.path),
+      );
+    } on FormatException {
+      await _quarantineInvalidEntityFile(
+        file,
+        WorkspacePaths.deterministicPlansDir,
+      );
+      return null;
+    }
+  }
+
   Future<void> saveProductionPlans(List<ProductionPlan> plans) {
     return _writeEntityDirectory(
       WorkspacePaths.deterministicPlansDir,
@@ -348,6 +393,34 @@ class WorkspaceService {
       (entry) => entry.id,
       (entry) => entry.toJson(),
     );
+  }
+
+  Future<void> saveProductionPlanUpdates({
+    required Iterable<ProductionPlan> updatedPlans,
+    required Iterable<String> deletedPlanIds,
+  }) async {
+    final updatesById = <String, ProductionPlan>{};
+    for (final plan in updatedPlans) {
+      final planId = plan.id.trim();
+      if (planId.isNotEmpty) {
+        updatesById[planId] = plan;
+      }
+    }
+    final deletions = deletedPlanIds
+        .map((planId) => planId.trim())
+        .where(
+          (planId) => planId.isNotEmpty && !updatesById.containsKey(planId),
+        )
+        .toSet();
+    await Future.wait<void>([
+      for (final entry in updatesById.entries)
+        _writeJsonFile(
+          WorkspacePaths.productionPlanFile(entry.key),
+          entry.value.toJson(),
+        ),
+      for (final planId in deletions)
+        _deleteFileIfExists(WorkspacePaths.productionPlanFile(planId)),
+    ]);
   }
 
   Future<ProductionPlanExecutionSettings?>
@@ -433,6 +506,17 @@ class WorkspaceService {
       ),
     );
     return result.scripts;
+  }
+
+  Stream<void> watchRecastScriptCacheChanges() {
+    if (_root == null) {
+      return const Stream<void>.empty();
+    }
+    final directory = _directory(WorkspacePaths.scriptRecastCacheDir);
+    if (!directory.existsSync()) {
+      return const Stream<void>.empty();
+    }
+    return directory.watch(events: FileSystemEvent.all).map<void>((_) {});
   }
 
   Future<RecastExhibitionScript?> loadRecastExhibitionScript(
@@ -668,6 +752,42 @@ class WorkspaceService {
     await _deleteRecastExhibitionIndex();
   }
 
+  Future<void> removeRecastScriptCaches(Iterable<String> scriptIds) async {
+    final normalizedScriptIds = scriptIds
+        .map((scriptId) => scriptId.trim())
+        .where((scriptId) => scriptId.isNotEmpty)
+        .toSet();
+    if (normalizedScriptIds.isEmpty) {
+      return;
+    }
+    await Future.wait([
+      for (final scriptId in normalizedScriptIds)
+        _deleteFileIfExists(_scriptRecastCacheRelativePath(scriptId)),
+    ]);
+    await _deleteRecastExhibitionIndex();
+  }
+
+  Future<void> removeRecastScriptCachesMatching({
+    required String scriptId,
+    required String scriptName,
+    required String sourceRootPath,
+  }) async {
+    final directory = _directory(WorkspacePaths.scriptRecastCacheDir);
+    final scannedScriptIds = await Isolate.run(
+      () => _matchingRecastScriptCacheIds(
+        directoryPath: directory.path,
+        scriptId: scriptId,
+        scriptName: scriptName,
+        sourceRootPath: sourceRootPath,
+      ),
+    );
+    final matchingScriptIds = {...scannedScriptIds};
+    if (scriptId.trim().isNotEmpty) {
+      matchingScriptIds.add(scriptId.trim());
+    }
+    await removeRecastScriptCaches(matchingScriptIds);
+  }
+
   Future<List<RecastScriptCache>> _readRecastScriptCacheDirectory() async {
     final directory = _directory(WorkspacePaths.scriptRecastCacheDir);
     if (!await directory.exists()) {
@@ -713,15 +833,10 @@ class WorkspaceService {
   }
 
   Future<void> _deleteRecastExhibitionIndex() async {
-    final file = _file(WorkspacePaths.scriptRecastExhibitionIndex);
-    if (await file.exists()) {
-      await file.delete();
-    }
-    final summaryFile =
-        _file(WorkspacePaths.scriptRecastExhibitionSummaryIndex);
-    if (await summaryFile.exists()) {
-      await summaryFile.delete();
-    }
+    await Future.wait([
+      _deleteFileIfExists(WorkspacePaths.scriptRecastExhibitionIndex),
+      _deleteFileIfExists(WorkspacePaths.scriptRecastExhibitionSummaryIndex),
+    ]);
   }
 
   Future<List<RecastScriptCache>>
@@ -1113,6 +1228,30 @@ class WorkspaceService {
     final nextWrite = previousWrite
         .catchError((Object _) {})
         .then((_) => _writeFileAtomicallyNow(file, contents));
+    _pendingWritesByRelativePath[relativePath] = nextWrite;
+    nextWrite.then<void>(
+      (_) => _clearPendingWrite(relativePath, nextWrite),
+      onError: (_, __) => _clearPendingWrite(relativePath, nextWrite),
+    );
+    return nextWrite;
+  }
+
+  Future<void> _deleteFileIfExists(String relativePath) {
+    final file = _file(relativePath);
+    final previousWrite =
+        _pendingWritesByRelativePath[relativePath] ?? Future<void>.value();
+    final nextWrite = previousWrite.catchError((Object _) {}).then((_) async {
+      if (!await file.exists()) {
+        return;
+      }
+      try {
+        await file.delete();
+      } on FileSystemException {
+        if (await file.exists()) {
+          rethrow;
+        }
+      }
+    });
     _pendingWritesByRelativePath[relativePath] = nextWrite;
     nextWrite.then<void>(
       (_) => _clearPendingWrite(relativePath, nextWrite),
@@ -1566,7 +1705,7 @@ _RecastExhibitionIndexBuildResult _loadOrBuildRecastExhibitionIndex(
   if (indexed != null) {
     return _RecastExhibitionIndexBuildResult(
       fingerprints: fingerprints,
-      scripts: indexed,
+      scripts: _latestRecastExhibitionScripts(indexed),
     );
   }
 
@@ -1577,20 +1716,172 @@ _RecastExhibitionIndexBuildResult _loadOrBuildRecastExhibitionIndex(
       : _buildRecastExhibitionIndexFromCacheDirectoryPath(
           request.cacheDirectoryPath,
         );
+  final latestScripts = _latestRecastExhibitionScripts(rebuilt.scripts);
   if (request.summaryOnly) {
     _writeRecastExhibitionSummaryIndexFile(
       path: request.indexPath,
       fingerprints: rebuilt.fingerprints,
-      scripts: rebuilt.scripts,
+      scripts: latestScripts,
     );
   } else {
     _writeRecastExhibitionIndexFile(
       path: request.indexPath,
       fingerprints: rebuilt.fingerprints,
-      scripts: rebuilt.scripts,
+      scripts: latestScripts,
     );
   }
-  return rebuilt;
+  return _RecastExhibitionIndexBuildResult(
+    fingerprints: rebuilt.fingerprints,
+    scripts: latestScripts,
+  );
+}
+
+List<RecastExhibitionScript> _latestRecastExhibitionScripts(
+  Iterable<RecastExhibitionScript> scripts,
+) {
+  final groups = <String, List<RecastExhibitionScript>>{};
+  for (final script in scripts) {
+    final sourceKey = _normalizedRecastExhibitionSourcePath(
+      script.sourceRootPath,
+    );
+    final key = sourceKey.isNotEmpty
+        ? 'source:$sourceKey'
+        : 'id:${script.scriptId.trim().toLowerCase()}';
+    groups.putIfAbsent(key, () => <RecastExhibitionScript>[]).add(script);
+  }
+
+  final result = <RecastExhibitionScript>[];
+  for (final group in groups.values) {
+    group.sort(_compareRecastExhibitionCacheFreshness);
+    final latest = group.last;
+    final categoryNames = <String, String>{};
+    final versionLabels = <String, String>{};
+    String? coverItemId;
+    for (final script in group) {
+      for (final category in script.categoryNames) {
+        final trimmed = category.trim();
+        if (trimmed.isNotEmpty) {
+          categoryNames.putIfAbsent(trimmed.toLowerCase(), () => trimmed);
+        }
+      }
+      versionLabels.addAll(script.versionLabels);
+      if (script.coverItemId?.trim().isNotEmpty == true) {
+        coverItemId = script.coverItemId!.trim();
+      }
+    }
+    result.add(
+      RecastExhibitionScript(
+        scriptId: latest.scriptId,
+        scriptName: latest.scriptName,
+        sourceRootPath: latest.sourceRootPath,
+        updatedAt: latest.updatedAt,
+        detectedSchema: latest.detectedSchema,
+        frames: latest.frames,
+        frameCount: latest.frameCount,
+        summaryOnly: latest.summaryOnly,
+        imageAttachments: latest.imageAttachments,
+        categoryNames: List.unmodifiable(categoryNames.values),
+        versionLabels: Map.unmodifiable(versionLabels),
+        coverItemId: latest.coverItemId?.trim().isNotEmpty == true
+            ? latest.coverItemId!.trim()
+            : coverItemId,
+      ),
+    );
+  }
+  result.sort((left, right) => left.scriptId.compareTo(right.scriptId));
+  return List.unmodifiable(result);
+}
+
+int _compareRecastExhibitionCacheFreshness(
+  RecastExhibitionScript left,
+  RecastExhibitionScript right,
+) {
+  final byUpdatedAt = left.updatedAt.compareTo(right.updatedAt);
+  if (byUpdatedAt != 0) return byUpdatedAt;
+  final leftCurrent = _isCurrentPathDerivedExhibitionId(left);
+  final rightCurrent = _isCurrentPathDerivedExhibitionId(right);
+  if (leftCurrent != rightCurrent) {
+    return leftCurrent ? 1 : -1;
+  }
+  final byFrames = left.displayFrameCount.compareTo(right.displayFrameCount);
+  if (byFrames != 0) return byFrames;
+  return left.scriptId.compareTo(right.scriptId);
+}
+
+bool _isCurrentPathDerivedExhibitionId(RecastExhibitionScript script) {
+  final sourceRootPath = script.sourceRootPath.trim();
+  if (sourceRootPath.isEmpty) return false;
+  return script.scriptId ==
+      ScriptRecastParserService.scriptIdForDirectory(
+        Directory(sourceRootPath),
+      );
+}
+
+String _normalizedRecastExhibitionSourcePath(String value) {
+  final normalized = value.trim().replaceAll('\\', '/');
+  return Platform.isWindows ? normalized.toLowerCase() : normalized;
+}
+
+List<String> _matchingRecastScriptCacheIds({
+  required String directoryPath,
+  required String scriptId,
+  required String scriptName,
+  required String sourceRootPath,
+}) {
+  final directory = Directory(directoryPath);
+  if (!directory.existsSync()) {
+    return const [];
+  }
+  final targetIdentities = {
+    scriptId,
+    scriptName,
+    sourceRootPath,
+  }
+      .map(_normalizedRecastCacheIdentity)
+      .where((value) => value.isNotEmpty)
+      .toSet();
+  if (targetIdentities.isEmpty) {
+    return const [];
+  }
+  final matchingIds = <String>{};
+  final files = directory
+      .listSync(followLinks: false)
+      .whereType<File>()
+      .where((file) => file.path.toLowerCase().endsWith('.json'));
+  for (final file in files) {
+    try {
+      final source = _readRecastCacheHeaderPrefix(
+        file,
+        _recastCacheHeaderReadBytes,
+      );
+      final cacheScriptId = _jsonStringField(source, 'scriptId')?.trim();
+      if (cacheScriptId == null || cacheScriptId.isEmpty) {
+        continue;
+      }
+      final cacheIdentities = [
+        cacheScriptId,
+        _jsonStringField(source, 'scriptName'),
+        _jsonStringField(source, 'sourceRootPath'),
+      ].map(_normalizedRecastCacheIdentity);
+      if (cacheIdentities.any(targetIdentities.contains)) {
+        matchingIds.add(cacheScriptId);
+      }
+    } on FileSystemException {
+      // A concurrent cache writer may temporarily hide or replace one file.
+    }
+  }
+  return matchingIds.toList(growable: false);
+}
+
+String _normalizedRecastCacheIdentity(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return '';
+  }
+  return trimmed
+      .replaceAll('\\', '/')
+      .replaceFirst(RegExp(r'/+$'), '')
+      .toLowerCase();
 }
 
 List<_WorkspaceFileFingerprint> _recastCacheFileFingerprintsFromDirectoryPath(
@@ -1758,7 +2049,8 @@ _RecastExhibitionIndexBuildResult
         modifiedAt: stat.modified.toUtc(),
       ),
     );
-    final script = _readRecastExhibitionSummaryFromCacheFile(file);
+    final script = _readRecastExhibitionSummaryFromCacheFile(file) ??
+        _readRecastExhibitionSummaryFromFullCacheFile(file);
     if (script != null) {
       scripts.add(script);
     }
@@ -1768,6 +2060,41 @@ _RecastExhibitionIndexBuildResult
     fingerprints: List.unmodifiable(fingerprints),
     scripts: List.unmodifiable(scripts),
   );
+}
+
+RecastExhibitionScript? _readRecastExhibitionSummaryFromFullCacheFile(
+  File file,
+) {
+  final source = _tryReadTransientJsonFile(file);
+  if (source == null || source.trim().isEmpty) {
+    return null;
+  }
+  try {
+    final decodedSource = _decodeWorkspaceEntityJson(source);
+    final decoded = _jsonMap(decodedSource.value);
+    final compacted = RecastCacheJsonCodec.compact(decoded);
+    final cache = RecastScriptCache.fromJson(compacted.value);
+    final detail = RecastExhibitionScript.tryFromCache(cache);
+    if (detail == null) {
+      return null;
+    }
+    final rebound = _rebindRecastExhibitionScriptSourceRoot(detail);
+    return RecastExhibitionScript(
+      scriptId: rebound.scriptId,
+      scriptName: rebound.scriptName,
+      sourceRootPath: rebound.sourceRootPath,
+      updatedAt: rebound.updatedAt,
+      detectedSchema: rebound.detectedSchema,
+      frames: rebound.frames.isEmpty ? const [] : [rebound.frames.first],
+      frameCount: rebound.frames.length,
+      summaryOnly: true,
+      categoryNames: rebound.categoryNames,
+      versionLabels: rebound.versionLabels,
+      coverItemId: rebound.coverItemId,
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 RecastExhibitionScript? _readRecastExhibitionSummaryFromCacheFile(File file) {
@@ -2572,21 +2899,7 @@ _RecastScriptCacheSnapshotRestoreResult
 RecastScriptCache _recastCacheWithoutScriptSnapshot(
   RecastScriptCache cache,
 ) {
-  return RecastScriptCache(
-    scriptId: cache.scriptId,
-    scriptName: cache.scriptName,
-    sourceRootPath: cache.sourceRootPath,
-    sourceFingerprint: cache.sourceFingerprint,
-    sourceContentFingerprint: cache.sourceContentFingerprint,
-    updatedAt: cache.updatedAt,
-    roleCandidates: cache.roleCandidates,
-    mapping: cache.mapping,
-    aiRoleExtraction: cache.aiRoleExtraction,
-    aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
-    aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
-    scriptBlockWords: cache.scriptBlockWords,
-    knowledgeSnapshot: cache.knowledgeSnapshot,
-    exhibitionCategoryNames: cache.exhibitionCategoryNames,
+  return cache.copyWith(
     scriptSnapshot: const {},
   );
 }
@@ -2668,6 +2981,15 @@ _DecodedProductionPlanDirectory _readProductionPlansFromDirectoryPath(
     plans: List.unmodifiable(plans),
     invalidPaths: List.unmodifiable(invalidPaths),
   );
+}
+
+ProductionPlan? _readProductionPlanFromFilePath(String filePath) {
+  final source = _tryReadTransientJsonFile(File(filePath));
+  if (source == null) return null;
+  if (source.trim().isEmpty) {
+    throw const FormatException('Production plan file is empty.');
+  }
+  return ProductionPlan.fromJson(jsonDecode(source));
 }
 
 String? _tryReadTransientJsonFile(File file) {

@@ -36,10 +36,13 @@ class ScriptRecastProductionService {
       requestedPlanId: requestedPlanId,
       resolvedPlanId: resolvedPlanId,
     );
-    final resolvedPlanName = _nonConflictingPlanName(
+    final resolvedPlanName = _resolvedPlanName(
       requestedName: planName,
       timestamp: timestamp,
-      existingPlanNames: existingPlans.map((plan) => plan.name),
+      existingPlans: existingPlans,
+      scriptId: result.scriptId,
+      scriptName: scriptName,
+      scriptPath: scriptPath,
     );
     final previousPlan = _findPlan(existingPlans, requestedPlanId);
     final lastUsedSettings = await queueService.loadLastExecutionSettings();
@@ -85,11 +88,10 @@ class ScriptRecastProductionService {
       updatedAt: timestamp,
     ).compactSharedPayloadParameters();
 
-    await queueService.savePlans([
-      plan,
-      for (final existing in existingPlans)
-        if (existing.id != plan.id) existing,
-    ]);
+    await queueService.savePlanChanges(
+      updatedPlans: [plan],
+      deletedPlanIds: const [],
+    );
     return plan;
   }
 
@@ -103,12 +105,26 @@ class ScriptRecastProductionService {
     return '$base-$suffix';
   }
 
-  String _nonConflictingPlanName({
+  String _resolvedPlanName({
     required String requestedName,
     required DateTime timestamp,
-    required Iterable<String> existingPlanNames,
+    required List<ProductionPlan> existingPlans,
+    required String scriptId,
+    required String? scriptName,
+    required String? scriptPath,
   }) {
-    final existing = existingPlanNames
+    final normalizedScriptName = scriptName?.trim();
+    if (normalizedScriptName != null && normalizedScriptName.isNotEmpty) {
+      return _nextScriptVersionPlanName(
+        scriptName: normalizedScriptName,
+        scriptId: scriptId,
+        scriptPath: scriptPath,
+        existingPlans: existingPlans,
+      );
+    }
+
+    final existing = existingPlans
+        .map((plan) => plan.name)
         .map((name) => name.trim())
         .where((name) => name.isNotEmpty)
         .toSet();
@@ -125,6 +141,90 @@ class ScriptRecastProductionService {
       suffix += 1;
     }
     return '$dateLabel-$suffix';
+  }
+
+  String _nextScriptVersionPlanName({
+    required String scriptName,
+    required String scriptId,
+    required String? scriptPath,
+    required List<ProductionPlan> existingPlans,
+  }) {
+    final matchingPlans = [
+      for (final plan in existingPlans)
+        if (_planMatchesScript(
+          plan,
+          scriptId: scriptId,
+          scriptName: scriptName,
+          scriptPath: scriptPath,
+        ))
+          plan,
+    ];
+    var nextVersion = matchingPlans.length + 2;
+    final versionPattern = RegExp(
+      '^${RegExp.escape(scriptName)}版本([0-9]+)\$',
+      caseSensitive: false,
+    );
+    for (final plan in matchingPlans) {
+      final match = versionPattern.firstMatch(plan.name.trim());
+      final version = int.tryParse(match?.group(1) ?? '');
+      if (version != null && version >= nextVersion) {
+        nextVersion = version + 1;
+      }
+    }
+
+    final existingNames = {
+      for (final plan in existingPlans) plan.name.trim().toLowerCase(),
+    };
+    var candidate = '$scriptName版本$nextVersion';
+    while (existingNames.contains(candidate.toLowerCase())) {
+      nextVersion += 1;
+      candidate = '$scriptName版本$nextVersion';
+    }
+    return candidate;
+  }
+
+  bool _planMatchesScript(
+    ProductionPlan plan, {
+    required String scriptId,
+    required String scriptName,
+    required String? scriptPath,
+  }) {
+    final normalizedScriptId = scriptId.trim();
+    final normalizedScriptPath = _normalizedScriptPath(scriptPath);
+    final normalizedScriptName = scriptName.trim().toLowerCase();
+    return plan.tasks.any((task) {
+      final source = task.source;
+      final sourceScriptId = source.scriptId?.trim() ?? '';
+      if (normalizedScriptId.isNotEmpty &&
+          sourceScriptId.isNotEmpty &&
+          normalizedScriptId == sourceScriptId) {
+        return true;
+      }
+      final sourceScriptPath = _normalizedScriptPath(source.scriptPath);
+      if (normalizedScriptPath != null &&
+          sourceScriptPath != null &&
+          normalizedScriptPath == sourceScriptPath) {
+        return true;
+      }
+      final incomingHasStrongIdentity =
+          normalizedScriptId.isNotEmpty || normalizedScriptPath != null;
+      final sourceHasStrongIdentity =
+          sourceScriptId.isNotEmpty || sourceScriptPath != null;
+      if (incomingHasStrongIdentity && sourceHasStrongIdentity) {
+        return false;
+      }
+      return normalizedScriptName.isNotEmpty &&
+          source.scriptName?.trim().toLowerCase() == normalizedScriptName;
+    });
+  }
+
+  String? _normalizedScriptPath(String? path) {
+    final normalized = path
+        ?.trim()
+        .replaceAll('\\', '/')
+        .replaceFirst(RegExp(r'/+$'), '')
+        .toLowerCase();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
   String _dateLabel(DateTime timestamp) {

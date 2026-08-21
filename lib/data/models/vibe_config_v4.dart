@@ -10,20 +10,29 @@ class VibeConfigV4 {
   String fileName;
   String vibeB64;
   double infoExtracted;
+  double encodedInfoExtracted;
+  String encodedModel;
   double referenceStrength;
   Uint8List? imageBytes;
   String? sourceImagePath;
   String? legacyImageB64;
+  Map<String, String> cachedEncodings;
 
   VibeConfigV4({
     required this.fileName,
     required this.vibeB64,
     double infoExtracted = 1.0,
+    double? encodedInfoExtracted,
+    this.encodedModel = '',
     required this.referenceStrength,
     this.imageBytes,
     this.sourceImagePath,
     this.legacyImageB64,
-  }) : infoExtracted = infoExtracted.clamp(0.0, 1.0).toDouble();
+    Map<String, String> cachedEncodings = const {},
+  })  : infoExtracted = infoExtracted.clamp(0.0, 1.0).toDouble(),
+        encodedInfoExtracted =
+            (encodedInfoExtracted ?? infoExtracted).clamp(0.0, 1.0).toDouble(),
+        cachedEncodings = Map<String, String>.from(cachedEncodings);
 
   static double _parseDouble(dynamic value, double fallback) {
     if (value is double) return value;
@@ -123,9 +132,11 @@ class VibeConfigV4 {
           );
 
     String? vibeB64String;
+    var encodedInfoExtracted = infoExtracted;
+    var encodedModel = '';
+    final cachedEncodings = <String, String>{};
     final encodingsMap = jsonData['encodings'] as Map<String, dynamic>?;
     if (encodingsMap != null) {
-      outerLoop:
       for (final modelKey in encodingsMap.keys) {
         final modelEncodings = encodingsMap[modelKey] as Map<String, dynamic>?;
         if (modelEncodings == null) continue;
@@ -135,8 +146,16 @@ class VibeConfigV4 {
               modelEncodings[typeKey] as Map<String, dynamic>?;
           final encodingValue = typeEncodingInfo?['encoding'];
           if (encodingValue is String && encodingValue.isNotEmpty) {
-            vibeB64String = encodingValue;
-            break outerLoop;
+            final variantInfo =
+                double.tryParse(typeKey) ?? infoExtracted.toDouble();
+            cachedEncodings[encodingCacheKey(modelKey, variantInfo)] =
+                encodingValue;
+            if (vibeB64String == null ||
+                (variantInfo - infoExtracted).abs() < 0.000001) {
+              vibeB64String = encodingValue;
+              encodedInfoExtracted = variantInfo;
+              encodedModel = modelKey;
+            }
           }
         }
       }
@@ -153,8 +172,52 @@ class VibeConfigV4 {
       fileName: name,
       vibeB64: vibeB64String,
       infoExtracted: infoExtracted.clamp(0.0, 1.0),
+      encodedInfoExtracted: encodedInfoExtracted,
+      encodedModel: encodedModel,
       referenceStrength: strength.clamp(0.0, 1.0),
+      imageBytes: _sourceImageBytesFromNaiVibe(jsonData),
+      cachedEncodings: cachedEncodings,
     );
+  }
+
+  static String encodingCacheKey(String model, double infoExtracted) {
+    return '${_normalizeEncodingModel(model)}@'
+        '${infoExtracted.clamp(0.0, 1.0).toStringAsFixed(4)}';
+  }
+
+  String? encodingFor(String model, double targetInfoExtracted) {
+    final target = targetInfoExtracted.clamp(0.0, 1.0).toDouble();
+    final currentModelMatches = encodedModel.isEmpty ||
+        _normalizeEncodingModel(encodedModel) == _normalizeEncodingModel(model);
+    if (currentModelMatches &&
+        (encodedInfoExtracted - target).abs() < 0.000001 &&
+        vibeB64.trim().isNotEmpty) {
+      return vibeB64;
+    }
+    return cachedEncodings[encodingCacheKey(model, target)];
+  }
+
+  bool useCachedEncoding(String model, double targetInfoExtracted) {
+    final encoding = encodingFor(model, targetInfoExtracted);
+    if (encoding == null || encoding.trim().isEmpty) return false;
+    vibeB64 = encoding;
+    encodedModel = _normalizeEncodingModel(model);
+    encodedInfoExtracted = targetInfoExtracted.clamp(0.0, 1.0).toDouble();
+    return true;
+  }
+
+  void cacheEncoding({
+    required String model,
+    required double infoExtracted,
+    required String encoding,
+  }) {
+    final normalizedModel = _normalizeEncodingModel(model);
+    final normalizedInfo = infoExtracted.clamp(0.0, 1.0).toDouble();
+    cachedEncodings[encodingCacheKey(normalizedModel, normalizedInfo)] =
+        encoding;
+    vibeB64 = encoding;
+    encodedModel = normalizedModel;
+    encodedInfoExtracted = normalizedInfo;
   }
 
   Map<String, dynamic> toJson() {
@@ -162,6 +225,10 @@ class VibeConfigV4 {
       'file_name': fileName,
       'vibe_b64': vibeB64,
       if (infoExtracted != 1.0) 'info_extracted': infoExtracted,
+      if ((encodedInfoExtracted - infoExtracted).abs() >= 0.000001)
+        'encoded_info_extracted': encodedInfoExtracted,
+      if (encodedModel.isNotEmpty) 'encoded_model': encodedModel,
+      if (cachedEncodings.isNotEmpty) 'cached_encodings': cachedEncodings,
       'reference_strength': referenceStrength,
       if (sourceImagePath != null && sourceImagePath!.trim().isNotEmpty)
         'source_image_path': sourceImagePath,
@@ -174,15 +241,32 @@ class VibeConfigV4 {
 
   factory VibeConfigV4.fromJson(Map<String, dynamic> json) {
     final imageB64 = json['image_b64'];
+    final infoExtracted = _parseDouble(
+      json['info_extracted'] ?? json['infoExtracted'],
+      1.0,
+    ).clamp(0.0, 1.0);
+    final cachedEncodings = <String, String>{};
+    final rawCachedEncodings = json['cached_encodings'];
+    if (rawCachedEncodings is Map) {
+      for (final entry in rawCachedEncodings.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        if (key is String && value is String && value.trim().isNotEmpty) {
+          cachedEncodings[key] = value;
+        }
+      }
+    }
 
     final sourceImagePath = json['source_image_path'];
     return VibeConfigV4(
       fileName: json['file_name'] as String? ?? 'Unnamed vibe',
       vibeB64: json['vibe_b64'] as String? ?? '',
-      infoExtracted: _parseDouble(
-        json['info_extracted'] ?? json['infoExtracted'],
-        1.0,
+      infoExtracted: infoExtracted,
+      encodedInfoExtracted: _parseDouble(
+        json['encoded_info_extracted'],
+        infoExtracted,
       ).clamp(0.0, 1.0),
+      encodedModel: json['encoded_model'] as String? ?? '',
       referenceStrength:
           _parseDouble(json['reference_strength'], 0.2).clamp(0.0, 1.0),
       sourceImagePath: sourceImagePath is String ? sourceImagePath : null,
@@ -191,6 +275,52 @@ class VibeConfigV4 {
               imageB64.length <= _maxLegacyImageB64Length
           ? imageB64
           : null,
+      cachedEncodings: cachedEncodings,
     );
   }
+}
+
+String _normalizeEncodingModel(String model) {
+  var normalized = model.trim().toLowerCase();
+  if (normalized.startsWith('nai-diffusion-')) {
+    normalized = normalized.substring('nai-diffusion-'.length);
+  }
+  normalized = normalized.replaceAll(RegExp('[^a-z0-9]'), '');
+  if (normalized.isNotEmpty && RegExp('[0-9]').hasMatch(normalized[0])) {
+    normalized = 'v$normalized';
+  }
+  return normalized;
+}
+
+Uint8List? _sourceImageBytesFromNaiVibe(Map<String, dynamic> jsonData) {
+  const sourceKeys = [
+    'image',
+    'originalImage',
+    'original_image',
+    'sourceImage',
+    'source_image',
+  ];
+  for (final key in sourceKeys) {
+    final value = jsonData[key];
+    final encoded = switch (value) {
+      String text => text,
+      Map map => map['base64'] is String
+          ? map['base64'] as String
+          : map['data'] is String
+              ? map['data'] as String
+              : null,
+      _ => null,
+    };
+    if (encoded == null || encoded.trim().isEmpty) continue;
+    try {
+      final normalized = encoded.startsWith('data:') && encoded.contains(',')
+          ? encoded.substring(encoded.indexOf(',') + 1)
+          : encoded;
+      final bytes = base64Decode(normalized);
+      if (bytes.isNotEmpty) return bytes;
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
 }

@@ -480,6 +480,45 @@ class CharacterEntry {
       };
 }
 
+class PromptAssetCategory {
+  final String id;
+  final String name;
+  final bool showInScriptDrawer;
+
+  const PromptAssetCategory({
+    required this.id,
+    required this.name,
+    this.showInScriptDrawer = false,
+  });
+
+  factory PromptAssetCategory.fromJson(dynamic json) {
+    final map = _asMap(json, 'prompt asset category');
+    return PromptAssetCategory(
+      id: _stringValue(map['id'], 'promptAssetCategory.id'),
+      name: _stringValue(map['name'], 'promptAssetCategory.name'),
+      showInScriptDrawer: map['showInScriptDrawer'] == true,
+    );
+  }
+
+  PromptAssetCategory copyWith({
+    String? id,
+    String? name,
+    bool? showInScriptDrawer,
+  }) {
+    return PromptAssetCategory(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      showInScriptDrawer: showInScriptDrawer ?? this.showInScriptDrawer,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'showInScriptDrawer': showInScriptDrawer,
+      };
+}
+
 class Recipe {
   final String id;
   final String name;

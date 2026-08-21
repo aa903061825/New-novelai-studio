@@ -46,6 +46,7 @@ const report = {
   mapped_role_missing_identity_rule_count: 0,
   mapped_role_missing_target_prompt_count: 0,
   mapped_role_prompt_term_coverage_gap_count: 0,
+  mapped_role_source_identity_coverage_gap_count: 0,
   unknown_role_replacement_count: 0,
   pseudo_partial_role_count: 0,
   appearance_collision_count: 0,
@@ -199,7 +200,7 @@ for (const fileName of files) {
     if (role && isMaleRole(role)) {
       report.mapped_male_role_count += 1;
       violations.push(`mapped_male_role:${roleId}`);
-    } else if (role && !isTargetableFemaleRole(role)) {
+    } else if (role && !isValidMappedFemaleRole(role)) {
       report.mapped_nonfemale_role_count += 1;
       violations.push(`mapped_nonfemale_role:${roleId}`);
     }
@@ -212,6 +213,17 @@ for (const fileName of files) {
         report.mapped_role_prompt_term_coverage_gap_count += 1;
         violations.push(
           `role_prompt_term_uncovered:${roleId}:${stringValue(term?.text)}`,
+        );
+      }
+      for (const gap of uncoveredRoleSourceIdentityTerms(
+        role,
+        replacement,
+        cache.scriptSnapshot,
+      )) {
+        report.mapped_role_source_identity_coverage_gap_count += 1;
+        violations.push(
+          `source_identity_coverage_gap:${roleId}:${gap.frameIndex}:` +
+            `${gap.sourceLocation}:${gap.term}`,
         );
       }
     }
@@ -339,6 +351,7 @@ const violationKeys = [
   'mapped_role_missing_identity_rule_count',
   'mapped_role_missing_target_prompt_count',
   'mapped_role_prompt_term_coverage_gap_count',
+  'mapped_role_source_identity_coverage_gap_count',
   'unknown_role_replacement_count',
   'pseudo_partial_role_count',
   'appearance_collision_count',
@@ -1439,7 +1452,8 @@ function cleanPromptTag(value) {
 function normalizedTagKey(value) {
   return stringValue(value)
     .toLowerCase()
-    .replace(/[_-]+/g, ' ')
+    .replace(/[（）［］｛｝【】〈〉《》「」『』〔〕〖〗〘〙〚〛<>＜＞“”‘’]+/g, ' ')
+    .replace(/[_＿\-‐‑‒–—−]+/g, ' ')
     .replace(/[(){}\[\]'":!?，、；;]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1531,6 +1545,128 @@ function uncoveredRolePromptTerms(role, replacement) {
   });
 }
 
+function uncoveredRoleSourceIdentityTerms(role, replacement, scriptSnapshot) {
+  const mappedIdentityTerms = [];
+  for (const rule of arrayValue(replacement?.rules)) {
+    for (const term of arrayValue(rule?.sourceTerms ?? rule?.source_terms)) {
+      const category = normalizeText(term?.category);
+      if (category !== 'character' && category !== 'identity') continue;
+      const text = cleanPromptTag(
+        term?.text ?? term?.sourcePhrase ?? term?.source_phrase,
+      );
+      const key = normalizedTagKey(text);
+      if (key) mappedIdentityTerms.push({ term, key });
+    }
+  }
+
+  const canonicalKey = normalizedTagKey(role?.canonical_name);
+  const rawIdentityKeys = new Set(
+    arrayValue(role?.raw_identity_tags)
+      .map((tag) => normalizedTagKey(tag))
+      .filter(Boolean),
+  );
+  const promptIdentityKeys = new Set(
+    arrayValue(role?.prompt_terms)
+      .filter((term) => {
+        const category = normalizeText(term?.category);
+        return category === 'character' || category === 'identity';
+      })
+      .map((term) => normalizedTagKey(term?.text))
+      .filter(Boolean),
+  );
+  const frames = new Map(
+    parsedFrames(scriptSnapshot).map((frame) => [Number(frame.index), frame]),
+  );
+  const gaps = [];
+  const seen = new Set();
+
+  for (const appearance of arrayValue(role?.appearances)) {
+    const sourceId = stringValue(
+      appearance?.source_id ?? appearance?.sourceId,
+    );
+    if (!sourceId) continue;
+    const sourceLocation = sourceId === 'base' ? 'base prompt' : `${sourceId} prompt`;
+    for (const frameIndex of numberList(
+      appearance?.frame_indexes ?? appearance?.frameIndexes,
+    )) {
+      const frame = frames.get(frameIndex);
+      if (!frame) continue;
+      for (const sourceTerm of parsePromptTags(
+        promptCaptionForSource(frame, sourceId),
+      )) {
+        if (!isSourceIdentityTerm(sourceTerm, {
+          canonicalKey,
+          rawIdentityKeys,
+          promptIdentityKeys,
+        })) {
+          continue;
+        }
+        const key = normalizedTagKey(sourceTerm);
+        const covered = mappedIdentityTerms.some(({ term, key: mappedKey }) =>
+          mappedKey === key && sourceTermCoversFrame(term, frameIndex, sourceLocation),
+        );
+        if (covered) continue;
+        const gapKey = `${key}\u001f${frameIndex}\u001f${sourceLocation}`;
+        if (seen.has(gapKey)) continue;
+        seen.add(gapKey);
+        gaps.push({
+          term: cleanPromptTag(sourceTerm),
+          frameIndex,
+          sourceLocation,
+        });
+      }
+    }
+  }
+  return gaps;
+}
+
+function isSourceIdentityTerm(
+  sourceTerm,
+  { canonicalKey, rawIdentityKeys, promptIdentityKeys },
+) {
+  const cleaned = cleanPromptTag(sourceTerm);
+  const key = normalizedTagKey(cleaned);
+  if (!key || isBasicGenericIdentity(cleaned) || isParentheticalObjectIdentityTag(cleaned)) {
+    return false;
+  }
+  const baseKey = parentheticalBaseKey(cleaned);
+  if (canonicalKey && (key === canonicalKey || baseKey === canonicalKey)) {
+    return true;
+  }
+  if (!rawIdentityKeys.has(key)) return false;
+  if (canonicalKey) {
+    return key.includes(canonicalKey) || baseKey === canonicalKey;
+  }
+  return promptIdentityKeys.has(key);
+}
+
+function parentheticalBaseKey(value) {
+  const cleaned = cleanPromptTag(value);
+  const match = cleaned.match(/^([^()]+)\s*\([^()]+\)$/);
+  return normalizedTagKey(match ? match[1] : cleaned);
+}
+
+function sourceTermCoversFrame(term, frameIndex, sourceLocation) {
+  const frameIndexes = numberList(term?.frameIndexes ?? term?.frame_indexes);
+  if (frameIndexes.length > 0) return frameIndexes.includes(frameIndex);
+  const occurrences = arrayValue(
+    term?.sourceOccurrences ?? term?.source_occurrences,
+  );
+  if (occurrences.length === 0) return true;
+  return occurrences.some((occurrence) => {
+    const occurrenceFrame = Number(
+      occurrence?.frameIndex ?? occurrence?.frame_index,
+    );
+    const occurrenceLocation = stringValue(
+      occurrence?.sourceLocation ?? occurrence?.source_location,
+    );
+    return (
+      occurrenceFrame === frameIndex &&
+      (!occurrenceLocation || occurrenceLocation === sourceLocation)
+    );
+  });
+}
+
 function promptTermCoverageKeys(term) {
   const id = stringValue(term?.id).toLowerCase();
   const text = normalizeText(term?.text);
@@ -1548,6 +1684,25 @@ function hasTarget(replacement) {
 function isTargetableFemaleRole(role) {
   const text = roleIdentityText(role);
   return hasFemaleText(text) && !hasMaleText(text);
+}
+
+function isValidMappedFemaleRole(role) {
+  if (isTargetableFemaleRole(role)) return true;
+  if (isMaleRole(role)) return false;
+  const hasConcreteIdentity = Boolean(
+    stringValue(role?.canonical_name) ||
+      arrayValue(role?.raw_identity_tags).some(
+        (tag) => !isBasicGenericIdentity(tag),
+      ),
+  );
+  if (!hasConcreteIdentity) return false;
+  return promptTermArray(role).some((term) => {
+    const category = normalizeText(term?.category);
+    return (
+      (category === 'identity' || category === 'character') &&
+      hasFemaleText(normalizeText(term?.text))
+    );
+  });
 }
 
 function isMaleRole(role) {

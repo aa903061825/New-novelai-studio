@@ -52,6 +52,28 @@ void main() {
       expect(result, '1girl, lily, solo');
     });
 
+    test('directly replaces a delimiter-equivalent source token', () {
+      final result = engine.applyRules(
+        prompt: 'xuelin（black survival）, solo',
+        frameIndex: 2,
+        rules: [
+          _rule(
+            'rule-xuelin',
+            sourceTerms: [
+              _term(
+                'term-xuelin',
+                'xuelin (black survival)',
+                frameIndexes: [2],
+              ),
+            ],
+            targetPrompt: 'pepe_(arknights)',
+          ),
+        ],
+      );
+
+      expect(result, 'pepe_(arknights), solo');
+    });
+
     test('blank target keeps prompt unchanged and explicit delete removes term',
         () {
       final blankDefault = _rule(

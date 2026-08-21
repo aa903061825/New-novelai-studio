@@ -8,6 +8,7 @@ import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/tools/nai_metadata_parser.dart';
 import 'package:novel_studio/data/studio/tools/stable_id.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
+import 'package:image/image.dart' as img;
 import 'package:png_chunks_extract/png_chunks_extract.dart' as png_extract;
 
 Future<void> main(List<String> args) async {
@@ -425,14 +426,109 @@ Future<ScriptFrame?> _parsePngFrame(
 }
 
 NaiMetadataParseResult _parsePngMetadata(Uint8List bytes) {
-  final chunkMetadata = _extractPngTextChunks(bytes);
-  if (chunkMetadata.isNotEmpty) {
-    final parsed = NaiMetadataParser.parseMap(chunkMetadata);
-    if (parsed.hasStructuredMetadata || _hasPromptMetadata(parsed)) {
+  try {
+    final chunkMetadata = _extractPngTextChunks(bytes);
+    if (chunkMetadata.isNotEmpty) {
+      final parsed = NaiMetadataParser.parseMap(chunkMetadata);
+      if (_hasPromptMetadata(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (_) {
+    // A malformed text chunk must not hide valid alpha-channel metadata.
+  }
+
+  final stealthMetadata = _extractStealthPngMetadata(bytes);
+  if (stealthMetadata != null && stealthMetadata.trim().isNotEmpty) {
+    final parsed = NaiMetadataParser.parseString(stealthMetadata);
+    if (_hasPromptMetadata(parsed)) {
       return parsed;
     }
   }
   throw const FormatException('No NovelAI metadata found in PNG.');
+}
+
+String? _extractStealthPngMetadata(Uint8List bytes) {
+  try {
+    final image = img.decodePng(bytes);
+    if (image == null) {
+      return null;
+    }
+    final reader = _StealthPngAlphaBitReader(image);
+    final headerBytes = reader.readBytes('stealth_pngcomp'.length);
+    final header = utf8.decode(headerBytes, allowMalformed: true);
+    if (header != 'stealth_pngcomp' && header != 'stealth_pnginfo') {
+      return null;
+    }
+
+    final bitLengthBytes = reader.readBytes(4);
+    if (bitLengthBytes.length < 4) {
+      return null;
+    }
+    final bitLength = ByteData.sublistView(
+      Uint8List.fromList(bitLengthBytes),
+    ).getInt32(0);
+    if (bitLength <= 0) {
+      return null;
+    }
+
+    final dataLength = (bitLength / 8).ceil();
+    if (dataLength > reader.remainingByteCapacity) {
+      return null;
+    }
+    final data = reader.readBytes(dataLength);
+    if (data.length < dataLength) {
+      return null;
+    }
+    final decodedData =
+        header == 'stealth_pngcomp' ? GZipCodec().decode(data) : data;
+    return utf8.decode(decodedData, allowMalformed: true);
+  } catch (_) {
+    return null;
+  }
+}
+
+class _StealthPngAlphaBitReader {
+  final img.Image image;
+  var _x = 0;
+  var _y = 0;
+  var _bitsRead = 0;
+
+  _StealthPngAlphaBitReader(this.image);
+
+  int get _totalBits => image.width * image.height;
+
+  int get remainingByteCapacity => (_totalBits - _bitsRead) ~/ 8;
+
+  List<int> readBytes(int length) {
+    final bytes = <int>[];
+    for (var index = 0; index < length; index += 1) {
+      var value = 0;
+      for (var bit = 0; bit < 8; bit += 1) {
+        final nextBit = _readBit();
+        if (nextBit == null) {
+          return bytes;
+        }
+        value = (value << 1) | nextBit;
+      }
+      bytes.add(value);
+    }
+    return bytes;
+  }
+
+  int? _readBit() {
+    if (_x >= image.width) {
+      return null;
+    }
+    final bit = image.getPixel(_x, _y).a.toInt() & 1;
+    _bitsRead += 1;
+    _y += 1;
+    if (_y >= image.height) {
+      _y = 0;
+      _x += 1;
+    }
+    return bit;
+  }
 }
 
 Map<String, dynamic> _extractPngTextChunks(Uint8List bytes) {
@@ -994,6 +1090,7 @@ RecastScriptCache _cacheForScript({
     aiRoleExtractionChunks: preservedAi?.aiRoleExtractionChunks ?? const [],
     aiRoleExtractionDraftCollapsed:
         preservedAi?.aiRoleExtractionDraftCollapsed ?? false,
+    aiRoleExtractionFinalized: preservedAi?.aiRoleExtractionFinalized ?? false,
     scriptBlockWords: existing?.scriptBlockWords ?? '',
     scriptSnapshot: script.toJson(),
   );

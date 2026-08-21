@@ -90,8 +90,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       _scriptViewModelFromGetIt();
   late final ProductionQueueViewModel _productionQueueViewModel =
       _productionQueueViewModelFromGetIt();
-  late final ScriptExhibitionRoomViewModel _scriptExhibitionRoomViewModel =
-      _scriptExhibitionRoomViewModelFromGetIt();
+  late final ScriptExhibitionRoomViewModel _scriptExhibitionRoomViewModel;
 
   StudioShellDependencies get _dependencies =>
       widget.dependencies ?? StudioShellDependencies(getIt: GetIt.I);
@@ -99,6 +98,7 @@ class _StudioShellViewState extends State<StudioShellView> {
   @override
   void initState() {
     super.initState();
+    _scriptExhibitionRoomViewModel = _scriptExhibitionRoomViewModelFromGetIt();
     _scriptExhibitionProductionRevision =
         _scriptExhibitionProductionRevisionFor(_productionQueueViewModel.plans);
     _productionQueueViewModel.addListener(_handleProductionQueueChanged);
@@ -114,6 +114,7 @@ class _StudioShellViewState extends State<StudioShellView> {
   void dispose() {
     _productionQueueViewModel.removeListener(_handleProductionQueueChanged);
     _scriptExhibitionProductionRefreshTimer?.cancel();
+    _scriptExhibitionRoomViewModel.dispose();
     _scriptAssetFocusNotifier.dispose();
     super.dispose();
   }
@@ -225,6 +226,13 @@ class _StudioShellViewState extends State<StudioShellView> {
             saveCharacters: dependencies.workspaceService.saveCharacters,
             saveRecipes: dependencies.workspaceService.saveRecipes,
             saveTags: dependencies.workspaceService.saveTags,
+            savePromptAssetCategories:
+                dependencies.workspaceService.savePromptAssetCategories,
+            onPromptAssetsChanged: () {
+              unawaited(
+                _scriptViewModel.ensureAssetsLoaded(forceRefresh: true),
+              );
+            },
           )),
       StudioShellSection.workbench =>
         GenerationPageView(viewmodel: dependencies.generationPageViewModel),
@@ -261,6 +269,7 @@ class _StudioShellViewState extends State<StudioShellView> {
             viewModel: dependencies.generationPageViewModel,
             galleryService: dependencies.galleryService,
             payloadConfig: dependencies.payloadConfig,
+            onRestoredToWorkbench: _openRestoredGalleryRecordInWorkbench,
           )),
       StudioShellSection.settings => SettingsPageView(
           knowledgeAndRulesBuilder: (_) => _buildKnowledgeAndRulesPage(),
@@ -337,7 +346,9 @@ class _StudioShellViewState extends State<StudioShellView> {
     if (!sent) {
       return;
     }
-    await _productionQueueViewModel.load();
+    await _productionQueueViewModel.load(
+      preferredPlanId: _scriptViewModel.lastProductionPlanId,
+    );
   }
 
   Widget _buildBatchPage() {
@@ -383,6 +394,9 @@ class _StudioShellViewState extends State<StudioShellView> {
       loadRecastScript: workspaceService.root == null
           ? null
           : workspaceService.loadRecastExhibitionScript,
+      recastCacheChanges: workspaceService.root == null
+          ? null
+          : workspaceService.watchRecastScriptCacheChanges(),
       loadProductionPlans: GetIt.I<ProductionQueueService>().loadPlansReadOnly,
       loadGalleryRecords: GetIt.I<StudioGalleryService>().loadRecastRecords,
       saveProductionPlans: GetIt.I<ProductionQueueService>().savePlans,
@@ -392,6 +406,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       importScriptImages: _importScriptImagesForExhibitionScript,
       deleteScriptRecord: _deleteScriptExhibitionScript,
       deleteItemRecord: _deleteScriptExhibitionItem,
+      deleteItemsRecord: _deleteScriptExhibitionItems,
       renameScriptRecord: _renameScriptExhibitionScript,
       assignScriptCategory: _assignScriptExhibitionScriptCategory,
       assignScriptsCategory: _assignScriptExhibitionScriptsCategory,
@@ -409,6 +424,7 @@ class _StudioShellViewState extends State<StudioShellView> {
       renameImageAttachment: _renameScriptImageAttachment,
       renameVersionLabel: _renameScriptExhibitionVersionLabel,
       deleteVersionRecord: _deleteScriptExhibitionVersion,
+      deleteVersionsRecord: _deleteScriptExhibitionVersions,
       setCoverItemRecord: _setScriptExhibitionCoverItem,
     );
   }
@@ -521,6 +537,11 @@ class _StudioShellViewState extends State<StudioShellView> {
     if (section == StudioShellSection.scriptExhibition && wasMounted) {
       unawaited(_scriptExhibitionRoomViewModel.load());
     }
+  }
+
+  void _openRestoredGalleryRecordInWorkbench() {
+    _dependencies.workbenchAssetService.refreshFromPayload();
+    _changeSection(StudioShellSection.workbench);
   }
 
   Future<void> _openScriptAsset(StudioScriptAssetFocus focus) async {
@@ -683,13 +704,30 @@ class _StudioShellViewState extends State<StudioShellView> {
         return;
       }
       final wasExecuting = _productionQueueViewModel.isExecuting;
+      final hasOriginalImage = focus.imagePath?.trim().isNotEmpty ?? false;
+      if (!hasOriginalImage) {
+        if (wasExecuting &&
+            (task.status == ProductionTaskStatus.queued ||
+                task.status == ProductionTaskStatus.running)) {
+          _showShellSnackBar('任务已在生成队列中，当前没有原图');
+          await _refreshScriptExhibitionDynamicVersions();
+          return;
+        }
+        if (!wasExecuting) {
+          _showShellSnackBar('已开始补跑，当前没有原图');
+          await _productionQueueViewModel.rerunTask(task);
+          if (!mounted) return;
+          await _refreshScriptExhibitionDynamicVersions();
+          return;
+        }
+      }
       final rerunTask = await _productionQueueViewModel.queueRerunTask(task);
       if (!mounted) return;
       if (rerunTask == null) {
         _showShellSnackBar('重跑失败：无法加入队列');
         return;
       }
-      _showShellSnackBar('已加入重跑队列，原图会保留');
+      _showShellSnackBar(hasOriginalImage ? '已加入重跑队列，原图会保留' : '已加入补跑队列，当前没有原图');
       if (wasExecuting) {
         await _refreshScriptExhibitionDynamicVersions();
         return;
@@ -1163,6 +1201,18 @@ class _StudioShellViewState extends State<StudioShellView> {
     return 'title:${script.title.trim().toLowerCase()}';
   }
 
+  String _exhibitionItemPersistenceKey(ScriptExhibitionItem item) {
+    final scriptId = item.scriptId.trim();
+    if (scriptId.isNotEmpty) {
+      return 'id:$scriptId';
+    }
+    final sourceFolder = item.sourceFolder.trim();
+    if (sourceFolder.isNotEmpty) {
+      return 'source:${sourceFolder.toLowerCase()}';
+    }
+    return 'title:${item.scriptTitle.trim().toLowerCase()}';
+  }
+
   bool _recastCacheMatchesExhibitionScript(
     RecastScriptCache cache, {
     required String scriptId,
@@ -1198,21 +1248,9 @@ class _StudioShellViewState extends State<StudioShellView> {
     String? scriptName,
   }) {
     final snapshot = script.toJson();
-    return RecastScriptCache(
-      scriptId: cache.scriptId,
+    return cache.copyWith(
       scriptName: scriptName ?? cache.scriptName,
-      sourceRootPath: cache.sourceRootPath,
-      sourceFingerprint: cache.sourceFingerprint,
-      sourceContentFingerprint: cache.sourceContentFingerprint,
       updatedAt: DateTime.now().toUtc(),
-      roleCandidates: cache.roleCandidates,
-      mapping: cache.mapping,
-      aiRoleExtraction: cache.aiRoleExtraction,
-      aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
-      aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
-      scriptBlockWords: cache.scriptBlockWords,
-      knowledgeSnapshot: cache.knowledgeSnapshot,
-      exhibitionCategoryNames: cache.exhibitionCategoryNames,
       scriptSnapshot: snapshot,
     );
   }
@@ -1228,27 +1266,14 @@ class _StudioShellViewState extends State<StudioShellView> {
         )) {
       return cache;
     }
-    return RecastScriptCache(
-      scriptId: cache.scriptId,
-      scriptName: cache.scriptName,
-      sourceRootPath: cache.sourceRootPath,
-      sourceFingerprint: cache.sourceFingerprint,
-      sourceContentFingerprint: cache.sourceContentFingerprint,
+    return cache.copyWith(
       updatedAt: DateTime.now().toUtc(),
-      roleCandidates: cache.roleCandidates,
-      mapping: cache.mapping,
-      aiRoleExtraction: cache.aiRoleExtraction,
-      aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
-      aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
-      scriptBlockWords: cache.scriptBlockWords,
-      knowledgeSnapshot: cache.knowledgeSnapshot,
       exhibitionCategoryNames: List.unmodifiable([
         ...cache.exhibitionCategoryNames.where(
           (name) => name.trim().isNotEmpty,
         ),
         normalized,
       ]),
-      scriptSnapshot: cache.scriptSnapshot,
     );
   }
 
@@ -1280,20 +1305,8 @@ class _StudioShellViewState extends State<StudioShellView> {
       return cache;
     }
     final nextSnapshotJson = nextSnapshot?.toJson() ?? cache.scriptSnapshot;
-    return RecastScriptCache(
-      scriptId: cache.scriptId,
-      scriptName: cache.scriptName,
-      sourceRootPath: cache.sourceRootPath,
-      sourceFingerprint: cache.sourceFingerprint,
-      sourceContentFingerprint: cache.sourceContentFingerprint,
+    return cache.copyWith(
       updatedAt: DateTime.now().toUtc(),
-      roleCandidates: cache.roleCandidates,
-      mapping: cache.mapping,
-      aiRoleExtraction: cache.aiRoleExtraction,
-      aiRoleExtractionChunks: cache.aiRoleExtractionChunks,
-      aiRoleExtractionDraftCollapsed: cache.aiRoleExtractionDraftCollapsed,
-      scriptBlockWords: cache.scriptBlockWords,
-      knowledgeSnapshot: cache.knowledgeSnapshot,
       exhibitionCategoryNames: List.unmodifiable(nextTopLevelCategories),
       scriptSnapshot: nextSnapshotJson,
     );
@@ -1400,6 +1413,23 @@ class _StudioShellViewState extends State<StudioShellView> {
       script,
       _legacyImageAttachments(script)
           .where((attachment) => attachment.attachmentId != normalizedId)
+          .toList(growable: false),
+    );
+  }
+
+  Script _scriptWithoutLegacyImageAttachments(
+    Script script, {
+    required Set<String> attachmentIds,
+  }) {
+    if (attachmentIds.isEmpty) {
+      return script;
+    }
+    return _scriptWithLegacyImageAttachmentList(
+      script,
+      _legacyImageAttachments(script)
+          .where(
+            (attachment) => !attachmentIds.contains(attachment.attachmentId),
+          )
           .toList(growable: false),
     );
   }
@@ -1594,50 +1624,47 @@ class _StudioShellViewState extends State<StudioShellView> {
         ? _localImagePathsForExhibitionScript(script)
         : const <String>[];
 
-    await _deleteTokenizerScriptsForExhibitionScript(script);
-
-    final caches = await workspaceService.loadRecastScriptCaches();
-    await workspaceService.saveRecastScriptCaches(
-      caches
-          .where(
-            (cache) => !_recastCacheMatchesExhibitionScript(
-              cache,
-              scriptId: script.scriptId,
-              title: script.title,
-              sourceFolder: script.sourceFolder,
-            ),
-          )
-          .toList(growable: false),
-    );
-
-    final plans = await productionService.loadPlans();
-    final now = DateTime.now().toUtc();
-    final nextPlans = <ProductionPlan>[];
-    for (final plan in plans) {
-      final nextTasks = plan.tasks
-          .where((task) => !_productionTaskMatchesScript(task, script))
-          .toList(growable: false);
-      if (nextTasks.isEmpty) {
-        continue;
-      }
-      nextPlans.add(
-        nextTasks.length == plan.tasks.length
-            ? plan
-            : plan.copyWith(tasks: nextTasks, updatedAt: now),
-      );
-    }
-    await productionService.savePlans(nextPlans);
-
-    final records = await galleryService.loadRecords();
-    await galleryService.saveRecords(
-      records
-          .where((record) => !_galleryRecordMatchesScript(record, script))
-          .toList(growable: false),
-    );
+    await Future.wait([
+      _deleteTokenizerScriptsForExhibitionScript(script),
+      workspaceService.removeRecastScriptCachesMatching(
+        scriptId: script.scriptId,
+        scriptName: script.title,
+        sourceRootPath: script.sourceFolder,
+      ),
+      () async {
+        final productionItems = script.items
+            .where(_hasProductionTaskIdentity)
+            .toList(growable: false);
+        final deletedAt = DateTime.now().toUtc();
+        final deletedProductionItems =
+            await deleteScriptExhibitionProductionItems(
+          items: productionItems,
+          loadPlans: productionService.loadPlansReadOnly,
+          savePlans: productionService.savePlans,
+          loadPlan: productionService.loadPlanReadOnly,
+          savePlanChanges: productionService.savePlanChanges,
+          updatedAt: deletedAt,
+        );
+        if (deletedProductionItems) {
+          _applyPersistedProductionTaskDeletions(
+            productionItems,
+            updatedAt: deletedAt,
+          );
+        }
+      }(),
+      () async {
+        final records = await galleryService.loadRecords();
+        final retainedRecords = records
+            .where((record) => !_galleryRecordMatchesScript(record, script))
+            .toList(growable: false);
+        if (retainedRecords.length != records.length) {
+          await galleryService.saveRecords(retainedRecords);
+        }
+      }(),
+    ]);
     if (deleteLocalFiles) {
       await _deleteLocalImageFiles(localImagePaths);
     }
-    unawaited(_productionQueueViewModel.load());
   }
 
   Future<void> _deleteTokenizerScriptsForExhibitionScript(
@@ -1656,9 +1683,7 @@ class _StudioShellViewState extends State<StudioShellView> {
         .map((tokenizerScript) => tokenizerScript.scriptId.trim())
         .where((scriptId) => scriptId.isNotEmpty)
         .toSet();
-    for (final scriptId in scriptIds) {
-      await tokenizerService.removeScript(scriptId);
-    }
+    await tokenizerService.removeScripts(scriptIds);
   }
 
   Future<void> _deleteScriptExhibitionItem(
@@ -1706,18 +1731,164 @@ class _StudioShellViewState extends State<StudioShellView> {
       return;
     }
 
+    final deletedAt = DateTime.now().toUtc();
     final deletedProductionItems = await deleteScriptExhibitionProductionItems(
       items: [item],
-      loadPlans: GetIt.I<ProductionQueueService>().loadPlans,
+      loadPlans: GetIt.I<ProductionQueueService>().loadPlansReadOnly,
       savePlans: GetIt.I<ProductionQueueService>().savePlans,
-      updatedAt: DateTime.now().toUtc(),
+      loadPlan: GetIt.I<ProductionQueueService>().loadPlanReadOnly,
+      savePlanChanges: GetIt.I<ProductionQueueService>().savePlanChanges,
+      updatedAt: deletedAt,
     );
     if (deletedProductionItems) {
-      unawaited(_productionQueueViewModel.load());
+      _applyPersistedProductionTaskDeletions(
+        [item],
+        updatedAt: deletedAt,
+      );
     }
     if (deleteLocalFiles) {
       await _deleteLocalImageFiles(localImagePaths);
     }
+  }
+
+  Future<void> _deleteScriptExhibitionItems(
+    List<ScriptExhibitionItem> items, {
+    bool deleteLocalFiles = false,
+  }) async {
+    final uniqueItems = <String, ScriptExhibitionItem>{
+      for (final item in items)
+        if (item.canDelete) item.id: item,
+    }.values.toList(growable: false);
+    if (uniqueItems.isEmpty) return;
+
+    final localImagePaths = deleteLocalFiles
+        ? _localImagePathsForExhibitionItems(uniqueItems)
+        : const <String>[];
+    final attachmentItems = <ScriptExhibitionItem>[];
+    final productionItems = <ScriptExhibitionItem>[];
+    final galleryRecordIds = <String>{};
+    for (final item in uniqueItems) {
+      final attachmentId = item.imageAttachmentId?.trim();
+      if (attachmentId != null && attachmentId.isNotEmpty) {
+        attachmentItems.add(item);
+        continue;
+      }
+      final galleryRecordId = item.galleryRecordId?.trim();
+      if (galleryRecordId != null && galleryRecordId.isNotEmpty) {
+        galleryRecordIds.add(galleryRecordId);
+      }
+      final linkedGalleryRecordId = item.galleryRecord?.id.trim();
+      if (linkedGalleryRecordId != null && linkedGalleryRecordId.isNotEmpty) {
+        galleryRecordIds.add(linkedGalleryRecordId);
+      }
+      if (_hasProductionTaskIdentity(item)) {
+        productionItems.add(item);
+      }
+    }
+
+    final attachmentDeletion =
+        _deleteScriptExhibitionImageAttachments(attachmentItems);
+    final galleryDeletion = () async {
+      if (galleryRecordIds.isEmpty) return;
+      final galleryService = GetIt.I<StudioGalleryService>();
+      final records = await galleryService.loadRecords();
+      final retainedRecords = records
+          .where((record) => !galleryRecordIds.contains(record.id))
+          .toList(growable: false);
+      if (retainedRecords.length != records.length) {
+        await galleryService.saveRecords(retainedRecords);
+      }
+    }();
+    final deletedAt = DateTime.now().toUtc();
+    final productionDeletion = deleteScriptExhibitionProductionItems(
+      items: productionItems,
+      loadPlans: GetIt.I<ProductionQueueService>().loadPlansReadOnly,
+      savePlans: GetIt.I<ProductionQueueService>().savePlans,
+      loadPlan: GetIt.I<ProductionQueueService>().loadPlanReadOnly,
+      savePlanChanges: GetIt.I<ProductionQueueService>().savePlanChanges,
+      updatedAt: deletedAt,
+    );
+    await Future.wait<void>([
+      attachmentDeletion,
+      galleryDeletion,
+      productionDeletion.then<void>((_) {}),
+    ]);
+    final deletedProductionItems = await productionDeletion;
+    if (deletedProductionItems) {
+      _applyPersistedProductionTaskDeletions(
+        productionItems,
+        updatedAt: deletedAt,
+      );
+    }
+    if (deleteLocalFiles) {
+      await _deleteLocalImageFiles(localImagePaths);
+    }
+  }
+
+  Future<void> _deleteScriptExhibitionImageAttachments(
+    List<ScriptExhibitionItem> items,
+  ) async {
+    if (items.isEmpty) return;
+    final itemsByScript = <String, List<ScriptExhibitionItem>>{};
+    for (final item in items) {
+      itemsByScript
+          .putIfAbsent(_exhibitionItemPersistenceKey(item), () => [])
+          .add(item);
+    }
+    final updatedCaches = <String, RecastScriptCache>{};
+    for (final scriptItems in itemsByScript.values) {
+      final firstItem = scriptItems.first;
+      final cache = await _findRecastCacheForExhibition(
+        scriptId: firstItem.scriptId,
+        title: firstItem.scriptTitle,
+        sourceFolder: firstItem.sourceFolder,
+      );
+      final snapshot = cache == null ? null : _scriptFromRecastCache(cache);
+      if (cache == null || snapshot == null) {
+        continue;
+      }
+      final attachmentIds = <String>{};
+      for (final item in scriptItems) {
+        final attachmentId = item.imageAttachmentId?.trim();
+        if (attachmentId != null && attachmentId.isNotEmpty) {
+          attachmentIds.add(attachmentId);
+        }
+      }
+      if (attachmentIds.isEmpty) {
+        continue;
+      }
+      updatedCaches[cache.scriptId] = _cacheWithScriptSnapshot(
+        cache,
+        _scriptWithoutLegacyImageAttachments(
+          snapshot,
+          attachmentIds: attachmentIds,
+        ),
+      );
+    }
+    await GetIt.I<WorkspaceService>()
+        .saveRecastScriptCacheUpdates(updatedCaches.values);
+  }
+
+  void _applyPersistedProductionTaskDeletions(
+    Iterable<ScriptExhibitionItem> items, {
+    required DateTime updatedAt,
+  }) {
+    final taskIdsByPlanId = <String, Set<String>>{};
+    for (final item in items) {
+      final planId = item.productionPlanId?.trim();
+      final taskId = item.taskId?.trim();
+      if (planId == null ||
+          planId.isEmpty ||
+          taskId == null ||
+          taskId.isEmpty) {
+        continue;
+      }
+      taskIdsByPlanId.putIfAbsent(planId, () => <String>{}).add(taskId);
+    }
+    _productionQueueViewModel.applyPersistedTaskDeletions(
+      taskIdsByPlanId: taskIdsByPlanId,
+      updatedAt: updatedAt,
+    );
   }
 
   Future<void> _deleteScriptExhibitionVersion(
@@ -1725,50 +1896,28 @@ class _StudioShellViewState extends State<StudioShellView> {
     ScriptExhibitionVersion version, {
     bool deleteLocalFiles = false,
   }) async {
-    if (version.id == ScriptExhibitionVersion.originalId) {
-      return;
-    }
-    final items = [
-      for (final item in version.items)
-        if (item.canDelete) item,
-    ];
-    final localImagePaths = deleteLocalFiles
-        ? _localImagePathsForExhibitionItems(items)
-        : const <String>[];
-    final productionItems = <ScriptExhibitionItem>[];
-    for (final item in items) {
-      if (_hasProductionTaskIdentity(item) &&
-          item.imageAttachmentId?.trim().isNotEmpty != true &&
-          item.galleryRecordId?.trim().isNotEmpty != true) {
-        productionItems.add(item);
-        continue;
-      }
-      await _deleteScriptExhibitionItem(item);
-    }
-    final deletedProductionItems = await deleteScriptExhibitionProductionItems(
-      items: productionItems,
-      loadPlans: GetIt.I<ProductionQueueService>().loadPlans,
-      savePlans: GetIt.I<ProductionQueueService>().savePlans,
-      updatedAt: DateTime.now().toUtc(),
+    await _deleteScriptExhibitionVersions(
+      script,
+      [version],
+      deleteLocalFiles: deleteLocalFiles,
     );
-    if (deletedProductionItems) {
-      unawaited(_productionQueueViewModel.load());
-    }
-    if (deleteLocalFiles) {
-      await _deleteLocalImageFiles(localImagePaths);
-    }
   }
 
-  bool _productionTaskMatchesScript(
-    ProductionTask task,
-    ScriptExhibitionScript script,
-  ) {
-    final source = task.source;
-    return _matchesExhibitionScriptIdentity(
-      script,
-      scriptId: source.scriptId,
-      sourceFolder: source.scriptPath,
-      title: source.scriptName,
+  Future<void> _deleteScriptExhibitionVersions(
+    ScriptExhibitionScript _,
+    List<ScriptExhibitionVersion> versions, {
+    bool deleteLocalFiles = false,
+  }) async {
+    final items = <ScriptExhibitionItem>[];
+    for (final version in versions) {
+      if (version.id == ScriptExhibitionVersion.originalId) {
+        continue;
+      }
+      items.addAll(version.items.where((item) => item.canDelete));
+    }
+    await _deleteScriptExhibitionItems(
+      items,
+      deleteLocalFiles: deleteLocalFiles,
     );
   }
 
@@ -1945,16 +2094,28 @@ void _addScriptExhibitionLocalImagePath(Set<String> paths, String? path) {
 Future<void> deleteScriptExhibitionLocalImageFiles(
   Iterable<String> paths,
 ) async {
-  for (final path in paths) {
-    try {
-      final type = await FileSystemEntity.type(path, followLinks: false);
-      if (type == FileSystemEntityType.file) {
-        await File(path).delete();
-      }
-    } on FileSystemException {
-      // Best effort: stale or locked images should not restore deleted
-      // exhibition metadata.
-    }
+  final uniquePaths = paths
+      .map((path) => path.trim())
+      .where((path) => path.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+  const batchSize = 12;
+  for (var start = 0; start < uniquePaths.length; start += batchSize) {
+    final end = math.min(start + batchSize, uniquePaths.length);
+    await Future.wait([
+      for (final path in uniquePaths.sublist(start, end))
+        () async {
+          try {
+            final type = await FileSystemEntity.type(path, followLinks: false);
+            if (type == FileSystemEntityType.file) {
+              await File(path).delete();
+            }
+          } on FileSystemException {
+            // Best effort: stale or locked images should not restore deleted
+            // exhibition metadata.
+          }
+        }(),
+    ]);
   }
 }
 
@@ -1963,6 +2124,11 @@ Future<bool> deleteScriptExhibitionProductionItems({
   required Iterable<ScriptExhibitionItem> items,
   required Future<List<ProductionPlan>> Function() loadPlans,
   required Future<void> Function(List<ProductionPlan>) savePlans,
+  Future<ProductionPlan?> Function(String planId)? loadPlan,
+  Future<void> Function({
+    required List<ProductionPlan> updatedPlans,
+    required Set<String> deletedPlanIds,
+  })? savePlanChanges,
   required DateTime updatedAt,
 }) async {
   final itemsByPlanId = <String, Map<String, ScriptExhibitionItem>>{};
@@ -1978,9 +2144,18 @@ Future<bool> deleteScriptExhibitionProductionItems({
     return false;
   }
 
-  final plans = await loadPlans();
+  final useTargetedPlanIo = loadPlan != null && savePlanChanges != null;
+  final plans = useTargetedPlanIo
+      ? (await Future.wait([
+          for (final planId in itemsByPlanId.keys) loadPlan(planId),
+        ]))
+          .whereType<ProductionPlan>()
+          .toList(growable: false)
+      : await loadPlans();
   var changed = false;
   final nextPlans = <ProductionPlan>[];
+  final updatedPlans = <ProductionPlan>[];
+  final deletedPlanIds = <String>{};
   for (final plan in plans) {
     final itemsByTaskId = itemsByPlanId[plan.id];
     if (itemsByTaskId == null || itemsByTaskId.isEmpty) {
@@ -2003,14 +2178,24 @@ Future<bool> deleteScriptExhibitionProductionItems({
     }
     changed = true;
     if (nextTasks.isEmpty) {
+      deletedPlanIds.add(plan.id);
       continue;
     }
-    nextPlans.add(plan.copyWith(tasks: nextTasks, updatedAt: updatedAt));
+    final updatedPlan = plan.copyWith(tasks: nextTasks, updatedAt: updatedAt);
+    nextPlans.add(updatedPlan);
+    updatedPlans.add(updatedPlan);
   }
   if (!changed) {
     return false;
   }
-  await savePlans(nextPlans);
+  if (useTargetedPlanIo) {
+    await savePlanChanges(
+      updatedPlans: updatedPlans,
+      deletedPlanIds: deletedPlanIds,
+    );
+  } else {
+    await savePlans(nextPlans);
+  }
   return true;
 }
 

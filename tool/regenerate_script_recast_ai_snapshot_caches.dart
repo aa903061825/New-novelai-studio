@@ -142,7 +142,8 @@ Future<ScriptAiBatchReport> regenerateScriptRecastAiSnapshotCaches({
         ),
         aiRoleExtraction: extraction,
         aiRoleExtractionChunks: const [],
-        aiRoleExtractionDraftCollapsed: false,
+        aiRoleExtractionDraftCollapsed: true,
+        aiRoleExtractionFinalized: true,
         scriptBlockWords: cache.scriptBlockWords,
         scriptSnapshot: cache.scriptSnapshot,
       );

@@ -1,5 +1,6 @@
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 typedef ScriptAiRoleStageLabeler = String Function(
@@ -45,8 +46,12 @@ class ScriptAiRoleAssemblyApplication {
     if (normalizedExtraction.roles.isNotEmpty) {
       final rolesBySourceId = <String, ScriptAiExtractedRole>{
         for (final role in normalizedExtraction.roles)
-          if (role.sourceRoleId.trim().isNotEmpty) role.sourceRoleId: role,
+          if (role.sourceRoleId.trim().isNotEmpty)
+            role.sourceRoleId.trim(): role,
       };
+      final rolesByIdentityAlias = _rolesByUniqueIdentityAlias(
+        normalizedExtraction.roles,
+      );
       final coveredSourceRoleIds = _coveredSourceRoleIds(
         normalizedExtraction.roles,
       );
@@ -56,67 +61,102 @@ class ScriptAiRoleAssemblyApplication {
             if (_isUserAuthoredStage(stage)) stage.id,
       };
       final refreshedAssemblies = <RoleAssembly>[];
-      final appliedRoleIds = <String>{};
+      final claimedAssemblies = <RoleAssembly>{};
 
-      for (final assembly in mapping.roleAssemblies) {
-        final role = rolesBySourceId[assembly.sourceRoleId];
-        if (role == null) {
-          if (_shouldKeepUnmatchedExistingAssembly(
-            assembly,
-            coveredSourceRoleIds,
-          )) {
-            refreshedAssemblies.add(assembly);
-          } else {
-            markRoleAssembliesChanged();
-          }
+      for (final role in normalizedExtraction.roles) {
+        final sourceRoleId = role.sourceRoleId.trim();
+        if (!_shouldCreateAiRoleAssembly(role)) {
           continue;
         }
-        appliedRoleIds.add(role.sourceRoleId);
+        final matchingAssemblies = <RoleAssembly>[
+          for (final assembly in mapping.roleAssemblies)
+            if (_roleForExistingSourceRoleId(
+                  assembly.sourceRoleId,
+                  rolesBySourceId,
+                  rolesByIdentityAlias,
+                )?.sourceRoleId ==
+                sourceRoleId)
+              assembly,
+        ]..sort(
+            (left, right) => _directSourceRoleMatchRank(
+              left.sourceRoleId,
+              right.sourceRoleId,
+              sourceRoleId,
+            ),
+          );
+        claimedAssemblies.addAll(matchingAssemblies);
+        if (matchingAssemblies.isEmpty) {
+          final stages = _aiRoleExtractionStages(
+            role: role,
+            usedStageIds: usedStageIds,
+            stageLabelFor: stageLabelFor,
+          );
+          if (stages.isEmpty) {
+            continue;
+          }
+          markRoleAssembliesChanged();
+          refreshedAssemblies.add(
+            RoleAssembly(
+              sourceRoleId: sourceRoleId,
+              displayLabel: role.displayName.trim().isEmpty
+                  ? sourceRoleId
+                  : role.displayName,
+              sourceName: role.displayName,
+              sourceAppearances: _roleAssemblySourceAppearancesFromAi(role),
+              stages: List.unmodifiable(stages),
+            ),
+          );
+          continue;
+        }
+
+        final directAssembly = matchingAssemblies.where(
+          (assembly) => assembly.sourceRoleId.trim() == sourceRoleId,
+        );
+        final baseAssembly = directAssembly.isNotEmpty
+            ? directAssembly.first
+            : matchingAssemblies.first;
+        final mergedExistingAssembly = RoleAssembly(
+          sourceRoleId: sourceRoleId,
+          displayLabel: baseAssembly.displayLabel,
+          sourceName: baseAssembly.sourceName,
+          sourceAppearances: baseAssembly.sourceAppearances,
+          stages: _uniqueLegacyStages(matchingAssemblies),
+        );
         final nextAssembly = _assemblyWithAiRoleExtraction(
-          assembly: assembly,
+          assembly: mergedExistingAssembly,
           role: role,
           usedStageIds: usedStageIds,
           stageLabelFor: stageLabelFor,
         );
-        if (assembly.displayLabel != nextAssembly.displayLabel ||
-            assembly.sourceName != nextAssembly.sourceName ||
+        if (matchingAssemblies.length != 1 ||
+            baseAssembly.sourceRoleId.trim() != sourceRoleId ||
+            baseAssembly.displayLabel != nextAssembly.displayLabel ||
+            baseAssembly.sourceName != nextAssembly.sourceName ||
             !_roleAssemblySourceAppearancesEqual(
-              assembly.sourceAppearances,
+              baseAssembly.sourceAppearances,
               nextAssembly.sourceAppearances,
             ) ||
-            !_roleAssemblyStagesEqual(assembly.stages, nextAssembly.stages)) {
+            !_roleAssemblyStagesEqual(
+              baseAssembly.stages,
+              nextAssembly.stages,
+            )) {
           markRoleAssembliesChanged();
         }
         refreshedAssemblies.add(nextAssembly);
       }
 
-      for (final role in normalizedExtraction.roles) {
-        final sourceRoleId = role.sourceRoleId.trim();
-        if (!_shouldCreateAiRoleAssembly(role) ||
-            appliedRoleIds.contains(sourceRoleId)) {
+      for (final assembly in mapping.roleAssemblies) {
+        if (claimedAssemblies.contains(assembly)) {
           continue;
         }
-        final stages = _aiRoleExtractionStages(
-          role: role,
-          usedStageIds: usedStageIds,
-          stageLabelFor: stageLabelFor,
-        );
-        if (stages.isEmpty) {
-          continue;
+        if (_shouldKeepUnmatchedExistingAssembly(
+          assembly,
+          coveredSourceRoleIds,
+        )) {
+          refreshedAssemblies.add(assembly);
+        } else {
+          markRoleAssembliesChanged();
         }
-        markRoleAssembliesChanged();
-        refreshedAssemblies.add(
-          RoleAssembly(
-            sourceRoleId: sourceRoleId,
-            displayLabel: role.displayName.trim().isEmpty
-                ? sourceRoleId
-                : role.displayName,
-            sourceName: role.displayName,
-            sourceAppearances: _roleAssemblySourceAppearancesFromAi(role),
-            stages: List.unmodifiable(stages),
-          ),
-        );
-        appliedRoleIds.add(sourceRoleId);
       }
       nextAssemblies = List.unmodifiable(refreshedAssemblies);
     }
@@ -166,17 +206,14 @@ class ScriptAiRoleAssemblyApplication {
     required List<ScriptRolePromptReplacement> existingReplacements,
     required List<ScriptAiExtractedRole> roles,
   }) {
-    final existingBySourceRoleId = <String, ScriptRolePromptReplacement>{};
-    for (final replacement in existingReplacements) {
-      final sourceRoleId = replacement.sourceRoleId.trim();
-      if (sourceRoleId.isNotEmpty &&
-          !existingBySourceRoleId.containsKey(sourceRoleId)) {
-        existingBySourceRoleId[sourceRoleId] = replacement;
-      }
-    }
+    final rolesBySourceId = <String, ScriptAiExtractedRole>{
+      for (final role in roles)
+        if (role.sourceRoleId.trim().isNotEmpty) role.sourceRoleId.trim(): role,
+    };
+    final rolesByIdentityAlias = _rolesByUniqueIdentityAlias(roles);
 
     final next = <ScriptRolePromptReplacement>[];
-    final appliedSourceRoleIds = <String>{};
+    final claimedReplacements = <ScriptRolePromptReplacement>{};
     for (final role in roles) {
       final sourceRoleId = role.sourceRoleId.trim();
       if (sourceRoleId.isEmpty) {
@@ -186,7 +223,31 @@ class ScriptAiRoleAssemblyApplication {
       if (promptTerms.isEmpty) {
         continue;
       }
-      final existing = existingBySourceRoleId[sourceRoleId];
+      final existingSources = <ScriptRolePromptReplacement>[
+        for (final replacement in existingReplacements)
+          if (_roleForExistingSourceRoleId(
+                replacement.sourceRoleId,
+                rolesBySourceId,
+                rolesByIdentityAlias,
+              )?.sourceRoleId ==
+              sourceRoleId)
+            replacement,
+      ]..sort(
+          (left, right) => _directSourceRoleMatchRank(
+            left.sourceRoleId,
+            right.sourceRoleId,
+            sourceRoleId,
+          ),
+        );
+      claimedReplacements.addAll(existingSources);
+      final directExisting = existingSources.where(
+        (replacement) => replacement.sourceRoleId.trim() == sourceRoleId,
+      );
+      final existing = directExisting.isNotEmpty
+          ? directExisting.first
+          : existingSources.isEmpty
+              ? null
+              : existingSources.first;
       final sourcePreview = _sourcePreviewForPromptTerms(promptTerms);
       next.add(
         ScriptRolePromptReplacement(
@@ -200,18 +261,18 @@ class ScriptAiRoleAssemblyApplication {
           targetIdentityPrompt: existing?.targetIdentityPrompt ?? '',
           rules: _promptReplacementRulesFromAiTerms(
             terms: promptTerms,
-            existingRules: existing?.rules ?? const [],
+            existingRules: List.unmodifiable([
+              for (final source in existingSources) ...source.rules,
+            ]),
             ruleIdFor: (term) =>
                 _rolePromptReplacementRuleId(sourceRoleId, term),
           ),
         ),
       );
-      appliedSourceRoleIds.add(sourceRoleId);
     }
 
     for (final existing in existingReplacements) {
-      final sourceRoleId = existing.sourceRoleId.trim();
-      if (appliedSourceRoleIds.contains(sourceRoleId)) {
+      if (claimedReplacements.contains(existing)) {
         continue;
       }
       final preserved = _rolePromptReplacementWithOnlyUserState(existing);
@@ -220,6 +281,103 @@ class ScriptAiRoleAssemblyApplication {
       }
     }
     return List.unmodifiable(next);
+  }
+
+  Map<String, ScriptAiExtractedRole> _rolesByUniqueIdentityAlias(
+    List<ScriptAiExtractedRole> roles,
+  ) {
+    final candidates = <String, List<ScriptAiExtractedRole>>{};
+    for (final role in roles) {
+      for (final alias in _identityAliasesForRole(role)) {
+        candidates.putIfAbsent(alias, () => []).add(role);
+      }
+    }
+    return {
+      for (final entry in candidates.entries)
+        if (entry.value.length == 1) entry.key: entry.value.single,
+    };
+  }
+
+  Set<String> _identityAliasesForRole(ScriptAiExtractedRole role) {
+    final aliases = <String>{};
+
+    void add(String value, {bool sourceRoleId = false}) {
+      final key = sourceRoleId
+          ? _sourceRoleIdentityAlias(value)
+          : _identityAlias(value);
+      if (key.isNotEmpty) {
+        aliases.add(key);
+      }
+    }
+
+    add(role.sourceRoleId, sourceRoleId: true);
+    add(role.canonicalName);
+    add(role.displayName.split('/').first);
+    for (final tag in role.rawIdentityTags) {
+      add(tag);
+    }
+    for (final term in role.promptTerms) {
+      if (term.category == PromptTagCategory.character) {
+        add(term.text);
+      }
+    }
+    for (final stage in role.stages) {
+      for (final term in PromptTagProcessor.splitWorkshopTags(stage.identity)) {
+        add(PromptTagProcessor.cleanTagDisplay(term));
+      }
+    }
+    return aliases;
+  }
+
+  ScriptAiExtractedRole? _roleForExistingSourceRoleId(
+    String sourceRoleId,
+    Map<String, ScriptAiExtractedRole> rolesBySourceId,
+    Map<String, ScriptAiExtractedRole> rolesByIdentityAlias,
+  ) {
+    final direct = rolesBySourceId[sourceRoleId.trim()];
+    if (direct != null) {
+      return direct;
+    }
+    return rolesByIdentityAlias[_sourceRoleIdentityAlias(sourceRoleId)];
+  }
+
+  String _sourceRoleIdentityAlias(String value) {
+    final key = _identityAlias(value);
+    return key.replaceFirst(RegExp(r'^role-'), '');
+  }
+
+  String _identityAlias(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  int _directSourceRoleMatchRank(
+    String left,
+    String right,
+    String sourceRoleId,
+  ) {
+    final leftDirect = left.trim() == sourceRoleId ? 0 : 1;
+    final rightDirect = right.trim() == sourceRoleId ? 0 : 1;
+    return leftDirect.compareTo(rightDirect);
+  }
+
+  List<RoleAssemblyStage> _uniqueLegacyStages(
+    List<RoleAssembly> assemblies,
+  ) {
+    final stages = <RoleAssemblyStage>[];
+    final ids = <String>{};
+    for (final assembly in assemblies) {
+      for (final stage in assembly.stages) {
+        if (ids.add(stage.id)) {
+          stages.add(stage);
+        }
+      }
+    }
+    return List.unmodifiable(stages);
   }
 
   List<ScriptScenePromptReplacement> _scenePromptReplacementsFromAi({

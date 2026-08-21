@@ -7,6 +7,7 @@ class WorkspacePaths {
   static const loras = 'library/loras.json';
   static const assetFavorites = 'library/favorites.json';
   static const assetCatalogCache = 'library/asset_catalog_cache.json';
+  static const promptAssetCategories = 'library/prompt_asset_categories.json';
   static const codexEntries = 'library/codex/entries.jsonl';
   static const promptReplaceRules = 'configs/prompt_replace_rules.json';
   static const filterRules = 'configs/filter_rules.json';
@@ -69,6 +70,7 @@ class WorkspacePaths {
         promptChunks,
         loras,
         assetFavorites,
+        promptAssetCategories,
         promptReplaceRules,
         galleryRecords,
         scriptRecastExhibitionCategories,

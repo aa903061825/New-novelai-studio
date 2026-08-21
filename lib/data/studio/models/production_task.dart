@@ -75,6 +75,10 @@ class ProductionTask {
   final int? rating;
   final DateTime? ratedAt;
 
+  /// Timestamp marking a completed task as hidden from the production queue.
+  /// The task remains persisted for Script Exhibition and gallery indexing.
+  final DateTime? queueDismissedAt;
+
   ProductionTask({
     required this.id,
     required this.planId,
@@ -94,6 +98,7 @@ class ProductionTask {
     this.completedAt,
     this.rating,
     this.ratedAt,
+    this.queueDismissedAt,
   })  : payload = _immutableMap(payload),
         payloadFingerprint =
             payloadFingerprint ?? fingerprintJson(_canonicalJson(payload));
@@ -122,6 +127,7 @@ class ProductionTask {
     DateTime? completedAt,
     int? rating,
     DateTime? ratedAt,
+    DateTime? queueDismissedAt,
   }) {
     return ProductionTask(
       id: id,
@@ -150,6 +156,7 @@ class ProductionTask {
       completedAt: completedAt,
       rating: rating,
       ratedAt: ratedAt,
+      queueDismissedAt: queueDismissedAt,
     );
   }
 
@@ -169,6 +176,7 @@ class ProductionTask {
     DateTime? completedAt,
     int? rating,
     DateTime? ratedAt,
+    DateTime? queueDismissedAt,
   }) {
     return ProductionTask(
       id: id,
@@ -187,6 +195,7 @@ class ProductionTask {
       completedAt: completedAt,
       rating: rating,
       ratedAt: ratedAt,
+      queueDismissedAt: queueDismissedAt,
     );
   }
 
@@ -209,12 +218,14 @@ class ProductionTask {
     DateTime? completedAt,
     int? rating,
     DateTime? ratedAt,
+    DateTime? queueDismissedAt,
     bool clearOutputImagePath = false,
     bool clearError = false,
     bool clearStartedAt = false,
     bool clearCompletedAt = false,
     bool clearRating = false,
     bool clearRatedAt = false,
+    bool clearQueueDismissedAt = false,
   }) {
     return ProductionTask(
       id: id ?? this.id,
@@ -236,8 +247,13 @@ class ProductionTask {
       completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
       rating: clearRating ? null : rating ?? this.rating,
       ratedAt: clearRatedAt ? null : ratedAt ?? this.ratedAt,
+      queueDismissedAt: clearQueueDismissedAt
+          ? null
+          : queueDismissedAt ?? this.queueDismissedAt,
     );
   }
+
+  bool get isQueueDismissed => queueDismissedAt != null;
 
   factory ProductionTask.fromJson(dynamic json) {
     final map = _asMap(json, 'production task');
@@ -279,6 +295,10 @@ class ProductionTask {
         map['ratedAt'],
         'productionTask.ratedAt',
       ),
+      queueDismissedAt: _optionalDateTime(
+        map['queueDismissedAt'],
+        'productionTask.queueDismissedAt',
+      ),
     );
   }
 
@@ -303,6 +323,8 @@ class ProductionTask {
           'completedAt': completedAt!.toUtc().toIso8601String(),
         if (rating != null) 'rating': rating,
         if (ratedAt != null) 'ratedAt': ratedAt!.toUtc().toIso8601String(),
+        if (queueDismissedAt != null)
+          'queueDismissedAt': queueDismissedAt!.toUtc().toIso8601String(),
       };
 }
 
@@ -311,6 +333,14 @@ class ProductionPlanExecutionSettings {
   final String sampler;
   final int? steps;
   final double? scale;
+  final double? cfgRescale;
+  final String noiseSchedule;
+  final bool? sm;
+  final bool? smDyn;
+  final bool? dynamicThresholding;
+  final bool? varietyPlus;
+  final bool? autoPosition;
+  final bool? legacyUc;
   final int? width;
   final int? height;
   final int? seed;
@@ -319,6 +349,14 @@ class ProductionPlanExecutionSettings {
   final bool useOriginalSampler;
   final bool useOriginalSteps;
   final bool useOriginalScale;
+  final bool useOriginalCfgRescale;
+  final bool useOriginalNoiseSchedule;
+  final bool useOriginalSm;
+  final bool useOriginalSmDyn;
+  final bool useOriginalDynamicThresholding;
+  final bool useOriginalVarietyPlus;
+  final bool useOriginalAutoPosition;
+  final bool useOriginalLegacyUc;
   final bool useOriginalSeed;
   final int requestIntervalSeconds;
   final int requestIntervalRandomRangeSeconds;
@@ -332,6 +370,14 @@ class ProductionPlanExecutionSettings {
     this.sampler = '',
     this.steps,
     this.scale,
+    this.cfgRescale,
+    this.noiseSchedule = '',
+    this.sm,
+    this.smDyn,
+    this.dynamicThresholding,
+    this.varietyPlus,
+    this.autoPosition,
+    this.legacyUc,
     this.width,
     this.height,
     this.seed = -1,
@@ -340,6 +386,14 @@ class ProductionPlanExecutionSettings {
     this.useOriginalSampler = false,
     this.useOriginalSteps = false,
     this.useOriginalScale = false,
+    this.useOriginalCfgRescale = false,
+    this.useOriginalNoiseSchedule = false,
+    this.useOriginalSm = false,
+    this.useOriginalSmDyn = false,
+    this.useOriginalDynamicThresholding = false,
+    this.useOriginalVarietyPlus = false,
+    this.useOriginalAutoPosition = false,
+    this.useOriginalLegacyUc = false,
     this.useOriginalSeed = false,
     this.requestIntervalSeconds = 0,
     this.requestIntervalRandomRangeSeconds = 0,
@@ -369,6 +423,39 @@ class ProductionPlanExecutionSettings {
       scale: _optionalDouble(
         map['scale'],
         'productionPlan.executionSettings.scale',
+      ),
+      cfgRescale: _optionalDouble(
+        map['cfgRescale'] ?? map['cfg_rescale'],
+        'productionPlan.executionSettings.cfgRescale',
+      ),
+      noiseSchedule: _optionalString(
+            map['noiseSchedule'] ?? map['noise_schedule'],
+            'productionPlan.executionSettings.noiseSchedule',
+          ) ??
+          '',
+      sm: _optionalBool(
+        map['sm'],
+        'productionPlan.executionSettings.sm',
+      ),
+      smDyn: _optionalBool(
+        map['smDyn'] ?? map['sm_dyn'],
+        'productionPlan.executionSettings.smDyn',
+      ),
+      dynamicThresholding: _optionalBool(
+        map['dynamicThresholding'] ?? map['dynamic_thresholding'],
+        'productionPlan.executionSettings.dynamicThresholding',
+      ),
+      varietyPlus: _optionalBool(
+        map['varietyPlus'] ?? map['variety_plus'],
+        'productionPlan.executionSettings.varietyPlus',
+      ),
+      autoPosition: _optionalBool(
+        map['autoPosition'] ?? map['auto_position'],
+        'productionPlan.executionSettings.autoPosition',
+      ),
+      legacyUc: _optionalBool(
+        map['legacyUc'] ?? map['legacy_uc'],
+        'productionPlan.executionSettings.legacyUc',
       ),
       width: _optionalInt(
         map['width'],
@@ -402,6 +489,54 @@ class ProductionPlanExecutionSettings {
       useOriginalScale: _boolValue(
         map['useOriginalScale'],
         'productionPlan.executionSettings.useOriginalScale',
+      ),
+      useOriginalCfgRescale: _boolValueWithDefault(
+        map,
+        'useOriginalCfgRescale',
+        true,
+        'productionPlan.executionSettings.useOriginalCfgRescale',
+      ),
+      useOriginalNoiseSchedule: _boolValueWithDefault(
+        map,
+        'useOriginalNoiseSchedule',
+        true,
+        'productionPlan.executionSettings.useOriginalNoiseSchedule',
+      ),
+      useOriginalSm: _boolValueWithDefault(
+        map,
+        'useOriginalSm',
+        true,
+        'productionPlan.executionSettings.useOriginalSm',
+      ),
+      useOriginalSmDyn: _boolValueWithDefault(
+        map,
+        'useOriginalSmDyn',
+        true,
+        'productionPlan.executionSettings.useOriginalSmDyn',
+      ),
+      useOriginalDynamicThresholding: _boolValueWithDefault(
+        map,
+        'useOriginalDynamicThresholding',
+        true,
+        'productionPlan.executionSettings.useOriginalDynamicThresholding',
+      ),
+      useOriginalVarietyPlus: _boolValueWithDefault(
+        map,
+        'useOriginalVarietyPlus',
+        true,
+        'productionPlan.executionSettings.useOriginalVarietyPlus',
+      ),
+      useOriginalAutoPosition: _boolValueWithDefault(
+        map,
+        'useOriginalAutoPosition',
+        true,
+        'productionPlan.executionSettings.useOriginalAutoPosition',
+      ),
+      useOriginalLegacyUc: _boolValueWithDefault(
+        map,
+        'useOriginalLegacyUc',
+        true,
+        'productionPlan.executionSettings.useOriginalLegacyUc',
       ),
       useOriginalSeed: _boolValue(
         map['useOriginalSeed'],
@@ -446,6 +581,14 @@ class ProductionPlanExecutionSettings {
         'sampler': sampler,
         'steps': steps,
         'scale': scale,
+        'cfgRescale': cfgRescale,
+        'noiseSchedule': noiseSchedule,
+        'sm': sm,
+        'smDyn': smDyn,
+        'dynamicThresholding': dynamicThresholding,
+        'varietyPlus': varietyPlus,
+        'autoPosition': autoPosition,
+        'legacyUc': legacyUc,
         'width': width,
         'height': height,
         'seed': seed,
@@ -454,6 +597,14 @@ class ProductionPlanExecutionSettings {
         'useOriginalSampler': useOriginalSampler,
         'useOriginalSteps': useOriginalSteps,
         'useOriginalScale': useOriginalScale,
+        'useOriginalCfgRescale': useOriginalCfgRescale,
+        'useOriginalNoiseSchedule': useOriginalNoiseSchedule,
+        'useOriginalSm': useOriginalSm,
+        'useOriginalSmDyn': useOriginalSmDyn,
+        'useOriginalDynamicThresholding': useOriginalDynamicThresholding,
+        'useOriginalVarietyPlus': useOriginalVarietyPlus,
+        'useOriginalAutoPosition': useOriginalAutoPosition,
+        'useOriginalLegacyUc': useOriginalLegacyUc,
         'useOriginalSeed': useOriginalSeed,
         'requestIntervalSeconds': requestIntervalSeconds,
         'requestIntervalRandomRangeSeconds': requestIntervalRandomRangeSeconds,
@@ -906,6 +1057,25 @@ bool _boolValue(dynamic value, String field) {
     return value;
   }
   throw FormatException('$field must be a boolean.');
+}
+
+bool? _optionalBool(dynamic value, String field) {
+  if (value == null) {
+    return null;
+  }
+  return _boolValue(value, field);
+}
+
+bool _boolValueWithDefault(
+  Map<String, dynamic> map,
+  String key,
+  bool defaultValue,
+  String field,
+) {
+  if (!map.containsKey(key)) {
+    return defaultValue;
+  }
+  return _boolValue(map[key], field);
 }
 
 int _positiveIntOrDefault(int? value, int defaultValue) {

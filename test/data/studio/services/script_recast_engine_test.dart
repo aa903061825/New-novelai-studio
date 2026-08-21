@@ -1144,6 +1144,94 @@ void main() {
     });
 
     test(
+      'role layer metadata does not change resolved payloads',
+      () {
+        final script = _scriptWithCharacterCaption(
+          'alice, red jacket, standing',
+        );
+        final baselineMapping = RecastMapping.defaults(script.id).copyWith(
+          rolePromptReplacements: const [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Alice',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'rule-red-jacket',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'term-red-jacket',
+                      text: 'red jacket',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'white dress',
+                ),
+              ],
+            ),
+          ],
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Alice',
+              stages: [
+                RoleAssemblyStage(
+                  id: 'outfit-stage',
+                  label: '日常服装',
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        );
+        final layeredMapping = baselineMapping.copyWith(
+          rolePromptReplacements: [
+            baselineMapping.rolePromptReplacements.single.copyWith(
+              layerOverrides: const [
+                ScriptRoleReplacementRuleLayerOverride(
+                  ruleId: 'rule-red-jacket',
+                  kind: ScriptRoleReplacementRuleLayerKind.stage,
+                  stageId: 'outfit-stage',
+                ),
+              ],
+            ),
+          ],
+          roleAssemblies: const [
+            RoleAssembly(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Alice',
+              stages: [
+                RoleAssemblyStage(
+                  id: 'outfit-stage',
+                  label: '重新命名的服装阶段',
+                  frameIndexes: [7, 8],
+                ),
+              ],
+            ),
+          ],
+        );
+        final engine = ScriptRecastEngine();
+
+        final baseline = engine.resolvePayloads(
+          script: script,
+          mapping: baselineMapping,
+          characters: const [],
+          artistChains: const [],
+        );
+        final layered = engine.resolvePayloads(
+          script: script,
+          mapping: layeredMapping,
+          characters: const [],
+          artistChains: const [],
+        );
+
+        expect(
+          layered.frames.map((frame) => frame.payload).toList(),
+          baseline.frames.map((frame) => frame.payload).toList(),
+        );
+      },
+    );
+
+    test(
       'rolePromptReplacements skip roleAssemblies but preserve other roleSwaps',
       () {
         final script = _scriptWithFramePrompts(

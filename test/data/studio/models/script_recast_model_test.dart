@@ -440,6 +440,52 @@ void main() {
       expect(rule.effectiveAction, ScriptPromptReplacementAction.delete);
       expect(rule.hasEffect, isTrue);
     });
+
+    test('round trips role replacement layer overrides', () {
+      const replacement = ScriptRolePromptReplacement(
+        sourceRoleId: 'slot-0',
+        displayLabel: '女主',
+        layerOverrides: [
+          ScriptRoleReplacementRuleLayerOverride(
+            ruleId: 'identity',
+            kind: ScriptRoleReplacementRuleLayerKind.shared,
+          ),
+          ScriptRoleReplacementRuleLayerOverride(
+            ruleId: 'dress',
+            kind: ScriptRoleReplacementRuleLayerKind.stage,
+            stageId: 'stage-evening',
+          ),
+          ScriptRoleReplacementRuleLayerOverride(
+            ruleId: 'mixed',
+            kind: ScriptRoleReplacementRuleLayerKind.pending,
+          ),
+        ],
+      );
+
+      final restored =
+          ScriptRolePromptReplacement.fromJson(replacement.toJson());
+
+      expect(restored.toJson(), replacement.toJson());
+      expect(
+        restored.layerOverrides.map((override) => override.kind),
+        [
+          ScriptRoleReplacementRuleLayerKind.shared,
+          ScriptRoleReplacementRuleLayerKind.stage,
+          ScriptRoleReplacementRuleLayerKind.pending,
+        ],
+      );
+      expect(restored.layerOverrides[1].stageId, 'stage-evening');
+    });
+
+    test('rejects malformed stage layer overrides', () {
+      expect(
+        () => ScriptRoleReplacementRuleLayerOverride.fromJson(const {
+          'ruleId': 'dress',
+          'kind': 'stage',
+        }),
+        throwsFormatException,
+      );
+    });
   });
 
   group('RecastRun', () {

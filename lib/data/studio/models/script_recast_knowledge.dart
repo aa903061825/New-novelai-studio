@@ -143,6 +143,85 @@ class RecastRoleCandidate {
       };
 }
 
+class RecastMappingVariant {
+  final String id;
+  final String name;
+  final String scriptId;
+  final String sourceFingerprint;
+  final String sourceContentFingerprint;
+  final DateTime capturedAt;
+  final RecastMapping mapping;
+  final Map<String, String> targetCharacterNamesByRoleId;
+
+  const RecastMappingVariant({
+    required this.id,
+    required this.name,
+    required this.scriptId,
+    required this.sourceFingerprint,
+    this.sourceContentFingerprint = '',
+    required this.capturedAt,
+    required this.mapping,
+    this.targetCharacterNamesByRoleId = const {},
+  });
+
+  factory RecastMappingVariant.fromJson(Map<String, dynamic> json) {
+    final mappingJson =
+        Map<String, dynamic>.from(json['mapping'] as Map? ?? const {});
+    return RecastMappingVariant(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      scriptId: json['scriptId'] as String? ?? '',
+      sourceFingerprint: json['sourceFingerprint'] as String? ?? '',
+      sourceContentFingerprint:
+          json['sourceContentFingerprint'] as String? ?? '',
+      capturedAt: DateTime.tryParse(json['capturedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      mapping: RecastMapping.fromJson(mappingJson),
+      targetCharacterNamesByRoleId: _normalizedStringMap(
+        json['targetCharacterNamesByRoleId'],
+      ),
+    );
+  }
+
+  RecastMappingVariant copyWith({
+    String? id,
+    String? name,
+    String? scriptId,
+    String? sourceFingerprint,
+    String? sourceContentFingerprint,
+    DateTime? capturedAt,
+    RecastMapping? mapping,
+    Map<String, String>? targetCharacterNamesByRoleId,
+  }) {
+    return RecastMappingVariant(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      scriptId: scriptId ?? this.scriptId,
+      sourceFingerprint: sourceFingerprint ?? this.sourceFingerprint,
+      sourceContentFingerprint:
+          sourceContentFingerprint ?? this.sourceContentFingerprint,
+      capturedAt: capturedAt ?? this.capturedAt,
+      mapping: mapping ?? this.mapping,
+      targetCharacterNamesByRoleId:
+          targetCharacterNamesByRoleId ?? this.targetCharacterNamesByRoleId,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'scriptId': scriptId,
+        'sourceFingerprint': sourceFingerprint,
+        if (sourceContentFingerprint.trim().isNotEmpty)
+          'sourceContentFingerprint': sourceContentFingerprint,
+        'capturedAt': capturedAt.toUtc().toIso8601String(),
+        'mapping': mapping.toJson(),
+        if (targetCharacterNamesByRoleId.isNotEmpty)
+          'targetCharacterNamesByRoleId':
+              stableJsonValue(targetCharacterNamesByRoleId),
+      };
+}
+
 class RecastScriptCache {
   final String scriptId;
   final String scriptName;
@@ -155,10 +234,13 @@ class RecastScriptCache {
   final ScriptAiRoleExtraction aiRoleExtraction;
   final List<ScriptAiRoleExtraction> aiRoleExtractionChunks;
   final bool aiRoleExtractionDraftCollapsed;
+  final bool aiRoleExtractionFinalized;
   final String scriptBlockWords;
   final Map<String, dynamic> knowledgeSnapshot;
   final List<String> exhibitionCategoryNames;
   final Map<String, dynamic> scriptSnapshot;
+  final List<RecastMappingVariant> mappingVariants;
+  final String? activeMappingVariantId;
 
   const RecastScriptCache({
     required this.scriptId,
@@ -172,13 +254,19 @@ class RecastScriptCache {
     this.aiRoleExtraction = const ScriptAiRoleExtraction(),
     this.aiRoleExtractionChunks = const [],
     this.aiRoleExtractionDraftCollapsed = false,
+    this.aiRoleExtractionFinalized = false,
     this.scriptBlockWords = '',
     this.knowledgeSnapshot = const {},
     this.exhibitionCategoryNames = const [],
     this.scriptSnapshot = const {},
+    this.mappingVariants = const [],
+    this.activeMappingVariantId,
   });
 
   factory RecastScriptCache.fromJson(Map<String, dynamic> json) {
+    final mappingVariants = _mappingVariantsFromJson(json['mappingVariants']);
+    final activeMappingVariantId =
+        (json['activeMappingVariantId'] as String?)?.trim();
     return RecastScriptCache(
       scriptId: json['scriptId'] as String? ?? '',
       scriptName: json['scriptName'] as String? ?? '',
@@ -208,6 +296,7 @@ class RecastScriptCache {
       ],
       aiRoleExtractionDraftCollapsed:
           json['aiRoleExtractionDraftCollapsed'] == true,
+      aiRoleExtractionFinalized: json['aiRoleExtractionFinalized'] == true,
       scriptBlockWords: json['scriptBlockWords'] as String? ?? '',
       knowledgeSnapshot:
           Map<String, dynamic>.from(json['knowledgeSnapshot'] as Map? ?? {}),
@@ -216,6 +305,63 @@ class RecastScriptCache {
       ),
       scriptSnapshot:
           Map<String, dynamic>.from(json['scriptSnapshot'] as Map? ?? {}),
+      mappingVariants: mappingVariants,
+      activeMappingVariantId: activeMappingVariantId != null &&
+              activeMappingVariantId.isNotEmpty &&
+              mappingVariants.any(
+                (variant) => variant.id == activeMappingVariantId,
+              )
+          ? activeMappingVariantId
+          : null,
+    );
+  }
+
+  RecastScriptCache copyWith({
+    String? scriptId,
+    String? scriptName,
+    String? sourceRootPath,
+    String? sourceFingerprint,
+    String? sourceContentFingerprint,
+    DateTime? updatedAt,
+    List<RecastRoleCandidate>? roleCandidates,
+    RecastMapping? mapping,
+    ScriptAiRoleExtraction? aiRoleExtraction,
+    List<ScriptAiRoleExtraction>? aiRoleExtractionChunks,
+    bool? aiRoleExtractionDraftCollapsed,
+    bool? aiRoleExtractionFinalized,
+    String? scriptBlockWords,
+    Map<String, dynamic>? knowledgeSnapshot,
+    List<String>? exhibitionCategoryNames,
+    Map<String, dynamic>? scriptSnapshot,
+    List<RecastMappingVariant>? mappingVariants,
+    Object? activeMappingVariantId = _unset,
+  }) {
+    return RecastScriptCache(
+      scriptId: scriptId ?? this.scriptId,
+      scriptName: scriptName ?? this.scriptName,
+      sourceRootPath: sourceRootPath ?? this.sourceRootPath,
+      sourceFingerprint: sourceFingerprint ?? this.sourceFingerprint,
+      sourceContentFingerprint:
+          sourceContentFingerprint ?? this.sourceContentFingerprint,
+      updatedAt: updatedAt ?? this.updatedAt,
+      roleCandidates: roleCandidates ?? this.roleCandidates,
+      mapping: mapping ?? this.mapping,
+      aiRoleExtraction: aiRoleExtraction ?? this.aiRoleExtraction,
+      aiRoleExtractionChunks:
+          aiRoleExtractionChunks ?? this.aiRoleExtractionChunks,
+      aiRoleExtractionDraftCollapsed:
+          aiRoleExtractionDraftCollapsed ?? this.aiRoleExtractionDraftCollapsed,
+      aiRoleExtractionFinalized:
+          aiRoleExtractionFinalized ?? this.aiRoleExtractionFinalized,
+      scriptBlockWords: scriptBlockWords ?? this.scriptBlockWords,
+      knowledgeSnapshot: knowledgeSnapshot ?? this.knowledgeSnapshot,
+      exhibitionCategoryNames:
+          exhibitionCategoryNames ?? this.exhibitionCategoryNames,
+      scriptSnapshot: scriptSnapshot ?? this.scriptSnapshot,
+      mappingVariants: mappingVariants ?? this.mappingVariants,
+      activeMappingVariantId: identical(activeMappingVariantId, _unset)
+          ? this.activeMappingVariantId
+          : activeMappingVariantId as String?,
     );
   }
 
@@ -241,10 +387,16 @@ class RecastScriptCache {
             aiRoleExtractionChunks.map((entry) => entry.toJson()).toList(),
       if (aiRoleExtractionDraftCollapsed)
         'aiRoleExtractionDraftCollapsed': true,
+      if (aiRoleExtractionFinalized) 'aiRoleExtractionFinalized': true,
       if (scriptBlockWords.trim().isNotEmpty)
         'scriptBlockWords': scriptBlockWords,
       if (scriptSnapshot.isNotEmpty)
         'scriptSnapshot': stableJsonValue(scriptSnapshot),
+      if (mappingVariants.isNotEmpty)
+        'mappingVariants':
+            mappingVariants.map((variant) => variant.toJson()).toList(),
+      if (activeMappingVariantId != null)
+        'activeMappingVariantId': activeMappingVariantId,
     };
   }
 }
@@ -321,6 +473,40 @@ List<String> _normalizedStringList(dynamic value) {
     namesByKey.putIfAbsent(normalized.toLowerCase(), () => normalized);
   }
   return List.unmodifiable(namesByKey.values);
+}
+
+Map<String, String> _normalizedStringMap(dynamic value) {
+  if (value is! Map) return const {};
+  final result = <String, String>{};
+  for (final entry in value.entries) {
+    final key = entry.key.toString().trim();
+    final text = entry.value.toString().trim();
+    if (key.isNotEmpty && text.isNotEmpty) {
+      result[key] = text;
+    }
+  }
+  return Map.unmodifiable(result);
+}
+
+List<RecastMappingVariant> _mappingVariantsFromJson(dynamic value) {
+  if (value is! List) return const [];
+  final variants = <RecastMappingVariant>[];
+  for (final item in value) {
+    if (item is! Map) continue;
+    try {
+      final variant = RecastMappingVariant.fromJson(
+        Map<String, dynamic>.from(item),
+      );
+      if (variant.id.trim().isNotEmpty) {
+        variants.add(variant);
+      }
+    } on FormatException {
+      // A malformed optional version must not make the working cache unreadable.
+    } on TypeError {
+      // Keep legacy cache loading resilient to partially-written version data.
+    }
+  }
+  return List.unmodifiable(variants);
 }
 
 List<String> _legacyCategoryNamesFromScriptSnapshot(

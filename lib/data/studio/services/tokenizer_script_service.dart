@@ -123,14 +123,21 @@ class TokenizerScriptService {
   }
 
   Future<void> removeScript(String scriptId) async {
-    final normalizedId = scriptId.trim();
-    if (normalizedId.isEmpty) return;
+    await removeScripts([scriptId]);
+  }
+
+  Future<void> removeScripts(Iterable<String> scriptIds) async {
+    final normalizedIds = scriptIds
+        .map((scriptId) => scriptId.trim())
+        .where((scriptId) => scriptId.isNotEmpty)
+        .toSet();
+    if (normalizedIds.isEmpty) return;
     final scripts = await workspaceService.loadTokenizerScripts();
-    await workspaceService.saveTokenizerScripts(
-      scripts
-          .where((script) => script.scriptId != normalizedId)
-          .toList(growable: false),
-    );
+    final retainedScripts = scripts
+        .where((script) => !normalizedIds.contains(script.scriptId.trim()))
+        .toList(growable: false);
+    if (retainedScripts.length == scripts.length) return;
+    await workspaceService.saveTokenizerScripts(retainedScripts);
   }
 
   Future<TokenizerScript> addImageAttachmentVersion(

@@ -15,6 +15,7 @@ import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/prompt_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
+import 'package:novel_studio/data/models/vibe_config_v4.dart';
 import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
 import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
@@ -939,6 +940,49 @@ void main() {
     expect(viewmodel.nextCommandCallCount, 1);
   });
 
+  test('single image generation encodes a changed Vibe before generation',
+      () async {
+    final viewmodel = _TestGenerationPageViewmodel(
+      responses: [
+        ApiResponse(
+          status: '201',
+          data: Uint8List.fromList(const [4, 5, 6]),
+        ),
+        ApiResponse(status: '200', data: Uint8List(0)),
+      ],
+    );
+    viewmodel.payloadConfig.paramConfig.model = 'nai-diffusion-4-5-full';
+    viewmodel.payloadConfig.vibeConfigListV4 = [
+      VibeConfigV4(
+        fileName: 'editable-vibe',
+        vibeB64: 'old-encoding',
+        infoExtracted: 0.42,
+        encodedInfoExtracted: 0.76,
+        referenceStrength: 0.3,
+        imageBytes: Uint8List.fromList(const [1, 2, 3]),
+      ),
+    ];
+
+    viewmodel.startSingleImageGeneration();
+    for (var i = 0; i < 100 && viewmodel.requestEndpoints.length < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await _waitForBatchToStop(viewmodel);
+
+    expect(viewmodel.requestEndpoints, [
+      'https://image.novelai.net/ai/encode-vibe',
+      'https://image.novelai.net/ai/generate-image',
+    ]);
+    expect(
+      viewmodel.requestPayloads.first['information_extracted'],
+      0.42,
+    );
+    expect(
+      viewmodel.payloadConfig.vibeConfigListV4.single.vibeB64,
+      base64Encode(const [4, 5, 6]),
+    );
+  });
+
   test(
     'single image generation stops after failure instead of cooling down',
     () async {
@@ -1090,6 +1134,30 @@ void main() {
       expect(viewmodel.commandStatus.isBatchActive.value, isFalse);
     },
   );
+
+  test('generation preflight errors notify result listeners', () async {
+    final viewmodel = _TestGenerationPageViewmodel();
+    viewmodel.payloadConfig.paramConfig
+      ..enableBatchResolution = true
+      ..batchResolutionText = '';
+    var notificationCount = 0;
+    viewmodel.addListener(() => notificationCount++);
+
+    viewmodel.startBatchFromScratch();
+    for (var i = 0; i < 100; i++) {
+      if (viewmodel.commandList case [final command]) {
+        if (!command.isExecutingSync.value && !command.isExecuting.value) {
+          break;
+        }
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    expect(viewmodel.commandList, hasLength(1));
+    expect(viewmodel.commandList.single.value.info, isNotEmpty);
+    expect(notificationCount, greaterThan(0));
+    expect(viewmodel.commandStatus.isBatchActive.value, isFalse);
+  });
 
   test('setCooldown can sample the minimum jitter endpoint', () {
     final viewmodel = _TestGenerationPageViewmodel(

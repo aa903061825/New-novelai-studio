@@ -290,7 +290,7 @@ before writing to disk.
 
 ```powershell
 node tool/audit_script_recast_cache_integrity.mjs `
-  --cache-dir "C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/script_recast/cache" `
+  --cache-dir "C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio/script_recast/cache" `
   --source-root "E:/NAI的脚本群/作品集" `
   --report-path "build/<slug>_cache_integrity_final.json"
 ```
@@ -306,7 +306,7 @@ Expected final summary:
 
 ```powershell
 node tool/audit_script_recast_ai_cache_frames.mjs `
-  --cache-dir "C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/script_recast/cache" `
+  --cache-dir "C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio/script_recast/cache" `
   --report-path "build/<slug>_ai_cache_frames_final.json"
 ```
 
@@ -318,7 +318,7 @@ Expected final summary:
 
 ```powershell
 node tool/audit_script_recast_stage_duplicates.mjs `
-  --cache-dir "C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/script_recast/cache" `
+  --cache-dir "C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio/script_recast/cache" `
   --report-path "build/<slug>_stage_duplicates_final.json"
 ```
 
@@ -329,7 +329,7 @@ Expected final summary:
 
 ```powershell
 node tool/repair_script_recast_role_field_proofread_20260610.mjs `
-  --cache-dir "C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio/script_recast/cache" `
+  --cache-dir "C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio/script_recast/cache" `
   --report "build/<slug>_role_field_proofread_dry_run.json"
 ```
 

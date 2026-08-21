@@ -1150,4 +1150,179 @@ void main() {
     expect(result.mapping.roleAssemblies, hasLength(1));
     expect(result.mapping.roleAssemblies.single.sourceRoleId, 'ai-role-0');
   });
+
+  test(
+    'rebases stale same-character variant groups onto the surviving AI role',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-mash',
+        scriptId: 'script-mash',
+        roleAssemblies: [
+          RoleAssembly(
+            sourceRoleId: 'role-mash-kyrielight-demi-servant',
+            displayLabel: 'Mash demi-servant',
+            stages: [
+              RoleAssemblyStage(
+                id: 'mash-default',
+                label: '默认',
+                targetCharacterId: 'target-main',
+              ),
+            ],
+          ),
+          RoleAssembly(
+            sourceRoleId: 'role-mash-kyrielight',
+            displayLabel: 'Mash',
+            stages: [
+              RoleAssemblyStage(
+                id: 'mash-base',
+                label: '裸体',
+                targetCharacterId: 'target-stale-base',
+              ),
+            ],
+          ),
+          RoleAssembly(
+            sourceRoleId: 'role-mash-kyrielight-dangerous-beast',
+            displayLabel: 'Mash dangerous beast',
+            stages: [
+              RoleAssemblyStage(
+                id: 'mash-dangerous-beast',
+                label: '危险野兽',
+                targetCharacterId: 'target-stale-variant',
+              ),
+            ],
+          ),
+        ],
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'role-mash-kyrielight-demi-servant',
+            displayLabel: 'Mash demi-servant',
+            targetCharacterId: 'target-main',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'rule-mash-demi',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'mash-demi',
+                    text: 'mash_kyrielight_(demi-servant)',
+                    category: PromptTagCategory.character,
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.replace,
+                targetPrompt: 'target main prompt',
+              ),
+            ],
+          ),
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'role-mash-kyrielight',
+            displayLabel: 'Mash',
+            targetCharacterId: 'target-stale-base',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'rule-mash-base',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'mash-base',
+                    text: 'mash_kyrielight',
+                    category: PromptTagCategory.character,
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.replace,
+                targetPrompt: 'stale base prompt',
+              ),
+            ],
+          ),
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'role-mash-kyrielight-dangerous-beast',
+            displayLabel: 'Mash dangerous beast',
+            targetCharacterId: 'target-stale-variant',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'rule-mash-dangerous-beast',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'mash-dangerous-beast',
+                    text: 'mash_kyrielight_(dangerous_beast)',
+                    category: PromptTagCategory.character,
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.replace,
+                targetPrompt: 'stale variant prompt',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-mash-kyrielight-demi-servant',
+              sourceKind: 'cross_slot',
+              displayName: 'mash_kyrielight_(demi-servant) / 玛修·基列莱特（亚从者）',
+              canonicalName: 'mash kyrielight',
+              rawIdentityTags: [
+                'mash_kyrielight_(demi-servant)',
+                'mash_kyrielight',
+                'mash_kyrielight_(dangerous_beast)',
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'mash-default',
+                  label: '默认',
+                  frameIndexes: [1, 2, 3],
+                  identity: 'mash_kyrielight_(demi-servant)',
+                ),
+              ],
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'mash-demi',
+                  text: 'mash_kyrielight_(demi-servant)',
+                  category: PromptTagCategory.character,
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'mash-base',
+                  text: 'mash_kyrielight',
+                  category: PromptTagCategory.character,
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'mash-dangerous-beast',
+                  text: 'mash_kyrielight_(dangerous_beast)',
+                  category: PromptTagCategory.character,
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isTrue);
+      expect(result.mapping.roleAssemblies, hasLength(1));
+      expect(
+        result.mapping.roleAssemblies.single.sourceRoleId,
+        'role-mash-kyrielight-demi-servant',
+      );
+      expect(
+        result.mapping.roleAssemblies.single.stages.single.targetCharacterId,
+        'target-main',
+      );
+      expect(result.mapping.rolePromptReplacements, hasLength(1));
+      final replacement = result.mapping.rolePromptReplacements.single;
+      expect(replacement.sourceRoleId, 'role-mash-kyrielight-demi-servant');
+      expect(replacement.targetCharacterId, 'target-main');
+      expect(
+        replacement.rules
+            .expand((rule) => rule.sourceTerms)
+            .map((term) => term.text),
+        containsAll([
+          'mash_kyrielight_(demi-servant)',
+          'mash_kyrielight',
+          'mash_kyrielight_(dangerous_beast)',
+        ]),
+      );
+    },
+  );
 }

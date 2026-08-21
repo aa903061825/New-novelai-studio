@@ -11,7 +11,7 @@ class ImageConfigSliderSpec {
   final String editTooltip;
   final String inputLabel;
   final double value;
-  final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChanged;
   final bool allowOutOfRangeDialogValue;
   final InvalidConfigValueHandler? onInvalidValue;
 
@@ -119,7 +119,9 @@ class _EditableConfigSlider extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.edit_note),
               tooltip: spec.editTooltip,
-              onPressed: () => _showEditDialog(context),
+              onPressed: spec.onChanged == null
+                  ? null
+                  : () => _showEditDialog(context),
             ),
           ],
         ),
@@ -152,7 +154,7 @@ class _EditableConfigSlider extends StatelessWidget {
               onPressed: () {
                 final newValue = double.tryParse(controller.text);
                 if (_isValidDialogValue(newValue)) {
-                  spec.onChanged(newValue!);
+                  spec.onChanged!(newValue!);
                   Navigator.of(dialogContext).pop();
                   return;
                 }

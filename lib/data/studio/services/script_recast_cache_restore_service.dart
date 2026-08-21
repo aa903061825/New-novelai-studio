@@ -153,27 +153,27 @@ class ScriptRecastCacheRestoreService {
     RecastScriptCache draft,
     RecastScriptCache? existing,
   ) {
+    final variantPreservingDraft = existing != null &&
+            draft.mappingVariants.isEmpty &&
+            existing.mappingVariants.isNotEmpty
+        ? draft.copyWith(
+            mappingVariants: existing.mappingVariants,
+            activeMappingVariantId: existing.activeMappingVariantId,
+          )
+        : draft;
     if (existing == null ||
-        draft.aiRoleExtraction.status != ScriptAiRoleExtractionStatus.idle ||
+        variantPreservingDraft.aiRoleExtraction.status !=
+            ScriptAiRoleExtractionStatus.idle ||
         existing.aiRoleExtraction.status == ScriptAiRoleExtractionStatus.idle) {
-      return draft;
+      return variantPreservingDraft;
     }
-    return RecastScriptCache(
-      scriptId: draft.scriptId,
-      scriptName: draft.scriptName,
-      sourceRootPath: draft.sourceRootPath,
-      sourceFingerprint: draft.sourceFingerprint,
-      sourceContentFingerprint: draft.sourceContentFingerprint,
-      updatedAt: draft.updatedAt,
-      roleCandidates: draft.roleCandidates,
-      mapping: draft.mapping,
+    return variantPreservingDraft.copyWith(
       aiRoleExtraction: existing.aiRoleExtraction,
       aiRoleExtractionChunks: existing.aiRoleExtractionChunks,
       aiRoleExtractionDraftCollapsed: existing.aiRoleExtractionDraftCollapsed,
-      scriptBlockWords: draft.scriptBlockWords,
-      knowledgeSnapshot: draft.knowledgeSnapshot,
-      scriptSnapshot: draft.scriptSnapshot.isNotEmpty
-          ? draft.scriptSnapshot
+      aiRoleExtractionFinalized: existing.aiRoleExtractionFinalized,
+      scriptSnapshot: variantPreservingDraft.scriptSnapshot.isNotEmpty
+          ? variantPreservingDraft.scriptSnapshot
           : existing.scriptSnapshot,
     );
   }

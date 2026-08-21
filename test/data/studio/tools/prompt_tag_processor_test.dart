@@ -16,6 +16,30 @@ void main() {
       );
     });
 
+    test('normalizes equivalent wrapper and joiner symbols to one exact key',
+        () {
+      const variants = [
+        'xuelin (black survival)',
+        'xuelin_(black survival)',
+        'xuelin（black survival）',
+        'xuelin【black survival】',
+        'xuelin‐black survival',
+      ];
+
+      expect(
+        variants.map(PromptTagProcessor.normalizeMatchKey).toSet(),
+        {'xuelin black survival'},
+      );
+      expect(
+        PromptTagProcessor.normalizeMatchKey('xuelin (black survival)'),
+        isNot(PromptTagProcessor.normalizeMatchKey('black xuelin survival')),
+      );
+      expect(
+        PromptTagProcessor.normalizeMatchKey('xuelin (black survival)'),
+        isNot(PromptTagProcessor.normalizeMatchKey('xuelin (black surviaval)')),
+      );
+    });
+
     test(
       'filters quantity, replacements, delete rules, and artist prompts',
       () {

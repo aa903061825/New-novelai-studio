@@ -30,12 +30,14 @@ class StudioGalleryPage extends StatefulWidget {
   final GenerationPageViewmodel viewModel;
   final StudioGalleryService galleryService;
   final PayloadConfig payloadConfig;
+  final VoidCallback? onRestoredToWorkbench;
 
   const StudioGalleryPage({
     super.key,
     required this.viewModel,
     required this.galleryService,
     required this.payloadConfig,
+    this.onRestoredToWorkbench,
   });
 
   @override
@@ -297,6 +299,7 @@ class _StudioGalleryPageState extends State<StudioGalleryPage> {
   void _restoreRecord(StudioGalleryRecord record) {
     widget.galleryService.restoreToWorkbench(record, widget.payloadConfig);
     widget.viewModel.setOverridePrompt(widget.payloadConfig.overridePrompt);
+    widget.onRestoredToWorkbench?.call();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已送回工作台')));

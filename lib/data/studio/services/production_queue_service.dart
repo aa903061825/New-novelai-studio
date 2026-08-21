@@ -21,8 +21,24 @@ class ProductionQueueService {
     return _sortPlansByRecent(await workspaceService.loadProductionPlans());
   }
 
+  Future<ProductionPlan?> loadPlanReadOnly(String planId) {
+    return workspaceService.loadProductionPlan(planId);
+  }
+
   Future<void> savePlans(List<ProductionPlan> plans) {
     return workspaceService.saveProductionPlans(_compactPlans(plans));
+  }
+
+  Future<void> savePlanChanges({
+    required Iterable<ProductionPlan> updatedPlans,
+    required Iterable<String> deletedPlanIds,
+  }) {
+    return workspaceService.saveProductionPlanUpdates(
+      updatedPlans: [
+        for (final plan in updatedPlans) plan.compactSharedPayloadParameters(),
+      ],
+      deletedPlanIds: deletedPlanIds,
+    );
   }
 
   Future<ProductionPlanExecutionSettings?> loadLastExecutionSettings() {

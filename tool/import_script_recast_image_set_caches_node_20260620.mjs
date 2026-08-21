@@ -40,7 +40,7 @@ if (!args.sourceRoot) {
 }
 if (!args.workspace) {
   args.workspace =
-    'C:/Users/admin/AppData/Roaming/org.exception0x0194/nai3_autodraw/novel_studio';
+    'C:/Users/admin/AppData/Roaming/Novel Studio/Novel Studio/novel_studio';
 }
 
 const sourceRoot = path.resolve(args.sourceRoot);
@@ -477,13 +477,202 @@ function imageMetadataPayloads(file) {
   const lower = path.basename(file).toLowerCase();
   const buffer = fs.readFileSync(file);
   if (lower.endsWith('.png')) {
-    const chunkMetadata = extractPngTextChunks(buffer);
-    return Object.keys(chunkMetadata).length === 0 ? [] : [chunkMetadata];
+    const payloads = [];
+    try {
+      const chunkMetadata = extractPngTextChunks(buffer);
+      if (Object.keys(chunkMetadata).length > 0) {
+        payloads.push(chunkMetadata);
+        if (hasPromptMetadata(parseMetadata(chunkMetadata))) return payloads;
+      }
+    } catch {
+      // A malformed text chunk must not hide valid alpha-channel metadata.
+    }
+    const stealthMetadata = extractStealthPngMetadata(buffer);
+    if (stealthMetadata?.trim()) {
+      const decoded = decodePayload(stealthMetadata);
+      payloads.push(
+        decoded && typeof decoded === 'object' && !Array.isArray(decoded)
+          ? decoded
+          : { Stealth_PNGInfo: stealthMetadata },
+      );
+    }
+    return payloads;
   }
   if (lower.endsWith('.webp')) {
     return extractWebpMetadataPayloads(buffer);
   }
   return [];
+}
+
+function extractStealthPngMetadata(buffer) {
+  try {
+    const alpha = extractPngAlphaBytes(buffer);
+    if (!alpha || alpha.bytes.length === 0) return null;
+    const reader = createAlphaStealthBitReader(alpha);
+    const header = reader
+      .readBytes(Buffer.byteLength('stealth_pngcomp'))
+      .toString('utf8');
+    if (header !== 'stealth_pngcomp' && header !== 'stealth_pnginfo') {
+      return null;
+    }
+
+    const bitLengthBytes = reader.readBytes(4);
+    if (bitLengthBytes.length < 4) return null;
+    const bitLength = bitLengthBytes.readInt32BE(0);
+    if (bitLength <= 0) return null;
+    const dataLength = Math.ceil(bitLength / 8);
+    if (dataLength > reader.remainingByteCapacity()) return null;
+    const data = reader.readBytes(dataLength);
+    if (data.length < dataLength) return null;
+    const decoded = header === 'stealth_pngcomp' ? zlib.gunzipSync(data) : data;
+    return decoded.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+function extractPngAlphaBytes(buffer) {
+  if (
+    buffer.length < 33 ||
+    !buffer.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+  ) {
+    return null;
+  }
+
+  let offset = 8;
+  let width = null;
+  let height = null;
+  let bitDepth = null;
+  let colorType = null;
+  let interlace = null;
+  const idat = [];
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const nextOffset = dataEnd + 4;
+    if (dataEnd > buffer.length || nextOffset > buffer.length) return null;
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    if (type === 'IHDR') {
+      if (length < 13) return null;
+      width = buffer.readUInt32BE(dataStart);
+      height = buffer.readUInt32BE(dataStart + 4);
+      bitDepth = buffer[dataStart + 8];
+      colorType = buffer[dataStart + 9];
+      interlace = buffer[dataStart + 12];
+    } else if (type === 'IDAT') {
+      idat.push(buffer.subarray(dataStart, dataEnd));
+    }
+    offset = nextOffset;
+    if (type === 'IEND') break;
+  }
+
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    bitDepth !== 8 ||
+    interlace !== 0 ||
+    (colorType !== 4 && colorType !== 6) ||
+    idat.length === 0
+  ) {
+    return null;
+  }
+
+  const channelCount = colorType === 6 ? 4 : 2;
+  const rowLength = width * channelCount;
+  const expectedLength = (rowLength + 1) * height;
+  if (!Number.isSafeInteger(expectedLength)) return null;
+  const inflated = zlib.inflateSync(Buffer.concat(idat));
+  if (inflated.length < expectedLength) return null;
+
+  const alphaBytes = Buffer.alloc(width * height);
+  let cursor = 0;
+  let previous = Buffer.alloc(rowLength);
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[cursor++];
+    const row = inflated.subarray(cursor, cursor + rowLength);
+    cursor += rowLength;
+    const reconstructed = unfilterPngScanline(
+      filter,
+      row,
+      previous,
+      channelCount,
+    );
+    const alphaOffset = colorType === 6 ? 3 : 1;
+    for (let x = 0; x < width; x += 1) {
+      alphaBytes[y * width + x] = reconstructed[x * channelCount + alphaOffset];
+    }
+    previous = reconstructed;
+  }
+  return { width, height, bytes: alphaBytes };
+}
+
+function unfilterPngScanline(filter, row, previous, bytesPerPixel) {
+  const result = Buffer.alloc(row.length);
+  for (let index = 0; index < row.length; index += 1) {
+    const left = index >= bytesPerPixel ? result[index - bytesPerPixel] : 0;
+    const up = previous[index];
+    const upLeft = index >= bytesPerPixel ? previous[index - bytesPerPixel] : 0;
+    let predictor = 0;
+    if (filter === 1) predictor = left;
+    else if (filter === 2) predictor = up;
+    else if (filter === 3) predictor = (left + up) >> 1;
+    else if (filter === 4) predictor = paethPredictor(left, up, upLeft);
+    else if (filter !== 0) throw new Error('Unsupported PNG scanline filter.');
+    result[index] = (row[index] + predictor) & 0xff;
+  }
+  return result;
+}
+
+function paethPredictor(left, up, upLeft) {
+  const prediction = left + up - upLeft;
+  const leftDistance = Math.abs(prediction - left);
+  const upDistance = Math.abs(prediction - up);
+  const upLeftDistance = Math.abs(prediction - upLeft);
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) return left;
+  return upDistance <= upLeftDistance ? up : upLeft;
+}
+
+function createAlphaStealthBitReader(alpha) {
+  let x = 0;
+  let y = 0;
+  let bitsRead = 0;
+  const totalBits = alpha.width * alpha.height;
+
+  function readBit() {
+    if (x >= alpha.width) return null;
+    const bit = alpha.bytes[y * alpha.width + x] & 1;
+    bitsRead += 1;
+    y += 1;
+    if (y >= alpha.height) {
+      y = 0;
+      x += 1;
+    }
+    return bit;
+  }
+
+  return {
+    remainingByteCapacity() {
+      return Math.floor((totalBits - bitsRead) / 8);
+    },
+    readBytes(length) {
+      const bytes = Buffer.alloc(length);
+      for (let index = 0; index < length; index += 1) {
+        let value = 0;
+        for (let bitIndex = 0; bitIndex < 8; bitIndex += 1) {
+          const nextBit = readBit();
+          if (nextBit == null) return bytes.subarray(0, index);
+          value = (value << 1) | nextBit;
+        }
+        bytes[index] = value;
+      }
+      return bytes;
+    },
+  };
 }
 
 function extractWebpMetadataPayloads(buffer) {

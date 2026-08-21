@@ -401,6 +401,47 @@ void main() {
           'alice (wonder story), red jacket');
     });
 
+    test('merged roles deduplicate the same prompt term across different ids',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-anemone-primary',
+            canonicalName: 'anemone',
+            franchise: 'princess connect!',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'role-primary-girl',
+                text: 'girl',
+                category: PromptTagCategory.character,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-anemone-typo',
+            canonicalName: 'anemone',
+            franchise: 'princess connec!',
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'role-typo-girl',
+                text: 'girl',
+                category: PromptTagCategory.character,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final role = extraction.collapseEquivalentStages().roles.single;
+
+      expect(role.promptTerms, hasLength(1));
+      expect(role.promptTerms.single.text, 'girl');
+      expect(role.promptTerms.single.frameIndexes, [1, 2]);
+    });
+
     test('ready extraction parses global-0', () {
       final extraction = ScriptAiRoleExtraction.fromJson({
         'schema_version': 1,
@@ -1145,6 +1186,68 @@ void main() {
       expect(roles.single.stages.last.upperClothing, 'ceremonial robe');
     });
 
+    test(
+      'merges a same-slot canonical role when a costume qualifier was parsed as franchise',
+      () {
+        const extraction = ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-kamisato-ayaka',
+              canonicalName: 'kamisato ayaka',
+              rawIdentityTags: ['kamisato ayaka'],
+              frameIndexes: [1, 2],
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [1, 2],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'base',
+                  frameIndexes: [1, 2],
+                  identity: 'kamisato ayaka',
+                ),
+              ],
+            ),
+            ScriptAiExtractedRole(
+              sourceRoleId: 'role-kamisato-ayaka-springbloom-missive',
+              canonicalName: 'kamisato ayaka',
+              franchise: 'springbloom missive',
+              rawIdentityTags: ['kamisato ayaka (springbloom missive)'],
+              frameIndexes: [3, 4],
+              appearances: [
+                ScriptAiRoleAppearance(
+                  sourceId: 'slot-0',
+                  sourceKind: 'slot',
+                  frameIndexes: [3, 4],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'springbloom',
+                  frameIndexes: [3, 4],
+                  identity: 'kamisato ayaka (springbloom missive)',
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final roles = extraction.collapseEquivalentStages().roles;
+
+        expect(roles, hasLength(1));
+        expect(roles.single.sourceRoleId, 'role-kamisato-ayaka');
+        expect(roles.single.canonicalName, 'kamisato ayaka');
+        expect(roles.single.franchise, isEmpty);
+        expect(roles.single.variantTags, contains('springbloom missive'));
+        expect(roles.single.frameIndexes, [1, 2, 3, 4]);
+        expect(roles.single.appearances.single.frameIndexes, [1, 2, 3, 4]);
+      },
+    );
+
     test('derives canonical identity from display name when AI omitted fields',
         () {
       const extraction = ScriptAiRoleExtraction(
@@ -1171,7 +1274,8 @@ void main() {
       expect(role.rawIdentityTags, ['karyl (princess connect!)']);
     });
 
-    test('does not merge same canonical name across different franchises', () {
+    test('merges same canonical name inside one script despite franchise drift',
+        () {
       const extraction = ScriptAiRoleExtraction(
         status: ScriptAiRoleExtractionStatus.ready,
         roles: [
@@ -1202,7 +1306,65 @@ void main() {
         ],
       );
 
-      expect(extraction.collapseEquivalentStages().roles, hasLength(2));
+      final roles = extraction.collapseEquivalentStages().roles;
+
+      expect(roles, hasLength(1));
+      expect(roles.single.canonicalName, 'kokkoro');
+      expect(roles.single.rawIdentityTags, [
+        'kokkoro (princess_connect!)',
+        'kokkoro (other_series)',
+      ]);
+      expect(
+          roles.single.stages.map((stage) => stage.stageId), ['pc', 'other']);
+    });
+
+    test('merges same-labeled stages when canonical identity franchise drifted',
+        () {
+      const extraction = ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-sensei-game',
+            canonicalName: 'sensei',
+            franchise: 'blue archive',
+            frameIndexes: [15, 16],
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'nude-game',
+                label: '裸体',
+                frameIndexes: [15, 16],
+                identity: 'sensei (blue archive), boy',
+                upperBody: 'male black hair',
+              ),
+            ],
+          ),
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-sensei-animation',
+            canonicalName: 'sensei',
+            franchise: 'blue archive the animation',
+            frameIndexes: [86, 87],
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'nude-animation',
+                label: '裸体',
+                frameIndexes: [86, 87],
+                identity: 'sensei_(blue_archive_the_animation), boy',
+                upperBody: 'male black hair',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final role = extraction.collapseEquivalentStages().roles.single;
+
+      expect(role.stages, hasLength(1));
+      expect(role.stages.single.stageId, 'nude-game');
+      expect(role.stages.single.frameIndexes, [15, 16, 86, 87]);
+      expect(
+        role.stages.single.identity,
+        contains('sensei_(blue_archive_the_animation)'),
+      );
     });
 
     test('splits generic multi-slot roles instead of cross-slot merging', () {

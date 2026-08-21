@@ -7,6 +7,7 @@ import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/prompt_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
+import 'package:novel_studio/data/studio/models/workbench_document.dart';
 import 'package:novel_studio/data/studio/services/studio_gallery_service.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
@@ -156,6 +157,76 @@ void main() {
     expect(target.paramConfig.steps, 28);
     expect(target.settings.apiKey, 'pst-current');
     expect(target.settings.proxy, '127.0.0.1:7890');
+  });
+
+  test('saveSnapshot restores the effective generated prompt and UC', () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final record = await service.saveSnapshot(
+      config: _payload(
+        prompt: 'configured prompt before random selection',
+        apiKey: 'pst-export',
+        proxy: '',
+      ),
+      id: 'record-effective-prompt',
+      createdAt: DateTime.parse('2026-05-22T12:10:00Z'),
+      additionalInfo: const {
+        'input': 'artist:actual, 1girl, red dress, blue eyes',
+        'negativePrompt': 'lowres, bad anatomy',
+      },
+    );
+    final target = _payload(
+      prompt: 'current workbench prompt',
+      apiKey: 'pst-current',
+      proxy: '127.0.0.1:7890',
+    );
+
+    service.restoreToWorkbench(record, target);
+
+    expect(
+      record.document.payload['override_prompt'],
+      'artist:actual, 1girl, red dress, blue eyes',
+    );
+    expect(target.overridePrompt, 'artist:actual, 1girl, red dress, blue eyes');
+    expect(target.useOverridePrompt, isTrue);
+    expect(target.useCharacterPromptWithOverride, isFalse);
+    expect(target.paramConfig.negativePrompt, 'lowres, bad anatomy');
+  });
+
+  test('restoreToWorkbench repairs legacy records from effective prompt data',
+      () {
+    final savedConfig = _payload(
+      prompt: 'stale configured prompt',
+      apiKey: 'pst-export',
+      proxy: '',
+    );
+    final record = StudioGalleryRecord(
+      id: 'legacy-effective-prompt',
+      createdAt: DateTime.parse('2026-05-22T12:15:00Z'),
+      title: 'legacy.png',
+      imagePath: null,
+      info: 'display-only prompt commentary',
+      additionalInfo: const {
+        'input': 'legacy actual base, legacy actual character',
+        'negativePrompt': 'legacy actual UC',
+      },
+      document: WorkbenchDocument.fromPayloadConfig(savedConfig),
+    );
+    final target = _payload(
+      prompt: 'current workbench prompt',
+      apiKey: 'pst-current',
+      proxy: '127.0.0.1:7890',
+    );
+    final service = StudioGalleryService(workspaceService: workspaceService);
+
+    service.restoreToWorkbench(record, target);
+
+    expect(
+      target.overridePrompt,
+      'legacy actual base, legacy actual character',
+    );
+    expect(target.useOverridePrompt, isTrue);
+    expect(target.useCharacterPromptWithOverride, isFalse);
+    expect(target.paramConfig.negativePrompt, 'legacy actual UC');
   });
 
   test('useRecordAsI2iSource sets source image without restoring prompt',

@@ -346,6 +346,16 @@ class _ExecutionSection extends StatelessWidget {
                       },
               ),
             ),
+            if (!active && parametersViewmodel.knownExtraAnlas > 0) ...[
+              const SizedBox(width: 10),
+              StudioChip(
+                key: const ValueKey('workbench-known-extra-anlas'),
+                icon: Icons.bolt_outlined,
+                label: parametersViewmodel.knownExtraAnlasLabel,
+                selected: true,
+                accentColor: StudioTokens.warning,
+              ),
+            ],
             const SizedBox(width: 10),
             _GenerationCountField(
               viewmodel: parametersViewmodel,
@@ -490,7 +500,11 @@ StudioGeneratedImageItem _workbenchGeneratedImageItem(
     id: 'workbench-$displayIndex',
     name: name.isEmpty ? '#$displayIndex' : name,
     source: content,
-    placeholder: executing ? '生成中' : '暂无图片',
+    placeholder: executing
+        ? '生成中'
+        : content.info.trim().isNotEmpty
+            ? content.info.trim()
+            : '暂无图片',
   );
 }
 
@@ -843,6 +857,7 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
                       viewmodel: VibeConfigV4ListViewmodel(),
                       vibeEnabled: viewmodel.vibeEnabled,
                       onVibeEnabledChanged: viewmodel.setVibeEnabled,
+                      onConfigChanged: viewmodel.notifyReferenceInputsChanged,
                       compact: true,
                       showEnabledSwitch: false,
                     ),

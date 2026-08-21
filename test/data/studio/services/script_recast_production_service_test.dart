@@ -48,7 +48,7 @@ void main() {
     );
 
     expect(plan.id, 'plan-recast-1');
-    expect(plan.name, 'v4_slotted_Recast');
+    expect(plan.name, 'v4_slotted版本2');
     expect(plan.tasks, hasLength(2));
     expect(plan.createdAt, DateTime.utc(2026, 5, 25, 12));
     expect(plan.updatedAt, DateTime.utc(2026, 5, 25, 12));
@@ -162,12 +162,66 @@ void main() {
     );
   });
 
+  test('enqueuing persists only the new plan instead of rewriting the queue',
+      () async {
+    final runningPlan = ProductionPlan(
+      id: 'running-plan',
+      name: 'Running',
+      tasks: [
+        ProductionTask.manualSingleFrame(
+          id: 'running-task',
+          planId: 'running-plan',
+          title: 'Running',
+          payload: const {'input': 'running'},
+          status: ProductionTaskStatus.running,
+          createdAt: DateTime.utc(2026, 5, 25),
+          updatedAt: DateTime.utc(2026, 5, 25),
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 5, 25),
+      updatedAt: DateTime.utc(2026, 5, 25),
+    );
+    final recordingQueueService = _ScopedSaveRecordingQueueService(
+      workspaceService: workspaceService,
+      initialPlans: [runningPlan],
+    );
+    final scopedService = ScriptRecastProductionService(
+      queueService: recordingQueueService,
+      now: () => DateTime.utc(2026, 5, 25, 12),
+    );
+
+    final enqueued = await scopedService.enqueueRecastResult(
+      result: _recastResult(),
+      planId: 'plan-recast-1',
+      planName: 'v4_slotted_Recast',
+      recastRunId: 'run-1',
+      scriptName: 'v4_slotted',
+    );
+
+    expect(recordingQueueService.fullSaveCalled, isFalse);
+    expect(recordingQueueService.scopedSaveCalled, isTrue);
+    expect(recordingQueueService.plans.map((plan) => plan.id).toSet(), {
+      runningPlan.id,
+      enqueued.id,
+    });
+    expect(
+      recordingQueueService.plans
+          .singleWhere((plan) => plan.id == runningPlan.id)
+          .tasks
+          .single
+          .status,
+      ProductionTaskStatus.running,
+    );
+  });
+
   test('re-enqueuing the same plan id creates a new versioned plan', () async {
     final first = await service.enqueueRecastResult(
       result: _recastResult(),
       planId: 'plan-recast-1',
       planName: 'v4_slotted_Recast',
       recastRunId: 'plan-recast-1-run',
+      scriptName: 'v4_slotted',
+      scriptPath: r'C:\scripts\v4_slotted',
     );
 
     final second = await service.enqueueRecastResult(
@@ -175,12 +229,16 @@ void main() {
       planId: 'plan-recast-1',
       planName: 'v4_slotted_Recast',
       recastRunId: 'plan-recast-1-run',
+      scriptName: 'v4_slotted',
+      scriptPath: r'C:\scripts\v4_slotted',
     );
 
     final loaded = await queueService.loadPlans();
     expect(loaded, hasLength(2));
     expect(first.id, 'plan-recast-1');
+    expect(first.name, 'v4_slotted版本2');
     expect(second.id, 'plan-recast-1-2');
+    expect(second.name, 'v4_slotted版本3');
     expect(second.tasks.first.id, 'plan-recast-1-2:frame-1');
     expect(second.tasks.first.planId, 'plan-recast-1-2');
     expect(second.tasks.first.source.recastRunId, 'plan-recast-1-2-run');
@@ -189,6 +247,27 @@ void main() {
       loaded.map((plan) => plan.id).toSet(),
       {'plan-recast-1', 'plan-recast-1-2'},
     );
+  });
+
+  test('legacy dated batches still advance the script version number',
+      () async {
+    await service.enqueueRecastResult(
+      result: _recastResult(),
+      planId: 'legacy-dated-plan',
+      planName: '2026-05-24',
+      recastRunId: 'legacy-dated-run',
+    );
+
+    final plan = await service.enqueueRecastResult(
+      result: _recastResult(),
+      planId: 'plan-recast-1',
+      planName: 'v4_slotted_Recast',
+      recastRunId: 'plan-recast-1-run',
+      scriptName: 'v4_slotted',
+      scriptPath: r'C:\scripts\v4_slotted',
+    );
+
+    expect(plan.name, 'v4_slotted版本3');
   });
 
   test('duplicate recast version names use a unique date label', () async {
@@ -530,5 +609,43 @@ class _YieldProbePayloadAdapter extends ScriptRecastPayloadAdapter {
       observedTimerBeforeNinthPayload = timerRan;
     }
     return super.toNaiRequestPayload(payload);
+  }
+}
+
+class _ScopedSaveRecordingQueueService extends ProductionQueueService {
+  List<ProductionPlan> plans;
+  bool fullSaveCalled = false;
+  bool scopedSaveCalled = false;
+
+  _ScopedSaveRecordingQueueService({
+    required super.workspaceService,
+    required List<ProductionPlan> initialPlans,
+  }) : plans = [...initialPlans];
+
+  @override
+  Future<List<ProductionPlan>> loadPlans() async => [...plans];
+
+  @override
+  Future<void> savePlans(List<ProductionPlan> plans) async {
+    fullSaveCalled = true;
+    throw StateError('A new plan must not rewrite the entire queue.');
+  }
+
+  @override
+  Future<void> savePlanChanges({
+    required Iterable<ProductionPlan> updatedPlans,
+    required Iterable<String> deletedPlanIds,
+  }) async {
+    scopedSaveCalled = true;
+    final deletedIds = deletedPlanIds.toSet();
+    final updates = {
+      for (final plan in updatedPlans) plan.id: plan,
+    };
+    plans = [
+      ...updates.values,
+      for (final plan in plans)
+        if (!deletedIds.contains(plan.id) && !updates.containsKey(plan.id))
+          plan,
+    ];
   }
 }

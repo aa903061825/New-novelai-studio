@@ -160,6 +160,56 @@ void main() {
     expect(savedUnrelated.updatedAt, originalUpdatedAt);
   });
 
+  test('targeted production deletion never loads or rewrites sibling plans',
+      () async {
+    final originalUpdatedAt = DateTime.parse('2026-06-18T09:00:00Z');
+    final deletionUpdatedAt = DateTime.parse('2026-06-18T11:00:00Z');
+    final plan = ProductionPlan(
+      id: 'plan-1',
+      name: 'Plan 1',
+      createdAt: originalUpdatedAt,
+      updatedAt: originalUpdatedAt,
+      tasks: [
+        _task(planId: 'plan-1', taskId: 'task-delete'),
+        _task(planId: 'plan-1', taskId: 'task-kept'),
+      ],
+    );
+    final loadedPlanIds = <String>[];
+    List<ProductionPlan>? savedUpdatedPlans;
+    Set<String>? savedDeletedPlanIds;
+
+    final changed = await deleteScriptExhibitionProductionItems(
+      items: [
+        _productionItem(planId: 'plan-1', taskId: 'task-delete'),
+      ],
+      loadPlans: () => throw StateError('full plan load must not run'),
+      savePlans: (_) => throw StateError('full plan save must not run'),
+      loadPlan: (planId) async {
+        loadedPlanIds.add(planId);
+        return plan;
+      },
+      savePlanChanges: ({
+        required updatedPlans,
+        required deletedPlanIds,
+      }) async {
+        savedUpdatedPlans = updatedPlans;
+        savedDeletedPlanIds = deletedPlanIds;
+      },
+      updatedAt: deletionUpdatedAt,
+    );
+
+    expect(changed, isTrue);
+    expect(loadedPlanIds, ['plan-1']);
+    expect(savedDeletedPlanIds, isEmpty);
+    expect(savedUpdatedPlans, hasLength(1));
+    expect(savedUpdatedPlans!.single.id, 'plan-1');
+    expect(
+      savedUpdatedPlans!.single.tasks.map((task) => task.id),
+      ['task-kept'],
+    );
+    expect(savedUpdatedPlans!.single.updatedAt, deletionUpdatedAt);
+  });
+
   test('removes one generated task when another image exists for the frame',
       () async {
     final originalUpdatedAt = DateTime.parse('2026-06-18T09:00:00Z');

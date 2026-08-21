@@ -1,6 +1,6 @@
 # Project History Index
 
-> Do not read this index or any history record unless the user explicitly asks to consult project history.
+> Codex decides when project history is useful. Start here for orientation, then read the records that help with the task.
 
 | ID | UTC date | Goal | Outcome kind |
 | --- | --- | --- | --- |

@@ -250,8 +250,8 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
             child: _SortToolbar(
               title: '剧本排序',
               menu: _ScriptSortMenu(
-                value: viewModel.scriptSort,
-                onSelected: viewModel.selectScriptSort,
+                rules: viewModel.scriptSortRules,
+                onChanged: viewModel.setScriptSortRules,
               ),
             ),
           ),
@@ -334,6 +334,13 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
         if (selectedScript == null || selectedVersion == null) {
           return const SliverToBoxAdapter(child: SizedBox.shrink());
         }
+        final itemsRemovedByKeepingLatest =
+            viewModel.itemsRemovedByKeepingLatestPerFrame(
+          selectedScript,
+          selectedVersion,
+        );
+        final neverGeneratedVersions =
+            viewModel.neverGeneratedVersions(selectedScript);
         return PinnedHeaderSliver(
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -391,6 +398,26 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
                     onDeleteSelectedVersions: viewModel.canDeleteVersions
                         ? (script, versions) =>
                             _confirmDeleteVersions(context, script, versions)
+                        : null,
+                    neverGeneratedVersionCount: neverGeneratedVersions.length,
+                    onClearNeverGeneratedVersions:
+                        neverGeneratedVersions.isNotEmpty
+                            ? (script) => _confirmClearNeverGeneratedVersions(
+                                  context,
+                                  script,
+                                )
+                            : null,
+                    keepLatestPerFrameCleanupCount:
+                        itemsRemovedByKeepingLatest.length,
+                    onKeepLatestPerFrame: viewModel.canKeepLatestPerFrame(
+                      selectedScript,
+                      selectedVersion,
+                    )
+                        ? (script, version) => _confirmKeepLatestPerFrame(
+                              context,
+                              script,
+                              version,
+                            )
                         : null,
                     onImportImages: viewModel.canImportScriptImages
                         ? (script) => _importImagesForScript(context, script)
@@ -676,6 +703,61 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
     await widget.viewModel.deleteVersions(
       script,
       deletableVersions,
+      deleteLocalFiles: result.deleteLocalFiles,
+    );
+  }
+
+  Future<void> _confirmClearNeverGeneratedVersions(
+    BuildContext context,
+    ScriptExhibitionScript script,
+  ) async {
+    final versions = widget.viewModel.neverGeneratedVersions(script);
+    if (versions.isEmpty) return;
+    final labels = versions.take(4).map((version) => '“${version.label}”');
+    final remainingCount = versions.length - labels.length;
+    final labelSummary = [
+      ...labels,
+      if (remainingCount > 0) '等 $remainingCount 个版本',
+    ].join('、');
+    final confirmed = await _showDeleteDialog(
+      context: context,
+      title: '清理无成图版本',
+      message: '将清理 ${versions.length} 个完全没有成图的版本：$labelSummary。'
+          '只会移除待生成、已跳过或失败的版本记录；原始版本、已有任意成图的版本和正在生成中的版本不会处理。',
+      confirmKey: const ValueKey(
+        'script-exhibition-confirm-clear-never-generated-versions',
+      ),
+      confirmLabel: '清理版本',
+    );
+    if (!confirmed || !mounted) return;
+    await widget.viewModel.clearNeverGeneratedVersions(script);
+  }
+
+  Future<void> _confirmKeepLatestPerFrame(
+    BuildContext context,
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) async {
+    final obsoleteItems =
+        widget.viewModel.itemsRemovedByKeepingLatestPerFrame(script, version);
+    if (obsoleteItems.isEmpty) return;
+    final result = await _showScriptDeleteDialog(
+      context: context,
+      title: '每帧只保留最新',
+      message:
+          '“${version.label}”会按帧号各保留更新时间最新的 1 条记录，并清理 ${obsoleteItems.length} 条较早的重复重跑记录。不会影响其他帧、其他版本或原始剧本；可选择同时删除这些旧记录对应的本地图片文件。',
+      confirmKey: const ValueKey(
+        'script-exhibition-confirm-keep-latest-per-frame',
+      ),
+      localFilesKey: const ValueKey(
+        'script-exhibition-keep-latest-per-frame-local-files',
+      ),
+      confirmLabel: '清理旧记录',
+    );
+    if (!result.confirmed || !mounted) return;
+    await widget.viewModel.keepLatestPerFrame(
+      script,
+      version,
       deleteLocalFiles: result.deleteLocalFiles,
     );
   }
@@ -987,39 +1069,260 @@ class _SortToolbar extends StatelessWidget {
 }
 
 class _ScriptSortMenu extends StatelessWidget {
-  final ScriptExhibitionScriptSort value;
-  final ValueChanged<ScriptExhibitionScriptSort> onSelected;
+  final List<ScriptExhibitionScriptSort> rules;
+  final ValueChanged<List<ScriptExhibitionScriptSort>> onChanged;
 
   const _ScriptSortMenu({
-    required this.value,
-    required this.onSelected,
+    required this.rules,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<ScriptExhibitionScriptSort>(
-      key: const ValueKey('script-exhibition-script-sort-menu'),
-      tooltip: '剧本排序',
-      initialValue: value,
-      onSelected: onSelected,
-      itemBuilder: (context) => [
-        _scriptSortItem(ScriptExhibitionScriptSort.recent),
-        _scriptSortItem(ScriptExhibitionScriptSort.title),
-        _scriptSortItem(ScriptExhibitionScriptSort.imageCount),
-        _scriptSortItem(ScriptExhibitionScriptSort.needsAction),
-        _scriptSortItem(ScriptExhibitionScriptSort.unbatchedFirst),
+    final normalizedRules =
+        rules.isEmpty ? const [ScriptExhibitionScriptSort.recent] : rules;
+    return Tooltip(
+      message: normalizedRules.map(_scriptSortLabel).join(' → '),
+      child: InkWell(
+        key: const ValueKey('script-exhibition-script-sort-menu'),
+        borderRadius: StudioTokens.radiusPill,
+        onTap: () async {
+          final result = await showDialog<List<ScriptExhibitionScriptSort>>(
+            context: context,
+            builder: (context) => _ScriptSortDialog(
+              initialRules: normalizedRules,
+            ),
+          );
+          if (result != null) {
+            onChanged(result);
+          }
+        },
+        child: _SortMenuButton(
+          label: _scriptSortSummary(normalizedRules),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScriptSortDialog extends StatefulWidget {
+  final List<ScriptExhibitionScriptSort> initialRules;
+
+  const _ScriptSortDialog({required this.initialRules});
+
+  @override
+  State<_ScriptSortDialog> createState() => _ScriptSortDialogState();
+}
+
+class _ScriptSortDialogState extends State<_ScriptSortDialog> {
+  static const _availableRules = [
+    ScriptExhibitionScriptSort.recent,
+    ScriptExhibitionScriptSort.title,
+    ScriptExhibitionScriptSort.imageCount,
+    ScriptExhibitionScriptSort.needsAction,
+    ScriptExhibitionScriptSort.unbatchedFirst,
+  ];
+
+  late List<ScriptExhibitionScriptSort> _rules;
+
+  @override
+  void initState() {
+    super.initState();
+    _rules = widget.initialRules.toSet().toList();
+    if (_rules.isEmpty) {
+      _rules.add(ScriptExhibitionScriptSort.recent);
+    }
+  }
+
+  void _addRule(ScriptExhibitionScriptSort rule) {
+    setState(() {
+      if (_rules.length == 1 &&
+          _rules.single == ScriptExhibitionScriptSort.recent &&
+          rule != ScriptExhibitionScriptSort.recent) {
+        _rules[0] = rule;
+      } else if (!_rules.contains(rule)) {
+        _rules.add(rule);
+      }
+    });
+  }
+
+  void _removeRule(ScriptExhibitionScriptSort rule) {
+    setState(() {
+      _rules.remove(rule);
+      if (_rules.isEmpty) {
+        _rules.add(ScriptExhibitionScriptSort.recent);
+      }
+    });
+  }
+
+  void _moveRule(int index, int offset) {
+    final targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= _rules.length) return;
+    setState(() {
+      final rule = _rules.removeAt(index);
+      _rules.insert(targetIndex, rule);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unselectedRules = [
+      for (final rule in _availableRules)
+        if (!_rules.contains(rule)) rule,
+    ];
+    return AlertDialog(
+      key: const ValueKey('script-exhibition-script-sort-dialog'),
+      scrollable: true,
+      title: const Text('组合剧本排序'),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '从上到下依次比较；只有上一条规则相同时，才使用下一条。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: StudioTokens.textSecondary,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '已启用规则',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: StudioTokens.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            for (var index = 0; index < _rules.length; index++)
+              _activeRuleTile(context, _rules[index], index),
+            if (unselectedRules.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                '添加规则',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: StudioTokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final rule in unselectedRules)
+                    ActionChip(
+                      key: ValueKey(
+                        'script-exhibition-script-sort-${rule.name}',
+                      ),
+                      avatar: const Icon(Icons.add, size: 16),
+                      label: Text(_scriptSortLabel(rule)),
+                      onPressed: () => _addRule(rule),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('script-exhibition-script-sort-reset'),
+          onPressed: () {
+            setState(() {
+              _rules = [ScriptExhibitionScriptSort.recent];
+            });
+          },
+          child: const Text('恢复默认'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('script-exhibition-script-sort-apply'),
+          onPressed: () {
+            Navigator.of(context).pop(
+              List<ScriptExhibitionScriptSort>.unmodifiable(_rules),
+            );
+          },
+          child: const Text('应用'),
+        ),
       ],
-      child: _SortMenuButton(label: _scriptSortLabel(value)),
     );
   }
 
-  PopupMenuEntry<ScriptExhibitionScriptSort> _scriptSortItem(
-    ScriptExhibitionScriptSort sort,
+  Widget _activeRuleTile(
+    BuildContext context,
+    ScriptExhibitionScriptSort rule,
+    int index,
   ) {
-    return PopupMenuItem<ScriptExhibitionScriptSort>(
-      key: ValueKey('script-exhibition-script-sort-${sort.name}'),
-      value: sort,
-      child: Text(_scriptSortLabel(sort)),
+    return Container(
+      key: ValueKey('script-exhibition-script-sort-active-${rule.name}'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: StudioTokens.surface2,
+        borderRadius: BorderRadius.circular(StudioTokens.radiusMedium),
+        border: Border.all(color: StudioTokens.cardOutline),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withValues(
+                    alpha: 0.14,
+                  ),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '${index + 1}',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _scriptSortLabel(rule),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: StudioTokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+          IconButton(
+            key: ValueKey(
+              'script-exhibition-script-sort-up-${rule.name}',
+            ),
+            tooltip: '提高优先级',
+            onPressed: index == 0 ? null : () => _moveRule(index, -1),
+            icon: const Icon(Icons.keyboard_arrow_up),
+          ),
+          IconButton(
+            key: ValueKey(
+              'script-exhibition-script-sort-down-${rule.name}',
+            ),
+            tooltip: '降低优先级',
+            onPressed:
+                index == _rules.length - 1 ? null : () => _moveRule(index, 1),
+            icon: const Icon(Icons.keyboard_arrow_down),
+          ),
+          IconButton(
+            key: ValueKey(
+              'script-exhibition-script-sort-remove-${rule.name}',
+            ),
+            tooltip: '移除规则',
+            onPressed: () => _removeRule(rule),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1106,6 +1409,16 @@ String _scriptSortLabel(ScriptExhibitionScriptSort sort) {
     ScriptExhibitionScriptSort.needsAction => '需处理优先',
     ScriptExhibitionScriptSort.unbatchedFirst => '未批量生成优先',
   };
+}
+
+String _scriptSortSummary(List<ScriptExhibitionScriptSort> rules) {
+  if (rules.isEmpty) {
+    return _scriptSortLabel(ScriptExhibitionScriptSort.recent);
+  }
+  if (rules.length == 1) {
+    return _scriptSortLabel(rules.single);
+  }
+  return '${_scriptSortLabel(rules.first)} +${rules.length - 1} 条';
 }
 
 String _itemSortLabel(ScriptExhibitionItemSort sort) {
@@ -3156,6 +3469,13 @@ class _ScriptDetailHeader extends StatelessWidget {
     ScriptExhibitionScript script,
     List<ScriptExhibitionVersion> versions,
   )? onDeleteSelectedVersions;
+  final int neverGeneratedVersionCount;
+  final ValueChanged<ScriptExhibitionScript>? onClearNeverGeneratedVersions;
+  final int keepLatestPerFrameCleanupCount;
+  final void Function(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  )? onKeepLatestPerFrame;
   final _ScriptExhibitionScriptAction? onImportImages;
   final ValueChanged<ScriptExhibitionScript>? onOpenSourceFolder;
   final ValueChanged<ScriptExhibitionScript>? onOrganizeScriptImages;
@@ -3184,6 +3504,10 @@ class _ScriptDetailHeader extends StatelessWidget {
     required this.canDeleteVersion,
     required this.onDeleteVersion,
     required this.onDeleteSelectedVersions,
+    required this.neverGeneratedVersionCount,
+    required this.onClearNeverGeneratedVersions,
+    required this.keepLatestPerFrameCleanupCount,
+    required this.onKeepLatestPerFrame,
     required this.onImportImages,
     required this.onOpenSourceFolder,
     required this.onOrganizeScriptImages,
@@ -3344,12 +3668,47 @@ class _ScriptDetailHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            '版本',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: StudioTokens.textMuted,
-                  fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              Text(
+                '版本',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: StudioTokens.textMuted,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              if (onClearNeverGeneratedVersions != null ||
+                  onKeepLatestPerFrame != null)
+                const Spacer(),
+              if (onClearNeverGeneratedVersions != null)
+                TextButton.icon(
+                  key: ValueKey(
+                    'script-exhibition-clear-never-generated-versions-'
+                    '${script.scriptId}',
+                  ),
+                  onPressed: () => onClearNeverGeneratedVersions!(script),
+                  icon: const Icon(Icons.layers_clear_outlined, size: 18),
+                  label: Text(
+                    '清理无成图版本 · $neverGeneratedVersionCount',
+                  ),
                 ),
+              if (onKeepLatestPerFrame != null) ...[
+                if (onClearNeverGeneratedVersions != null)
+                  const SizedBox(width: 8),
+                TextButton.icon(
+                  key: ValueKey(
+                    'script-exhibition-keep-latest-per-frame-'
+                    '${selectedVersion.id}',
+                  ),
+                  onPressed: () =>
+                      onKeepLatestPerFrame!(script, selectedVersion),
+                  icon: const Icon(Icons.filter_1_outlined, size: 18),
+                  label: Text(
+                    '每帧只留最新 · 可清理 $keepLatestPerFrameCleanupCount',
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -3675,7 +4034,7 @@ class _SliverWaterfallBoardState extends State<_SliverWaterfallBoard> {
               ),
             IconButton(
               key: ValueKey('script-exhibition-rerun-${item.id}'),
-              tooltip: '重跑',
+              tooltip: item.hasImage ? '重跑' : '补跑',
               onPressed: item.focus.canOpenProductionTask &&
                       widget.onQuickRerunProductionTask != null
                   ? () {
@@ -4139,7 +4498,7 @@ Future<void> _showPreview({
                 }
               : null,
           icon: const Icon(Icons.refresh_outlined),
-          label: const Text('重跑'),
+          label: Text(item.hasImage ? '重跑' : '补跑'),
         ),
         if (item.needsAction && item.focus.canOpenProductionTask)
           FilledButton.icon(

@@ -1,4 +1,4 @@
-﻿---
+---
 name: script-recast-cache-builder
 description: Project-local workflow for building, repairing, and proofreading Novel Studio Script Recast caches in NAI_NEW. Use when the user asks to make or fix "剧本缓存", "剧本 cache", "Script Recast cache", role field cache, AI role extraction cache, per-script character-slot cache, or a source-evidence-only character/frame/slot cache.
 ---
@@ -101,9 +101,14 @@ to subagents.
 
 Always identify:
 
-- active cache directory, usually
-  `C:\Users\admin\AppData\Roaming\org.exception0x0194\nai3_autodraw\novel_studio\script_recast\cache`;
-- source root and any ASCII junction/copy used for shell safety;
+- active cache directory for the current Windows Release build:
+  `C:\Users\admin\AppData\Roaming\Novel Studio\Novel Studio\novel_studio\script_recast\cache`.
+  Do not use the legacy `org.exception0x0194\nai3_autodraw` workspace unless the
+  user explicitly asks to inspect or migrate it;
+- source root and any ASCII junction/copy used for shell safety. Default to
+  `E:\NAI的脚本群\作品集\带图精品` and process only new or changed scripts under
+  that root unless the user explicitly authorizes another source root in the
+  current chat. Keep the source root read-only;
 - target script ids and frame counts;
 - whether caches are ready, idle, partial, or stale.
 

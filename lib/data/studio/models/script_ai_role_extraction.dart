@@ -635,8 +635,9 @@ List<ScriptAiExtractedRole> _mergeCanonicalRoles(
     final existingIndex = explicitMergeId.isNotEmpty
         ? indexesBySourceRoleId[explicitMergeId]
         : canonicalKey.isEmpty
-            ? null
-            : indexesByCanonicalKey[canonicalKey];
+            ? _compatibleCanonicalRoleIndex(result, role)
+            : indexesByCanonicalKey[canonicalKey] ??
+                _compatibleCanonicalRoleIndex(result, role);
     if (existingIndex == null) {
       final nextIndex = result.length;
       result.add(role);
@@ -661,6 +662,51 @@ List<ScriptAiExtractedRole> _mergeCanonicalRoles(
     }
   }
   return List.unmodifiable(result);
+}
+
+int? _compatibleCanonicalRoleIndex(
+  List<ScriptAiExtractedRole> roles,
+  ScriptAiExtractedRole candidate,
+) {
+  final candidateName = _normalizedCanonicalText(candidate.canonicalName);
+  if (candidateName.isEmpty) {
+    return null;
+  }
+  final candidateFranchise = _normalizedCanonicalText(candidate.franchise);
+  for (var index = roles.length - 1; index >= 0; index -= 1) {
+    final existing = roles[index];
+    if (_normalizedCanonicalText(existing.canonicalName) != candidateName ||
+        !_rolesShareSourceAppearance(existing, candidate)) {
+      continue;
+    }
+    final existingFranchise = _normalizedCanonicalText(existing.franchise);
+    if (existingFranchise.isNotEmpty &&
+        candidateFranchise.isNotEmpty &&
+        existingFranchise != candidateFranchise) {
+      continue;
+    }
+    return index;
+  }
+  return null;
+}
+
+bool _rolesShareSourceAppearance(
+  ScriptAiExtractedRole left,
+  ScriptAiExtractedRole right,
+) {
+  final leftSources = {
+    for (final appearance in left.appearances)
+      if (appearance.sourceId.trim().isNotEmpty)
+        '${appearance.sourceKind.trim()}\u001f${appearance.sourceId.trim()}',
+  };
+  if (leftSources.isEmpty) {
+    return false;
+  }
+  return right.appearances.any(
+    (appearance) => leftSources.contains(
+      '${appearance.sourceKind.trim()}\u001f${appearance.sourceId.trim()}',
+    ),
+  );
 }
 
 List<ScriptAiExtractedRole> _splitGenericMultiSourceRoles(
@@ -952,6 +998,21 @@ ScriptAiExtractedRole _mergeEquivalentRoles(
     _variantTagsForRole(left),
     _variantTagsForRole(right),
   );
+  final sameExplicitCanonicalName =
+      _normalizedCanonicalText(left.canonicalName).isNotEmpty &&
+          _normalizedCanonicalText(left.canonicalName) ==
+              _normalizedCanonicalText(right.canonicalName);
+  final leftFranchise = left.franchise.trim();
+  final rightFranchise = right.franchise.trim();
+  final sharedSourceWithMissingFranchise = sameExplicitCanonicalName &&
+      _rolesShareSourceAppearance(left, right) &&
+      (leftFranchise.isEmpty != rightFranchise.isEmpty);
+  final mergedVariantTags = sharedSourceWithMissingFranchise
+      ? _mergedStrings(variantTags, [
+          if (leftFranchise.isNotEmpty) leftFranchise,
+          if (rightFranchise.isNotEmpty) rightFranchise,
+        ])
+      : variantTags;
   return ScriptAiExtractedRole(
     sourceRoleId: left.sourceRoleId,
     sourceKind: _mergedSourceKind(left, right),
@@ -964,10 +1025,13 @@ ScriptAiExtractedRole _mergeEquivalentRoles(
     canonicalName: left.canonicalName.trim().isNotEmpty
         ? left.canonicalName
         : canonical.name,
-    franchise:
-        left.franchise.trim().isNotEmpty ? left.franchise : canonical.franchise,
+    franchise: sharedSourceWithMissingFranchise
+        ? ''
+        : left.franchise.trim().isNotEmpty
+            ? left.franchise
+            : canonical.franchise,
     rawIdentityTags: rawIdentityTags,
-    variantTags: variantTags,
+    variantTags: mergedVariantTags,
     mergeWithRoleId: left.mergeWithRoleId,
     confidence: left.confidence >= right.confidence
         ? left.confidence
@@ -1288,7 +1352,7 @@ bool _roleStagesCompatible(
         leftReplacementStateKey,
         rightReplacementStateKey,
       ) &&
-      _promptFieldsCompatible(left.identity, right.identity) &&
+      _stageIdentityFieldsCompatible(left, right) &&
       _stablePromptFieldsCompatible(left.upperBody, right.upperBody) &&
       _stablePromptFieldsCompatible(left.lowerBody, right.lowerBody) &&
       _stableClothingFieldsCompatible(
@@ -1299,6 +1363,23 @@ bool _roleStagesCompatible(
         left.lowerClothing,
         right.lowerClothing,
       );
+}
+
+bool _stageIdentityFieldsCompatible(
+  ScriptAiExtractedStage left,
+  ScriptAiExtractedStage right,
+) {
+  if (_promptFieldsCompatible(left.identity, right.identity)) {
+    return true;
+  }
+  final leftLabel = _normalizedCanonicalText(left.label);
+  final rightLabel = _normalizedCanonicalText(right.label);
+  if (leftLabel.isEmpty || leftLabel != rightLabel) {
+    return false;
+  }
+  final leftNames = _canonicalIdentityNamesFromText(left.identity);
+  final rightNames = _canonicalIdentityNamesFromText(right.identity);
+  return leftNames.isNotEmpty && leftNames.any(rightNames.contains);
 }
 
 bool _replacementStatesCompatible(String left, String right) {
@@ -1409,12 +1490,27 @@ String _canonicalRoleKey(ScriptAiExtractedRole role) {
   if (identity == null) {
     return '';
   }
-  return _canonicalIdentityKey(identity.name, identity.franchise);
+  // A Script Recast extraction is scoped to one imported script/work. Within
+  // that scope, the normalized character name is the durable identity. Model
+  // output sometimes moves a costume, adaptation, or misspelled work name into
+  // `franchise`; keeping that suffix in the merge key splits one character
+  // into multiple UI roles even though the canonical name is identical.
+  return _normalizedCanonicalText(identity.name);
 }
 
 _CanonicalIdentity? _canonicalIdentityForRole(ScriptAiExtractedRole role) {
   final explicitName = role.canonicalName.trim();
   final explicitFranchise = role.franchise.trim();
+  if (explicitName.isNotEmpty &&
+      explicitFranchise.isEmpty &&
+      role.variantTags.isNotEmpty &&
+      !_isNonCharacterIdentityTag(explicitName)) {
+    return _CanonicalIdentity(
+      name: explicitName,
+      franchise: '',
+      variants: role.variantTags,
+    );
+  }
   if (explicitName.isNotEmpty &&
       explicitFranchise.isNotEmpty &&
       !_isNonCharacterIdentityTag(explicitName) &&
@@ -1456,6 +1552,14 @@ Set<String> _canonicalIdentityKeysFromText(String value) {
       if (_canonicalIdentityFromTag(term) case final identity?)
         _canonicalIdentityKey(identity.name, identity.franchise),
   };
+}
+
+Set<String> _canonicalIdentityNamesFromText(String value) {
+  return {
+    for (final term in _commaTerms(value))
+      if (_canonicalIdentityFromTag(term) case final identity?)
+        _normalizedCanonicalText(identity.name),
+  }..remove('');
 }
 
 String _canonicalIdentityKey(String name, String franchise) {
@@ -1859,20 +1963,15 @@ ScriptAiExtractedPromptTerm _mergePromptTerm(
 }
 
 String _promptTermMergeKey(ScriptAiExtractedPromptTerm term) {
-  final id = term.id.trim();
-  if (id.isNotEmpty) {
-    return 'id\u001f$id';
-  }
   final text = term.text.trim();
   if (text.isEmpty) {
     return '';
   }
-  return [
-    text,
-    term.category.name,
-    term.sourcePhrase.trim(),
-    term.sourceLocation.trim(),
-  ].join('\u001f');
+  // Term ids and source locations are role-local. When two same-name roles are
+  // collapsed, the same semantic term can therefore arrive with different ids
+  // (for example two independent `girl` identity terms). Keep one role-level
+  // term and union its frame/source occurrence evidence.
+  return '${term.category.name}\u001f${_normalizedCanonicalText(text)}';
 }
 
 List<String> _mergedStrings(List<String> left, List<String> right) {

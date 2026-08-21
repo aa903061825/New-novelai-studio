@@ -1078,6 +1078,7 @@ class StudioOutfitAsset {
 
 class StudioAssetCatalogSnapshot {
   final StudioAssetCatalogSummary summary;
+  final List<PromptAssetCategory> promptAssetCategories;
   final List<CharacterEntry> characters;
   final List<StudioOutfitAsset> outfits;
   final List<ArtistChain> artistChains;
@@ -1095,6 +1096,7 @@ class StudioAssetCatalogSnapshot {
 
   const StudioAssetCatalogSnapshot({
     required this.summary,
+    this.promptAssetCategories = const [],
     required this.characters,
     this.outfits = const [],
     required this.artistChains,
@@ -1127,7 +1129,7 @@ class StudioAssetCatalogCacheLoadResult {
 }
 
 class StudioAssetCatalogService {
-  static const _cacheSchemaVersion = 9;
+  static const _cacheSchemaVersion = 10;
   static const _singleEntryCacheSchemaVersion = 2;
   static const _maxPersistentCodexEntries = 8;
   static const _maxPersistentCodexLimit = 64;
@@ -1403,6 +1405,10 @@ class StudioAssetCatalogService {
     return List.unmodifiable(tags);
   }
 
+  Future<List<PromptAssetCategory>> loadPromptAssetCategories() {
+    return workspaceService.loadPromptAssetCategories();
+  }
+
   Future<Map<String, dynamic>> loadWorkbenchFilterRules() {
     return workspaceService.loadFilterRules();
   }
@@ -1498,6 +1504,8 @@ class StudioAssetCatalogService {
     final workflows = await workspaceService.loadWorkflows();
     final batchPlans = await workspaceService.loadBatchPlans();
     final assemblyPresets = await workspaceService.loadAssemblyPresets();
+    final promptAssetCategories =
+        await workspaceService.loadPromptAssetCategories();
     final recipeCountsByBlock = <String, int>{};
     final tagCountsByBlock = <String, int>{};
     final outfits = _outfitsFromCharacters(characters);
@@ -1532,6 +1540,7 @@ class StudioAssetCatalogService {
 
     return StudioAssetCatalogSnapshot(
       summary: summary,
+      promptAssetCategories: List.unmodifiable(promptAssetCategories),
       characters: List.unmodifiable(characters),
       outfits: List.unmodifiable(outfits),
       artistChains: List.unmodifiable(artistChains),
@@ -1903,6 +1912,7 @@ class StudioAssetCatalogService {
       WorkspacePaths.inspirations,
       WorkspacePaths.codexEntries,
       WorkspacePaths.loras,
+      WorkspacePaths.promptAssetCategories,
     ]) {
       await _addFileFingerprint(root, relativePath, fingerprint);
     }
@@ -2027,6 +2037,9 @@ class StudioAssetCatalogService {
   ) {
     return {
       'summary': _summaryToJson(snapshot.summary),
+      'promptAssetCategories': snapshot.promptAssetCategories
+          .map((entry) => entry.toJson())
+          .toList(),
       'characters': snapshot.characters.map((entry) => entry.toJson()).toList(),
       'artistChains':
           snapshot.artistChains.map((entry) => entry.toJson()).toList(),
@@ -2053,6 +2066,9 @@ class StudioAssetCatalogService {
         .toList(growable: false);
     return StudioAssetCatalogSnapshot(
       summary: _summaryFromJson(map['summary']),
+      promptAssetCategories: _list(map['promptAssetCategories'])
+          .map(PromptAssetCategory.fromJson)
+          .toList(growable: false),
       characters: List.unmodifiable(characters),
       outfits: List.unmodifiable(_outfitsFromCharacters(characters)),
       artistChains: _list(map['artistChains'])

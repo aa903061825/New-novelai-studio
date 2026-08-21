@@ -665,6 +665,8 @@ void main() {
     Future<void> Function(List<CharacterEntry>)? saveCharacters,
     Future<void> Function(String, List<Recipe>)? saveRecipes,
     Future<void> Function(String, List<TagEntry>)? saveTags,
+    Future<void> Function(List<PromptAssetCategory>)? savePromptAssetCategories,
+    VoidCallback? onPromptAssetsChanged,
   }) {
     final resolvedCatalogService = catalogService ??
         _FakeCatalogService(
@@ -687,6 +689,8 @@ void main() {
         saveCharacters: saveCharacters,
         saveRecipes: saveRecipes,
         saveTags: saveTags,
+        savePromptAssetCategories: savePromptAssetCategories,
+        onPromptAssetsChanged: onPromptAssetsChanged,
       ),
     );
   }
@@ -3693,6 +3697,8 @@ void main() {
 
     final savedRecipesByBlock = <String, List<Recipe>>{};
     final savedTagsByBlock = <String, List<TagEntry>>{};
+    var savedPromptCategories = <PromptAssetCategory>[];
+    var promptAssetChangeCount = 0;
     final config = payload();
     const emptyCatalog = StudioAssetCatalogSnapshot(
       summary: StudioAssetCatalogSummary(
@@ -3719,9 +3725,53 @@ void main() {
         saveTags: (block, tags) async {
           savedTagsByBlock[block] = tags;
         },
+        savePromptAssetCategories: (categories) async {
+          savedPromptCategories = categories;
+        },
+        onPromptAssetsChanged: () {
+          promptAssetChangeCount += 1;
+        },
       ),
     );
     await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('asset-filter-recipe')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('asset-filter-tag')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('asset-library-manage-categories')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-asset-category-name-field')),
+      '战斗素材',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-asset-category-id-field')),
+      'combat',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-asset-category-add')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-asset-category-drawer-combat')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-asset-category-save')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(savedPromptCategories, hasLength(1));
+    expect(savedPromptCategories.single.id, 'combat');
+    expect(savedPromptCategories.single.name, '战斗素材');
+    expect(savedPromptCategories.single.showInScriptDrawer, isTrue);
 
     await tester.tap(find.byKey(const ValueKey('asset-library-add-asset')));
     await tester.pumpAndSettle();
@@ -3817,6 +3867,7 @@ void main() {
       savedTagsByBlock['camera']!.single.sections,
       {'俯拍': 'from above, wide shot'},
     );
+    expect(promptAssetChangeCount, 3);
   });
 
   testWidgets('asset library can duplicate character cards', (tester) async {

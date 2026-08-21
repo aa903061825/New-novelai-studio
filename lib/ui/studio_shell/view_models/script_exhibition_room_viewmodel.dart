@@ -49,6 +49,10 @@ typedef ScriptExhibitionItemDeleter = Future<void> Function(
   ScriptExhibitionItem item, {
   bool deleteLocalFiles,
 });
+typedef ScriptExhibitionItemsDeleter = Future<void> Function(
+  List<ScriptExhibitionItem> items, {
+  bool deleteLocalFiles,
+});
 typedef ScriptExhibitionScriptImporter = Future<void> Function();
 typedef ScriptExhibitionScriptImageImporter = Future<void> Function(
   ScriptExhibitionScript script,
@@ -91,6 +95,11 @@ typedef ScriptExhibitionVersionLabelRenamer = Future<void> Function(
 typedef ScriptExhibitionVersionDeleter = Future<void> Function(
   ScriptExhibitionScript script,
   ScriptExhibitionVersion version, {
+  bool deleteLocalFiles,
+});
+typedef ScriptExhibitionVersionsDeleter = Future<void> Function(
+  ScriptExhibitionScript script,
+  List<ScriptExhibitionVersion> versions, {
   bool deleteLocalFiles,
 });
 typedef ScriptExhibitionItemCoverSetter = Future<void> Function(
@@ -404,15 +413,19 @@ class ScriptExhibitionVersion {
   final String id;
   final String label;
   final String description;
+  final DateTime? createdAt;
   final DateTime updatedAt;
   final List<ScriptExhibitionItem> items;
+  final bool hasCustomLabel;
 
   const ScriptExhibitionVersion({
     required this.id,
     required this.label,
     required this.description,
+    this.createdAt,
     required this.updatedAt,
     required this.items,
+    this.hasCustomLabel = false,
   });
 }
 
@@ -568,6 +581,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final ScriptExhibitionScriptImageImporter? importScriptImages;
   final ScriptExhibitionScriptDeleter? deleteScriptRecord;
   final ScriptExhibitionItemDeleter? deleteItemRecord;
+  final ScriptExhibitionItemsDeleter? deleteItemsRecord;
   final ScriptExhibitionScriptRenamer? renameScriptRecord;
   final ScriptExhibitionScriptCategoryAssigner? assignScriptCategory;
   final ScriptExhibitionScriptsCategoryAssigner? assignScriptsCategory;
@@ -579,6 +593,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final ScriptExhibitionImageAttachmentRenamer? renameImageAttachment;
   final ScriptExhibitionVersionLabelRenamer? renameVersionLabelRecord;
   final ScriptExhibitionVersionDeleter? deleteVersionRecord;
+  final ScriptExhibitionVersionsDeleter? deleteVersionsRecord;
   final ScriptExhibitionItemCoverSetter? setCoverItemRecord;
   final List<ScriptExhibitionUserCategory> customCategories;
   final Map<String, List<String>> customCategoryScriptIds;
@@ -596,7 +611,9 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   String? selectedVersionId;
   String selectedDetailFilterId = allDetailFilterId;
   String scriptSearchQuery = '';
-  ScriptExhibitionScriptSort scriptSort = ScriptExhibitionScriptSort.recent;
+  List<ScriptExhibitionScriptSort> _scriptSortRules = const [
+    ScriptExhibitionScriptSort.recent,
+  ];
   ScriptExhibitionItemSort itemSort = ScriptExhibitionItemSort.frame;
   String? focusedItemId;
   int _loadGeneration = 0;
@@ -617,6 +634,10 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   final Set<({int generation, String scriptId})> _loadingScriptDetails = {};
   final Map<String, Future<Map<String, dynamic>>> _imageGenerationParamsCache =
       {};
+  final Duration recastCacheRefreshDebounce;
+  StreamSubscription<void>? _recastCacheChangesSubscription;
+  Timer? _recastCacheRefreshTimer;
+  bool _isDisposed = false;
 
   ScriptExhibitionRoomViewModel({
     ScriptExhibitionScriptsLoader? loadScripts,
@@ -634,6 +655,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     this.importScriptImages,
     this.deleteScriptRecord,
     this.deleteItemRecord,
+    this.deleteItemsRecord,
     this.renameScriptRecord,
     this.assignScriptCategory,
     this.assignScriptsCategory,
@@ -645,9 +667,12 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     this.renameImageAttachment,
     ScriptExhibitionVersionLabelRenamer? renameVersionLabel,
     this.deleteVersionRecord,
+    this.deleteVersionsRecord,
     this.setCoverItemRecord,
     this.customCategories = const [],
     this.customCategoryScriptIds = const {},
+    Stream<void>? recastCacheChanges,
+    this.recastCacheRefreshDebounce = const Duration(milliseconds: 600),
   })  : _snapshotBuilder = snapshotBuilder ?? _buildSnapshotAsync,
         loadScripts = loadScripts ?? _loadNoTokenizerScripts,
         loadRecastCaches = loadRecastCaches ?? _loadNoRecastCaches,
@@ -656,7 +681,11 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
             loadCustomCategoryScriptIds ?? _loadNoCategoryAssignments,
         loadImageGenerationParams =
             loadImageGenerationParams ?? _loadImageGenerationParamsFromMetadata,
-        renameVersionLabelRecord = renameVersionLabel;
+        renameVersionLabelRecord = renameVersionLabel {
+    _recastCacheChangesSubscription = recastCacheChanges?.listen(
+      (_) => _scheduleRecastCacheRefresh(),
+    );
+  }
 
   bool get canImportScripts => importScriptFolder != null;
 
@@ -664,7 +693,8 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   bool get canDeleteScripts => deleteScriptRecord != null;
 
-  bool get canDeleteItems => deleteItemRecord != null;
+  bool get canDeleteItems =>
+      deleteItemRecord != null || deleteItemsRecord != null;
 
   bool get canRenameScripts => renameScriptRecord != null;
 
@@ -696,7 +726,8 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   bool get canRenameVersions => renameVersionLabelRecord != null;
 
-  bool get canDeleteVersions => deleteVersionRecord != null;
+  bool get canDeleteVersions =>
+      deleteVersionRecord != null || deleteVersionsRecord != null;
 
   bool get canSetCoverItems => setCoverItemRecord != null;
 
@@ -1164,11 +1195,17 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   List<ScriptExhibitionScript> _sortVisibleScripts(
     List<ScriptExhibitionScript> scripts,
   ) {
-    if (scriptSort == ScriptExhibitionScriptSort.recent) {
+    if (_scriptSortRules.length == 1 &&
+        _scriptSortRules.single == ScriptExhibitionScriptSort.recent) {
       return scripts;
     }
-    return [...scripts]
-      ..sort((left, right) => _compareScriptsForSort(left, right, scriptSort));
+    return [...scripts]..sort(
+        (left, right) => _compareScriptsForSortRules(
+          left,
+          right,
+          _scriptSortRules,
+        ),
+      );
   }
 
   List<ScriptExhibitionScript> _filterScriptsBySearchQuery(
@@ -1205,6 +1242,39 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   Future<void> ensureLoaded() async {
     if (_hasLoaded || isLoading) return;
     await load();
+  }
+
+  void _scheduleRecastCacheRefresh() {
+    if (_isDisposed) return;
+    _recastCacheRefreshTimer?.cancel();
+    _recastCacheRefreshTimer = Timer(
+      recastCacheRefreshDebounce,
+      _refreshAfterRecastCacheChange,
+    );
+  }
+
+  void _refreshAfterRecastCacheChange() {
+    if (_isDisposed) return;
+    if (isLoading) {
+      _recastCacheRefreshTimer = Timer(
+        const Duration(milliseconds: 200),
+        _refreshAfterRecastCacheChange,
+      );
+      return;
+    }
+    unawaited(load());
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _loadGeneration += 1;
+    _recastCacheRefreshTimer?.cancel();
+    final subscription = _recastCacheChangesSubscription;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
+    super.dispose();
   }
 
   Future<void> load() async {
@@ -1566,10 +1636,41 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
   }
 
   void selectScriptSort(ScriptExhibitionScriptSort sort) {
-    if (scriptSort == sort) return;
-    scriptSort = sort;
+    setScriptSortRules([sort]);
+  }
+
+  ScriptExhibitionScriptSort get scriptSort => _scriptSortRules.first;
+
+  List<ScriptExhibitionScriptSort> get scriptSortRules => _scriptSortRules;
+
+  void setScriptSortRules(Iterable<ScriptExhibitionScriptSort> rules) {
+    final uniqueRules = <ScriptExhibitionScriptSort>[];
+    for (final rule in rules) {
+      if (!uniqueRules.contains(rule)) {
+        uniqueRules.add(rule);
+      }
+    }
+    final normalizedRules = uniqueRules.isEmpty
+        ? const [ScriptExhibitionScriptSort.recent]
+        : List<ScriptExhibitionScriptSort>.unmodifiable(uniqueRules);
+    if (listEquals(_scriptSortRules, normalizedRules)) return;
+    _scriptSortRules = normalizedRules;
     _selectedScriptIds.clear();
     notifyListeners();
+  }
+
+  void toggleScriptSortRule(ScriptExhibitionScriptSort rule) {
+    final nextRules = _scriptSortRules.toList();
+    if (nextRules.contains(rule)) {
+      nextRules.remove(rule);
+    } else if (nextRules.length == 1 &&
+        nextRules.single == ScriptExhibitionScriptSort.recent &&
+        rule != ScriptExhibitionScriptSort.recent) {
+      nextRules[0] = rule;
+    } else {
+      nextRules.add(rule);
+    }
+    setScriptSortRules(nextRules);
   }
 
   void selectItemSort(ScriptExhibitionItemSort sort) {
@@ -1602,21 +1703,27 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     final deleter = deleteScriptRecord;
     if (deleter == null) return;
     await deleter(script, deleteLocalFiles: deleteLocalFiles);
-    if (selectedScriptId == script.scriptId) {
-      selectedScriptId = null;
-      selectedVersionId = null;
-      _selectedVersionIds.clear();
+    _removeScriptFromLoadedSources(script);
+    final snapshotChanged = _removeScriptFromCurrentSnapshot(script);
+    if (snapshotChanged) {
+      notifyListeners();
     }
-    await load();
   }
 
   Future<void> deleteItem(
     ScriptExhibitionItem item, {
     bool deleteLocalFiles = false,
   }) async {
-    final deleter = deleteItemRecord;
-    if (deleter == null || !item.canDelete) return;
-    await deleter(item, deleteLocalFiles: deleteLocalFiles);
+    if (!item.canDelete) return;
+    final bulkDeleter = deleteItemsRecord;
+    final singleDeleter = deleteItemRecord;
+    if (bulkDeleter != null) {
+      await bulkDeleter([item], deleteLocalFiles: deleteLocalFiles);
+    } else if (singleDeleter != null) {
+      await singleDeleter(item, deleteLocalFiles: deleteLocalFiles);
+    } else {
+      return;
+    }
     if (_itemDeleteTouchesRecast(item)) {
       await load();
       return;
@@ -1630,11 +1737,133 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     }
   }
 
+  List<ScriptExhibitionVersion> neverGeneratedVersions(
+    ScriptExhibitionScript script,
+  ) {
+    if (!canDeleteVersions) return const [];
+    final currentScript =
+        _scriptsById[script.scriptId] ?? _scriptMatching(script) ?? script;
+    return List.unmodifiable([
+      for (final version in currentScript.versions)
+        if (_versionNeverGeneratedImage(currentScript, version)) version,
+    ]);
+  }
+
+  Future<void> clearNeverGeneratedVersions(
+    ScriptExhibitionScript script,
+  ) async {
+    final currentScript =
+        _scriptsById[script.scriptId] ?? _scriptMatching(script) ?? script;
+    final versions = neverGeneratedVersions(currentScript);
+    if (versions.isEmpty) return;
+    await deleteVersions(currentScript, versions);
+  }
+
+  bool _versionNeverGeneratedImage(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) {
+    if (version.id == ScriptExhibitionVersion.originalId ||
+        version.items.isEmpty ||
+        !canDeleteVersion(script, version)) {
+      return false;
+    }
+    return version.items.every((item) {
+      if (item.hasImage || item.statusLabel.contains('生成中')) {
+        return false;
+      }
+      return item.sourceKind == ScriptExhibitionItemSourceKind.queued ||
+          item.sourceKind == ScriptExhibitionItemSourceKind.failed;
+    });
+  }
+
+  List<ScriptExhibitionItem> itemsRemovedByKeepingLatestPerFrame(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) {
+    if (!_scriptContainsVersion(script, version)) {
+      return const [];
+    }
+    final latestByFrame =
+        <({String planId, int frameIndex}), ScriptExhibitionItem>{};
+    final productionItems = <ScriptExhibitionItem>[];
+    for (final item in version.items) {
+      final planId = item.productionPlanId?.trim();
+      final frameIndex = item.frameIndex;
+      if (!item.canDelete ||
+          planId == null ||
+          planId.isEmpty ||
+          frameIndex == null ||
+          !_itemHasProductionTaskIdentity(item)) {
+        continue;
+      }
+      productionItems.add(item);
+      final key = (planId: planId, frameIndex: frameIndex);
+      final currentLatest = latestByFrame[key];
+      if (currentLatest == null ||
+          _compareLatestVersionItem(currentLatest, item) < 0) {
+        latestByFrame[key] = item;
+      }
+    }
+    if (productionItems.length == latestByFrame.length) {
+      return const [];
+    }
+    final retainedItemIds = {
+      for (final item in latestByFrame.values) item.id,
+    };
+    return List.unmodifiable([
+      for (final item in productionItems)
+        if (!retainedItemIds.contains(item.id)) item,
+    ]);
+  }
+
+  bool canKeepLatestPerFrame(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version,
+  ) {
+    if (!canDeleteItems) return false;
+    return itemsRemovedByKeepingLatestPerFrame(script, version).isNotEmpty;
+  }
+
+  Future<void> keepLatestPerFrame(
+    ScriptExhibitionScript script,
+    ScriptExhibitionVersion version, {
+    bool deleteLocalFiles = false,
+  }) async {
+    if (!canDeleteItems) return;
+    final currentScript = _scriptsById[script.scriptId] ?? script;
+    final currentVersion = currentScript.versions
+        .where((candidate) => candidate.id == version.id)
+        .firstOrNull;
+    if (currentVersion == null) return;
+    final items =
+        itemsRemovedByKeepingLatestPerFrame(currentScript, currentVersion);
+    if (items.isEmpty) return;
+
+    final bulkDeleter = deleteItemsRecord;
+    final singleDeleter = deleteItemRecord;
+    if (bulkDeleter != null) {
+      await bulkDeleter(items, deleteLocalFiles: deleteLocalFiles);
+    } else if (singleDeleter != null) {
+      for (final item in items) {
+        await singleDeleter(item, deleteLocalFiles: deleteLocalFiles);
+      }
+    } else {
+      return;
+    }
+
+    final snapshotChanged = _removeItemsFromCurrentSnapshot(items);
+    if (snapshotChanged) {
+      notifyListeners();
+    }
+    _refreshAfterVersionDelete(items);
+  }
+
   bool canDeleteVersion(
     ScriptExhibitionScript script,
     ScriptExhibitionVersion version,
   ) {
-    if (deleteVersionRecord == null) return false;
+    if (!canDeleteVersions) return false;
     if (version.id == ScriptExhibitionVersion.originalId) return false;
     if (!script.versions.any((candidate) => candidate.id == version.id)) {
       return false;
@@ -1659,8 +1888,9 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     Iterable<ScriptExhibitionVersion> versions, {
     bool deleteLocalFiles = false,
   }) async {
-    final deleter = deleteVersionRecord;
-    if (deleter == null) return;
+    final bulkDeleter = deleteVersionsRecord;
+    final singleDeleter = deleteVersionRecord;
+    if (bulkDeleter == null && singleDeleter == null) return;
     final currentScript = _scriptsById[script.scriptId] ?? script;
     final targetVersionsById = <String, ScriptExhibitionVersion>{};
     for (final requestedVersion in versions) {
@@ -1678,12 +1908,21 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
         for (final item in version.items)
           if (item.canDelete) item,
     ];
-    for (final version in targetVersionsById.values) {
-      await deleter(
+    final targetVersions = targetVersionsById.values.toList(growable: false);
+    if (bulkDeleter != null) {
+      await bulkDeleter(
         currentScript,
-        version,
+        targetVersions,
         deleteLocalFiles: deleteLocalFiles,
       );
+    } else {
+      for (final version in targetVersions) {
+        await singleDeleter!(
+          currentScript,
+          version,
+          deleteLocalFiles: deleteLocalFiles,
+        );
+      }
     }
     final deletedVersionIds = targetVersionsById.keys.toSet();
     final selectionChanged = selectedScriptId == currentScript.scriptId &&
@@ -1731,6 +1970,74 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     return true;
   }
 
+  void _removeScriptFromLoadedSources(ScriptExhibitionScript target) {
+    _loadedRecastScripts = [
+      for (final script in _loadedRecastScripts)
+        if (!_sourceScriptMatchesTarget(
+          scriptId: script.scriptId,
+          title: script.scriptName,
+          sourceFolder: script.sourceRootPath,
+          target: target,
+        ))
+          script,
+    ];
+    _loadedScripts = [
+      for (final script in _loadedScripts)
+        if (!_sourceScriptMatchesTarget(
+          scriptId: script.scriptId,
+          title: script.name,
+          sourceFolder: script.sourceFolder,
+          target: target,
+        ))
+          script,
+    ];
+    final retainedPlans = <ProductionPlan>[];
+    for (final plan in _loadedProductionPlans) {
+      final retainedTasks = plan.tasks
+          .where(
+            (task) => !_sourceScriptMatchesTarget(
+              scriptId: task.source.scriptId,
+              title: task.source.scriptName,
+              sourceFolder: task.source.scriptPath,
+              target: target,
+            ),
+          )
+          .toList(growable: false);
+      if (retainedTasks.isEmpty) {
+        continue;
+      }
+      retainedPlans.add(
+        retainedTasks.length == plan.tasks.length
+            ? plan
+            : plan.copyWith(tasks: retainedTasks),
+      );
+    }
+    _loadedProductionPlans = retainedPlans;
+    _loadedGalleryRecords = [
+      for (final record in _loadedGalleryRecords)
+        if (record.provenance == null ||
+            !_sourceScriptMatchesTarget(
+              scriptId: record.provenance!.scriptId,
+              title: record.provenance!.scriptName,
+              sourceFolder: record.provenance!.scriptPath,
+              target: target,
+            ))
+          record,
+    ];
+  }
+
+  bool _removeScriptFromCurrentSnapshot(ScriptExhibitionScript target) {
+    final nextScripts = snapshot.scripts
+        .where((script) => !_scriptMatchesForLocalMutation(script, target))
+        .toList(growable: false);
+    if (nextScripts.length == snapshot.scripts.length) {
+      return false;
+    }
+    _setSnapshot(_snapshotFromScripts(nextScripts));
+    _normalizeSelection();
+    return true;
+  }
+
   bool _removeItemFromCurrentSnapshot(ScriptExhibitionItem target) {
     var changed = false;
     final nextScripts = <ScriptExhibitionScript>[];
@@ -1748,6 +2055,35 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     if (!changed) {
       return false;
     }
+    _setSnapshot(_snapshotFromScripts(nextScripts));
+    _normalizeSelection();
+    return true;
+  }
+
+  bool _removeItemsFromCurrentSnapshot(
+    Iterable<ScriptExhibitionItem> targets,
+  ) {
+    final itemIds = {
+      for (final target in targets) target.id,
+    };
+    if (itemIds.isEmpty) return false;
+    var changed = false;
+    final nextScripts = <ScriptExhibitionScript>[];
+    for (final script in snapshot.scripts) {
+      ScriptExhibitionScript? nextScript = script;
+      for (final itemId in itemIds) {
+        if (nextScript == null) break;
+        final candidate = _scriptWithoutItem(nextScript, itemId);
+        if (!identical(candidate, nextScript)) {
+          changed = true;
+        }
+        nextScript = candidate;
+      }
+      if (nextScript != null) {
+        nextScripts.add(nextScript);
+      }
+    }
+    if (!changed) return false;
     _setSnapshot(_snapshotFromScripts(nextScripts));
     _normalizeSelection();
     return true;
@@ -2677,7 +3013,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
             script.frames.length -
             script.imageAttachments.length;
         if (syntheticOriginalCount > 0) {
-          bucket.addSyntheticOriginalImageCount(syntheticOriginalCount);
+          bucket.mergeSyntheticOriginalImageCount(syntheticOriginalCount);
         }
       }
     }
@@ -2710,6 +3046,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           generationParams: frame.generationParams,
         ),
         versionDescription: sourceVersionDescription,
+        versionCreatedAt: script.updatedAt,
         versionUpdatedAt: script.updatedAt,
       );
     }
@@ -2751,6 +3088,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           imageAttachmentId: attachment.attachmentId,
         ),
         versionDescription: 'Imported image version.',
+        versionCreatedAt: attachment.createdAt,
         versionUpdatedAt: attachment.createdAt,
       );
     }
@@ -2802,6 +3140,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           generationParams: task.generationParams,
         ),
         versionDescription: sourceVersionDescription,
+        versionCreatedAt: script.createdAt,
         versionUpdatedAt: script.updatedAt,
       );
     }
@@ -2833,6 +3172,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           updatedAt: script.updatedAt,
         ),
         versionDescription: sourceVersionDescription,
+        versionCreatedAt: script.createdAt,
         versionUpdatedAt: script.updatedAt,
       );
     }
@@ -2872,6 +3212,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
           imageAttachmentId: attachment.attachmentId,
         ),
         versionDescription: '按顺序导入并读取 JSON 数据的图片版本。',
+        versionCreatedAt: attachment.createdAt,
         versionUpdatedAt: attachment.createdAt,
       );
     }
@@ -2947,6 +3288,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
         versionDescription: source.recastRunId == null
             ? '批量产线版本。'
             : '批量产线版本 · ${source.recastRunId}',
+        versionCreatedAt: plan.createdAt,
         versionUpdatedAt: plan.updatedAt,
       );
     }
@@ -3011,6 +3353,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
         galleryRecord: record,
       ),
       versionDescription: '已保存到画廊的剧本结果。',
+      versionCreatedAt: record.createdAt,
       versionUpdatedAt: record.createdAt,
     );
   }
@@ -3096,18 +3439,23 @@ ScriptExhibitionScript? _scriptWithoutVersions(
   );
   bucket.mergeCategories(script.categoryNames);
   bucket.mergeCoverItemId(script.coverItemId);
+  bucket.mergeVersionLabels({
+    for (final version in remainingVersions)
+      if (version.hasCustomLabel) version.id: version.label,
+  });
   if (script.summaryOnly) {
     bucket.markSummaryOnly();
   }
   final syntheticOriginalImageCount = script.originalCount - originalItemCount;
   if (syntheticOriginalImageCount > 0) {
-    bucket.addSyntheticOriginalImageCount(syntheticOriginalImageCount);
+    bucket.mergeSyntheticOriginalImageCount(syntheticOriginalImageCount);
   }
   for (final version in remainingVersions) {
     for (final item in version.items) {
       bucket.addItem(
         item,
         versionDescription: version.description,
+        versionCreatedAt: version.createdAt ?? version.updatedAt,
         versionUpdatedAt: version.updatedAt,
       );
     }
@@ -3143,8 +3491,10 @@ ScriptExhibitionScript? _scriptWithoutItem(
         id: version.id,
         label: version.label,
         description: version.description,
+        createdAt: version.createdAt,
         updatedAt: version.updatedAt,
         items: List.unmodifiable(remainingItems),
+        hasCustomLabel: version.hasCustomLabel,
       ),
     );
   }
@@ -3164,18 +3514,23 @@ ScriptExhibitionScript? _scriptWithoutItem(
   );
   bucket.mergeCategories(script.categoryNames);
   bucket.mergeCoverItemId(script.coverItemId);
+  bucket.mergeVersionLabels({
+    for (final version in remainingVersions)
+      if (version.hasCustomLabel) version.id: version.label,
+  });
   if (script.summaryOnly) {
     bucket.markSummaryOnly();
   }
   final syntheticOriginalImageCount = script.originalCount - originalItemCount;
   if (syntheticOriginalImageCount > 0) {
-    bucket.addSyntheticOriginalImageCount(syntheticOriginalImageCount);
+    bucket.mergeSyntheticOriginalImageCount(syntheticOriginalImageCount);
   }
   for (final version in remainingVersions) {
     for (final item in version.items) {
       bucket.addItem(
         item,
         versionDescription: version.description,
+        versionCreatedAt: version.createdAt ?? version.updatedAt,
         versionUpdatedAt: version.updatedAt,
       );
     }
@@ -3210,6 +3565,7 @@ ScriptExhibitionScript _scriptWithVersionLabel(
             id: version.id,
             label: normalizedLabel,
             description: version.description,
+            createdAt: version.createdAt,
             updatedAt: version.updatedAt,
             items: List.unmodifiable([
               for (final item in version.items)
@@ -3217,6 +3573,7 @@ ScriptExhibitionScript _scriptWithVersionLabel(
                     ? item
                     : item.copyWith(versionLabel: normalizedLabel),
             ]),
+            hasCustomLabel: true,
           );
         }()
       else
@@ -3330,7 +3687,25 @@ bool _itemHasProductionTaskIdentity(ScriptExhibitionItem item) {
 
 bool _itemHasGalleryRecordIdentity(ScriptExhibitionItem item) {
   final recordId = item.galleryRecordId?.trim();
-  return recordId != null && recordId.isNotEmpty;
+  final linkedRecordId = item.galleryRecord?.id.trim();
+  return (recordId != null && recordId.isNotEmpty) ||
+      (linkedRecordId != null && linkedRecordId.isNotEmpty);
+}
+
+bool _scriptContainsVersion(
+  ScriptExhibitionScript script,
+  ScriptExhibitionVersion version,
+) {
+  return script.versions.any((candidate) => candidate.id == version.id);
+}
+
+int _compareLatestVersionItem(
+  ScriptExhibitionItem left,
+  ScriptExhibitionItem right,
+) {
+  final updatedCompare = left.updatedAt.compareTo(right.updatedAt);
+  if (updatedCompare != 0) return updatedCompare;
+  return left.id.compareTo(right.id);
 }
 
 Future<ScriptExhibitionSnapshot> _buildSnapshotAsync({
@@ -3420,8 +3795,10 @@ class _ScriptExhibitionSnapshotRequest {
 }
 
 String _recastSourceVersionLabel(RecastExhibitionScript script) {
-  return script.isImageOnly ? '默认版本' : '原始剧本';
+  return script.isImageOnly ? _defaultScriptVersionLabel : '原始剧本';
 }
+
+const _defaultScriptVersionLabel = '默认版本';
 
 String _recastSourceVersionDescription(RecastExhibitionScript script) {
   return script.isImageOnly ? '导入时保留的默认图片版本。' : '导入时保留的原始剧本帧。';
@@ -3785,9 +4162,11 @@ class _MutableScriptBucket {
     summaryOnly = true;
   }
 
-  void addSyntheticOriginalImageCount(int count) {
+  void mergeSyntheticOriginalImageCount(int count) {
     if (count <= 0) return;
-    syntheticOriginalImageCount += count;
+    if (count > syntheticOriginalImageCount) {
+      syntheticOriginalImageCount = count;
+    }
   }
 
   void mergeCategories(List<String> names) {
@@ -3819,6 +4198,7 @@ class _MutableScriptBucket {
   void addItem(
     ScriptExhibitionItem item, {
     required String versionDescription,
+    required DateTime versionCreatedAt,
     required DateTime versionUpdatedAt,
   }) {
     final itemLabel =
@@ -3832,17 +4212,24 @@ class _MutableScriptBucket {
         id: item.versionId,
         label: itemLabel,
         description: versionDescription,
+        createdAt: versionCreatedAt,
         updatedAt: versionUpdatedAt,
       ),
     );
-    bucket.add(labeledItem, updatedAt: versionUpdatedAt);
+    bucket.add(
+      labeledItem,
+      createdAt: versionCreatedAt,
+      updatedAt: versionUpdatedAt,
+    );
   }
 
   ScriptExhibitionScript toScript() {
+    final defaultVersionLabels = _defaultSequentialVersionLabels();
     final versionsOut = versions.values
         .map(
           (version) => version.toVersion(
-            labelOverride: versionLabelOverrides[version.id],
+            customLabelOverride: versionLabelOverrides[version.id],
+            defaultLabel: defaultVersionLabels[version.id],
           ),
         )
         .toList()
@@ -3936,38 +4323,89 @@ class _MutableScriptBucket {
       ),
     );
   }
+
+  Map<String, String> _defaultSequentialVersionLabels() {
+    final sequentialVersions = versions.values
+        .where((version) => version.id != ScriptExhibitionVersion.galleryId)
+        .toList()
+      ..sort((left, right) {
+        if (left.id == ScriptExhibitionVersion.originalId) return -1;
+        if (right.id == ScriptExhibitionVersion.originalId) return 1;
+        final createdCompare = left.createdAt.compareTo(right.createdAt);
+        if (createdCompare != 0) return createdCompare;
+        return left.id.compareTo(right.id);
+      });
+    return {
+      for (final (index, version) in sequentialVersions.indexed)
+        if (version.id != ScriptExhibitionVersion.originalId ||
+            version.label.trim() != _defaultScriptVersionLabel)
+          version.id: '$title版本${index + 1}',
+    };
+  }
 }
 
 class _MutableVersionBucket {
   final String id;
   final String label;
   final String description;
+  DateTime createdAt;
   DateTime updatedAt;
   final List<ScriptExhibitionItem> items = [];
+  final Map<String, int> _itemIndexesById = {};
 
   _MutableVersionBucket({
     required this.id,
     required this.label,
     required this.description,
+    required this.createdAt,
     required this.updatedAt,
   });
 
-  void add(ScriptExhibitionItem item, {required DateTime updatedAt}) {
-    items.add(item);
+  void add(
+    ScriptExhibitionItem item, {
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) {
+    final existingIndex = _itemIndexesById[item.id];
+    if (existingIndex == null) {
+      _itemIndexesById[item.id] = items.length;
+      items.add(item);
+    } else {
+      final existing = items[existingIndex];
+      final shouldReplace = (!existing.hasImage && item.hasImage) ||
+          (existing.hasImage == item.hasImage &&
+              item.updatedAt.isAfter(existing.updatedAt));
+      if (shouldReplace) {
+        items[existingIndex] = item;
+      }
+    }
+    if (createdAt.isBefore(this.createdAt)) {
+      this.createdAt = createdAt;
+    }
     if (updatedAt.isAfter(this.updatedAt)) {
       this.updatedAt = updatedAt;
     }
   }
 
-  ScriptExhibitionVersion toVersion({String? labelOverride}) {
-    final displayLabel = labelOverride?.trim().isNotEmpty == true
-        ? labelOverride!.trim()
-        : label;
+  ScriptExhibitionVersion toVersion({
+    String? customLabelOverride,
+    String? defaultLabel,
+  }) {
+    final normalizedCustomLabel = customLabelOverride?.trim();
+    final hasCustomLabel =
+        normalizedCustomLabel != null && normalizedCustomLabel.isNotEmpty;
+    final normalizedDefaultLabel = defaultLabel?.trim();
+    final displayLabel = hasCustomLabel
+        ? normalizedCustomLabel
+        : normalizedDefaultLabel?.isNotEmpty == true
+            ? normalizedDefaultLabel!
+            : label;
     final sortedItems = [...items]..sort(_compareItems);
     return ScriptExhibitionVersion(
       id: id,
       label: displayLabel,
       description: description,
+      createdAt: createdAt,
       updatedAt: updatedAt,
       items: List.unmodifiable([
         for (final item in sortedItems)
@@ -3975,6 +4413,7 @@ class _MutableVersionBucket {
               ? item
               : item.copyWith(versionLabel: displayLabel),
       ]),
+      hasCustomLabel: hasCustomLabel,
     );
   }
 }
@@ -4004,12 +4443,28 @@ int _compareItems(ScriptExhibitionItem left, ScriptExhibitionItem right) {
   return left.id.compareTo(right.id);
 }
 
-int _compareScriptsForSort(
+int _compareScriptsForSortRules(
   ScriptExhibitionScript left,
   ScriptExhibitionScript right,
-  ScriptExhibitionScriptSort sort,
+  Iterable<ScriptExhibitionScriptSort> rules,
 ) {
-  final primary = switch (sort) {
+  for (final rule in rules) {
+    final comparison = _compareScriptsForSortRule(left, right, rule);
+    if (comparison != 0) return comparison;
+  }
+  final recentCompare = right.updatedAt.compareTo(left.updatedAt);
+  if (recentCompare != 0) return recentCompare;
+  final titleCompare = _compareText(left.title, right.title);
+  if (titleCompare != 0) return titleCompare;
+  return left.scriptId.compareTo(right.scriptId);
+}
+
+int _compareScriptsForSortRule(
+  ScriptExhibitionScript left,
+  ScriptExhibitionScript right,
+  ScriptExhibitionScriptSort rule,
+) {
+  return switch (rule) {
     ScriptExhibitionScriptSort.recent =>
       right.updatedAt.compareTo(left.updatedAt),
     ScriptExhibitionScriptSort.title => _compareText(left.title, right.title),
@@ -4022,12 +4477,6 @@ int _compareScriptsForSort(
         _batchProductionVersionRank(right),
       ),
   };
-  if (primary != 0) return primary;
-  final recentCompare = right.updatedAt.compareTo(left.updatedAt);
-  if (recentCompare != 0) return recentCompare;
-  final titleCompare = _compareText(left.title, right.title);
-  if (titleCompare != 0) return titleCompare;
-  return left.scriptId.compareTo(right.scriptId);
 }
 
 int _batchProductionVersionRank(ScriptExhibitionScript script) {
@@ -4455,7 +4904,7 @@ String _defaultImagePathForSource(
 }
 
 String _sourceVersionLabel(TokenizerScript script) {
-  return _isImageOnlyScript(script) ? '默认版本' : '原始剧本';
+  return _isImageOnlyScript(script) ? _defaultScriptVersionLabel : '原始剧本';
 }
 
 String _sourceVersionDescription(TokenizerScript script) {

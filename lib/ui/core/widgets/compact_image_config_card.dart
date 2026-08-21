@@ -82,7 +82,7 @@ class CompactImageConfigCard extends StatelessWidget {
 class MiniLabeledSlider extends StatelessWidget {
   final String label;
   final double value;
-  final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChanged;
 
   const MiniLabeledSlider({
     super.key,

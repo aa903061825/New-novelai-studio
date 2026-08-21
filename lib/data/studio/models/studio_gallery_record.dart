@@ -137,7 +137,12 @@ class StudioGalleryRecord {
     StudioRecastProvenance? provenance,
     StudioGalleryLineage? lineage,
   }) {
-    final document = WorkbenchDocument.fromPayloadConfig(config);
+    final document = WorkbenchDocument.fromPayloadConfig(
+      config,
+      effectivePrompt: _optionalString(additionalInfo['input']),
+      effectiveNegativePrompt:
+          _optionalPromptString(additionalInfo['negativePrompt']),
+    );
     return StudioGalleryRecord(
       id: id,
       createdAt: createdAt,
@@ -200,6 +205,17 @@ class StudioGalleryRecord {
 
   void restoreTo(PayloadConfig target) {
     document.applyTo(target);
+    final effectivePrompt = _optionalString(additionalInfo['input']);
+    if (effectivePrompt != null) {
+      target.overridePrompt = effectivePrompt;
+      target.useOverridePrompt = true;
+      target.useCharacterPromptWithOverride = false;
+    }
+    final effectiveNegativePrompt =
+        _optionalPromptString(additionalInfo['negativePrompt']);
+    if (effectiveNegativePrompt != null) {
+      target.paramConfig.negativePrompt = effectiveNegativePrompt;
+    }
   }
 }
 
@@ -428,4 +444,8 @@ String? _optionalString(dynamic value) {
     return value.trim();
   }
   return null;
+}
+
+String? _optionalPromptString(dynamic value) {
+  return value is String ? value.trim() : null;
 }

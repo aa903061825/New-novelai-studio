@@ -1545,19 +1545,13 @@ bool _hasAiAnalysis(RecastScriptCache cache) {
 }
 
 RecastScriptCache _clearAiAnalysis(RecastScriptCache cache) {
-  return RecastScriptCache(
-    scriptId: cache.scriptId,
-    scriptName: cache.scriptName,
-    sourceRootPath: cache.sourceRootPath,
-    sourceFingerprint: cache.sourceFingerprint,
+  return cache.copyWith(
     updatedAt: DateTime.now().toUtc(),
-    mapping: cache.mapping,
     aiRoleExtraction: const ScriptAiRoleExtraction(),
     aiRoleExtractionChunks: const [],
     aiRoleExtractionDraftCollapsed: false,
-    scriptBlockWords: cache.scriptBlockWords,
+    aiRoleExtractionFinalized: false,
     knowledgeSnapshot: const {},
-    scriptSnapshot: cache.scriptSnapshot,
   );
 }
 

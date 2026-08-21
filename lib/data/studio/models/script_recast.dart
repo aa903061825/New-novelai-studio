@@ -655,6 +655,69 @@ enum ScriptPromptReplacementAction { none, replace, delete }
 
 enum ScriptPromptReplacementMatchMode { any, all, anchor }
 
+enum ScriptRoleReplacementRuleLayerKind { shared, stage, pending }
+
+class ScriptRoleReplacementRuleLayerOverride {
+  final String ruleId;
+  final ScriptRoleReplacementRuleLayerKind kind;
+  final String stageId;
+
+  const ScriptRoleReplacementRuleLayerOverride({
+    required this.ruleId,
+    required this.kind,
+    this.stageId = '',
+  });
+
+  factory ScriptRoleReplacementRuleLayerOverride.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final ruleId = (json['ruleId'] as String? ?? '').trim();
+    final kind = _enumByNameOr(
+      ScriptRoleReplacementRuleLayerKind.values,
+      json['kind'] as String?,
+      ScriptRoleReplacementRuleLayerKind.pending,
+    );
+    final stageId = (json['stageId'] as String? ?? '').trim();
+    if (ruleId.isEmpty) {
+      throw const FormatException(
+        'Role replacement layer overrides require a non-empty ruleId.',
+      );
+    }
+    if (kind == ScriptRoleReplacementRuleLayerKind.stage && stageId.isEmpty) {
+      throw const FormatException(
+        'Stage layer overrides require a non-empty stageId.',
+      );
+    }
+    return ScriptRoleReplacementRuleLayerOverride(
+      ruleId: ruleId,
+      kind: kind,
+      stageId: kind == ScriptRoleReplacementRuleLayerKind.stage ? stageId : '',
+    );
+  }
+
+  ScriptRoleReplacementRuleLayerOverride copyWith({
+    String? ruleId,
+    ScriptRoleReplacementRuleLayerKind? kind,
+    String? stageId,
+  }) {
+    final nextKind = kind ?? this.kind;
+    return ScriptRoleReplacementRuleLayerOverride(
+      ruleId: ruleId ?? this.ruleId,
+      kind: nextKind,
+      stageId: nextKind == ScriptRoleReplacementRuleLayerKind.stage
+          ? stageId ?? this.stageId
+          : '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'ruleId': ruleId,
+        'kind': kind.name,
+        if (kind == ScriptRoleReplacementRuleLayerKind.stage)
+          'stageId': stageId,
+      };
+}
+
 class ScriptPromptReplacementTerm {
   final String id;
   final String text;
@@ -850,7 +913,9 @@ class ScriptRolePromptReplacement {
   final String sourcePreview;
   final String? targetCharacterId;
   final String targetIdentityPrompt;
+  final String? activeMappingProfileId;
   final List<ScriptPromptReplacementRule> rules;
+  final List<ScriptRoleReplacementRuleLayerOverride> layerOverrides;
 
   const ScriptRolePromptReplacement({
     required this.sourceRoleId,
@@ -858,7 +923,9 @@ class ScriptRolePromptReplacement {
     this.sourcePreview = '',
     this.targetCharacterId,
     this.targetIdentityPrompt = '',
+    this.activeMappingProfileId,
     this.rules = const [],
+    this.layerOverrides = const [],
   });
 
   factory ScriptRolePromptReplacement.fromJson(Map<String, dynamic> json) {
@@ -868,8 +935,12 @@ class ScriptRolePromptReplacement {
       sourcePreview: json['sourcePreview'] as String? ?? '',
       targetCharacterId: json['targetCharacterId'] as String?,
       targetIdentityPrompt: json['targetIdentityPrompt'] as String? ?? '',
+      activeMappingProfileId: json['activeMappingProfileId'] as String?,
       rules: _listOfMaps(json['rules'])
           .map(ScriptPromptReplacementRule.fromJson)
+          .toList(growable: false),
+      layerOverrides: _listOfMaps(json['layerOverrides'])
+          .map(ScriptRoleReplacementRuleLayerOverride.fromJson)
           .toList(growable: false),
     );
   }
@@ -880,7 +951,9 @@ class ScriptRolePromptReplacement {
     String? sourcePreview,
     Object? targetCharacterId = _recastUnset,
     String? targetIdentityPrompt,
+    Object? activeMappingProfileId = _recastUnset,
     List<ScriptPromptReplacementRule>? rules,
+    List<ScriptRoleReplacementRuleLayerOverride>? layerOverrides,
   }) {
     return ScriptRolePromptReplacement(
       sourceRoleId: sourceRoleId ?? this.sourceRoleId,
@@ -890,7 +963,11 @@ class ScriptRolePromptReplacement {
           ? this.targetCharacterId
           : targetCharacterId as String?,
       targetIdentityPrompt: targetIdentityPrompt ?? this.targetIdentityPrompt,
+      activeMappingProfileId: identical(activeMappingProfileId, _recastUnset)
+          ? this.activeMappingProfileId
+          : activeMappingProfileId as String?,
       rules: rules ?? this.rules,
+      layerOverrides: layerOverrides ?? this.layerOverrides,
     );
   }
 
@@ -901,8 +978,13 @@ class ScriptRolePromptReplacement {
         if (targetCharacterId != null) 'targetCharacterId': targetCharacterId,
         if (targetIdentityPrompt.trim().isNotEmpty)
           'targetIdentityPrompt': targetIdentityPrompt,
+        if (activeMappingProfileId != null)
+          'activeMappingProfileId': activeMappingProfileId,
         if (rules.isNotEmpty)
           'rules': rules.map((rule) => rule.toJson()).toList(),
+        if (layerOverrides.isNotEmpty)
+          'layerOverrides':
+              layerOverrides.map((override) => override.toJson()).toList(),
       };
 }
 

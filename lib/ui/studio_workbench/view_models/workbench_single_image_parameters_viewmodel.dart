@@ -3,6 +3,7 @@ import 'package:novel_studio/data/models/character_config.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/vibe_encoding_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
@@ -50,6 +51,60 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   bool get hasVibeReferences => vibeReferenceCount > 0;
 
   bool get hasI2iImage => payloadConfig.i2iConfig.imageB64 != null;
+
+  int get pendingVibeEncodingCount {
+    if (!vibeEnabled || !isV4 || preciseReferenceActive) return 0;
+    return VibeEncodingService.pendingEncodingCount(
+      payloadConfig.vibeConfigListV4,
+      config.model,
+    );
+  }
+
+  int get vibeEncodingAnlas => pendingVibeEncodingCount * 2;
+
+  int get multivibeExtraAnlas {
+    if (!vibeEnabled || !isV4 || preciseReferenceActive) return 0;
+    final activeVibeCount = payloadConfig.vibeConfigListV4
+        .where(
+          (vibe) =>
+              vibe.vibeB64.trim().isNotEmpty ||
+              VibeEncodingService.hasSourceImage(vibe),
+        )
+        .length;
+    final extraVibes = activeVibeCount - 4;
+    return extraVibes > 0 ? extraVibes * 2 * generationCount : 0;
+  }
+
+  bool get preciseReferenceActive =>
+      payloadConfig.usePreciseReference &&
+      config.model.contains('-4-5-') &&
+      payloadConfig.preciseReferenceList.isNotEmpty;
+
+  int get preciseReferenceExtraAnlas {
+    if (!preciseReferenceActive) return 0;
+    return payloadConfig.preciseReferenceList.length * 5 * generationCount;
+  }
+
+  int get knownExtraAnlas =>
+      vibeEncodingAnlas + multivibeExtraAnlas + preciseReferenceExtraAnlas;
+
+  String get knownExtraAnlasLabel {
+    final parts = <String>[];
+    if (vibeEncodingAnlas > 0) {
+      parts.add('Vibe 编码 +$vibeEncodingAnlas');
+    }
+    if (multivibeExtraAnlas > 0) {
+      parts.add('多 Vibe +$multivibeExtraAnlas');
+    }
+    if (preciseReferenceExtraAnlas > 0) {
+      parts.add('精确参考 +$preciseReferenceExtraAnlas');
+    }
+    return '额外 $knownExtraAnlas Anlas · ${parts.join(' · ')}';
+  }
+
+  void notifyReferenceInputsChanged() {
+    notifyListeners();
+  }
 
   void disableI2iInputs() {
     payloadConfig.i2iConfig.clearImage();

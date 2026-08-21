@@ -85,6 +85,92 @@ void main() {
     expect(result.tasks.single.outputImagePath, 'C:/out/nai_1.png');
   });
 
+  test('queue-dismissed tasks stay out of scheduling and queue retry',
+      () async {
+    final dismissedAt = DateTime.utc(2026, 6, 2, 9);
+    final plan = _plan([
+      _scriptTask(
+        id: 'dismissed-queued',
+        frameIndex: 1,
+        input: 'dismissed queued',
+      ).copyWith(queueDismissedAt: dismissedAt),
+      _scriptTask(
+        id: 'dismissed-failed',
+        frameIndex: 2,
+        input: 'dismissed failed',
+        status: ProductionTaskStatus.failed,
+      ).copyWith(queueDismissedAt: dismissedAt),
+      _scriptTask(
+        id: 'visible-queued',
+        frameIndex: 3,
+        input: 'visible queued',
+      ),
+      _scriptTask(
+        id: 'visible-failed',
+        frameIndex: 4,
+        input: 'visible failed',
+        status: ProductionTaskStatus.failed,
+      ),
+    ]);
+    await queueService.savePlans([plan]);
+    final requestedInputs = <String>[];
+    final executor = ProductionExecutorService(
+      queueService: queueService,
+      requestImage: (payload) async {
+        requestedInputs.add(payload['input'] as String);
+        return _fakePngBytes;
+      },
+      saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      now: () => DateTime.utc(2026, 6, 2, 10),
+    );
+
+    final scheduled = await executor.runPlan(plan);
+    expect(requestedInputs, ['visible queued']);
+    expect(scheduled.tasks[0].isQueueDismissed, isTrue);
+    expect(scheduled.tasks[1].isQueueDismissed, isTrue);
+
+    final retried = await executor.retryFailed('plan-1');
+    expect(requestedInputs, ['visible queued', 'visible failed']);
+    expect(retried.tasks[0].isQueueDismissed, isTrue);
+    expect(retried.tasks[1].isQueueDismissed, isTrue);
+  });
+
+  test('explicit rerun clears queue dismissal before persisting the result',
+      () async {
+    final dismissed = _scriptTask(
+      id: 'dismissed-task',
+      frameIndex: 1,
+      input: 'dismissed task',
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/old/dismissed-task.png',
+    ).copyWith(queueDismissedAt: DateTime.utc(2026, 6, 2, 9));
+    await queueService.savePlans([
+      _plan([dismissed])
+    ]);
+    final executor = ProductionExecutorService(
+      queueService: queueService,
+      requestImage: (payload) async => _fakePngBytes,
+      saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      now: () => DateTime.utc(2026, 6, 2, 10),
+    );
+
+    final result = await executor.rerunTask(
+      'plan-1',
+      taskId: dismissed.id,
+    );
+
+    expect(result.plan.tasks.single.isQueueDismissed, isFalse);
+    expect(
+      (await queueService.loadPlansReadOnly())
+          .single
+          .tasks
+          .single
+          .isQueueDismissed,
+      isFalse,
+    );
+    expect(result.plan.tasks.single.outputImagePath, 'C:/out/nai_1.png');
+  });
+
   test('runPlan saves generated images with production plan scope', () async {
     final scopedSaves = <String>[];
     final executor = ProductionExecutorService(

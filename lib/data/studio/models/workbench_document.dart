@@ -43,10 +43,29 @@ class WorkbenchDocument {
     required this.payload,
   });
 
-  factory WorkbenchDocument.fromPayloadConfig(PayloadConfig config) {
+  factory WorkbenchDocument.fromPayloadConfig(
+    PayloadConfig config, {
+    String? effectivePrompt,
+    String? effectiveNegativePrompt,
+  }) {
+    final payloadJson = config.toJson();
+    final normalizedPrompt = effectivePrompt?.trim();
+    if (normalizedPrompt != null && normalizedPrompt.isNotEmpty) {
+      payloadJson['override_prompt'] = normalizedPrompt;
+      payloadJson['use_override_prompt'] = true;
+      payloadJson['use_character_prompt_with_override'] = false;
+    }
+    if (effectiveNegativePrompt != null) {
+      final paramConfig = Map<String, dynamic>.from(
+        (payloadJson['param_config'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{},
+      );
+      paramConfig['negative_prompt'] = effectiveNegativePrompt.trim();
+      payloadJson['param_config'] = paramConfig;
+    }
     return WorkbenchDocument(
       version: currentVersion,
-      payload: _extractPayload(config.toJson()),
+      payload: _extractPayload(payloadJson),
     );
   }
 

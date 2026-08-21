@@ -499,6 +499,35 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  testWidgets('workbench shows pending Vibe encoding Anlas by generate',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.paramConfig.model = 'nai-diffusion-4-5-full';
+    payload.vibeConfigListV4 = [
+      VibeConfigV4(
+        fileName: 'editable-vibe',
+        vibeB64: 'encoded',
+        infoExtracted: 0.42,
+        encodedInfoExtracted: 0.76,
+        referenceStrength: 0.3,
+        imageBytes: base64Decode(_tinyPngBase64),
+      ),
+    ];
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    expect(
+      find.byKey(const ValueKey('workbench-known-extra-anlas')),
+      findsOneWidget,
+    );
+    expect(find.text('额外 2 Anlas · Vibe 编码 +2'), findsOneWidget);
+  });
+
   testWidgets('workbench hides batch execution and resume controls',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
@@ -631,6 +660,35 @@ void main() {
     expect(find.text('generated.png'), findsWidgets);
     expect(find.text('soft light'), findsWidgets);
     expect(find.text('blue eyes'), findsWidgets);
+
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets(
+      'workbench generation failure shows its reason in the result card',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const content = InfoCardContent(
+      title: '生成失败',
+      info: 'HTTP 401: invalid access token',
+      additionalInfo: {},
+    );
+    GetIt.I<CommandStatus>().commandList.add(
+          Command.createAsyncNoParam<InfoCardContent>(
+            () async => content,
+            initialValue: content,
+          ),
+        );
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    expect(find.textContaining('生成失败'), findsOneWidget);
+    expect(find.text('HTTP 401: invalid access token'), findsOneWidget);
+    expect(find.text('暂无图片'), findsNothing);
 
     await tester.pump(const Duration(milliseconds: 1));
   });

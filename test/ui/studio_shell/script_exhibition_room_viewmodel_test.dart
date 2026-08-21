@@ -341,8 +341,77 @@ void main() {
     expect(script.versions.single.items.last.prompt, 'second prompt');
   });
 
-  test(
-      'coalesces duplicate summary cache ids when loading a displayed script detail',
+  test('reloads script summaries when the external cache directory changes',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'script-exhibition-cache-watch-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final firstImage = File('${tempDir.path}${Platform.pathSeparator}001.png');
+    final secondImage = File('${tempDir.path}${Platform.pathSeparator}002.png');
+    await firstImage.writeAsBytes(const [0, 1, 2, 3]);
+    await secondImage.writeAsBytes(const [0, 1, 2, 3]);
+
+    RecastExhibitionScript summary(String id, File image) =>
+        RecastExhibitionScript(
+          scriptId: id,
+          scriptName: 'Summary $id',
+          sourceRootPath: '${tempDir.path}${Platform.pathSeparator}source-$id',
+          updatedAt: DateTime.parse('2026-07-21T01:00:00Z'),
+          detectedSchema: ScriptSchema.unknown,
+          frames: [
+            RecastExhibitionFrame(
+              index: 1,
+              fileName: image.uri.pathSegments.last,
+              sourcePath: image.path,
+            ),
+          ],
+          frameCount: 1,
+          summaryOnly: true,
+        );
+
+    final cacheChanges = StreamController<void>();
+    addTearDown(cacheChanges.close);
+    var summaries = [summary('script-a', firstImage)];
+    var summaryLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadRecastScripts: () async {
+        summaryLoadCount += 1;
+        return summaries;
+      },
+      recastCacheChanges: cacheChanges.stream,
+      recastCacheRefreshDebounce: Duration.zero,
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+    addTearDown(viewModel.dispose);
+
+    await viewModel.load();
+    expect(viewModel.snapshot.scripts.map((script) => script.scriptId), [
+      'script-a',
+    ]);
+
+    summaries = [
+      summary('script-a', firstImage),
+      summary('script-b', secondImage),
+    ];
+    cacheChanges.add(null);
+    await pumpEventQueue();
+
+    expect(summaryLoadCount, 2);
+    expect(
+        viewModel.snapshot.scripts.map((script) => script.scriptId).toSet(), {
+      'script-a',
+      'script-b',
+    });
+  });
+
+  test('coalesces duplicate summary cache ids before and after loading detail',
       () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'script-exhibition-duplicate-summary-detail-',
@@ -419,7 +488,9 @@ void main() {
     await viewModel.load();
     expect(viewModel.snapshot.scripts, hasLength(1));
     expect(viewModel.snapshot.scripts.single.summaryOnly, isTrue);
-    expect(viewModel.snapshot.scripts.single.originalCount, 4);
+    expect(viewModel.snapshot.scripts.single.originalCount, 2);
+    expect(
+        viewModel.snapshot.scripts.single.versions.single.items, hasLength(1));
 
     viewModel.selectScript('script-primary');
     await pumpEventQueue();
@@ -1050,7 +1121,7 @@ void main() {
     expect(item.imageAttachmentId, 'attachment-1');
     expect(item.imagePath, r'C:\stories\recast\alt-001.png');
     expect(item.prompt, 'attachment prompt');
-    expect(item.versionLabel, 'Imported Image 1');
+    expect(item.versionLabel, 'Recast Script版本2');
   });
 
   test('uses lightweight recast exhibition scripts before full caches',
@@ -1133,8 +1204,8 @@ void main() {
     expect(script.title, '雨夜档案');
     expect(script.sourceFolder, r'C:\stories\rain');
     expect(script.versions.map((version) => version.label), [
-      '原始剧本',
-      '主角版 A',
+      '雨夜档案版本1',
+      '雨夜档案版本2',
       '已收纳',
     ]);
 
@@ -1149,13 +1220,48 @@ void main() {
       '旧书架前',
     ]);
     expect(batch.items.first.imagePath, r'C:\out\frame-01.png');
-    expect(batch.items.first.versionLabel, '主角版 A');
+    expect(batch.items.first.versionLabel, '雨夜档案版本2');
     expect(batch.items.last.sourceKind, ScriptExhibitionItemSourceKind.failed);
 
     final archived = script.versions[2];
     expect(archived.items.single.sourceKind,
         ScriptExhibitionItemSourceKind.gallery);
     expect(archived.items.single.frameIndex, 1);
+  });
+
+  test('reload keeps queue-dismissed production task provenance in exhibition',
+      () async {
+    final dismissedTask = _plan().tasks.first.copyWith(
+          queueDismissedAt: DateTime.parse('2026-06-02T09:00:00Z'),
+        );
+    final dismissedPlan = _plan().copyWith(tasks: [dismissedTask]);
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [dismissedPlan],
+      loadGalleryRecords: () async => const [],
+    );
+
+    Future<ScriptExhibitionItem> loadDismissedItem() async {
+      await viewModel.load();
+      return viewModel.snapshot.scripts.single.versions
+          .singleWhere(
+            (version) => version.id == 'production-${dismissedPlan.id}',
+          )
+          .items
+          .single;
+    }
+
+    final first = await loadDismissedItem();
+    final second = await loadDismissedItem();
+
+    expect(first.id, 'production-${dismissedPlan.id}-${dismissedTask.id}');
+    expect(first.productionPlanId, dismissedPlan.id);
+    expect(first.taskId, dismissedTask.id);
+    expect(first.imagePath, dismissedTask.outputImagePath);
+    expect(second.id, first.id);
+    expect(second.productionPlanId, first.productionPlanId);
+    expect(second.taskId, first.taskId);
+    expect(second.imagePath, first.imagePath);
   });
 
   test('chooses a generated image as the script cover before originals',
@@ -1356,6 +1462,65 @@ void main() {
     expect(galleryVersion.items.single.versionLabel, '精选收纳');
   });
 
+  test('names script versions from the script title and creation order',
+      () async {
+    final olderPlan = _plan().copyWith(
+      id: 'plan-older',
+      name: 'Legacy Recast Name',
+      createdAt: DateTime.parse('2026-06-02T08:00:00Z'),
+      updatedAt: DateTime.parse('2026-06-02T08:00:00Z'),
+    );
+    final newerPlan = _plan().copyWith(
+      id: 'plan-newer',
+      name: '2026-06-03',
+      createdAt: DateTime.parse('2026-06-03T08:00:00Z'),
+      updatedAt: DateTime.parse('2026-06-03T08:00:00Z'),
+    );
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => [newerPlan, olderPlan],
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+
+    expect(
+      viewModel.snapshot.scripts.single.versions
+          .map((version) => (version.id, version.label)),
+      [
+        (ScriptExhibitionVersion.originalId, '雨夜档案版本1'),
+        ('production-plan-newer', '雨夜档案版本3'),
+        ('production-plan-older', '雨夜档案版本2'),
+      ],
+    );
+  });
+
+  test('keeps a custom version label after a local item mutation', () async {
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [
+        _script().copyWith(
+          exhibitionVersionLabels: const {
+            'production-plan-hero-a': '主角珍藏',
+          },
+        ),
+      ],
+      loadProductionPlans: () async => [_plan()],
+      loadGalleryRecords: () async => const [],
+      deleteItemRecord: (item, {bool deleteLocalFiles = false}) async {},
+    );
+
+    await viewModel.load();
+    final productionVersion = viewModel.snapshot.scripts.single.versions
+        .singleWhere((version) => version.id == 'production-plan-hero-a');
+
+    await viewModel.deleteItem(productionVersion.items.first);
+
+    final retainedVersion = viewModel.snapshot.scripts.single.versions
+        .singleWhere((version) => version.id == 'production-plan-hero-a');
+    expect(retainedVersion.label, '主角珍藏');
+    expect(retainedVersion.hasCustomLabel, isTrue);
+  });
+
   test(
       'renaming a dynamic version keeps the selected version and all items visible',
       () async {
@@ -1483,7 +1648,7 @@ void main() {
     final script = viewModel.snapshot.scripts.single;
     expect(script.scriptId, 'script-missing');
     expect(script.title, '雨夜档案');
-    expect(script.versions.single.label, '主角版 A');
+    expect(script.versions.single.label, '雨夜档案版本1');
     expect(script.generatedImageCount, 1);
   });
 
@@ -1503,8 +1668,8 @@ void main() {
     expect(script.scriptId, 'script-1');
     expect(script.sourceFolder, r'C:\stories\rain');
     expect(script.versions.map((version) => version.label), [
-      '原始剧本',
-      '主角版 A',
+      '雨夜档案版本1',
+      '雨夜档案版本2',
     ]);
     expect(script.originalCount, 2);
     expect(script.generatedImageCount, 1);
@@ -1704,7 +1869,8 @@ void main() {
     expect(item.imagePath, r'C:\stories\paired\p000.png');
   });
 
-  test('labels image-only imported scripts as the default version', () async {
+  test('keeps the default version label for image-only imported scripts',
+      () async {
     final now = DateTime.parse('2026-06-01T09:00:00Z');
     final source = _source(
       'source-image-only-1',
@@ -1737,17 +1903,25 @@ void main() {
           ],
         ),
       ],
-      loadProductionPlans: () async => const [],
+      loadProductionPlans: () async => [
+        _plan(
+          scriptId: 'script-image-only',
+          scriptName: 'Image Only',
+          scriptPath: r'C:\stories\image-only',
+        ),
+      ],
       loadGalleryRecords: () async => const [],
     );
 
     await viewModel.load();
 
-    final version = viewModel.snapshot.scripts.single.versions.single;
+    final versions = viewModel.snapshot.scripts.single.versions;
+    final version = versions.first;
     expect(version.id, ScriptExhibitionVersion.originalId);
     expect(version.label, '默认版本');
     expect(version.items.single.versionLabel, '默认版本');
     expect(version.items.single.imagePath, r'C:\stories\image-only\p000.png');
+    expect(versions.last.label, 'Image Only版本2');
   });
 
   test('original exhibition items prefer original prompt over final prompt',
@@ -1880,7 +2054,7 @@ void main() {
     final importedVersion = viewModel.snapshot.scripts.single.versions
         .singleWhere((version) => version.id == 'script-image-version-a');
 
-    expect(importedVersion.label, '导入图片 1');
+    expect(importedVersion.label, '雨夜档案版本2');
     expect(importedVersion.items.map((item) => item.title), [
       'Frame 1',
       'Frame 2',
@@ -1982,6 +2156,65 @@ void main() {
 
     expect(requestCount, 2);
     expect(viewModel.snapshot.scripts.single.scriptId, 'script-2');
+  });
+
+  test('deleting a script mutates loaded sources without reloading the gallery',
+      () async {
+    final retainedScript = _script().copyWith(
+      scriptId: 'script-2',
+      name: 'Retained script',
+      sourceFolder: r'C:\stories\retained',
+    );
+    var scripts = [_script(), retainedScript];
+    var plans = [_plan()];
+    var records = [_galleryRecord()];
+    var scriptLoadCount = 0;
+    var planLoadCount = 0;
+    var galleryLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async {
+        scriptLoadCount += 1;
+        return scripts;
+      },
+      loadProductionPlans: () async {
+        planLoadCount += 1;
+        return plans;
+      },
+      loadGalleryRecords: () async {
+        galleryLoadCount += 1;
+        return records;
+      },
+      deleteScriptRecord: (script, {bool deleteLocalFiles = false}) async {
+        scripts = [retainedScript];
+        plans = const [];
+        records = const [];
+      },
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-1');
+    final deletedScript = viewModel.selectedScript!;
+
+    await viewModel.deleteScript(deletedScript);
+
+    expect(scriptLoadCount, 1);
+    expect(planLoadCount, 1);
+    expect(galleryLoadCount, 1);
+    expect(viewModel.selectedScript, isNull);
+    expect(
+      viewModel.snapshot.scripts.map((script) => script.scriptId),
+      ['script-2'],
+    );
+
+    await viewModel.refreshDynamicVersions();
+
+    expect(scriptLoadCount, 1);
+    expect(planLoadCount, 2);
+    expect(galleryLoadCount, 2);
+    expect(
+      viewModel.snapshot.scripts.map((script) => script.scriptId),
+      ['script-2'],
+    );
   });
 
   test('deletes gallery-backed items and reloads the snapshot', () async {
@@ -2257,7 +2490,7 @@ void main() {
     expect(importedScripts, ['script-1']);
     expect(viewModel.selectedScript?.scriptId, 'script-1');
     expect(viewModel.selectedVersion?.id, 'script-image-version-1');
-    expect(viewModel.selectedVersion?.label, '导入图片 1');
+    expect(viewModel.selectedVersion?.label, '雨夜档案版本2');
     expect(attachmentItem.prompt, 'artist:manual, imported json prompt');
     expect(viewModel.visibleVersionItems, [attachmentItem]);
     expect(viewModel.focusedItemId, attachmentItem.id);
@@ -3046,6 +3279,137 @@ void main() {
     ]);
   });
 
+  test('combines script sort rules in user-defined priority order', () {
+    final now = DateTime.parse('2026-06-04T10:00:00Z');
+    ScriptExhibitionScript script({
+      required String id,
+      required int originalCount,
+      required bool isBatched,
+    }) {
+      final versionId = 'version-$id';
+      final versionLabel = 'Version $id';
+      return ScriptExhibitionScript(
+        scriptId: id,
+        title: id,
+        sourceFolder: 'C:\\stories\\$id',
+        updatedAt: now,
+        versions: isBatched
+            ? [
+                ScriptExhibitionVersion(
+                  id: versionId,
+                  label: versionLabel,
+                  description: '',
+                  updatedAt: now,
+                  items: [
+                    ScriptExhibitionItem(
+                      id: 'item-$id',
+                      scriptId: id,
+                      scriptTitle: id,
+                      sourceFolder: 'C:\\stories\\$id',
+                      versionId: versionId,
+                      versionLabel: versionLabel,
+                      sourceKind: ScriptExhibitionItemSourceKind.generated,
+                      frameIndex: 1,
+                      sourceFileName: '001.json',
+                      title: 'Generated frame',
+                      subtitle: '',
+                      prompt: '',
+                      imagePath: 'C:\\out\\$id.png',
+                      statusLabel: 'Completed',
+                      updatedAt: now,
+                      productionPlanId: 'plan-$id',
+                    ),
+                  ],
+                ),
+              ]
+            : const [],
+        status: ScriptExhibitionScriptStatus.active,
+        originalCount: originalCount,
+        generatedImageCount: isBatched ? 1 : 0,
+        imageLikeItemCount: originalCount + (isBatched ? 1 : 0),
+        hasImage: originalCount > 0 || isBatched,
+        coverItem: null,
+        pendingCount: 0,
+        firstNeedsActionItem: null,
+      );
+    }
+
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    )..snapshot = ScriptExhibitionSnapshot(
+        scripts: [
+          script(id: 'batched-large', originalCount: 10, isBatched: true),
+          script(id: 'unbatched-small', originalCount: 2, isBatched: false),
+          script(id: 'unbatched-large', originalCount: 7, isBatched: false),
+          script(id: 'batched-small', originalCount: 3, isBatched: true),
+        ],
+        totalImageCount: 26,
+        generatedImageCount: 2,
+        needsActionCount: 0,
+      );
+
+    viewModel.setScriptSortRules([
+      ScriptExhibitionScriptSort.unbatchedFirst,
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'unbatched-large',
+      'unbatched-small',
+      'batched-large',
+      'batched-small',
+    ]);
+    expect(viewModel.scriptSortRules, [
+      ScriptExhibitionScriptSort.unbatchedFirst,
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+
+    viewModel.setScriptSortRules([
+      ScriptExhibitionScriptSort.imageCount,
+      ScriptExhibitionScriptSort.unbatchedFirst,
+    ]);
+
+    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
+      'batched-large',
+      'unbatched-large',
+      'batched-small',
+      'unbatched-small',
+    ]);
+  });
+
+  test('toggles script sort rules and restores recent as the empty default',
+      () {
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => const [],
+      loadProductionPlans: () async => const [],
+      loadGalleryRecords: () async => const [],
+    );
+
+    expect(viewModel.scriptSortRules, [ScriptExhibitionScriptSort.recent]);
+
+    viewModel.toggleScriptSortRule(
+      ScriptExhibitionScriptSort.unbatchedFirst,
+    );
+    viewModel.toggleScriptSortRule(ScriptExhibitionScriptSort.imageCount);
+
+    expect(viewModel.scriptSortRules, [
+      ScriptExhibitionScriptSort.unbatchedFirst,
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+
+    viewModel.toggleScriptSortRule(
+      ScriptExhibitionScriptSort.unbatchedFirst,
+    );
+    expect(viewModel.scriptSortRules, [
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+
+    viewModel.toggleScriptSortRule(ScriptExhibitionScriptSort.imageCount);
+    expect(viewModel.scriptSortRules, [ScriptExhibitionScriptSort.recent]);
+  });
+
   test('filters visible scripts by shelf search query', () async {
     final scripts = [
       _script().copyWith(
@@ -3554,6 +3918,114 @@ void main() {
     expect(savedGalleryRecords.single, isEmpty);
   });
 
+  test(
+      'clears only never-generated versions and protects completed or running versions',
+      () async {
+    final basePlan = _plan();
+    ProductionPlan singleTaskPlan({
+      required String id,
+      required String name,
+      required ProductionTask task,
+    }) {
+      return basePlan.copyWith(
+        id: id,
+        name: name,
+        tasks: [
+          task.copyWith(
+            id: 'task-$id',
+            planId: id,
+          ),
+        ],
+      );
+    }
+
+    var plans = [
+      basePlan,
+      singleTaskPlan(
+        id: 'never-failed',
+        name: 'Never generated failed',
+        task: basePlan.tasks.last,
+      ),
+      singleTaskPlan(
+        id: 'never-queued',
+        name: 'Never generated queued',
+        task: basePlan.tasks.last.copyWith(
+          status: ProductionTaskStatus.queued,
+          clearError: true,
+        ),
+      ),
+      singleTaskPlan(
+        id: 'completed-without-path',
+        name: 'Completed without path',
+        task: basePlan.tasks.first.copyWith(clearOutputImagePath: true),
+      ),
+      singleTaskPlan(
+        id: 'currently-running',
+        name: 'Currently running',
+        task: basePlan.tasks.last.copyWith(
+          status: ProductionTaskStatus.running,
+          clearError: true,
+        ),
+      ),
+    ];
+    final deletedVersionIds = <String>[];
+    var deleteBatchCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteVersionsRecord: (
+        script,
+        versions, {
+        bool deleteLocalFiles = false,
+      }) async {
+        deleteBatchCount += 1;
+        deletedVersionIds.addAll(versions.map((version) => version.id));
+        final versionIds = versions.map((version) => version.id).toSet();
+        plans = [
+          for (final plan in plans)
+            if (!versionIds.contains('production-${plan.id}')) plan,
+        ];
+      },
+    );
+
+    await viewModel.load();
+    final script = viewModel.snapshot.scripts.single;
+
+    expect(
+      viewModel
+          .neverGeneratedVersions(script)
+          .map((version) => version.id)
+          .toSet(),
+      {
+        'production-never-failed',
+        'production-never-queued',
+      },
+    );
+
+    await viewModel.clearNeverGeneratedVersions(script);
+
+    expect(deleteBatchCount, 1);
+    expect(deletedVersionIds.toSet(), {
+      'production-never-failed',
+      'production-never-queued',
+    });
+    expect(
+      viewModel.snapshot.scripts.single.versions.map((version) => version.id),
+      containsAll({
+        ScriptExhibitionVersion.originalId,
+        'production-plan-hero-a',
+        'production-completed-without-path',
+        'production-currently-running',
+      }),
+    );
+    expect(
+      viewModel.snapshot.scripts.single.versions.map((version) => version.id),
+      isNot(contains('production-never-failed')),
+    );
+    expect(viewModel.neverGeneratedVersions(script), isEmpty);
+  });
+
   test('deletes only the selected production version for the current script',
       () async {
     var plans = [_plan()];
@@ -3601,6 +4073,88 @@ void main() {
       isNot(contains('production-plan-hero-a')),
     );
     expect(viewModel.selectedVersion?.id, ScriptExhibitionVersion.originalId);
+  });
+
+  test(
+      'keeps the newest production task for each frame and removes older reruns',
+      () async {
+    final basePlan = _plan();
+    final newerAt = basePlan.updatedAt.add(const Duration(minutes: 1));
+    final newerFrameOne = basePlan.tasks.first.copyWith(
+      id: 'task-generated-1-rerun',
+      outputImagePath: r'C:\out\frame-01-rerun.png',
+      createdAt: newerAt,
+      updatedAt: newerAt,
+    );
+    var plans = [
+      basePlan.copyWith(
+        tasks: [
+          basePlan.tasks.first,
+          newerFrameOne,
+          basePlan.tasks.last,
+        ],
+        updatedAt: newerAt,
+      ),
+    ];
+    final deletedTaskIds = <String>[];
+    bool? requestedDeleteLocalFiles;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteItemsRecord: (
+        items, {
+        bool deleteLocalFiles = false,
+      }) async {
+        requestedDeleteLocalFiles = deleteLocalFiles;
+        deletedTaskIds.addAll(items.map((item) => item.taskId!));
+        final deletedIds = items.map((item) => item.taskId).toSet();
+        plans = [
+          for (final plan in plans)
+            plan.copyWith(
+              tasks: [
+                for (final task in plan.tasks)
+                  if (!deletedIds.contains(task.id)) task,
+              ],
+            ),
+        ];
+      },
+    );
+
+    await viewModel.load();
+    viewModel.selectScript('script-1');
+    viewModel.selectVersion('production-plan-hero-a');
+    final script = viewModel.selectedScript!;
+    final version = viewModel.selectedVersion!;
+
+    expect(
+      viewModel
+          .itemsRemovedByKeepingLatestPerFrame(script, version)
+          .map((item) => item.taskId),
+      ['task-generated-1'],
+    );
+    expect(viewModel.canKeepLatestPerFrame(script, version), isTrue);
+
+    await viewModel.keepLatestPerFrame(
+      script,
+      version,
+      deleteLocalFiles: true,
+    );
+
+    expect(deletedTaskIds, ['task-generated-1']);
+    expect(requestedDeleteLocalFiles, isTrue);
+    expect(viewModel.selectedVersion?.id, 'production-plan-hero-a');
+    expect(
+      viewModel.selectedVersion!.items.map((item) => item.taskId).toSet(),
+      {'task-generated-1-rerun', 'task-failed-2'},
+    );
+    expect(
+      viewModel.itemsRemovedByKeepingLatestPerFrame(
+        viewModel.selectedScript!,
+        viewModel.selectedVersion!,
+      ),
+      isEmpty,
+    );
   });
 
   test('forwards local file deletion intent when deleting a version', () async {
@@ -3653,6 +4207,8 @@ void main() {
       ),
     ];
     final deletedVersions = <String>[];
+    var batchDeleteCount = 0;
+    var singleDeleteCount = 0;
     final viewModel = ScriptExhibitionRoomViewModel(
       loadScripts: () async => [_script()],
       loadProductionPlans: () async => plans,
@@ -3662,14 +4218,24 @@ void main() {
         version, {
         bool deleteLocalFiles = false,
       }) async {
-        deletedVersions.add(
-          '${script.scriptId}:${version.id}:$deleteLocalFiles',
-        );
-        if (version.id == 'production-plan-hero-a') {
-          plans = const [];
-        }
-        if (version.id == ScriptExhibitionVersion.galleryId) {
-          records = const [];
+        singleDeleteCount += 1;
+      },
+      deleteVersionsRecord: (
+        script,
+        versions, {
+        bool deleteLocalFiles = false,
+      }) async {
+        batchDeleteCount += 1;
+        for (final version in versions) {
+          deletedVersions.add(
+            '${script.scriptId}:${version.id}:$deleteLocalFiles',
+          );
+          if (version.id == 'production-plan-hero-a') {
+            plans = const [];
+          }
+          if (version.id == ScriptExhibitionVersion.galleryId) {
+            records = const [];
+          }
         }
       },
     );
@@ -3697,6 +4263,8 @@ void main() {
       'script-1:production-plan-hero-a:true',
       'script-1:gallery:true',
     ]);
+    expect(batchDeleteCount, 1);
+    expect(singleDeleteCount, 0);
     expect(viewModel.selectedScript?.scriptId, 'script-1');
     expect(viewModel.selectedVersion?.id, ScriptExhibitionVersion.originalId);
     expect(

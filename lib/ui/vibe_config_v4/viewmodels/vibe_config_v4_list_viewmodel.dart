@@ -64,18 +64,17 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
   }
 
   void removeConfig(VibeConfigV4 configToRemove) {
-    final removed = vibeList.remove(configToRemove);
+    final next = vibeList.toList();
+    final removed = next.remove(configToRemove);
     if (removed) {
-      notifyListeners();
-      _saveCache();
+      _replaceVibeList(next);
     }
   }
 
   void removeConfigAtIndex(int index) {
     if (index >= 0 && index < vibeList.length) {
-      vibeList.removeAt(index);
-      notifyListeners();
-      _saveCache();
+      final next = vibeList.toList()..removeAt(index);
+      _replaceVibeList(next);
     }
   }
 
@@ -144,6 +143,7 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
         jsonData,
         initialReferenceStrength,
       );
+      await _persistSourceImage(config);
       return [
         _ImportedVibe(
           config: config,
@@ -169,6 +169,7 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
           vibeJsonEntry,
           initialReferenceStrength,
         );
+        await _persistSourceImage(config);
         imported.add(
           _ImportedVibe(
             config: config,
@@ -196,6 +197,18 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
     return File(path).readAsBytes();
   }
 
+  Future<void> _persistSourceImage(VibeConfigV4 config) async {
+    final bytes = config.imageBytes;
+    if (bytes == null || bytes.isEmpty || config.sourceImagePath != null) {
+      return;
+    }
+    config.sourceImagePath = await configService.saveV4VibeSourceImage(
+      fileName: config.fileName,
+      bytes: bytes,
+    );
+    config.imageBytes = null;
+  }
+
   void _addScriptVibes(Iterable<VibeConfigV4> configs) {
     final next = payloadConfig.vibeConfigListV4.toList();
     for (final config in configs) {
@@ -215,6 +228,12 @@ class VibeConfigV4ListViewmodel extends ChangeNotifier {
 
   Future<void> _saveCache() {
     return configService.saveConfig(payloadConfig.toJson());
+  }
+
+  void _replaceVibeList(List<VibeConfigV4> next) {
+    payloadConfig.setScriptVibeConfigV4List(next);
+    notifyListeners();
+    _saveCache();
   }
 }
 

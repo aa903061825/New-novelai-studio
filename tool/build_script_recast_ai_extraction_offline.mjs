@@ -369,6 +369,10 @@ for (const file of files) {
   ) {
     report.source_content_fingerprint_repaired_count += 1;
   }
+  const extraction = extractionWithLegacyMappingPartitions(
+    cache,
+    result.extraction,
+  );
   const updated = {
     ...cache,
     ...(sourceFingerprintNormalization.changed
@@ -377,17 +381,18 @@ for (const file of files) {
     ...(sourceContentFingerprint
       ? { sourceContentFingerprint }
       : {}),
-    aiRoleExtraction: result.extraction,
+    aiRoleExtraction: extraction,
     aiRoleExtractionChunks: [],
-    aiRoleExtractionDraftCollapsed: false,
-    mapping: mappingWithRoleAssemblies(cache, result.extraction),
+    aiRoleExtractionDraftCollapsed: true,
+    aiRoleExtractionFinalized: true,
+    mapping: mappingWithRoleAssemblies(cache, extraction),
   };
   const changed = JSON.stringify(cache) !== JSON.stringify(updated);
   if (changed) {
     report.files_changed += 1;
   }
-  report.role_count += result.extraction.roles.length;
-  report.stage_count += result.extraction.roles.reduce(
+  report.role_count += extraction.roles.length;
+  report.stage_count += extraction.roles.reduce(
     (count, role) => count + role.stages.length,
     0,
   );
@@ -398,8 +403,8 @@ for (const file of files) {
     script_id: stringValue(cache.scriptId),
     script_name: stringValue(cache.scriptName),
     frame_count: frameList(cache).length,
-    role_count: result.extraction.roles.length,
-    stage_count: result.extraction.roles.reduce(
+    role_count: extraction.roles.length,
+    stage_count: extraction.roles.reduce(
       (count, role) => count + role.stages.length,
       0,
     ),
@@ -434,7 +439,7 @@ function buildExtraction(cache) {
   const roleDisplayFallbacks = new Set();
   let stageLabelFallbackCount = 0;
   const warnings = [];
-  const collidingIdentityKeys = collectCollidingConcreteIdentityKeys(frames);
+  const collidingIdentityKeys = collectCollidingRoleGroupKeys(frames);
   const slotIdentityAnchors = collectSlotIdentityAnchors(frames);
 
   for (const frame of frames) {
@@ -456,14 +461,20 @@ function buildExtraction(cache) {
         sourceIdentity.concreteKey.length === 0 &&
         anchor &&
         canAttachGenericCaptionToAnchor(tags, sourceIdentity, anchor)
-          ? mergeIdentities(anchor.identity, sourceIdentity)
+          ? mergeIdentities(
+              promoteAnchorCanonicalIdentity(sourceIdentity, anchor.identity),
+              anchor.identity,
+            )
           : sourceIdentity;
       const identity = sanitizeIdentityForRole(anchoredIdentity, tags);
       const characterKey = characterIdentityKey(identity);
-      const groupKey =
+      const baseGroupKey =
         identity.concreteKey.length > 0
           ? `character:${characterKey}`
           : `generic:${genericRoleIdentityKey(identity, tags, sourceId)}`;
+      const groupKey = collidingIdentityKeys.has(baseGroupKey)
+        ? `${baseGroupKey}:${sourceId}`
+        : baseGroupKey;
       const group = groups.get(groupKey) ?? {
         key: groupKey,
         sourceIds: new Map(),
@@ -495,10 +506,13 @@ function buildExtraction(cache) {
       if (!shouldSkipCaptionAsRole(baseTags, sourceIdentity)) {
         const identity = sanitizeIdentityForRole(sourceIdentity, baseTags);
         const characterKey = characterIdentityKey(identity);
-        const groupKey =
+        const baseGroupKey =
           identity.concreteKey.length > 0
             ? `character:${characterKey}`
             : `generic:${genericRoleIdentityKey(identity, baseTags, sourceId)}`;
+        const groupKey = collidingIdentityKeys.has(baseGroupKey)
+          ? `${baseGroupKey}:${sourceId}`
+          : baseGroupKey;
         const group = groups.get(groupKey) ?? {
           key: groupKey,
           sourceIds: new Map(),
@@ -657,7 +671,7 @@ function buildExtraction(cache) {
   };
 }
 
-function collectCollidingConcreteIdentityKeys(frames) {
+function collectCollidingRoleGroupKeys(frames) {
   const result = new Set();
   for (const frame of frames) {
     const captions = Array.isArray(frame.parsed?.charCaptions)
@@ -666,9 +680,14 @@ function collectCollidingConcreteIdentityKeys(frames) {
     const slotsByKey = new Map();
     captions.forEach((caption, slot) => {
       if (!stringValue(caption).trim()) return;
-      const identity = identityForTags(parseTags(caption));
-      if (identity.concreteKey.length === 0) return;
-      const key = characterIdentityKey(identity);
+      const tags = parseTags(caption);
+      const identity = sanitizeIdentityForRole(identityForTags(tags), tags);
+      if (tags.length === 0 || shouldSkipCaptionAsRole(tags, identity)) return;
+      const sourceId = `slot-${slot}`;
+      const key =
+        identity.concreteKey.length > 0
+          ? `character:${characterIdentityKey(identity)}`
+          : `generic:${genericRoleIdentityKey(identity, tags, sourceId)}`;
       const slots = slotsByKey.get(key) ?? new Set();
       slots.add(slot);
       slotsByKey.set(key, slots);
@@ -678,6 +697,140 @@ function collectCollidingConcreteIdentityKeys(frames) {
     }
   }
   return result;
+}
+
+function extractionWithLegacyMappingPartitions(cache, extraction) {
+  const previousAssemblies = Array.isArray(cache.mapping?.roleAssemblies)
+    ? cache.mapping.roleAssemblies
+    : [];
+  if (previousAssemblies.length === 0) return extraction;
+  const previousRoleSources = previousRoleSourcesForExtraction(
+    previousAssemblies,
+    extraction.roles,
+  );
+  let changed = false;
+  const roles = extraction.roles.map((role) => {
+    const previousSources = previousRoleSources.get(role.source_role_id) ?? [];
+    if (previousSources.length === 0) return role;
+    const stages = [];
+    let roleChanged = false;
+    for (const stage of role.stages ?? []) {
+      const partition = partitionStageForLegacyMappings(stage, previousSources);
+      stages.push(...partition.stages);
+      roleChanged ||= partition.changed;
+    }
+    if (!roleChanged) return role;
+    changed = true;
+    stages.sort(
+      (left, right) =>
+        Math.min(...(left.frame_indexes ?? [Number.MAX_SAFE_INTEGER])) -
+        Math.min(...(right.frame_indexes ?? [Number.MAX_SAFE_INTEGER])),
+    );
+    return {
+      ...role,
+      stages: stages.map((stage, index) => ({
+        ...stage,
+        stage_id: `stage-${index + 1}`,
+      })),
+    };
+  });
+  return changed ? { ...extraction, roles } : extraction;
+}
+
+function partitionStageForLegacyMappings(stage, previousSources) {
+  const stageFrames = uniqueFrameIndexes(stage.frame_indexes);
+  if (stageFrames.length <= 1) return { stages: [stage], changed: false };
+  const assignmentsByFrame = new Map(
+    stageFrames.map((frameIndex) => [frameIndex, []]),
+  );
+  previousSources.forEach((assembly, assemblyIndex) => {
+    for (const previousStage of Array.isArray(assembly?.stages)
+      ? assembly.stages
+      : []) {
+      const mapping = retainedStageMapping(previousStage);
+      if (Object.keys(mapping).length === 0) continue;
+      const signature = JSON.stringify(mapping);
+      for (const frameIndex of uniqueFrameIndexes(previousStage.frameIndexes)) {
+        const assignments = assignmentsByFrame.get(frameIndex);
+        if (!assignments) continue;
+        assignments.push({
+          assembly,
+          assemblyIndex,
+          previousStage,
+          mapping,
+          signature,
+        });
+      }
+    }
+  });
+
+  const groups = new Map();
+  for (const frameIndex of stageFrames) {
+    const assignments = assignmentsByFrame.get(frameIndex) ?? [];
+    const signatures = uniqueExact(
+      assignments.map((assignment) => assignment.signature),
+    );
+    if (signatures.length > 1) {
+      return { stages: [stage], changed: false };
+    }
+    const assignment = assignments[0] ?? null;
+    const key = assignment?.signature ?? '__unmapped__';
+    const group = groups.get(key) ?? { assignment, frameIndexes: [] };
+    group.frameIndexes.push(frameIndex);
+    groups.set(key, group);
+  }
+  if (groups.size <= 1) return { stages: [stage], changed: false };
+
+  const mappedGroups = [...groups.entries()].filter(
+    ([key]) => key !== '__unmapped__',
+  );
+  if (mappedGroups.length === 0) return { stages: [stage], changed: false };
+
+  const ordered = [...groups.values()].sort(
+    (left, right) => left.frameIndexes[0] - right.frameIndexes[0],
+  );
+  const usedLabels = new Set();
+  const stages = ordered.map((group, index) => {
+    const qualifier = legacyStageQualifier(group.assignment?.assembly, index);
+    let label = `${stage.label}（${qualifier}）`;
+    let suffix = 2;
+    while (usedLabels.has(label)) {
+      label = `${stage.label}（${qualifier} ${suffix}）`;
+      suffix += 1;
+    }
+    usedLabels.add(label);
+    return {
+      ...stage,
+      label,
+      frame_indexes: group.frameIndexes,
+      warnings: uniqueExact([
+        ...(Array.isArray(stage.warnings) ? stage.warnings : []),
+        'legacy_mapping_conflict_stage_split',
+      ]),
+    };
+  });
+  return { stages, changed: true };
+}
+
+function legacyStageQualifier(assembly, index) {
+  const label = stringValue(
+    assembly?.sourceName ?? assembly?.displayLabel,
+  ).trim();
+  const translated = label
+    .split('/')
+    .slice(1)
+    .join('/')
+    .trim();
+  if (translated && /[\u3400-\u9fff]/.test(translated)) return translated;
+  return assembly ? `旧映射 ${index + 1}` : '未映射';
+}
+
+function uniqueFrameIndexes(values) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => Number(value))
+      .filter(Number.isInteger),
+  )].sort((left, right) => left - right);
 }
 
 function mappingWithRoleAssemblies(cache, extraction) {
@@ -690,7 +843,7 @@ function mappingWithRoleAssemblies(cache, extraction) {
   const previousAssemblies = Array.isArray(cache.mapping?.roleAssemblies)
     ? cache.mapping.roleAssemblies
     : [];
-  const previousRoleMatches = previousRoleMatchesForExtraction(
+  const previousRoleSources = previousRoleSourcesForExtraction(
     previousAssemblies,
     extraction.roles,
   );
@@ -699,7 +852,7 @@ function mappingWithRoleAssemblies(cache, extraction) {
     id: `mapping-${cache.scriptId}`,
     scriptId: cache.scriptId,
     roleAssemblies: extraction.roles.map((role) => {
-      const previous = previousRoleMatches.get(role.source_role_id) ?? null;
+      const previous = previousRoleSources.get(role.source_role_id) ?? [];
       return {
         sourceRoleId: role.source_role_id,
         displayLabel: role.display_name,
@@ -725,7 +878,7 @@ function mappingWithRoleAssemblies(cache, extraction) {
     rolePromptReplacements: rolePromptReplacementsForExtraction(
       extraction,
       mapping.rolePromptReplacements,
-      previousRoleMatches,
+      previousRoleSources,
     ),
     scenePromptReplacements: scenePromptReplacementsForExtraction(extraction),
   };
@@ -734,7 +887,7 @@ function mappingWithRoleAssemblies(cache, extraction) {
 function rolePromptReplacementsForExtraction(
   extraction,
   existingReplacements = [],
-  previousRoleMatches = new Map(),
+  previousRoleSources = new Map(),
 ) {
   const existingByRoleId = new Map();
   for (const replacement of Array.isArray(existingReplacements)
@@ -750,47 +903,105 @@ function rolePromptReplacementsForExtraction(
       const sourceRoleId = stringValue(role.source_role_id).trim();
       const terms = nonEmptyPromptTerms(role.prompt_terms);
       if (!sourceRoleId || terms.length === 0) return null;
-      const previousRoleId = stringValue(
-        previousRoleMatches.get(sourceRoleId)?.sourceRoleId,
-      ).trim();
-      const existing =
-        existingByRoleId.get(sourceRoleId) ??
-        (previousRoleId ? existingByRoleId.get(previousRoleId) : null);
+      const previousSources = previousRoleSources.get(sourceRoleId) ?? [];
+      const existingSources = [];
+      const emittedExistingRoleIds = new Set();
+      const addExistingSource = (replacement, assembly = null) => {
+        const previousRoleId = stringValue(replacement?.sourceRoleId).trim();
+        if (!replacement || emittedExistingRoleIds.has(previousRoleId)) return;
+        emittedExistingRoleIds.add(previousRoleId);
+        existingSources.push({
+          replacement,
+          frameIndexes: assembly
+            ? [...appearanceFrameIndexSet(assembly.sourceAppearances)]
+            : null,
+        });
+      };
+      const direct = existingByRoleId.get(sourceRoleId) ?? null;
+      addExistingSource(
+        direct,
+        previousSources.find(
+          (assembly) => assembly.sourceRoleId === sourceRoleId,
+        ) ?? null,
+      );
+      for (const assembly of previousSources) {
+        addExistingSource(
+          existingByRoleId.get(stringValue(assembly?.sourceRoleId).trim()),
+          assembly,
+        );
+      }
       const sourcePreview = terms.map((term) => term.text).join(', ');
+      const targetCharacterId = sharedReplacementField(
+        existingSources,
+        'targetCharacterId',
+      );
+      const targetIdentityPrompt = sharedReplacementField(
+        existingSources,
+        'targetIdentityPrompt',
+      );
       return {
         sourceRoleId,
         displayLabel: stringValue(role.display_name).trim() || sourceRoleId,
-        sourcePreview: sourcePreview || stringValue(existing?.sourcePreview),
-        ...(stringValue(existing?.targetCharacterId).trim()
-          ? { targetCharacterId: existing.targetCharacterId }
-          : {}),
-        ...(stringValue(existing?.targetIdentityPrompt).trim()
-          ? { targetIdentityPrompt: existing.targetIdentityPrompt }
-          : {}),
+        sourcePreview:
+          sourcePreview ||
+          stringValue(existingSources[0]?.replacement?.sourcePreview),
+        ...(targetCharacterId ? { targetCharacterId } : {}),
+        ...(targetIdentityPrompt ? { targetIdentityPrompt } : {}),
         rules: promptReplacementRulesForExtractionTerms({
           sourceRoleId,
           terms,
-          existingRules: existing?.rules,
+          existingRuleSources: existingSources.map((source) => ({
+            rules: source.replacement?.rules,
+            frameIndexes: source.frameIndexes,
+          })),
         }),
       };
     })
     .filter(Boolean);
 }
 
+function sharedReplacementField(existingSources, field) {
+  if (existingSources.length === 0) return '';
+  const values = existingSources.map((source) =>
+    stringValue(source.replacement?.[field]).trim(),
+  );
+  return new Set(values).size === 1 ? values[0] : '';
+}
+
 function promptReplacementRulesForExtractionTerms({
   sourceRoleId,
   terms,
-  existingRules,
+  existingRuleSources,
 }) {
-  const existingByTerm = new Map();
-  const identityFallback = genericIdentityReplacementFallback(existingRules);
-  for (const rule of Array.isArray(existingRules) ? existingRules : []) {
-    for (const term of Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : []) {
-      for (const key of promptReplacementTermMatchKeys(term)) {
-        if (!existingByTerm.has(key)) existingByTerm.set(key, rule);
+  const indexedSources = (Array.isArray(existingRuleSources)
+    ? existingRuleSources
+    : []
+  ).map((source) => {
+    const existingByTerm = new Map();
+    for (const rule of Array.isArray(source?.rules) ? source.rules : []) {
+      for (const term of Array.isArray(rule?.sourceTerms)
+        ? rule.sourceTerms
+        : []) {
+        for (const key of promptReplacementTermMatchKeys(term)) {
+          if (!existingByTerm.has(key)) {
+            existingByTerm.set(key, { rule, term });
+          }
+        }
       }
     }
-  }
+    return {
+      existingByTerm,
+      rules: source?.rules,
+      frameIndexes: Array.isArray(source?.frameIndexes)
+        ? uniqueFrameIndexes(source.frameIndexes)
+        : null,
+    };
+  });
+  const identityFallback = identityReplacementFallback(
+    indexedSources.flatMap((source) =>
+      Array.isArray(source.rules) ? source.rules : [],
+    ),
+  );
   const rules = [];
   const emitted = new Set();
   for (const term of terms) {
@@ -799,64 +1010,214 @@ function promptReplacementRulesForExtractionTerms({
       id: rolePromptReplacementRuleId(sourceRoleId, term),
       sourceTerms: [sourceTerm],
     };
-    let existing = null;
-    for (const key of promptReplacementTermMatchKeys(sourceTerm)) {
-      existing = existingByTerm.get(key);
-      if (existing) break;
+    const existingCandidates = [];
+    for (const indexedSource of indexedSources) {
+      let matched = null;
+      for (const key of promptReplacementTermMatchKeys(sourceTerm)) {
+        matched = indexedSource.existingByTerm.get(key);
+        if (matched) break;
+      }
+      if (!matched) continue;
+      existingCandidates.push({
+        rule: matched.rule,
+        frameIndexes: scopedLegacyRuleFrameIndexes(
+          indexedSource.frameIndexes,
+          matched.term,
+        ),
+      });
     }
     const canUseIdentityFallback =
-      !existing &&
-      normalizedTagKey(sourceTerm.category) === 'character' &&
+      existingCandidates.length === 0 &&
+      ['character', 'identity'].includes(
+        normalizedTagKey(sourceTerm.category),
+      ) &&
       !isGenericPromptIdentityTerm(sourceTerm.text) &&
       identityFallback;
-    const next = existing
-      ? { ...existing, sourceTerms: [sourceTerm] }
-      : canUseIdentityFallback
+    if (existingCandidates.length === 0) {
+      const next = canUseIdentityFallback
         ? {
             ...generated,
             action: identityFallback.action,
             targetPrompt: identityFallback.targetPrompt,
           }
         : generated;
-    if (
-      stringValue(next.anchorTermId).trim() &&
-      stringValue(next.anchorTermId).trim() !== sourceTerm.id
-    ) {
-      delete next.anchorTermId;
+      appendPromptReplacementRule(rules, emitted, next, sourceTerm, generated);
+      continue;
     }
-    if (Array.isArray(next.excludedTermIds)) {
-      next.excludedTermIds = next.excludedTermIds.filter(
-        (id) => stringValue(id).trim() === sourceTerm.id,
+
+    const signatures = uniqueExact(
+      existingCandidates.map((candidate) =>
+        promptReplacementRuleMappingSignature(candidate.rule),
+      ),
+    );
+    if (signatures.length === 1) {
+      appendPromptReplacementRule(
+        rules,
+        emitted,
+        existingCandidates[0].rule,
+        sourceTerm,
+        generated,
       );
-      if (next.excludedTermIds.length === 0) delete next.excludedTermIds;
+      continue;
     }
-    const preferredId = stringValue(next.id).trim() || generated.id;
-    let id = emitted.has(preferredId) ? generated.id : preferredId;
-    let suffix = 2;
-    while (emitted.has(id)) {
-      id = `${generated.id}-${suffix}`;
-      suffix += 1;
+
+    const partitions = partitionConflictingPromptRuleMappings(
+      sourceTerm,
+      existingCandidates,
+    );
+    if (!partitions) {
+      appendPromptReplacementRule(rules, emitted, generated, sourceTerm, generated);
+      continue;
     }
-    rules.push({ ...next, id });
-    emitted.add(id);
+    for (const partition of partitions) {
+      const scopedSourceTerm = promptReplacementTermForFrames(
+        sourceTerm,
+        partition.frameIndexes,
+      );
+      appendPromptReplacementRule(
+        rules,
+        emitted,
+        partition.rule ?? generated,
+        scopedSourceTerm,
+        generated,
+      );
+    }
   }
   return rules;
 }
 
-function genericIdentityReplacementFallback(existingRules) {
+function appendPromptReplacementRule(
+  rules,
+  emitted,
+  template,
+  sourceTerm,
+  generated,
+) {
+  const next = { ...template, sourceTerms: [sourceTerm] };
+  if (
+    stringValue(next.anchorTermId).trim() &&
+    stringValue(next.anchorTermId).trim() !== sourceTerm.id
+  ) {
+    delete next.anchorTermId;
+  }
+  if (Array.isArray(next.excludedTermIds)) {
+    next.excludedTermIds = next.excludedTermIds.filter(
+      (id) => stringValue(id).trim() === sourceTerm.id,
+    );
+    if (next.excludedTermIds.length === 0) delete next.excludedTermIds;
+  }
+  const preferredId = stringValue(next.id).trim() || generated.id;
+  let id = emitted.has(preferredId) ? generated.id : preferredId;
+  let suffix = 2;
+  while (emitted.has(id)) {
+    id = `${generated.id}-${suffix}`;
+    suffix += 1;
+  }
+  rules.push({ ...next, id });
+  emitted.add(id);
+}
+
+function scopedLegacyRuleFrameIndexes(assemblyFrameIndexes, sourceTerm) {
+  const termFrameIndexes = uniqueFrameIndexes([
+    ...(Array.isArray(sourceTerm?.frameIndexes)
+      ? sourceTerm.frameIndexes
+      : []),
+    ...(Array.isArray(sourceTerm?.sourceOccurrences)
+      ? sourceTerm.sourceOccurrences.map((occurrence) => occurrence?.frameIndex)
+      : []),
+  ]);
+  if (!Array.isArray(assemblyFrameIndexes)) {
+    return termFrameIndexes.length > 0 ? termFrameIndexes : null;
+  }
+  if (termFrameIndexes.length === 0) return assemblyFrameIndexes;
+  const termFrames = new Set(termFrameIndexes);
+  return assemblyFrameIndexes.filter((frameIndex) => termFrames.has(frameIndex));
+}
+
+function promptReplacementRuleMappingSignature(rule) {
+  const payload = {};
+  for (const key of Object.keys(rule ?? {}).sort()) {
+    if (['id', 'sourceTerms', 'anchorTermId', 'excludedTermIds'].includes(key)) {
+      continue;
+    }
+    payload[key] = rule[key];
+  }
+  return JSON.stringify(payload);
+}
+
+function partitionConflictingPromptRuleMappings(sourceTerm, candidates) {
+  const termFrames = uniqueFrameIndexes(sourceTerm.frameIndexes);
+  if (termFrames.length === 0) return null;
+  const termFrameSet = new Set(termFrames);
+  const groups = new Map();
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate.frameIndexes)) return null;
+    const signature = promptReplacementRuleMappingSignature(candidate.rule);
+    const group = groups.get(signature) ?? {
+      rule: candidate.rule,
+      frameIndexes: new Set(),
+    };
+    for (const frameIndex of candidate.frameIndexes) {
+      if (termFrameSet.has(frameIndex)) group.frameIndexes.add(frameIndex);
+    }
+    groups.set(signature, group);
+  }
+  const ownerByFrame = new Map();
+  for (const [signature, group] of groups) {
+    for (const frameIndex of group.frameIndexes) {
+      const owner = ownerByFrame.get(frameIndex);
+      if (owner && owner !== signature) return null;
+      ownerByFrame.set(frameIndex, signature);
+    }
+  }
+  const partitions = [...groups.values()]
+    .map((group) => ({
+      rule: group.rule,
+      frameIndexes: [...group.frameIndexes].sort((left, right) => left - right),
+    }))
+    .filter((group) => group.frameIndexes.length > 0);
+  const uncovered = termFrames.filter((frameIndex) => !ownerByFrame.has(frameIndex));
+  if (uncovered.length > 0) {
+    partitions.push({ rule: null, frameIndexes: uncovered });
+  }
+  return partitions.sort(
+    (left, right) => left.frameIndexes[0] - right.frameIndexes[0],
+  );
+}
+
+function promptReplacementTermForFrames(sourceTerm, frameIndexes) {
+  const frameSet = new Set(frameIndexes);
+  const sourceOccurrences = (Array.isArray(sourceTerm.sourceOccurrences)
+    ? sourceTerm.sourceOccurrences
+    : []
+  ).filter((occurrence) => frameSet.has(Number(occurrence?.frameIndex)));
+  const next = {
+    ...sourceTerm,
+    frameIndexes,
+  };
+  if (sourceOccurrences.length > 0) {
+    next.sourceOccurrences = sourceOccurrences;
+    next.sourceLocation = uniqueExact(
+      sourceOccurrences.map((occurrence) => occurrence.sourceLocation),
+    ).join('; ');
+  } else {
+    delete next.sourceOccurrences;
+  }
+  return next;
+}
+
+function identityReplacementFallback(existingRules) {
   const candidates = [];
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     const action = normalizedTagKey(rule?.action);
     const targetPrompt = stringValue(rule?.targetPrompt).trim();
     if (action !== 'replace' || !targetPrompt) continue;
-    const hasGenericIdentitySource = (
+    const hasIdentitySource = (
       Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : []
-    ).some(
-      (term) =>
-        ['character', 'identity'].includes(normalizedTagKey(term?.category)) &&
-        isGenericPromptIdentityTerm(term?.text),
+    ).some((term) =>
+      ['character', 'identity'].includes(normalizedTagKey(term?.category)),
     );
-    if (!hasGenericIdentitySource) continue;
+    if (!hasIdentitySource) continue;
     candidates.push({ action: 'replace', targetPrompt });
   }
   const signatures = uniqueExact(
@@ -902,10 +1263,11 @@ function nonEmptyPromptTerms(terms) {
 
 function promptReplacementTermFromAi(term) {
   const sourceOccurrences = physicalSourceOccurrencesFromAiTerm(term);
+  const category = contractPromptTermCategory(term.category) || 'identity';
   return {
     id: stringValue(term.id).trim() || `term-${safeId(term.text)}`,
     text: stringValue(term.text).trim(),
-    category: stringValue(term.category).trim() || 'character',
+    category,
     ...(stringValue(term.source_phrase).trim()
       ? { sourcePhrase: stringValue(term.source_phrase).trim() }
       : {}),
@@ -1077,6 +1439,89 @@ function previousRoleMatchesForExtraction(previousAssemblies, roles) {
   return matches;
 }
 
+function previousRoleSourcesForExtraction(previousAssemblies, roles) {
+  const primaryMatches = previousRoleMatchesForExtraction(
+    previousAssemblies,
+    roles,
+  );
+  const sources = new Map(
+    roles.map((role) => {
+      const primary = primaryMatches.get(role.source_role_id);
+      return [role.source_role_id, primary ? [primary] : []];
+    }),
+  );
+  const alreadyAssigned = new Set(
+    [...sources.values()].flatMap((assemblies) => assemblies),
+  );
+  const previousPositions = new Map(
+    previousAssemblies.map((assembly) => [
+      assembly,
+      appearancePositionSet(assembly.sourceAppearances),
+    ]),
+  );
+  const candidatesByRole = new Map();
+  for (const role of roles) {
+    const canonicalName = canonicalMigrationRoleName(role);
+    if (!canonicalName) continue;
+    const rolePositions = appearancePositionSet(role.appearances);
+    if (rolePositions.size === 0) continue;
+    const currentPositions = new Set();
+    for (const assembly of sources.get(role.source_role_id) ?? []) {
+      for (const position of previousPositions.get(assembly) ?? []) {
+        currentPositions.add(position);
+      }
+    }
+    const candidates = previousAssemblies.filter((assembly) => {
+      if (alreadyAssigned.has(assembly)) return false;
+      if (canonicalMigrationAssemblyName(assembly) !== canonicalName) {
+        return false;
+      }
+      const positions = previousPositions.get(assembly) ?? new Set();
+      return (
+        positions.size > 0 &&
+        isSubsetOf(positions, rolePositions) &&
+        !setsIntersect(positions, currentPositions)
+      );
+    });
+    if (candidates.length > 0) candidatesByRole.set(role, candidates);
+  }
+  const claimCounts = candidateClaimCounts(candidatesByRole);
+  for (const [role, candidates] of candidatesByRole) {
+    const roleSources = sources.get(role.source_role_id) ?? [];
+    const occupied = new Set();
+    for (const assembly of roleSources) {
+      for (const position of previousPositions.get(assembly) ?? []) {
+        occupied.add(position);
+      }
+    }
+    for (const assembly of candidates) {
+      if (claimCounts.get(assembly) !== 1) continue;
+      const positions = previousPositions.get(assembly) ?? new Set();
+      if (setsIntersect(positions, occupied)) continue;
+      roleSources.push(assembly);
+      for (const position of positions) occupied.add(position);
+    }
+    sources.set(role.source_role_id, roleSources);
+  }
+  return sources;
+}
+
+function canonicalMigrationRoleName(role) {
+  const explicit = normalizedTagKey(role?.canonical_name);
+  if (explicit) return explicit;
+  const displayName = stringValue(role?.display_name).split('/')[0].trim();
+  return normalizedTagKey(parseCharacterTag(displayName).canonicalName);
+}
+
+function canonicalMigrationAssemblyName(assembly) {
+  const label = stringValue(
+    assembly?.sourceName ?? assembly?.displayLabel,
+  )
+    .split('/')[0]
+    .trim();
+  return normalizedTagKey(parseCharacterTag(label).canonicalName);
+}
+
 function candidateClaimCounts(candidatesByRole) {
   const counts = new Map();
   for (const candidates of candidatesByRole.values()) {
@@ -1103,6 +1548,17 @@ function appearancePositionSet(appearances) {
       const frameIndex = Number(rawFrameIndex);
       if (!Number.isInteger(frameIndex)) continue;
       result.add(`${sourceKind}\u001f${sourceId}\u001f${frameIndex}`);
+    }
+  }
+  return result;
+}
+
+function appearanceFrameIndexSet(appearances) {
+  const result = new Set();
+  for (const appearance of Array.isArray(appearances) ? appearances : []) {
+    const frameIndexes = appearance?.frameIndexes ?? appearance?.frame_indexes;
+    for (const frameIndex of uniqueFrameIndexes(frameIndexes)) {
+      result.add(frameIndex);
     }
   }
   return result;
@@ -1145,10 +1601,15 @@ function isFemaleExtractionRole(role) {
   return female && !male;
 }
 
-function previousStageForStage(previousAssembly, stage) {
-  const stages = Array.isArray(previousAssembly?.stages)
-    ? previousAssembly.stages
-    : [];
+function previousStageForStage(previousAssemblies, stage) {
+  const assemblies = Array.isArray(previousAssemblies)
+    ? previousAssemblies
+    : previousAssemblies
+      ? [previousAssemblies]
+      : [];
+  const stages = assemblies.flatMap((assembly) =>
+    Array.isArray(assembly?.stages) ? assembly.stages : [],
+  );
   if (stages.length === 0) return null;
   let best = null;
   let bestScore = 0;
@@ -1548,6 +2009,13 @@ function isScenePromptReplacementTerm(tag) {
   ) {
     return false;
   }
+  if (
+    /^(?:dark|room|hotel room|prison|brick wall|night|wooden chair|stone floor|hallway|lamp|full length mirror|in cell|stone wall|sunlight|table|teacup|door|open door|red couch|trash|beach|day|summer|commander s room|wooden stool|wooden table|evening|ocean|sunrise|desk|blue drink|straw|pink lights|bar|sofa|casino|toilet|toilet interior|urinal|used condom)$/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
   return /\b(bathroom|bath|bathtub|shower|onsen|hot spring|workshop|factory|garage|mechanic|school|classroom|train|subway|station|street|city|bedroom|bed|indoors|outdoors)\b/.test(
     normalized,
   );
@@ -1556,7 +2024,8 @@ function isScenePromptReplacementTerm(tag) {
 function addPromptTerm(terms, item, { force = false } = {}) {
   const text = cleanTag(item.text);
   if (!text) return;
-  const category = item.category || 'identity';
+  const category = contractPromptTermCategory(item.category);
+  if (!category) return;
   if (!force && shouldSkipPromptReplacementTerm(text, category)) return;
   const key = `${category}\u001f${normalizedTagKey(text)}`;
   const existing = terms.get(key) ?? {
@@ -1598,6 +2067,29 @@ function addPromptTerm(terms, item, { force = false } = {}) {
   terms.set(key, existing);
 }
 
+function contractPromptTermCategory(value) {
+  const category = stringValue(value).trim();
+  if (!category || category === 'character' || category === 'identity') {
+    return 'identity';
+  }
+  if (category === 'upperBody' || category === 'lowerBody' || category === 'body') {
+    return 'body';
+  }
+  if (
+    category === 'upperClothing' ||
+    category === 'lowerClothing' ||
+    category === 'clothing'
+  ) {
+    return 'clothing';
+  }
+  if (category === 'clothingState' || category === 'clothing_state') {
+    return 'clothingState';
+  }
+  if (category === 'accessory' || category === 'scene') return category;
+  if (category === 'other') return 'body';
+  return '';
+}
+
 function physicalPromptSourceLocation(value) {
   const location = stringValue(value).trim();
   if (/^base prompt(?:\s+\([^)]*\))?$/.test(location)) {
@@ -1628,14 +2120,8 @@ function promptTermRowsFromMap(terms, idPrefix) {
         (order.get(left.category) ?? 99) - (order.get(right.category) ?? 99) ||
         left.text.localeCompare(right.text),
     )
-    .map((term) => ({
-      id: `${idPrefix}-${term.category}-${safeId(term.text)}`,
-      text: term.text,
-      category: term.category,
-      source_phrase: term.sourcePhrase || term.text,
-      source_location: term.sourceLocation,
-      frame_indexes: sortedInts(term.frames),
-      source_occurrences: [...(term.occurrences?.values() ?? [])]
+    .map((term) => {
+      const sourceOccurrences = [...(term.occurrences?.values() ?? [])]
         .sort(
           (left, right) =>
             left.frameIndex - right.frameIndex ||
@@ -1644,8 +2130,23 @@ function promptTermRowsFromMap(terms, idPrefix) {
         .map((occurrence) => ({
           frame_index: occurrence.frameIndex,
           source_location: occurrence.sourceLocation,
-        })),
-    }));
+        }));
+      const physicalFrameIndexes = sortedInts(
+        sourceOccurrences.map((occurrence) => occurrence.frame_index),
+      );
+      return {
+        id: `${idPrefix}-${term.category}-${safeId(term.text)}`,
+        text: term.text,
+        category: term.category,
+        source_phrase: term.sourcePhrase || term.text,
+        source_location: term.sourceLocation,
+        frame_indexes:
+          physicalFrameIndexes.length > 0
+            ? physicalFrameIndexes
+            : sortedInts(term.frames),
+        source_occurrences: sourceOccurrences,
+      };
+    });
 }
 
 function clothingPromptTermForTag(tag) {
@@ -1761,6 +2262,13 @@ function isRolePromptTermContractExcludedTag(tag) {
   }
   if (
     /\b(adjusting|presenting|spread(?:ing)?|hands? on|hand on|grabbing|kicking|licking|whispering|kiss(?:ing)?|french kiss|incoming kiss|oral|fellatio|handjob|sex|doggystyle|cowgirl|amazon position|cowgirl position|femdom|sadism|violence|teamwork sexual|large insertion|penetration|internal cumshot|fertilization|impregnation|orgasm|cum(?:drip)?|pussy juice|saliva|saliva trail|sperm|used condom)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(ass focus|ass in air|ass visible through thighs|between legs|bound legs|bouncing ass|bouncing breasts?|breast sucking|breasts squeezed together|close eyes|dashed eyes|disembodied foot|disembodied leg|eye contact|face down|face in crotch|foot on another s head|hair grab|hand between own legs|head between legs|heart shaped pupils|leg together|leg up|legs apart|legs together|nipple pull|nipple stimulation|nipple tweak|on face|pointing navel|stomach bulge|stomach punch|swaying hip|sweaty breasts|symbol shaped pupils|uneven eyes|upturned eyes|vibrator on nipple|view between legs|view between thighs|wet hair|buttjob through clothes|cunnilingus through clothes|fingering through (?:clothes|panties)|holding another s legs|hugging own legs|knees to chest|leg around another s leg|male focus|face outside)\b/.test(
       normalized,
     )
   ) {
@@ -2007,7 +2515,10 @@ function emptyIdentity() {
 }
 
 function mergeIdentities(left, right) {
-  const concrete = unique([...(left?.concrete ?? []), ...(right?.concrete ?? [])]);
+  const concrete = unique([
+    ...(left?.concrete ?? []),
+    ...(right?.concrete ?? []),
+  ]).sort(compareConcreteIdentityPreference);
   const generic = unique([...(left?.generic ?? []), ...(right?.generic ?? [])]);
   const rawGeneric = unique([
     ...(left?.rawGeneric ?? []),
@@ -2029,6 +2540,23 @@ function mergeIdentities(left, right) {
       ...parsed.variantTags,
     ]),
   };
+}
+
+function compareConcreteIdentityPreference(left, right) {
+  const leftParsed = parseCharacterTag(left);
+  const rightParsed = parseCharacterTag(right);
+  if (
+    normalizedTagKey(leftParsed.canonicalName) !==
+      normalizedTagKey(rightParsed.canonicalName) ||
+    normalizedTagKey(leftParsed.franchise) !==
+      normalizedTagKey(rightParsed.franchise)
+  ) {
+    return 0;
+  }
+  const leftIsVariant = (leftParsed.variantTags ?? []).length > 0;
+  const rightIsVariant = (rightParsed.variantTags ?? []).length > 0;
+  if (leftIsVariant === rightIsVariant) return 0;
+  return leftIsVariant ? 1 : -1;
 }
 
 function sanitizeIdentityForRole(identity) {
@@ -2239,6 +2767,7 @@ function collectSlotIdentityAnchors(frames) {
 
 function shouldSkipCaptionAsRole(tags, identity) {
   const normalized = tags.map(normalizedTagKey).filter(Boolean);
+  if (normalized.some((tag) => /^no humans?$/.test(tag))) return true;
   const hasExplicitBasic = hasExplicitBasicIdentity(tags);
   const hasStableEvidence = hasStableRoleEvidence(tags);
   const hasSpecificGeneric = hasSpecificGenericIdentity(identity);
@@ -2246,6 +2775,7 @@ function shouldSkipCaptionAsRole(tags, identity) {
     identity.concreteKey.length === 0 &&
     !hasSpecificGeneric &&
     !hasWholeCharacterPresenceEvidence(tags) &&
+    !hasDurablePartialIdentityEvidence(tags) &&
     normalized.some((tag) => /\b(pov hands?|only hands?|disembodied hands?)\b/.test(tag))
   ) {
     return true;
@@ -2260,7 +2790,7 @@ function shouldSkipCaptionAsRole(tags, identity) {
     hasOnlyPartialHumanEvidence(tags) &&
     !hasSpecificGeneric &&
     !hasWholeCharacterPresenceEvidence(tags) &&
-    !hasDurablePartialRoleEvidence(tags)
+    !hasDurablePartialIdentityEvidence(tags)
   ) {
     return true;
   }
@@ -2301,6 +2831,12 @@ function attachUnmatchedPromptEvidenceToGroups(frames, groups) {
       if (coveredSourceFrames.has(coverageKey)) return;
       const tags = parseTags(caption);
       if (tags.length === 0) return;
+      if (
+        hasOnlyPartialHumanEvidence(tags) &&
+        !hasDurablePartialRoleEvidence(tags)
+      ) {
+        return;
+      }
       const promptEvidenceTerms = promptEvidenceTermsForTags(tags);
       if (promptEvidenceTerms.size === 0) return;
       const target = chooseGroupForUnmatchedPromptEvidence(groupList, {
@@ -2398,7 +2934,7 @@ function attachReviewedSupplementalPromptEvidenceToGroups(frames, groups) {
             baseTags: parseTags(frame.parsed?.baseCaption),
           });
         }
-        target.frames.add(frameIndex);
+        if (target.reviewedEvidenceOnly) target.frames.add(frameIndex);
         addReviewedPromptEvidence(target, {
           frameIndex,
           tag,
@@ -2643,6 +3179,37 @@ function canAttachGenericCaptionToAnchor(tags, identity, anchor) {
   return true;
 }
 
+function promoteAnchorCanonicalIdentity(identity, anchorIdentity) {
+  const anchorCanonical = normalizedTagKey(anchorIdentity?.canonicalName);
+  if (!anchorCanonical) return identity;
+  const matchingTag = unique([
+    ...(identity?.rawGeneric ?? []),
+    ...(identity?.generic ?? []),
+  ]).find((tag) => normalizedTagKey(tag) === anchorCanonical);
+  if (!matchingTag) return identity;
+  const parsed = parseCharacterTag(matchingTag);
+  const generic = (identity?.generic ?? []).filter(
+    (tag) => normalizedTagKey(tag) !== anchorCanonical,
+  );
+  const rawGeneric = (identity?.rawGeneric ?? []).filter(
+    (tag) => normalizedTagKey(tag) !== anchorCanonical,
+  );
+  return {
+    ...identity,
+    concrete: unique([matchingTag, ...(identity?.concrete ?? [])]),
+    concreteKey: normalizedTagKey(matchingTag),
+    generic: unique(generic),
+    rawGeneric: unique(rawGeneric),
+    genericKey: generic[0] ? normalizedTagKey(generic[0]) : '',
+    canonicalName: parsed.canonicalName || anchorIdentity?.canonicalName || '',
+    franchise: parsed.franchise || anchorIdentity?.franchise || '',
+    variantTags: unique([
+      ...(identity?.variantTags ?? []),
+      ...parsed.variantTags,
+    ]),
+  };
+}
+
 function hasAnchorCompatibleRoleEvidence(tags, identity) {
   if (hasSpecificGenericIdentity(identity)) return true;
   if (hasWholeCharacterPresenceEvidence(tags)) return true;
@@ -2714,6 +3281,7 @@ function hasStableRoleEvidence(tags) {
   for (const tag of tags) {
     const normalized = normalizedTagKey(tag);
     if (!normalized) continue;
+    if (isRelationalBodyActionTag(normalized)) continue;
     if (hasWholeCharacterPresenceEvidence([tag])) return true;
     if (isHeldOrUnwornClothingTag(normalized, tags.map(normalizedTagKey))) continue;
     const category = categoryForTag(tag);
@@ -2766,6 +3334,7 @@ function hasDurablePartialRoleEvidence(tags) {
   for (const tag of tags) {
     const normalized = normalizedTagKey(tag);
     if (!normalized) continue;
+    if (isRelationalBodyActionTag(normalized)) continue;
     if (
       /\b(student|hair|eyes?|shirt|pants|trousers|jacket|dress|skirt|robe|hat|ribbon|tail|ears?|uniform|suit)\b/.test(
         normalized,
@@ -2784,6 +3353,22 @@ function hasDurablePartialRoleEvidence(tags) {
     }
   }
   return false;
+}
+
+function hasDurablePartialIdentityEvidence(tags) {
+  for (const tag of tags) {
+    const normalized = normalizedTagKey(tag);
+    if (!normalized || isRelationalBodyActionTag(normalized)) continue;
+    const category = categoryForTag(tag);
+    if (category === 'upperBody' || category === 'lowerBody') return true;
+  }
+  return false;
+}
+
+function isRelationalBodyActionTag(normalized) {
+  return /\b(?:pov hands?|only hands?|disembodied hands?|(?:hands?|wand|object|toy|sex toy) on (?:another(?: s)? )?(?:the )?(?:stomach|thighs?|legs?|body|chest|breasts?)|spreading another(?: s)? legs?|hands? on another|grabbing another|touching another)\b/.test(
+    normalized,
+  );
 }
 
 function hasWholeCharacterPresenceEvidence(tags) {
@@ -5292,11 +5877,14 @@ function isConcreteCharacterTag(tag) {
   if (classified && classified !== 'character') {
     return false;
   }
-  return /[_\s]*\([^)]{3,}\)/.test(tag) && !/^artist[:\s]/i.test(tag);
+  return (
+    /[_\s]*\([^)]{3,}\)/.test(normalizeCharacterGroupingSymbols(tag)) &&
+    !/^artist[:\s]/i.test(tag)
+  );
 }
 
 function isVariantNamedCharacterTag(tag) {
-  const text = stringValue(tag).trim();
+  const text = normalizeCharacterGroupingSymbols(stringValue(tag).trim());
   if (!/[_\s]*\([^)]{3,}\)/.test(text) || /^artist[:\s]/i.test(text)) {
     return false;
   }
@@ -5311,6 +5899,7 @@ function isVariantNamedCharacterTag(tag) {
 function isPseudoCharacterActionTag(normalized) {
   const parsed = parseCharacterTag(normalized);
   const name = normalizedTagKey(parsed.canonicalName || normalized);
+  if (name === 'hamedoori template') return true;
   return /\b(watching|looking|holding|grabbing|touching|behind|pressing|fondling|slapping|slap|kneeling|standing|sitting|lying|smil(?:e|ing)|grin(?:ning)?|blush(?:ing)?|cry(?:ing)?|angry|scared|dazed|ahegao|on top of|against|under|over|inside|bathroom|shower|recruitment|ui|screen|source|vision|object|dutch angle|dynamic angle|pov hands?)\b/.test(
     name,
   );
@@ -5352,7 +5941,7 @@ function isParentheticalObjectIdentityTag(tag) {
 }
 
 function isKnownFranchiseCharacterTag(tag, normalized) {
-  const raw = stringValue(tag);
+  const raw = normalizeCharacterGroupingSymbols(stringValue(tag));
   if (!/[_\s]*\([^)]{3,}\)/.test(raw) || /^artist[:\s]/i.test(raw)) {
     return false;
   }
@@ -5390,7 +5979,7 @@ function parseCharacterTag(tag) {
   if (!text) {
     return { canonicalName: '', franchise: '', variantTags: [] };
   }
-  const normalized = text.replace(/_/g, ' ');
+  const normalized = normalizeCharacterGroupingSymbols(text).replace(/_/g, ' ');
   const groups = [...normalized.matchAll(/\(([^)]*)\)/g)]
     .map((match) => match[1].trim())
     .filter(Boolean);
@@ -5405,6 +5994,12 @@ function parseCharacterTag(tag) {
   return { canonicalName, franchise, variantTags };
 }
 
+function normalizeCharacterGroupingSymbols(value) {
+  return stringValue(value)
+    .replace(/[（［｛【〈《「『〔〖〘〚<]/g, '(')
+    .replace(/[）］｝】〉》」』〕〗〙〛>]/g, ')');
+}
+
 function canonicalCharacterName(name) {
   const normalized = normalizedTagKey(name);
   const aliases = {
@@ -5416,6 +6011,10 @@ function canonicalCharacterName(name) {
 function canonicalFranchiseName(name) {
   const normalized = normalizedTagKey(name);
   const aliases = {
+    // The source snapshot contains this exact misspelling in frames 2-4.
+    // Canonicalize only the role identity key; the raw prompt token remains a
+    // separate source-evidenced replacement term.
+    'black surviaval': 'black survival',
     'eternal return': 'black survival',
     'glanblue fantasy': 'granblue fantasy',
     'princess connect': 'princess connect!',
@@ -5427,7 +6026,7 @@ function canonicalFranchiseName(name) {
 function isVariantOnlyCharacterGroup(name) {
   const normalized = normalizedTagKey(name);
   if (!normalized) return false;
-  return /\b(costume|outfit|mechanic|summer|new year|ceremonial|bunny girl|idol|dress|swimsuit|halloween|school uniform|maid|cheerleader|first ascension|second ascension|third ascension|1st|2nd|3rd)\b/.test(
+  return /\b(costume|outfit|mechanic|summer|new year|ceremonial|bunny girl|idol|dress|swimsuit|halloween|school uniform|maid|cheerleader|springbloom missive|first ascension|second ascension|third ascension|1st|2nd|3rd)\b/.test(
     normalized,
   );
 }
@@ -5877,7 +6476,8 @@ function safeId(value) {
 function normalizedTagKey(value) {
   return stringValue(value)
     .toLowerCase()
-    .replace(/[_-]+/g, ' ')
+    .replace(/[（）［］｛｝【】〈〉《》「」『』〔〕〖〗〘〙〚〛<>＜＞“”‘’]+/g, ' ')
+    .replace(/[_＿\-‐‑‒–—−]+/g, ' ')
     .replace(/[(){}\[\]'":!?，、；;]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

@@ -1794,8 +1794,8 @@
       "id": "legacy-character-sheet-r29",
       "name": "巫恋",
       "traits": {
-        "front_full": "shamare (arknights), fox girl, fox ears, fox tail",
-        "front_upper": "fox_ears",
+        "front_full": "shamare (arknights), fox girl, fox ears, fox tail, twintails, short hair, hair between eyes",
+        "front_upper": "fox_ears, twintails, short_hair, hair_between_eyes",
         "front_lower": "fox_tail"
       },
       "outfits": [],

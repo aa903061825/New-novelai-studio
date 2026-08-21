@@ -93,6 +93,152 @@ void main() {
     expect(viewModel.selectedTask?.payload['input'], 'current preview prompt');
   });
 
+  test('selectPlan switches the viewed queue without reordering plans', () {
+    final firstPlan = _plan(
+      [_scriptTask(id: 'first-task')],
+      id: 'first-plan',
+      name: 'First',
+    );
+    final secondPlan = _plan(
+      [
+        _scriptTask(
+          id: 'second-task',
+          planId: 'second-plan',
+        ),
+      ],
+      id: 'second-plan',
+      name: 'Second',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [firstPlan, secondPlan],
+    );
+
+    final selected = viewModel.selectPlan(secondPlan.id);
+
+    expect(selected, isTrue);
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+    expect(viewModel.selectedTask?.id, 'second-task');
+    expect(viewModel.plans.map((plan) => plan.id), [
+      firstPlan.id,
+      secondPlan.id,
+    ]);
+  });
+
+  test('focusProductionTask selects its queue tab without reordering plans',
+      () {
+    final firstPlan = _plan(
+      [_scriptTask(id: 'first-task')],
+      id: 'first-plan',
+      name: 'First',
+    );
+    final secondPlan = _plan(
+      [
+        _scriptTask(
+          id: 'second-task',
+          planId: 'second-plan',
+        ),
+      ],
+      id: 'second-plan',
+      name: 'Second',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [firstPlan, secondPlan],
+    );
+
+    final focused = viewModel.focusProductionTask(
+      planId: secondPlan.id,
+      taskId: 'second-task',
+    );
+
+    expect(focused, isTrue);
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+    expect(viewModel.selectedTask?.id, 'second-task');
+    expect(viewModel.plans.map((plan) => plan.id), [
+      firstPlan.id,
+      secondPlan.id,
+    ]);
+  });
+
+  test('load focuses a preferred newly sent plan while idle', () async {
+    final oldPlan = _plan(
+      [_scriptTask(id: 'old-task')],
+      id: 'old-plan',
+      name: 'Old',
+    );
+    final newPlan = _plan(
+      [
+        _scriptTask(
+          id: 'new-task',
+          planId: 'new-plan',
+        ),
+      ],
+      id: 'new-plan',
+      name: 'New',
+      updatedAt: DateTime.utc(2027),
+    );
+    await queueService.savePlans([oldPlan, newPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: [oldPlan],
+      queueService: queueService,
+    );
+
+    await viewModel.load(preferredPlanId: newPlan.id);
+
+    expect(viewModel.selectedPlan?.id, newPlan.id);
+    expect(viewModel.selectedTask?.id, 'new-task');
+  });
+
+  test('applies persisted task deletions without reloading production plans',
+      () {
+    final targetPlan = _plan([
+      _scriptTask(id: 'task-delete'),
+      _scriptTask(id: 'task-kept', frameIndex: 2),
+    ]);
+    final siblingPlan = _plan(
+      [
+        _scriptTask(
+          id: 'task-sibling',
+          planId: 'plan-2',
+        ),
+      ],
+      id: 'plan-2',
+      name: 'Sibling',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [targetPlan, siblingPlan],
+    );
+    final deletedAt = DateTime.utc(2026, 7, 24, 9);
+    var notifications = 0;
+    viewModel.addListener(() {
+      notifications += 1;
+    });
+
+    viewModel.applyPersistedTaskDeletions(
+      taskIdsByPlanId: const {
+        'plan-1': {'task-delete'},
+      },
+      updatedAt: deletedAt,
+    );
+
+    expect(notifications, 1);
+    expect(viewModel.plans, hasLength(2));
+    expect(viewModel.plans.first.tasks.map((task) => task.id), ['task-kept']);
+    expect(viewModel.plans.first.updatedAt, deletedAt);
+    expect(identical(viewModel.plans.last, siblingPlan), isTrue);
+    expect(viewModel.selectedTask?.id, 'task-kept');
+
+    viewModel.applyPersistedTaskDeletions(
+      taskIdsByPlanId: const {
+        'plan-1': {'task-kept'},
+      },
+      updatedAt: deletedAt.add(const Duration(minutes: 1)),
+    );
+
+    expect(notifications, 2);
+    expect(viewModel.plans.map((plan) => plan.id), ['plan-2']);
+    expect(viewModel.selectedTask?.id, 'task-sibling');
+  });
+
   test('start runs queued tasks and saves the updated plan', () async {
     await queueService.savePlans([
       _plan([_scriptTask(id: 'task-1')])
@@ -381,6 +527,140 @@ void main() {
     expect(parameters['scale'], 6.5);
     expect(parameters['sampler'], 'k_euler_ancestral');
     expect(viewModel.selectedTask?.payload['model'], 'nai-diffusion-4-5-full');
+  });
+
+  test('start applies advanced generation settings and normalizes companions',
+      () async {
+    final requestedPayloads = <Map<String, dynamic>>[];
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([
+          _scriptTask(
+            id: 'task-1',
+            model: 'nai-diffusion-3',
+            width: 704,
+            height: 1472,
+            sampler: 'k_euler',
+          ).copyWith(
+            payload: const {
+              'input': 'frame 1',
+              'model': 'nai-diffusion-3',
+              'action': 'generate',
+              'parameters': {
+                'width': 704,
+                'height': 1472,
+                'sampler': 'k_euler',
+                'cfg_rescale': 0.1,
+                'noise_schedule': 'native',
+                'sm': true,
+                'sm_dyn': true,
+                'dynamic_thresholding': false,
+                'v4_prompt': {
+                  'caption': {
+                    'base_caption': 'frame 1',
+                    'char_captions': [],
+                  },
+                  'use_coords': true,
+                },
+                'v4_negative_prompt': {
+                  'caption': {
+                    'base_caption': '',
+                    'char_captions': [],
+                  },
+                  'legacy_uc': false,
+                },
+                'seed': 1,
+              },
+            },
+          ),
+        ])
+      ],
+      settings: const ProductionQueueExecutionSettings(
+        model: 'nai-diffusion-4-5-full',
+        width: 832,
+        height: 1216,
+        sampler: 'k_euler_ancestral',
+        cfgRescale: 0.4,
+        noiseSchedule: 'exponential',
+        sm: true,
+        smDyn: true,
+        dynamicThresholding: true,
+        varietyPlus: true,
+        autoPosition: true,
+        legacyUc: true,
+      ),
+      executorService: _executor(
+        requestImage: (payload) async {
+          requestedPayloads.add(payload);
+          return _fakePngBytes;
+        },
+      ),
+    );
+
+    await viewModel.start();
+
+    final payload = requestedPayloads.single;
+    final parameters = payload['parameters'] as Map<String, dynamic>;
+    expect(payload['model'], 'nai-diffusion-4-5-full');
+    expect(parameters['cfg_rescale'], 0.4);
+    expect(parameters['noise_schedule'], 'exponential');
+    expect(parameters, isNot(contains('sm')));
+    expect(parameters, isNot(contains('sm_dyn')));
+    expect(parameters['dynamic_thresholding'], isTrue);
+    expect(parameters['skip_cfg_above_sigma'], closeTo(19.0, 0.001));
+    expect(parameters['prefer_brownian'], isTrue);
+    expect(parameters['deliberate_euler_ancestral_bug'], isFalse);
+    expect(parameters['legacy_uc'], isTrue);
+    expect(
+      (parameters['v4_prompt'] as Map<String, dynamic>)['use_coords'],
+      isFalse,
+    );
+    expect(
+      (parameters['v4_negative_prompt'] as Map<String, dynamic>)['legacy_uc'],
+      isTrue,
+    );
+  });
+
+  test('empty batch defaults leave existing companion parameters untouched',
+      () async {
+    final requestedPayloads = <Map<String, dynamic>>[];
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([
+          _scriptTask(id: 'task-1').copyWith(
+            payload: const {
+              'input': 'frame 1',
+              'model': 'nai-diffusion-3',
+              'action': 'generate',
+              'parameters': {
+                'sampler': 'k_euler',
+                'noise_schedule': 'native',
+                'sm': true,
+                'sm_dyn': true,
+                'prefer_brownian': true,
+                'deliberate_euler_ancestral_bug': true,
+                'seed': 1,
+              },
+            },
+          ),
+        ])
+      ],
+      executorService: _executor(
+        requestImage: (payload) async {
+          requestedPayloads.add(payload);
+          return _fakePngBytes;
+        },
+      ),
+    );
+
+    await viewModel.start();
+
+    final parameters =
+        requestedPayloads.single['parameters'] as Map<String, dynamic>;
+    expect(parameters['sm'], isTrue);
+    expect(parameters['sm_dyn'], isTrue);
+    expect(parameters['prefer_brownian'], isTrue);
+    expect(parameters['deliberate_euler_ancestral_bug'], isTrue);
   });
 
   test('start can preserve original generation settings when enabled',
@@ -878,6 +1158,247 @@ void main() {
     await startFuture;
 
     expect(viewModel.completedTasks, 1);
+  });
+
+  test(
+      'loading a newly enqueued plan while running keeps the active plan in control',
+      () async {
+    final activePlan = _plan(
+      [
+        _scriptTask(id: 'active-task-1'),
+        _scriptTask(id: 'active-task-2', frameIndex: 2),
+      ],
+      executionSettings: const ProductionPlanExecutionSettings(
+        width: 832,
+        height: 1216,
+      ),
+    );
+    await queueService.savePlans([activePlan]);
+    final requestedInputs = <String>[];
+    final firstRequestStarted = Completer<void>();
+    final firstRequestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (payload) {
+          final input = payload['input'] as String;
+          requestedInputs.add(input);
+          if (!firstRequestStarted.isCompleted) {
+            firstRequestStarted.complete();
+            return firstRequestCompleter.future;
+          }
+          return Future.value(_fakePngBytes);
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await firstRequestStarted.future;
+
+    final newlyEnqueuedPlan = _plan(
+      [
+        _scriptTask(
+          id: 'new-task',
+          planId: 'new-plan',
+          payload: const {
+            'input': 'new plan frame',
+            'parameters': {'seed': 3},
+          },
+        ),
+      ],
+      id: 'new-plan',
+      name: 'Newly Enqueued',
+      updatedAt: DateTime.utc(2027),
+    );
+    await queueService.savePlanChanges(
+      updatedPlans: [newlyEnqueuedPlan],
+      deletedPlanIds: const [],
+    );
+    await viewModel.load(preferredPlanId: newlyEnqueuedPlan.id);
+
+    expect(viewModel.isExecuting, isTrue);
+    expect(viewModel.selectedPlan?.id, activePlan.id);
+    expect(viewModel.plans.map((plan) => plan.id), [
+      activePlan.id,
+      newlyEnqueuedPlan.id,
+    ]);
+
+    firstRequestCompleter.complete(_fakePngBytes);
+    await startFuture;
+
+    expect(requestedInputs, ['frame 1', 'frame 2']);
+    expect(viewModel.isExecuting, isFalse);
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == activePlan.id)
+          .tasks
+          .map((task) => task.status),
+      [ProductionTaskStatus.completed, ProductionTaskStatus.completed],
+    );
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == newlyEnqueuedPlan.id)
+          .tasks
+          .single
+          .status,
+      ProductionTaskStatus.queued,
+    );
+    final savedPlans = await queueService.loadPlansReadOnly();
+    expect(
+        savedPlans.map((plan) => plan.id),
+        containsAll([
+          activePlan.id,
+          newlyEnqueuedPlan.id,
+        ]));
+  });
+
+  test('switching queue tabs while running does not switch execution plans',
+      () async {
+    final activePlan = _plan(
+      [
+        _scriptTask(id: 'active-task-1'),
+        _scriptTask(id: 'active-task-2', frameIndex: 2),
+      ],
+      executionSettings: const ProductionPlanExecutionSettings(
+        width: 832,
+        height: 1216,
+      ),
+    );
+    final waitingPlan = _plan(
+      [
+        _scriptTask(
+          id: 'waiting-task',
+          planId: 'waiting-plan',
+          payload: const {
+            'input': 'waiting frame',
+            'parameters': {'seed': 9},
+          },
+        ),
+      ],
+      id: 'waiting-plan',
+      name: 'Waiting',
+      executionSettings: const ProductionPlanExecutionSettings(
+        width: 1024,
+        height: 1024,
+      ),
+    );
+    final requestedInputs = <String>[];
+    final requestedWidths = <int?>[];
+    final firstRequestStarted = Completer<void>();
+    final firstRequestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, waitingPlan],
+      settings: const ProductionQueueExecutionSettings(
+        width: 832,
+        height: 1216,
+      ),
+      executorService: _executor(
+        requestImage: (payload) {
+          final input = payload['input'] as String;
+          requestedInputs.add(input);
+          final parameters = payload['parameters'] as Map;
+          requestedWidths.add(parameters['width'] as int?);
+          if (!firstRequestStarted.isCompleted) {
+            firstRequestStarted.complete();
+            return firstRequestCompleter.future;
+          }
+          return Future.value(_fakePngBytes);
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await firstRequestStarted.future;
+
+    expect(viewModel.selectPlan(waitingPlan.id), isTrue);
+    expect(viewModel.selectedPlan?.id, waitingPlan.id);
+    expect(viewModel.activePlan?.id, activePlan.id);
+    expect(viewModel.isViewingActivePlan, isFalse);
+    expect(viewModel.canEditSelectedPlanSettings, isFalse);
+
+    firstRequestCompleter.complete(_fakePngBytes);
+    await startFuture;
+
+    expect(requestedInputs, ['frame 1', 'frame 2']);
+    expect(requestedWidths, [832, 832]);
+    expect(viewModel.selectedPlan?.id, waitingPlan.id);
+    expect(viewModel.activePlan, isNull);
+    expect(viewModel.canEditSelectedPlanSettings, isTrue);
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == waitingPlan.id)
+          .tasks
+          .single
+          .status,
+      ProductionTaskStatus.queued,
+    );
+  });
+
+  test('task completion does not overwrite a concurrently enqueued plan',
+      () async {
+    final activePlan = _plan([_scriptTask(id: 'active-task')]);
+    await queueService.savePlans([activePlan]);
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    final newlyEnqueuedPlan = _plan(
+      [
+        _scriptTask(
+          id: 'new-task',
+          planId: 'new-plan',
+        ),
+      ],
+      id: 'new-plan',
+      name: 'Newly Enqueued',
+      updatedAt: DateTime.utc(2027),
+    );
+    await queueService.savePlanChanges(
+      updatedPlans: [newlyEnqueuedPlan],
+      deletedPlanIds: const [],
+    );
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+
+    final savedPlans = await queueService.loadPlansReadOnly();
+    expect(
+        savedPlans.map((plan) => plan.id),
+        containsAll([
+          activePlan.id,
+          newlyEnqueuedPlan.id,
+        ]));
+    expect(
+      savedPlans
+          .singleWhere((plan) => plan.id == activePlan.id)
+          .tasks
+          .single
+          .status,
+      ProductionTaskStatus.completed,
+    );
+    expect(
+      savedPlans
+          .singleWhere((plan) => plan.id == newlyEnqueuedPlan.id)
+          .tasks
+          .single
+          .status,
+      ProductionTaskStatus.queued,
+    );
   });
 
   test('pause requests halt after current task and exposes resume state',
@@ -1406,6 +1927,41 @@ void main() {
     expect(saved.single.tasks[3].status, ProductionTaskStatus.queued);
   });
 
+  test('rerunAbnormalTasks does not revive a dismissed abnormal row', () async {
+    final dismissedFailed = _scriptTask(
+      id: 'dismissed-failed',
+      status: ProductionTaskStatus.failed,
+      error: 'old error',
+    ).copyWith(queueDismissedAt: DateTime.utc(2026, 6, 2, 11));
+    final plan = _plan([dismissedFailed]);
+    await queueService.savePlans([plan]);
+    final requestedInputs = <String>[];
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (payload) async {
+          requestedInputs.add(payload['input'] as String);
+          return _fakePngBytes;
+        },
+        saveImage: (bytes, fileName) async => 'C:/retry/$fileName',
+      ),
+    );
+
+    expect(viewModel.hasAbnormalTasks, isFalse);
+    await viewModel.rerunAbnormalTasks();
+
+    expect(requestedInputs, isEmpty);
+    expect(viewModel.isExecuting, isFalse);
+    expect(viewModel.plans.single.tasks.single.isQueueDismissed, isTrue);
+    expect(viewModel.plans.single.tasks.single.status,
+        ProductionTaskStatus.failed);
+    final saved = await queueService.loadPlansReadOnly();
+    expect(saved.single.tasks.single.isQueueDismissed, isTrue);
+    expect(saved.single.tasks.single.status, ProductionTaskStatus.failed);
+  });
+
   test('rerunTask reruns only the selected script frame and refreshes state',
       () async {
     final task1 = _scriptTask(
@@ -1553,6 +2109,688 @@ void main() {
     expect(saved.single.tasks, isEmpty);
   });
 
+  test('clearCompletedTasks hides only discoverable script results and reloads',
+      () async {
+    final completedScript = _scriptTask(
+      id: 'completed-script',
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/output/completed-script.png',
+    );
+    final manualCompleted = ProductionTask.manualSingleFrame(
+      id: 'completed-manual',
+      planId: 'plan-1',
+      title: 'Manual result',
+      payload: const {'input': 'manual'},
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/output/manual.png',
+      createdAt: _createdAt,
+      updatedAt: _createdAt,
+    );
+    final queuedScript = _scriptTask(id: 'queued-script', frameIndex: 2);
+    final allCompleted = _scriptTask(
+      id: 'all-completed',
+      planId: 'plan-all',
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/output/all-completed.png',
+    );
+    final mixedPlan = _plan([
+      completedScript,
+      manualCompleted,
+      queuedScript,
+    ]);
+    final allCompletedPlan = _plan(
+      [allCompleted],
+      id: 'plan-all',
+      name: 'All completed',
+    );
+    final mixedFingerprint = mixedPlan.planFingerprint;
+    await queueService.savePlans([mixedPlan, allCompletedPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+      now: () => DateTime.utc(2026, 6, 2, 12),
+    );
+
+    expect(viewModel.completedTasksPendingDismissal, 2);
+    expect(await viewModel.clearCompletedTasks(), 2);
+    expect(await viewModel.clearCompletedTasks(), 0);
+    expect(viewModel.completedTasksPendingDismissal, 0);
+    expect(viewModel.visiblePlans.map((plan) => plan.id), ['plan-1']);
+    expect(
+      viewModel
+          .visibleTasksForPlan(viewModel.selectedPlan)
+          .map((task) => task.id),
+      ['completed-manual', 'queued-script'],
+    );
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == 'plan-all')
+          .tasks
+          .single
+          .isQueueDismissed,
+      isTrue,
+    );
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == 'plan-1')
+          .planFingerprint,
+      mixedFingerprint,
+    );
+
+    final reloaded = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+    );
+    expect(reloaded.completedTasksPendingDismissal, 0);
+    expect(reloaded.visiblePlans.map((plan) => plan.id), ['plan-1']);
+    expect(
+      reloaded.plans
+          .singleWhere((plan) => plan.id == 'plan-all')
+          .tasks
+          .single
+          .isQueueDismissed,
+      isTrue,
+    );
+  });
+
+  test(
+      'clearCompletedTasks dismisses script tasks without requiring an image path',
+      () async {
+    final completedWithoutPath = _scriptTask(
+      id: 'completed-without-path',
+      status: ProductionTaskStatus.completed,
+    );
+    final plan = _plan([completedWithoutPath]);
+    await queueService.savePlans([plan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+      now: () => DateTime.utc(2026, 6, 2, 12),
+    );
+
+    expect(viewModel.completedTasksPendingDismissal, 1);
+    expect(await viewModel.clearCompletedTasks(), 1);
+    expect(viewModel.visiblePlans, isEmpty);
+    expect(viewModel.selectedPlan, isNull);
+    expect(
+      viewModel.plans.single.tasks.single.isQueueDismissed,
+      isTrue,
+    );
+    final saved = await queueService.loadPlansReadOnly();
+    expect(saved.single.tasks.single.isQueueDismissed, isTrue);
+  });
+
+  test('clearCompletedTasks clears inactive plans while another is running',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _plan(
+      [
+        _scriptTask(
+          id: 'active-queued',
+          planId: 'active-plan',
+        ),
+      ],
+      id: 'active-plan',
+      name: 'Active',
+    );
+    final inactivePlan = _plan(
+      [
+        _scriptTask(
+          id: 'inactive-completed',
+          planId: 'inactive-plan',
+          status: ProductionTaskStatus.completed,
+          outputImagePath: 'C:/out/inactive.png',
+        ),
+      ],
+      id: 'inactive-plan',
+      name: 'Inactive',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, inactivePlan],
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    final activeTaskBeforeClear = viewModel.activePlan!.tasks.single;
+    expect(activeTaskBeforeClear.status, ProductionTaskStatus.running);
+    expect(activeTaskBeforeClear.attempts, 1);
+    expect(activeTaskBeforeClear.outputImagePath, isNull);
+    expect(viewModel.completedTasksPendingDismissal, 1);
+    expect(viewModel.canClearCompletedTasks, isTrue);
+    expect(await viewModel.clearCompletedTasks(), 1);
+    final activeTaskAfterClear = viewModel.activePlan!.tasks.single;
+    expect(activeTaskAfterClear.status, activeTaskBeforeClear.status);
+    expect(activeTaskAfterClear.attempts, activeTaskBeforeClear.attempts);
+    expect(
+      activeTaskAfterClear.outputImagePath,
+      activeTaskBeforeClear.outputImagePath,
+    );
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == activePlan.id)
+          .tasks
+          .single
+          .isQueueDismissed,
+      isFalse,
+    );
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == inactivePlan.id)
+          .tasks
+          .single
+          .isQueueDismissed,
+      isTrue,
+    );
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+    final activeTaskAfterRun = viewModel.plans
+        .singleWhere((plan) => plan.id == activePlan.id)
+        .tasks
+        .single;
+    expect(activeTaskAfterRun.status, ProductionTaskStatus.completed);
+    expect(activeTaskAfterRun.outputImagePath, 'C:/out/active-queued.png');
+    final saved = await queueService.loadPlansReadOnly();
+    expect(
+      saved
+          .singleWhere((plan) => plan.id == inactivePlan.id)
+          .tasks
+          .single
+          .isQueueDismissed,
+      isTrue,
+    );
+  });
+
+  test('clearCompletedTasks stays disabled when only the active plan qualifies',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _plan(
+      [
+        _scriptTask(
+          id: 'active-completed',
+          planId: 'active-only-plan',
+          status: ProductionTaskStatus.completed,
+          outputImagePath: 'C:/out/active.png',
+        ),
+        _scriptTask(
+          id: 'active-queued',
+          planId: 'active-only-plan',
+          frameIndex: 2,
+        ),
+      ],
+      id: 'active-only-plan',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+    viewModel.pause();
+
+    expect(viewModel.completedTasksPendingDismissal, 0);
+    expect(viewModel.canClearCompletedTasks, isFalse);
+    expect(await viewModel.clearCompletedTasks(), 0);
+    expect(viewModel.plans.single.tasks.first.isQueueDismissed, isFalse);
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
+  test(
+      'clearCompletedTasks clears inactive plans while the active plan is paused',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _plan(
+      [
+        _scriptTask(id: 'paused-queued-1', planId: 'paused-plan'),
+        _scriptTask(
+          id: 'paused-queued-2',
+          planId: 'paused-plan',
+          frameIndex: 2,
+        ),
+      ],
+      id: 'paused-plan',
+    );
+    final inactivePlan = _plan(
+      [
+        _scriptTask(
+          id: 'paused-inactive-completed',
+          planId: 'paused-inactive-plan',
+          status: ProductionTaskStatus.completed,
+        ),
+      ],
+      id: 'paused-inactive-plan',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, inactivePlan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+    viewModel.pause();
+
+    expect(viewModel.completedTasksPendingDismissal, 1);
+    expect(viewModel.canClearCompletedTasks, isTrue);
+    expect(await viewModel.clearCompletedTasks(), 1);
+    expect(viewModel.isPaused, isFalse);
+    expect(
+      viewModel.plans
+          .singleWhere((plan) => plan.id == inactivePlan.id)
+          .tasks
+          .single
+          .isQueueDismissed,
+      isTrue,
+    );
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+    expect(viewModel.isPaused, isTrue);
+    expect(viewModel.completedTasksPendingDismissal, 0);
+  });
+
+  test('start then clear serializes activation before clear eligibility',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final plan = _plan([
+      _scriptTask(
+        id: 'race-completed',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: 'C:/out/race.png',
+      ),
+      _scriptTask(id: 'race-queued', frameIndex: 2),
+    ]);
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    final clearFuture = viewModel.clearCompletedTasks();
+
+    expect(await clearFuture, 0);
+    expect(viewModel.activePlan?.id, plan.id);
+    expect(viewModel.plans.single.tasks.first.isQueueDismissed, isFalse);
+
+    await requestStarted.future;
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
+  test('clear then start keeps the pending activation plan untouched',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final plan = _plan([
+      _scriptTask(
+        id: 'clear-first-completed',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: 'C:/out/clear-first.png',
+      ),
+      _scriptTask(id: 'clear-first-queued', frameIndex: 2),
+    ]);
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final clearFuture = viewModel.clearCompletedTasks();
+    final startFuture = viewModel.start();
+
+    expect(await clearFuture, 0);
+    expect(viewModel.plans.single.tasks.first.isQueueDismissed, isFalse);
+    await requestStarted.future;
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
+  test(
+      'clear then start with a blocked save does not dismiss the activation plan',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final plan = _plan(
+      [
+        _scriptTask(
+          id: 'blocked-clear-completed',
+          status: ProductionTaskStatus.completed,
+          outputImagePath: 'C:/out/blocked-clear.png',
+        ),
+        _scriptTask(id: 'blocked-clear-queued', frameIndex: 2),
+      ],
+    );
+    final blockingQueueService = _BlockingPlanSaveQueueService(
+      workspaceService: workspaceService,
+      initialPlans: [plan],
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      queueService: blockingQueueService,
+      executorService: _executor(
+        queueService: blockingQueueService,
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final clearFuture = viewModel.clearCompletedTasks();
+    await blockingQueueService.firstSaveStarted.future;
+    final startFuture = viewModel.start();
+    expect(viewModel.activePlan, isNull);
+
+    blockingQueueService.releaseFirstSave();
+    expect(await clearFuture, 0);
+    expect(viewModel.plans.single.tasks.first.isQueueDismissed, isFalse);
+
+    await requestStarted.future;
+    expect(viewModel.activePlan?.id, plan.id);
+    expect(viewModel.activePlan!.tasks.first.isQueueDismissed, isFalse);
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
+  test('start then clear with a blocked save preserves the active execution',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final plan = _plan(
+      [
+        _scriptTask(
+          id: 'blocked-start-completed',
+          status: ProductionTaskStatus.completed,
+          outputImagePath: 'C:/out/blocked-start.png',
+        ),
+        _scriptTask(id: 'blocked-start-queued', frameIndex: 2),
+      ],
+    );
+    final blockingQueueService = _BlockingPlanSaveQueueService(
+      workspaceService: workspaceService,
+      initialPlans: [plan],
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      queueService: blockingQueueService,
+      executorService: _executor(
+        queueService: blockingQueueService,
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    final startFuture = viewModel.start();
+    await blockingQueueService.firstSaveStarted.future;
+    expect(viewModel.activePlan?.id, plan.id);
+    expect(viewModel.activePlan!.tasks.first.isQueueDismissed, isFalse);
+    expect(viewModel.canClearCompletedTasks, isFalse);
+
+    final clearFuture = viewModel.clearCompletedTasks();
+    blockingQueueService.releaseFirstSave();
+    expect(await clearFuture, 0);
+    expect(viewModel.activePlan?.id, plan.id);
+    expect(viewModel.activePlan!.tasks.first.isQueueDismissed, isFalse);
+
+    await requestStarted.future;
+    expect(viewModel.activePlan!.tasks[1].status, ProductionTaskStatus.running);
+    expect(viewModel.activePlan!.tasks[1].outputImagePath, isNull);
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+    expect(viewModel.activePlan, isNull);
+    expect(viewModel.plans.single.tasks.first.isQueueDismissed, isFalse);
+    expect(
+        viewModel.plans.single.tasks[1].status, ProductionTaskStatus.completed);
+    expect(
+      viewModel.plans.single.tasks[1].outputImagePath,
+      'C:/out/blocked-start-queued.png',
+    );
+  });
+
+  test('focusProductionTask can target a dismissed plan and rerun clears it',
+      () async {
+    final dismissedAt = DateTime.utc(2026, 6, 2, 11);
+    final dismissedTask = _scriptTask(
+      id: 'dismissed-task',
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/out/dismissed-task.png',
+    ).copyWith(queueDismissedAt: dismissedAt);
+    final hiddenPlan = _plan([dismissedTask]);
+    final visiblePlan = _plan(
+      [_scriptTask(id: 'visible-task', planId: 'visible-plan')],
+      id: 'visible-plan',
+      name: 'Visible plan',
+    );
+    await queueService.savePlans([hiddenPlan, visiblePlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+      executorService: _executor(
+        queueService: queueService,
+        saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+      ),
+    );
+
+    expect(viewModel.selectedPlan?.id, visiblePlan.id);
+    expect(
+      viewModel.focusProductionTask(
+        planId: hiddenPlan.id,
+        taskId: dismissedTask.id,
+      ),
+      isTrue,
+    );
+    expect(viewModel.selectedPlan?.id, hiddenPlan.id);
+    expect(viewModel.selectedTask?.id, dismissedTask.id);
+
+    await viewModel.rerunTask(viewModel.selectedTask!);
+
+    expect(viewModel.selectedPlan?.id, hiddenPlan.id);
+    expect(viewModel.selectedTask?.status, ProductionTaskStatus.completed);
+    expect(viewModel.selectedTask?.isQueueDismissed, isFalse);
+    final saved = await queueService.loadPlansReadOnly();
+    final savedHiddenPlan =
+        saved.singleWhere((plan) => plan.id == hiddenPlan.id);
+    expect(savedHiddenPlan.tasks.single.isQueueDismissed, isFalse);
+  });
+
+  test('clearCurrentPlan retains dismissed task rows and their outputs',
+      () async {
+    final dismissedTask = _scriptTask(
+      id: 'dismissed-task',
+      status: ProductionTaskStatus.completed,
+      outputImagePath: 'C:/out/dismissed-task.png',
+    ).copyWith(queueDismissedAt: DateTime.utc(2026, 6, 2, 11));
+    final queuedTask = _scriptTask(id: 'queued-task', frameIndex: 2);
+    final plan = _plan([dismissedTask, queuedTask]);
+    await queueService.savePlans([plan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+    );
+
+    await viewModel.clearCurrentPlan();
+
+    expect(viewModel.plans.single.tasks.map((task) => task.id),
+        ['dismissed-task']);
+    expect(viewModel.plans.single.tasks.single.outputImagePath,
+        'C:/out/dismissed-task.png');
+    expect(viewModel.plans.single.tasks.single.isQueueDismissed, isTrue);
+    final saved = await queueService.loadPlansReadOnly();
+    expect(saved.single.tasks.map((task) => task.id), ['dismissed-task']);
+  });
+
+  test('deletePlan removes one queue and can delete its output images',
+      () async {
+    final output = File('${tempDir.path}${Platform.pathSeparator}frame.png');
+    await output.writeAsBytes(_fakePngBytes);
+    final deletedPlan = _plan([
+      _scriptTask(
+        id: 'delete-task',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: output.path,
+      ),
+    ]);
+    final keptPlan = _plan(
+      [
+        _scriptTask(
+          id: 'kept-task',
+          planId: 'kept-plan',
+        ),
+      ],
+      id: 'kept-plan',
+      name: 'Kept',
+    );
+    await queueService.savePlans([deletedPlan, keptPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+    );
+    viewModel.selectPlan(deletedPlan.id);
+
+    final result = await viewModel.deletePlan(
+      deletedPlan.id,
+      deleteLocalImages: true,
+    );
+
+    expect(result.deleted, isTrue);
+    expect(result.deletedImageCount, 1);
+    expect(result.failedImagePaths, isEmpty);
+    expect(await output.exists(), isFalse);
+    expect(viewModel.plans.map((plan) => plan.id), [keptPlan.id]);
+    expect(viewModel.selectedPlan?.id, keptPlan.id);
+    final saved = await queueService.loadPlansReadOnly();
+    expect(saved.map((plan) => plan.id), [keptPlan.id]);
+  });
+
+  test('deletePlan rejects the running queue', () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final plan = _plan([_scriptTask(id: 'running-task')]);
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    final result = await viewModel.deletePlan(plan.id);
+
+    expect(result.deleted, isFalse);
+    expect(viewModel.plans.single.id, plan.id);
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
+  test('deletePlan blocks a concurrent start of the deleting plan', () async {
+    final plan = _plan([_scriptTask(id: 'deleting-task')]);
+    final blockingQueueService = _BlockingPlanSaveQueueService(
+      workspaceService: workspaceService,
+      initialPlans: [plan],
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [plan],
+      queueService: blockingQueueService,
+      executorService: _executor(queueService: blockingQueueService),
+    );
+
+    final deleteFuture = viewModel.deletePlan(plan.id);
+    await blockingQueueService.firstSaveStarted.future;
+
+    final startFuture = viewModel.start();
+    expect(viewModel.activePlan, isNull);
+    await startFuture;
+
+    blockingQueueService.releaseFirstSave();
+    final result = await deleteFuture;
+
+    expect(result.deleted, isTrue);
+    expect(viewModel.plans, isEmpty);
+    expect(await blockingQueueService.loadPlansReadOnly(), isEmpty);
+  });
+
+  test('deletePlan removes an inactive queue while another queue is running',
+      () async {
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _plan(
+      [_scriptTask(id: 'active-task', planId: 'active-plan')],
+      id: 'active-plan',
+      name: 'Active',
+    );
+    final waitingPlan = _plan(
+      [_scriptTask(id: 'waiting-task', planId: 'waiting-plan')],
+      id: 'waiting-plan',
+      name: 'Waiting',
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, waitingPlan],
+      executorService: _executor(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+      ),
+    );
+
+    expect(viewModel.canDeletePlan(activePlan.id), isTrue);
+    expect(viewModel.canDeletePlan(waitingPlan.id), isTrue);
+
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+    expect(viewModel.canDeletePlan(activePlan.id), isFalse);
+    expect(viewModel.canDeletePlan(waitingPlan.id), isTrue);
+    final result = await viewModel.deletePlan(waitingPlan.id);
+
+    expect(result.deleted, isTrue);
+    expect(viewModel.activePlan?.id, activePlan.id);
+    expect(viewModel.plans.map((plan) => plan.id), [activePlan.id]);
+
+    requestCompleter.complete(_fakePngBytes);
+    await startFuture;
+  });
+
   test('renameSelectedPlan creates a distinct script exhibition version',
       () async {
     await queueService.savePlans([
@@ -1685,6 +2923,27 @@ class _BlockingPlanSaveQueueService extends ProductionQueueService {
 
   @override
   Future<void> savePlans(List<ProductionPlan> plans) async {
+    await _save(plans);
+  }
+
+  @override
+  Future<void> savePlanChanges({
+    required Iterable<ProductionPlan> updatedPlans,
+    required Iterable<String> deletedPlanIds,
+  }) async {
+    final updates = {
+      for (final plan in updatedPlans) plan.id: plan,
+    };
+    final deletedIds = deletedPlanIds.toSet();
+    await _save([
+      ...updates.values,
+      for (final plan in _plans)
+        if (!updates.containsKey(plan.id) && !deletedIds.contains(plan.id))
+          plan,
+    ]);
+  }
+
+  Future<void> _save(List<ProductionPlan> plans) async {
     _savePlansCalls += 1;
     if (_savePlansCalls == 1) {
       firstSaveStarted.complete(plans);

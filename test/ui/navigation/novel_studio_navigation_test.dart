@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,6 +36,7 @@ import 'package:novel_studio/ui/navigation/view_models/navigation_view_model.dar
 import 'package:novel_studio/ui/navigation/widgets/navigation_view.dart';
 import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmodel.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
+import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
 import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
 import 'package:novel_studio/ui/studio_shell/models/studio_startup_open_request.dart';
 import 'package:novel_studio/ui/studio_shell/models/studio_shell_section.dart';
@@ -293,17 +295,23 @@ class _FakeWorkspaceService extends WorkspaceService {
     List<RecastScriptCache> caches = const [],
     List<RecastExhibitionScript> summaryScripts = const [],
     Directory? root,
+    Stream<void>? recastCacheChanges,
   })  : _root = root,
         caches = List.unmodifiable(caches),
-        summaryScripts = List.unmodifiable(summaryScripts);
+        summaryScripts = List.unmodifiable(summaryScripts),
+        _recastCacheChanges = recastCacheChanges ?? const Stream.empty();
 
   final Directory? _root;
   List<RecastScriptCache> caches;
   List<RecastExhibitionScript> summaryScripts;
+  final Stream<void> _recastCacheChanges;
   int summaryLoadCount = 0;
 
   @override
   Directory? get root => _root;
+
+  @override
+  Stream<void> watchRecastScriptCacheChanges() => _recastCacheChanges;
 
   @override
   Future<List<RecastScriptCache>> loadRecastScriptCaches() async => caches;
@@ -644,6 +652,87 @@ void main() {
     expect(find.byKey(const ValueKey('studio-nav-tools')), findsNothing);
   });
 
+  testWidgets(
+      'gallery restore refreshes the complete prompt and opens workbench',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final savedConfig = _payload()
+      ..overridePrompt = 'stale configured prompt'
+      ..useOverridePrompt = true
+      ..paramConfig.negativePrompt = 'stale configured UC';
+    final record = StudioGalleryRecord.fromPayloadConfig(
+      config: savedConfig,
+      id: 'gallery-restore',
+      createdAt: DateTime.parse('2026-07-28T08:00:00Z'),
+      title: 'gallery-restore.png',
+      additionalInfo: const {
+        'input': 'artist:actual, 1girl, red dress, blue eyes',
+        'negativePrompt': 'lowres, bad anatomy',
+      },
+    );
+    await GetIt.I.unregister<StudioGalleryService>();
+    GetIt.I.registerSingleton<StudioGalleryService>(
+      _FakeGalleryService([record]),
+    );
+    final navigationViewModel = NavigationViewModel();
+
+    await tester.pumpWidget(
+      _buildNavigationApp(viewModel: navigationViewModel),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-gallery')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('gallery-card-more-gallery-restore')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('gallery-card-menu-restore-gallery-restore'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final payload = GetIt.I<PayloadConfig>();
+    expect(navigationViewModel.currentPageIndex, 1);
+    expect(
+      find.byKey(const ValueKey('workbench-generation-results-panel')),
+      findsOneWidget,
+    );
+    expect(
+      payload.overridePrompt,
+      'artist:actual, 1girl, red dress, blue eyes',
+    );
+    expect(payload.paramConfig.negativePrompt, 'lowres, bad anatomy');
+    expect(
+      GetIt.I<StudioWorkbenchAssetService>().manualPositivePrompt,
+      'artist:actual, 1girl, red dress, blue eyes',
+    );
+    final positiveEditor = tester.widget<PromptTagEditor>(
+      find.descendant(
+        of: find.byKey(const ValueKey('workbench-manual-positive-editor')),
+        matching: find.byType(PromptTagEditor),
+      ),
+    );
+    final negativeEditor = tester.widget<PromptTagEditor>(
+      find.descendant(
+        of: find.byKey(const ValueKey('workbench-negative-prompt-editor')),
+        matching: find.byType(PromptTagEditor),
+      ),
+    );
+    expect(
+      positiveEditor.value,
+      'artist:actual, 1girl, red dress, blue eyes',
+    );
+    expect(negativeEditor.value, 'lowres, bad anatomy');
+  });
+
   testWidgets('desktop main navigation exposes animated tab indicator',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
@@ -960,6 +1049,45 @@ void main() {
       find.byType(ScriptExhibitionRoomPage, skipOffstage: false),
       findsNothing,
     );
+  });
+
+  testWidgets(
+      'studio shell watches script caches before exhibition is first opened',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final workspaceRoot = Directory.systemTemp
+        .createTempSync('script-exhibition-startup-watch-test-');
+    addTearDown(() {
+      if (workspaceRoot.existsSync()) {
+        workspaceRoot.deleteSync(recursive: true);
+      }
+    });
+    final cacheChanges = StreamController<void>();
+    addTearDown(cacheChanges.close);
+    final workspaceService = _FakeWorkspaceService(
+      root: workspaceRoot,
+      recastCacheChanges: cacheChanges.stream,
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(workspaceService);
+
+    await tester.pumpWidget(_buildStudioShellApp());
+    await tester.pump();
+
+    expect(workspaceService.summaryLoadCount, 0);
+    expect(find.byType(ScriptExhibitionRoomPage), findsNothing);
+
+    cacheChanges.add(null);
+    await tester.pump(const Duration(milliseconds: 601));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(workspaceService.summaryLoadCount, 1);
+    expect(find.byType(ScriptExhibitionRoomPage), findsNothing);
   });
 
   testWidgets('script exhibition first navigation loads on the click frame',
@@ -1611,6 +1739,130 @@ void main() {
       batchViewModel.selectedTask?.id,
       startsWith('task-1-rerun'),
     );
+  });
+
+  testWidgets(
+      'script exhibition fills a pending slot in place and refreshes its card',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final outputDirectory = Directory.systemTemp.createTempSync(
+      'script-exhibition-pending-fill-',
+    );
+    addTearDown(() {
+      try {
+        if (outputDirectory.existsSync()) {
+          outputDirectory.deleteSync(recursive: true);
+        }
+      } on FileSystemException {
+        // Image decoding can briefly hold the file on Windows test runners.
+      }
+    });
+
+    final pendingPlan = _exhibitionProductionPlan(
+      outputImagePath: '',
+      status: ProductionTaskStatus.queued,
+    );
+    final completedSibling = ProductionTask.scriptRecastFrame(
+      id: 'task-completed-sibling',
+      planId: pendingPlan.id,
+      title: '已完成参考帧',
+      scriptId: 'script-1',
+      scriptName: '雨夜档案',
+      scriptPath: r'C:\stories\rain',
+      recastRunId: 'run-1',
+      frameIndex: 2,
+      sourceFileName: '002.json',
+      payload: const {'input': 'completed sibling'},
+      status: ProductionTaskStatus.completed,
+      outputImagePath: r'C:\out\completed-sibling.png',
+      createdAt: DateTime.utc(2026, 6, 2, 8),
+      updatedAt: DateTime.utc(2026, 6, 2, 8),
+    );
+    final productionService = _FakeProductionQueueService([
+      pendingPlan.copyWith(
+        tasks: [...pendingPlan.tasks, completedSibling],
+      ),
+    ]);
+    final batchViewModel = ProductionQueueViewModel(
+      plans: productionService.plans,
+      queueService: productionService,
+      executorService: ProductionExecutorService(
+        queueService: productionService,
+        requestImage: (_) async => _transparentPngBytes(),
+        saveImage: (bytes, fileName) async {
+          final file = File(
+            '${outputDirectory.path}${Platform.pathSeparator}$fileName',
+          );
+          file.writeAsBytesSync(bytes);
+          return file.path;
+        },
+        now: () => DateTime.utc(2026, 6, 2, 9),
+      ),
+    );
+    await GetIt.I.unregister<WorkspaceService>();
+    GetIt.I.registerSingleton<WorkspaceService>(
+      _FakeWorkspaceService(caches: [_exhibitionRecastCache()]),
+    );
+    await GetIt.I.unregister<ProductionQueueService>();
+    GetIt.I.registerSingleton<ProductionQueueService>(productionService);
+    await GetIt.I.unregister<ProductionQueueViewModel>();
+    GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
+
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-version-production-plan-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final originalTaskImage = find.byWidgetPredicate(
+      (widget) =>
+          widget is Image &&
+          widget.key ==
+              const ValueKey(
+                  'script-exhibition-image-production-plan-1-task-1'),
+    );
+    expect(originalTaskImage, findsNothing);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-rerun-production-plan-1-task-1'),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('已开始补跑，当前没有原图'), findsOneWidget);
+    expect(find.textContaining('原图会保留'), findsNothing);
+
+    for (var attempt = 0;
+        attempt < 20 &&
+            batchViewModel.selectedTask?.status !=
+                ProductionTaskStatus.completed;
+        attempt += 1) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(productionService.plans.single.tasks, hasLength(2));
+    expect(
+      productionService.plans.single.tasks.map((task) => task.id),
+      ['task-1', 'task-completed-sibling'],
+    );
+    expect(batchViewModel.selectedTask?.id, 'task-1');
+    expect(batchViewModel.selectedTask?.status, ProductionTaskStatus.completed);
+    expect(originalTaskImage, findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('script exhibition detail sends script to script workbench',

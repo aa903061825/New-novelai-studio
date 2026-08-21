@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
+import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
+import 'package:novel_studio/data/studio/services/role_mapping_profile_repository.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_assembly_application.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_parser.dart';
@@ -13,8 +15,11 @@ import 'package:novel_studio/data/studio/services/script_recast_asset_context_se
 import 'package:novel_studio/data/studio/services/script_recast_cache_path_rebinder.dart';
 import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_engine.dart';
+import 'package:novel_studio/data/studio/services/script_recast_mapping_variant_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_production_service.dart';
+import 'package:novel_studio/data/studio/services/script_role_mapping_profile_service.dart';
+import 'package:novel_studio/data/studio/services/script_role_replacement_layer_service.dart';
 import 'package:novel_studio/data/studio/tools/character_identity_prompt.dart';
 import 'package:novel_studio/data/studio/tools/filter_rule_config.dart';
 import 'package:novel_studio/data/studio/tools/outfit_identity_prompt.dart';
@@ -26,10 +31,15 @@ import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/ui/core/operation_status.dart';
 import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
 import 'package:novel_studio/ui/studio_script/models/studio_script_recast_plan.dart';
+import 'package:uuid/uuid.dart';
 
 typedef StudioScriptDirectoryPicker = Future<String?> Function();
 typedef StudioScriptCharactersLoader = Future<List<CharacterEntry>> Function();
 typedef StudioScriptArtistChainsLoader = Future<List<ArtistChain>> Function();
+typedef StudioScriptRecipesLoader = Future<List<Recipe>> Function();
+typedef StudioScriptTagsLoader = Future<List<TagEntry>> Function();
+typedef StudioScriptPromptAssetCategoriesLoader
+    = Future<List<PromptAssetCategory>> Function();
 typedef StudioScriptVibesLoader = Future<List<WorkspaceVibeReference>>
     Function();
 typedef StudioScriptVibesImporter = Future<List<WorkspaceVibeReference>>
@@ -402,6 +412,10 @@ class StudioScriptReplacementRuleItem {
   final String manualPhrase;
   final String anchorTermId;
   final bool selected;
+  final ScriptRoleReplacementRuleLayerKind layerKind;
+  final String layerStageId;
+  final bool manuallyLayered;
+  final bool hasStaleLayerOverride;
 
   const StudioScriptReplacementRuleItem({
     required this.id,
@@ -414,6 +428,10 @@ class StudioScriptReplacementRuleItem {
     this.manualPhrase = '',
     this.anchorTermId = '',
     this.selected = false,
+    this.layerKind = ScriptRoleReplacementRuleLayerKind.pending,
+    this.layerStageId = '',
+    this.manuallyLayered = false,
+    this.hasStaleLayerOverride = false,
   });
 
   ScriptPromptReplacementAction get effectiveAction {
@@ -439,6 +457,10 @@ class StudioScriptReplacementRuleItem {
     String? manualPhrase,
     String? anchorTermId,
     bool? selected,
+    ScriptRoleReplacementRuleLayerKind? layerKind,
+    String? layerStageId,
+    bool? manuallyLayered,
+    bool? hasStaleLayerOverride,
   }) {
     return StudioScriptReplacementRuleItem(
       id: id,
@@ -452,8 +474,35 @@ class StudioScriptReplacementRuleItem {
       manualPhrase: manualPhrase ?? this.manualPhrase,
       anchorTermId: anchorTermId ?? this.anchorTermId,
       selected: selected ?? this.selected,
+      layerKind: layerKind ?? this.layerKind,
+      layerStageId: layerStageId ?? this.layerStageId,
+      manuallyLayered: manuallyLayered ?? this.manuallyLayered,
+      hasStaleLayerOverride:
+          hasStaleLayerOverride ?? this.hasStaleLayerOverride,
     );
   }
+}
+
+class StudioScriptRoleReplacementLayerItem {
+  final String id;
+  final String label;
+  final ScriptRoleReplacementRuleLayerKind kind;
+  final String stageId;
+  final List<int> frameIndexes;
+  final List<StudioScriptReplacementRuleItem> rules;
+  final int mappedRuleCount;
+
+  const StudioScriptRoleReplacementLayerItem({
+    required this.id,
+    required this.label,
+    required this.kind,
+    this.stageId = '',
+    this.frameIndexes = const [],
+    this.rules = const [],
+    this.mappedRuleCount = 0,
+  });
+
+  int get ruleCount => rules.length;
 }
 
 class StudioScriptRoleReplacementItem {
@@ -462,7 +511,9 @@ class StudioScriptRoleReplacementItem {
   final String sourcePreview;
   final String? targetCharacterId;
   final String targetIdentityPrompt;
+  final String? activeMappingProfileId;
   final List<StudioScriptReplacementRuleItem> rules;
+  final List<StudioScriptRoleReplacementLayerItem> layers;
 
   const StudioScriptRoleReplacementItem({
     required this.sourceRoleId,
@@ -470,13 +521,26 @@ class StudioScriptRoleReplacementItem {
     required this.sourcePreview,
     this.targetCharacterId,
     this.targetIdentityPrompt = '',
+    this.activeMappingProfileId,
     this.rules = const [],
+    this.layers = const [],
   });
+
+  int get stageCount => layers
+      .where((layer) => layer.kind == ScriptRoleReplacementRuleLayerKind.stage)
+      .length;
+
+  int get pendingRuleCount => layers
+      .where(
+          (layer) => layer.kind == ScriptRoleReplacementRuleLayerKind.pending)
+      .fold(0, (count, layer) => count + layer.ruleCount);
 
   StudioScriptRoleReplacementItem copyWith({
     Object? targetCharacterId = _unset,
     String? targetIdentityPrompt,
+    Object? activeMappingProfileId = _unset,
     List<StudioScriptReplacementRuleItem>? rules,
+    List<StudioScriptRoleReplacementLayerItem>? layers,
   }) {
     return StudioScriptRoleReplacementItem(
       sourceRoleId: sourceRoleId,
@@ -486,7 +550,11 @@ class StudioScriptRoleReplacementItem {
           ? this.targetCharacterId
           : targetCharacterId as String?,
       targetIdentityPrompt: targetIdentityPrompt ?? this.targetIdentityPrompt,
+      activeMappingProfileId: identical(activeMappingProfileId, _unset)
+          ? this.activeMappingProfileId
+          : activeMappingProfileId as String?,
       rules: rules ?? this.rules,
+      layers: layers ?? this.layers,
     );
   }
 }
@@ -543,7 +611,56 @@ class StudioScriptPromptBlockMappingItem {
   });
 }
 
+class StudioScriptMappingVariantItem {
+  final String id;
+  final String name;
+  final DateTime capturedAt;
+  final RecastMappingVariantSummary summary;
+  final List<String> targetCharacterNames;
+  final Map<String, String> targetCharacterNamesByRoleId;
+  final bool isActive;
+  final bool isModified;
+
+  const StudioScriptMappingVariantItem({
+    required this.id,
+    required this.name,
+    required this.capturedAt,
+    required this.summary,
+    this.targetCharacterNames = const [],
+    this.targetCharacterNamesByRoleId = const {},
+    required this.isActive,
+    required this.isModified,
+  });
+
+  String get summaryLabel => _mappingVariantSummaryLabel(summary);
+
+  String? targetCharacterNameForRole(String sourceRoleId) {
+    final value = targetCharacterNamesByRoleId[sourceRoleId]?.trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+}
+
+String _mappingVariantSummaryLabel(RecastMappingVariantSummary summary) {
+  return switch (summary.kind) {
+    RecastMappingVariantSummaryKind.empty => '空映射（无规则）',
+    RecastMappingVariantSummaryKind.strategiesOnly =>
+      '无映射 · ${summary.strategyCount} 项策略',
+    RecastMappingVariantSummaryKind.mappedWithoutRules =>
+      '${summary.mappingCount} 项映射 · 无规则',
+    RecastMappingVariantSummaryKind.mappedWithRules =>
+      '${summary.mappingCount} 项映射 · ${summary.ruleCount} 条规则',
+  };
+}
+
 const Object _unset = Object();
+
+const List<String> _requiredScriptMappingVariantTargets = [
+  '佩佩（无兜帽）',
+  '铃兰',
+  '巫恋',
+  '迷迭香',
+  '薄绿',
+];
 
 class StudioScriptDiff {
   final String original;
@@ -590,6 +707,9 @@ class StudioScriptViewModel extends ChangeNotifier {
   final ScriptRecastProductionService? productionService;
   final StudioScriptCharactersLoader? loadCharacters;
   final StudioScriptArtistChainsLoader? loadArtistChains;
+  final StudioScriptRecipesLoader? loadRecipes;
+  final StudioScriptTagsLoader? loadTags;
+  final StudioScriptPromptAssetCategoriesLoader? loadPromptAssetCategories;
   final StudioScriptVibesLoader? loadVibes;
   final StudioScriptVibesImporter? importVibes;
   final StudioScriptFilterRulesLoader? loadFilterRules;
@@ -616,14 +736,23 @@ class StudioScriptViewModel extends ChangeNotifier {
   final PromptTagClassificationCache classificationCache;
   final StudioScriptTranslationCacheSaver? saveTranslationCache;
   final StudioScriptTagClassificationCacheSaver? saveClassificationCache;
+  final RoleMappingProfileRepository? roleMappingProfileRepository;
+  final ScriptRoleMappingProfileService roleMappingProfileService;
+  final ScriptRoleReplacementLayerService roleReplacementLayerService;
+  final ScriptRecastMappingVariantService mappingVariantService;
 
   Script? _script;
   _ScriptSourceTermFrameIndex? _sourceTermFrameIndex;
   RecastMapping? _mapping;
+  List<RecastMappingVariant> _mappingVariants = const [];
+  String? _activeMappingVariantId;
   RecastScriptCache? _changedSourceCache;
   ScriptRecastResult? _previewResult;
   List<CharacterEntry> _characters = const [];
   List<ArtistChain> _availableArtistChains = const [];
+  List<Recipe> _availableRecipes = const [];
+  List<TagEntry> _availableTags = const [];
+  List<PromptAssetCategory> _promptAssetCategories = const [];
   List<WorkspaceVibeReference> _availableVibes = const [];
   Map<String, String> _characterPreviewPaths = const {};
   Map<String, String> _outfitPreviewPaths = const {};
@@ -643,6 +772,8 @@ class StudioScriptViewModel extends ChangeNotifier {
   int _aiProgressIndex = -1;
   int _aiOperationGeneration = 0;
   bool _aiRoleExtractionDraftDismissed = false;
+  bool _aiRoleExtractionDraftSuppressed = false;
+  bool _aiRoleExtractionFinalized = false;
   Map<int, FrameResultStatus> _frameResultStatuses = const {};
 
   String folderStatus = '未导入剧本目录';
@@ -690,6 +821,9 @@ class StudioScriptViewModel extends ChangeNotifier {
   int _scriptOpenGeneration = 0;
   int _productionSendGeneration = 0;
   bool _disposed = false;
+  bool _roleMappingProfilesLoaded = false;
+  final List<RoleMappingProfileDeletionPrompt>
+      _pendingRoleMappingProfileDeletions = [];
   List<StudioScriptRoleMappingItem> roleMappings = const [];
   List<StudioScriptRoleReplacementItem> roleReplacementMappings = const [];
   List<StudioScriptSceneReplacementItem> sceneReplacementMappings = const [];
@@ -701,10 +835,20 @@ class StudioScriptViewModel extends ChangeNotifier {
   List<StudioScriptFrameSplitPreview> selectedFramePreviews = const [];
   StudioScriptDiff diff = const StudioScriptDiff(original: '', recast: '');
   StudioScriptRecastPlan recastPlan = const StudioScriptRecastPlan();
+  List<RoleMappingProfile> roleMappingProfiles = const [];
+  String roleMappingProfileStatus = '';
+  Object? roleMappingProfileError;
+  String mappingVariantStatus = '';
 
   List<CharacterEntry> get characterOptions => _characters;
 
   List<ArtistChain> get artistChainOptions => _availableArtistChains;
+
+  List<Recipe> get recipeOptions => _availableRecipes;
+
+  List<TagEntry> get tagOptions => _availableTags;
+
+  List<PromptAssetCategory> get promptAssetCategories => _promptAssetCategories;
 
   List<WorkspaceVibeReference> get vibeOptions => _availableVibes;
 
@@ -713,6 +857,61 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   List<WorkspaceVibeReference> get selectedManualVibes =>
       _mapping?.manualVibeRefs ?? const [];
+
+  RecastMapping? get currentMapping => _mapping;
+
+  List<RecastMappingVariant> get mappingVariants =>
+      List.unmodifiable(_mappingVariants);
+
+  String? get activeMappingVariantId => _activeMappingVariantId;
+
+  RecastMappingVariantSummary? get currentMappingVariantSummary {
+    final mapping = _mapping;
+    return mapping == null ? null : mappingVariantService.summarize(mapping);
+  }
+
+  String get currentMappingVariantSummaryLabel {
+    final summary = currentMappingVariantSummary;
+    return summary == null ? '尚无剧本映射' : _mappingVariantSummaryLabel(summary);
+  }
+
+  Map<String, String> get currentMappingTargetCharacterNamesByRoleId {
+    final mapping = _mapping;
+    return mapping == null ? const {} : _targetCharacterNamesByRoleId(mapping);
+  }
+
+  bool get hasOpenScript => _script != null;
+
+  bool get canPersistMappingVariants =>
+      saveRecastCache != null ||
+      (loadRecastCaches != null && saveRecastCaches != null);
+
+  List<StudioScriptMappingVariantItem> get mappingVariantItems {
+    final currentMapping = _mapping;
+    final variants = [..._mappingVariants]
+      ..sort((left, right) => right.capturedAt.compareTo(left.capturedAt));
+    return List.unmodifiable([
+      for (final variant in variants)
+        StudioScriptMappingVariantItem(
+          id: variant.id,
+          name: variant.name,
+          capturedAt: variant.capturedAt,
+          summary: mappingVariantService.summarize(variant.mapping),
+          targetCharacterNames: List.unmodifiable(
+            variant.targetCharacterNamesByRoleId.values.toSet()..remove(''),
+          ),
+          targetCharacterNamesByRoleId:
+              Map.unmodifiable(variant.targetCharacterNamesByRoleId),
+          isActive: variant.id == _activeMappingVariantId,
+          isModified: variant.id == _activeMappingVariantId &&
+              currentMapping != null &&
+              !mappingVariantService.sameMapping(
+                currentMapping,
+                variant.mapping,
+              ),
+        ),
+    ]);
+  }
 
   Set<String> get suppressedPromptTagWarningKeys =>
       _mapping?.suppressedPromptTagWarningKeys ?? const {};
@@ -755,11 +954,23 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   bool get isAiBusy => isExtractingAiRoleEvidence || isApplyingAiRoleExtraction;
 
+  bool get supportsRoleMappingProfiles => roleMappingProfileRepository != null;
+
+  bool get roleMappingProfilesLoaded => _roleMappingProfilesLoaded;
+
+  RoleMappingProfileDeletionPrompt? get pendingRoleMappingProfileDeletion =>
+      _pendingRoleMappingProfileDeletions.firstOrNull;
+
   bool get showAiProgressPanel => aiProgressSteps.isNotEmpty;
 
-  bool get showAiRoleExtractionDraftPanel => !_aiRoleExtractionDraftDismissed;
+  bool get showAiRoleExtractionDraftPanel =>
+      !_aiRoleExtractionDraftSuppressed && !_aiRoleExtractionDraftDismissed;
 
-  bool get isAiRoleExtractionDraftCollapsed => _aiRoleExtractionDraftDismissed;
+  bool get isAiRoleExtractionDraftCollapsed =>
+      !_aiRoleExtractionDraftSuppressed && _aiRoleExtractionDraftDismissed;
+
+  bool get isAiRoleExtractionDraftSuppressed =>
+      _aiRoleExtractionDraftSuppressed;
 
   StudioScriptViewModel({
     this.pickScriptDirectory,
@@ -768,6 +979,9 @@ class StudioScriptViewModel extends ChangeNotifier {
     this.productionService,
     this.loadCharacters,
     this.loadArtistChains,
+    this.loadRecipes,
+    this.loadTags,
+    this.loadPromptAssetCategories,
     this.loadVibes,
     this.importVibes,
     this.loadFilterRules,
@@ -793,11 +1007,617 @@ class StudioScriptViewModel extends ChangeNotifier {
     PromptTagClassificationCache? classificationCache,
     this.saveTranslationCache,
     this.saveClassificationCache,
+    this.roleMappingProfileRepository,
+    this.roleMappingProfileService = const ScriptRoleMappingProfileService(),
+    this.roleReplacementLayerService =
+        const ScriptRoleReplacementLayerService(),
+    this.mappingVariantService = const ScriptRecastMappingVariantService(),
   })  : translationCache = translationCache ?? TranslationCache(),
         hydrateCachedScriptSnapshot = hydrateCachedScriptSnapshot ??
             defaultStudioScriptCacheSnapshotHydrator,
         classificationCache =
             classificationCache ?? PromptTagClassificationCache();
+
+  Future<void> ensureRoleMappingProfilesLoaded({bool force = false}) async {
+    final repository = roleMappingProfileRepository;
+    if (repository == null || (_roleMappingProfilesLoaded && !force)) {
+      return;
+    }
+    try {
+      final library = await repository.load();
+      if (_disposed) return;
+      _setRoleMappingProfileLibrary(library);
+      _roleMappingProfilesLoaded = true;
+      roleMappingProfileError = null;
+      roleMappingProfileStatus = library.profiles.isEmpty
+          ? '暂无全局角色档案'
+          : '已加载 ${library.profiles.length} 个全局角色档案';
+      notifyListeners();
+    } catch (error) {
+      if (_disposed) return;
+      _roleMappingProfilesLoaded = true;
+      roleMappingProfileError = error;
+      roleMappingProfileStatus = '全局角色档案加载失败，原文件未被覆盖';
+      notifyListeners();
+    }
+  }
+
+  RoleMappingProfile? roleMappingProfileById(String? profileId) {
+    if (profileId == null || profileId.trim().isEmpty) return null;
+    return roleMappingProfiles
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+  }
+
+  RoleMappingProfile? activeRoleMappingProfile(String sourceRoleId) {
+    final replacement = _roleReplacementById(sourceRoleId);
+    return roleMappingProfileById(replacement?.activeMappingProfileId);
+  }
+
+  Map<String, String> _targetCharacterNamesByRoleId(RecastMapping mapping) {
+    final result = <String, String>{};
+
+    void record(
+      String roleKey,
+      String? characterId, {
+      String? profileId,
+    }) {
+      final normalizedRoleKey = roleKey.trim();
+      final normalizedCharacterId = characterId?.trim() ?? '';
+      if (normalizedRoleKey.isEmpty) return;
+      final profileName =
+          roleMappingProfileById(profileId)?.targetCharacterNameSnapshot.trim();
+      final characterName = normalizedCharacterId.isEmpty
+          ? null
+          : _characterById(normalizedCharacterId)?.name.trim();
+      final resolvedName = profileName?.isNotEmpty == true
+          ? profileName!
+          : characterName?.isNotEmpty == true
+              ? characterName!
+              : normalizedCharacterId;
+      if (resolvedName.isNotEmpty) {
+        result[normalizedRoleKey] = resolvedName;
+      }
+    }
+
+    for (final swap in mapping.roleSwaps) {
+      record(swap.sourceRoleId, swap.targetCharacterId);
+    }
+    for (final replacement in mapping.rolePromptReplacements) {
+      record(
+        replacement.sourceRoleId,
+        replacement.targetCharacterId,
+        profileId: replacement.activeMappingProfileId,
+      );
+    }
+    for (final assembly in mapping.roleAssemblies) {
+      for (final stage in assembly.stages) {
+        record(
+          '${assembly.sourceRoleId}/${stage.id}',
+          stage.targetCharacterId,
+        );
+      }
+    }
+    return Map.unmodifiable(result);
+  }
+
+  List<ScriptPromptReplacementTerm> roleMappingProfileAvailableTerms(
+    String sourceRoleId,
+  ) {
+    final replacement = _roleReplacementById(sourceRoleId);
+    if (replacement == null) return const [];
+    return List.unmodifiable([
+      for (final rule in replacement.rules)
+        for (final term in rule.sourceTerms)
+          if (!rule.excludedTermIds.contains(term.id)) term,
+    ]);
+  }
+
+  Future<RoleMappingProfile> createRoleMappingProfile({
+    required String name,
+    required String sourceRoleId,
+  }) async {
+    final repository = _requireRoleMappingProfileRepository();
+    final replacement = _requireRoleReplacement(sourceRoleId);
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) {
+      throw const FormatException('全局角色档案名称不能为空。');
+    }
+    final characterName = replacement.targetCharacterId == null
+        ? ''
+        : _characterById(replacement.targetCharacterId!)?.name ?? '';
+    final profile = roleMappingProfileService.createProfile(
+      id: const Uuid().v4(),
+      name: normalizedName,
+      replacement: replacement,
+      targetCharacterNameSnapshot: characterName,
+      now: DateTime.now().toUtc(),
+      assembly: _roleAssemblyById(sourceRoleId),
+    );
+    final library = await repository.update(
+      (current) => current.copyWith(
+        profiles: List.unmodifiable([...current.profiles, profile]),
+      ),
+    );
+    if (_disposed) return profile;
+    _setRoleMappingProfileLibrary(library);
+    _setRoleReplacementActiveProfile(sourceRoleId, profile.id);
+    roleMappingProfileError = null;
+    roleMappingProfileStatus = '已创建并开始同步：${profile.name}';
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+    return profile;
+  }
+
+  Future<RoleMappingProfile> updateRoleMappingProfile(
+    RoleMappingProfile profile,
+  ) async {
+    final repository = _requireRoleMappingProfileRepository();
+    final normalized = _normalizedRoleMappingProfile(
+      profile.copyWith(updatedAt: DateTime.now().toUtc()),
+    );
+    final library = await repository.update((current) {
+      if (!current.profiles.any((entry) => entry.id == normalized.id)) {
+        throw StateError('全局角色档案已不存在：${normalized.id}');
+      }
+      return current.copyWith(
+        profiles: List.unmodifiable([
+          for (final entry in current.profiles)
+            if (entry.id == normalized.id) normalized else entry,
+        ]),
+      );
+    });
+    if (!_disposed) {
+      _setRoleMappingProfileLibrary(library);
+      roleMappingProfileError = null;
+      roleMappingProfileStatus = '已保存：${normalized.name}';
+      notifyListeners();
+    }
+    return normalized;
+  }
+
+  Future<RoleMappingProfile> duplicateRoleMappingProfile(
+    String profileId, {
+    String? name,
+  }) async {
+    final source = roleMappingProfileById(profileId);
+    if (source == null) {
+      throw StateError('全局角色档案已不存在：$profileId');
+    }
+    final repository = _requireRoleMappingProfileRepository();
+    final now = DateTime.now().toUtc();
+    late RoleMappingProfile duplicate;
+    final library = await repository.update((current) {
+      final nextName = name?.trim().isNotEmpty == true
+          ? name!.trim()
+          : _uniqueRoleMappingProfileCopyName(source.name, current.profiles);
+      duplicate = source.copyWith(
+        id: const Uuid().v4(),
+        name: nextName,
+        createdAt: now,
+        updatedAt: now,
+      );
+      return current.copyWith(
+        profiles: List.unmodifiable([...current.profiles, duplicate]),
+      );
+    });
+    if (!_disposed) {
+      _setRoleMappingProfileLibrary(library);
+      roleMappingProfileStatus = '已复制：${duplicate.name}';
+      notifyListeners();
+    }
+    return duplicate;
+  }
+
+  Future<void> deleteRoleMappingProfile(String profileId) async {
+    final repository = _requireRoleMappingProfileRepository();
+    final profile = roleMappingProfileById(profileId);
+    final library = await repository.update(
+      (current) => current.copyWith(
+        profiles: List.unmodifiable([
+          for (final entry in current.profiles)
+            if (entry.id != profileId) entry,
+        ]),
+      ),
+    );
+    if (_disposed) return;
+    _setRoleMappingProfileLibrary(library);
+    _detachRoleMappingProfile(profileId);
+    roleMappingProfileStatus =
+        profile == null ? '全局角色档案已删除' : '已删除：${profile.name}';
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void stopRoleMappingProfileRecording(String sourceRoleId) {
+    if (!_setRoleReplacementActiveProfile(sourceRoleId, null)) return;
+    roleMappingProfileStatus = '已断开当前角色与全局角色档案的同步';
+    _refreshReplacementMappings();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  RoleMappingApplyPreview previewRoleMappingProfile({
+    required String profileId,
+    required String sourceRoleId,
+  }) {
+    final profile = roleMappingProfileById(profileId);
+    if (profile == null) {
+      throw StateError('全局角色档案已不存在：$profileId');
+    }
+    return roleMappingProfileService.buildPreview(
+      profile: profile,
+      replacement: _requireRoleReplacement(sourceRoleId),
+      assembly: _roleAssemblyById(sourceRoleId),
+    );
+  }
+
+  Future<void> quickApplyRoleMappingProfile({
+    required String profileId,
+    required String sourceRoleId,
+  }) async {
+    final preview = previewRoleMappingProfile(
+      profileId: profileId,
+      sourceRoleId: sourceRoleId,
+    );
+    final selections = [
+      for (final entry in preview.entries)
+        if (entry.selectedByDefault && entry.selectedTermIds.isNotEmpty)
+          RoleMappingProfileApplySelection(
+            blockId: entry.block.id,
+            termIds: entry.selectedTermIds,
+          ),
+    ];
+    await applyRoleMappingProfile(
+      profileId: profileId,
+      sourceRoleId: sourceRoleId,
+      selections: selections,
+      applyIdentity: true,
+    );
+  }
+
+  Future<void> applyRoleMappingProfile({
+    required String profileId,
+    required String sourceRoleId,
+    required List<RoleMappingProfileApplySelection> selections,
+    bool applyIdentity = true,
+    List<RoleMappingProfileLayerApplySelection> layerSelections = const [],
+  }) async {
+    final repository = _requireRoleMappingProfileRepository();
+    final profile = roleMappingProfileById(profileId);
+    if (profile == null) {
+      throw StateError('全局角色档案已不存在：$profileId');
+    }
+    final before = _requireRoleReplacement(sourceRoleId);
+    final library = await repository.update((current) {
+      final latest =
+          current.profiles.where((entry) => entry.id == profileId).firstOrNull;
+      if (latest == null) {
+        throw StateError('全局角色档案已不存在：$profileId');
+      }
+      final learned = roleMappingProfileService.withAppliedCompanionTerms(
+        profile: latest,
+        sourceReplacement: before,
+        selections: selections,
+        now: DateTime.now().toUtc(),
+      );
+      return current.copyWith(
+        profiles: List.unmodifiable([
+          for (final entry in current.profiles)
+            if (entry.id == profileId) learned else entry,
+        ]),
+      );
+    });
+    if (_disposed) return;
+    _setRoleMappingProfileLibrary(library);
+    final latestProfile = roleMappingProfileById(profileId)!;
+    final applicableProfile = latestProfile.targetCharacterId != null &&
+            _characterById(latestProfile.targetCharacterId!) == null
+        ? latestProfile.copyWith(targetCharacterId: null)
+        : latestProfile;
+    final applied = roleMappingProfileService.applySelections(
+      profile: applicableProfile,
+      replacement: before,
+      selections: selections,
+      applyIdentity: applyIdentity,
+      layerSelections: layerSelections,
+      assembly: _roleAssemblyById(sourceRoleId),
+    );
+    _updateRoleReplacement(
+      sourceRoleId,
+      (_) => applied,
+      learnProfile: false,
+    );
+    _refreshReplacementEditPreview();
+    roleMappingProfileStatus = '已应用并开始同步：${latestProfile.name}';
+    notifyListeners();
+    await _saveCurrentCache();
+  }
+
+  Future<void> resolveRoleMappingProfileDeletion({
+    required bool deleteFromProfile,
+  }) async {
+    if (_pendingRoleMappingProfileDeletions.isEmpty) return;
+    final prompt = _pendingRoleMappingProfileDeletions.removeAt(0);
+    if (!deleteFromProfile) {
+      if (!_disposed) notifyListeners();
+      return;
+    }
+    final repository = _requireRoleMappingProfileRepository();
+    final library = await repository.update((current) {
+      final profile = current.profiles
+          .where((entry) => entry.id == prompt.profileId)
+          .firstOrNull;
+      if (profile == null) return current;
+      final updated = roleMappingProfileService.resolveDeletion(
+        profile: profile,
+        prompt: prompt,
+        now: DateTime.now().toUtc(),
+      );
+      return current.copyWith(
+        profiles: List.unmodifiable([
+          for (final entry in current.profiles)
+            if (entry.id == updated.id) updated else entry,
+        ]),
+      );
+    });
+    if (_disposed) return;
+    _setRoleMappingProfileLibrary(library);
+    roleMappingProfileStatus = '已从缓存删除：${prompt.label}';
+    notifyListeners();
+  }
+
+  Future<RecastMappingVariant> saveCurrentMappingAsVariant(String name) async {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      throw StateError('请先打开剧本再保存映射版本。');
+    }
+    if (!canPersistMappingVariants) {
+      throw StateError('当前工作区未配置剧本缓存保存。');
+    }
+
+    final now = DateTime.now().toUtc();
+    final normalizedMapping = _mappingForCurrentScript(script, mapping);
+    final nextCache = mappingVariantService.capture(
+      cache: _cacheDraftForScript(
+        script,
+        mapping: normalizedMapping,
+        updatedAt: now,
+      ),
+      id: const Uuid().v4(),
+      name: name,
+      capturedAt: now,
+      targetCharacterNamesByRoleId:
+          _targetCharacterNamesByRoleId(normalizedMapping),
+    );
+    final previousMapping = _mapping;
+    final previousVariants = _mappingVariants;
+    final previousActiveVariantId = _activeMappingVariantId;
+    _mapping = nextCache.mapping;
+    _mappingVariants = nextCache.mappingVariants;
+    _activeMappingVariantId = nextCache.activeMappingVariantId;
+    mappingVariantStatus = '正在保存映射版本…';
+    notifyListeners();
+    try {
+      await _saveCurrentCache();
+    } catch (_) {
+      _mapping = previousMapping;
+      _mappingVariants = previousVariants;
+      _activeMappingVariantId = previousActiveVariantId;
+      mappingVariantStatus = '映射版本保存失败，已回退';
+      notifyListeners();
+      rethrow;
+    }
+    final variant = _mappingVariants
+        .where((entry) => entry.id == nextCache.activeMappingVariantId)
+        .first;
+    mappingVariantStatus = '已保存映射版本：${variant.name}';
+    notifyListeners();
+    return variant;
+  }
+
+  Future<void> activateMappingVariant(String variantId) async {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      throw StateError('请先打开剧本再切换映射版本。');
+    }
+    if (!canPersistMappingVariants) {
+      throw StateError('当前工作区未配置剧本缓存保存。');
+    }
+
+    final now = DateTime.now().toUtc();
+    final sourceFingerprint = cacheRestoreService.sourceFingerprint(script);
+    final sourceContentFingerprint =
+        cacheRestoreService.sourceContentFingerprint(script);
+    final nextCache = mappingVariantService.activate(
+      cache: _cacheDraftForScript(
+        script,
+        mapping: _mappingForCurrentScript(script, mapping),
+        updatedAt: now,
+      ),
+      variantId: variantId,
+      expectedScriptId: script.id,
+      expectedSourceFingerprint: sourceFingerprint,
+      expectedSourceContentFingerprint: sourceContentFingerprint,
+      activatedAt: now,
+    );
+    final previousMapping = _mapping;
+    final previousVariants = _mappingVariants;
+    final previousActiveVariantId = _activeMappingVariantId;
+    _mappingVariants = nextCache.mappingVariants;
+    _activeMappingVariantId = nextCache.activeMappingVariantId;
+    _applyScript(script, mappingOverride: nextCache.mapping);
+    mappingVariantStatus = '正在切换映射版本…';
+    notifyListeners();
+    try {
+      await _saveCurrentCache();
+    } catch (_) {
+      _mappingVariants = previousVariants;
+      _activeMappingVariantId = previousActiveVariantId;
+      _applyScript(script, mappingOverride: previousMapping);
+      mappingVariantStatus = '映射版本切换失败，已回退';
+      notifyListeners();
+      rethrow;
+    }
+    final active = _mappingVariants
+        .where((entry) => entry.id == _activeMappingVariantId)
+        .first;
+    mappingVariantStatus = '已切换映射版本：${active.name}';
+    cacheStatus = '已切换并保存整套剧本映射';
+    notifyListeners();
+  }
+
+  Future<int> ensureRequiredScriptMappingVariants() async {
+    final script = _script;
+    final currentMapping = _mapping;
+    if (script == null ||
+        currentMapping == null ||
+        currentMapping.rolePromptReplacements.isEmpty ||
+        !canPersistMappingVariants) {
+      return 0;
+    }
+    await ensureRoleMappingProfilesLoaded();
+    if (_disposed || _script?.id != script.id || _mapping == null) {
+      return 0;
+    }
+    final baseMapping = _mappingForCurrentScript(script, currentMapping);
+
+    final requiredProfiles = <RoleMappingProfile>[];
+    for (final target in _requiredScriptMappingVariantTargets) {
+      final matches = roleMappingProfiles
+          .where(
+            (entry) =>
+                entry.targetCharacterNameSnapshot.trim() == target ||
+                entry.name.trim() == target,
+          )
+          .toList(growable: false);
+      if (matches.length != 1) {
+        return 0;
+      }
+      final profile = matches.single;
+      if (profile.targetIdentityPrompt.trim().isEmpty ||
+          profile.effectiveLayers.isEmpty ||
+          !profile.blocks.any((block) => block.hasEffect)) {
+        return 0;
+      }
+      requiredProfiles.add(profile);
+    }
+
+    final existingVariantIds = {
+      for (final variant in _mappingVariants) variant.id,
+    };
+    final missingProfiles = [
+      for (final profile in requiredProfiles)
+        if (!existingVariantIds.contains('auto-global-profile-${profile.id}'))
+          profile,
+    ];
+    if (missingProfiles.isEmpty) {
+      return 0;
+    }
+
+    final previousVariants = _mappingVariants;
+    final now = DateTime.now().toUtc();
+    final sourceFingerprint = cacheRestoreService.sourceFingerprint(script);
+    final sourceContentFingerprint =
+        cacheRestoreService.sourceContentFingerprint(script);
+    final generated = <RecastMappingVariant>[];
+    for (final (index, profile) in missingProfiles.indexed) {
+      final mapping = _mappingWithRoleProfileApplied(
+        baseMapping,
+        profile,
+      );
+      final targetName = profile.targetCharacterNameSnapshot.trim().isEmpty
+          ? profile.name.trim()
+          : profile.targetCharacterNameSnapshot.trim();
+      generated.add(
+        RecastMappingVariant(
+          id: 'auto-global-profile-${profile.id}',
+          name: targetName,
+          scriptId: script.id,
+          sourceFingerprint: sourceFingerprint,
+          sourceContentFingerprint: sourceContentFingerprint,
+          capturedAt: now.subtract(Duration(microseconds: index)),
+          mapping: RecastMapping.fromJson(
+            Map<String, dynamic>.from(mapping.toJson()),
+          ),
+          targetCharacterNamesByRoleId: Map.unmodifiable({
+            for (final replacement in mapping.rolePromptReplacements)
+              replacement.sourceRoleId: targetName,
+          }),
+        ),
+      );
+    }
+
+    _mappingVariants = List.unmodifiable([
+      ..._mappingVariants,
+      ...generated,
+    ]);
+    mappingVariantStatus =
+        '已自动补齐 ${generated.length} 个剧本专属版本（共 ${_mappingVariants.length} 个）';
+    notifyListeners();
+    try {
+      await _saveCurrentCache();
+    } catch (error) {
+      _mappingVariants = previousVariants;
+      mappingVariantStatus = '自动补齐五档剧本专属版本失败，已回退：$error';
+      notifyListeners();
+      return 0;
+    }
+    return generated.length;
+  }
+
+  RecastMapping _mappingWithRoleProfileApplied(
+    RecastMapping mapping,
+    RoleMappingProfile profile,
+  ) {
+    final applicableProfile = profile.targetCharacterId != null &&
+            _characterById(profile.targetCharacterId!) == null
+        ? profile.copyWith(targetCharacterId: null)
+        : profile;
+    final assemblyByRoleId = {
+      for (final assembly in mapping.roleAssemblies)
+        assembly.sourceRoleId: assembly,
+    };
+    return mapping.copyWith(
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          _replacementWithRoleProfileApplied(
+            replacement: replacement,
+            profile: applicableProfile,
+            assembly: assemblyByRoleId[replacement.sourceRoleId],
+          ),
+      ]),
+    );
+  }
+
+  ScriptRolePromptReplacement _replacementWithRoleProfileApplied({
+    required ScriptRolePromptReplacement replacement,
+    required RoleMappingProfile profile,
+    RoleAssembly? assembly,
+  }) {
+    final preview = roleMappingProfileService.buildPreview(
+      profile: profile,
+      replacement: replacement,
+      assembly: assembly,
+    );
+    final selections = [
+      for (final entry in preview.entries)
+        if (entry.selectedByDefault && entry.selectedTermIds.isNotEmpty)
+          RoleMappingProfileApplySelection(
+            blockId: entry.block.id,
+            termIds: entry.selectedTermIds,
+          ),
+    ];
+    return roleMappingProfileService.applySelections(
+      profile: profile,
+      replacement: replacement,
+      selections: selections,
+      applyIdentity: true,
+      assembly: assembly,
+    );
+  }
 
   @override
   void dispose() {
@@ -1056,9 +1876,10 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   Future<void> expandAiRoleExtractionDraft() async {
-    if (!_aiRoleExtractionDraftDismissed) {
+    if (!_aiRoleExtractionDraftDismissed && !_aiRoleExtractionDraftSuppressed) {
       return;
     }
+    _aiRoleExtractionDraftSuppressed = false;
     _aiRoleExtractionDraftDismissed = false;
     notifyListeners();
     await _saveCurrentCache();
@@ -1201,18 +2022,25 @@ class StudioScriptViewModel extends ChangeNotifier {
       aiRoleExtractionChunks = const [];
       aiRoleExtractionRequestCount = 0;
       _aiRoleExtractionDraftDismissed = false;
+      _aiRoleExtractionDraftSuppressed = false;
+      _aiRoleExtractionFinalized = false;
       isApplyingAiRoleExtraction = false;
       analysisStatus = '尚未分析角色';
       aiStatus = '尚未进行 AI 分析';
       _artistSourceLabelOverride = null;
       _clearAiProgress();
       _changedSourceCache = null;
+      _mappingVariants = const [];
+      _activeMappingVariantId = null;
+      mappingVariantStatus = '';
       _applyScript(script);
       _setImportProgress('正在恢复当前缓存...');
       await _restoreExactCurrentSourceCache(
         script,
         shouldContinue: shouldContinue,
       );
+      if (!shouldContinue()) return;
+      await ensureRequiredScriptMappingVariants();
       if (!shouldContinue()) return;
       await _saveParsedSnapshotAfterImportIfUseful(
         directoryContainsPng,
@@ -1472,6 +2300,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     aiRoleExtractionChunks = const [];
     aiRoleExtractionRequestCount = 0;
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     isApplyingAiRoleExtraction = false;
     analysisStatus = '尚未分析角色';
     aiStatus = '尚未进行 AI 分析';
@@ -1487,6 +2317,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
     _applyScript(script, mappingOverride: _mapping);
     if (shouldContinue?.call() == false) return false;
+    await ensureRequiredScriptMappingVariants();
+    if (shouldContinue?.call() == false) return false;
     if (reportProgress) {
       _setImportProgress('正在生成工作台草稿...', value: 0.72);
       await _yieldImportProgressFrame();
@@ -1499,7 +2331,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       cacheHit: true,
     );
     if (reportProgress) {
-      _setImportProgress('正在应用缓存映射...', value: 0.84);
+      _setImportProgress('正在恢复剧本专属映射...', value: 0.84);
       await _yieldImportProgressFrame();
       if (shouldContinue?.call() == false) return false;
     }
@@ -1536,6 +2368,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         return;
       }
       _applyScript(script, mappingOverride: mapping);
+      await ensureRequiredScriptMappingVariants();
       notifyListeners();
     } catch (error, stackTrace) {
       debugPrint(
@@ -1577,6 +2410,9 @@ class StudioScriptViewModel extends ChangeNotifier {
     _script = null;
     _sourceTermFrameIndex = null;
     _mapping = null;
+    _mappingVariants = const [];
+    _activeMappingVariantId = null;
+    mappingVariantStatus = '';
     _changedSourceCache = null;
     _previewResult = null;
     _selectedFrameIndex = null;
@@ -1623,6 +2459,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     aiRoleExtractionChunks = const [];
     aiRoleExtractionRequestCount = 0;
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     isExtractingAiRoleEvidence = false;
     isApplyingAiRoleExtraction = false;
     roleMappings = const [];
@@ -1980,6 +2818,8 @@ class StudioScriptViewModel extends ChangeNotifier {
 
     final operationId = _beginAiOperation();
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     isExtractingAiRoleEvidence = true;
     _startAiProgress(
       title: 'AI 整理角色字段',
@@ -2052,7 +2892,7 @@ class StudioScriptViewModel extends ChangeNotifier {
               title: 'Chunk checkpoint',
               detail: 'Saved ${extraction.chunkId ?? 'chunk'} for resume.',
             );
-            await _saveCache(script);
+            await _saveCurrentStateForScript(script);
             notifyListeners();
           },
         ),
@@ -2093,7 +2933,7 @@ class StudioScriptViewModel extends ChangeNotifier {
             '${result.extraction.roles.length} 个角色，${result.extraction.artistChains.length} 条画师证据，${result.extraction.strongFilterKeywords.length} 个强过滤词',
       );
       _setAiProgressStep(6, '正在写入角色字段草稿和缓存...');
-      await _saveCache(script);
+      await _saveCurrentStateForScript(script);
       if (result.extraction.isFailed) {
         _failAiProgress(_aiRoleExtractionFailureStatus(result.extraction));
       } else {
@@ -2113,7 +2953,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         detail: error.toString(),
       );
       _refreshRecastPlan();
-      await _saveCache(script);
+      await _saveCurrentStateForScript(script);
       _failAiProgress('AI 角色字段整理失败：$error');
     } finally {
       if (_isCurrentAiOperation(operationId)) {
@@ -2151,6 +2991,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     aiRoleExtractionChunks = const [];
     aiRoleExtractionRequestCount = 0;
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
   }
 
   void _recordEmptyAiRoleExtractionFailure() {
@@ -2159,6 +3001,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     _clearAiProgress();
     _clearAiRoleExtractionLiveOutput();
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     aiRoleExtractionRequestPreview = const {};
     aiRoleExtractionChunks = const [];
     aiRoleExtractionRequestCount = 0;
@@ -2250,6 +3094,8 @@ class StudioScriptViewModel extends ChangeNotifier {
       );
     }
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     _refreshRecastPlan();
     unawaited(_saveCurrentCache());
     notifyListeners();
@@ -2382,6 +3228,8 @@ class StudioScriptViewModel extends ChangeNotifier {
         extraction: extraction,
       );
       final changed = application.changed;
+      _aiRoleExtractionFinalized =
+          extraction.roles.isNotEmpty || extraction.sceneTerms.isNotEmpty;
 
       if (changed) {
         _mapping = application.mapping;
@@ -3717,6 +4565,16 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (replacement == null) {
       return;
     }
+    final involvedRuleIds = {
+      ...sourceRuleIds,
+      targetRuleId,
+    };
+    if (!_rulesShareReplacementLayer(
+      replacement: replacement,
+      ruleIds: involvedRuleIds,
+    )) {
+      return;
+    }
     final nextRules = _replacementRulesWithMovedSourceTerms(
       rules: replacement.rules,
       sourceRuleIds: sourceRuleIds,
@@ -3730,6 +4588,10 @@ class StudioScriptViewModel extends ChangeNotifier {
       sourceRoleId,
       (replacement) => replacement.copyWith(
         rules: List.unmodifiable(nextRules),
+        layerOverrides: _layerOverridesRetainingRules(
+          replacement.layerOverrides,
+          {for (final rule in nextRules) rule.id},
+        ),
       ),
     )) {
       return;
@@ -3767,6 +4629,11 @@ class StudioScriptViewModel extends ChangeNotifier {
       sourceRoleId,
       (replacement) => replacement.copyWith(
         rules: List.unmodifiable(split.rules),
+        layerOverrides: _layerOverridesAfterRuleSplit(
+          replacement.layerOverrides,
+          sourceRuleId: sourceRuleId,
+          newRuleId: split.newRuleId,
+        ),
       ),
     )) {
       return;
@@ -3792,6 +4659,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (replacement == null) {
       return;
     }
+    if (!_rulesShareReplacementLayer(
+      replacement: replacement,
+      ruleIds: {sourceRuleId, targetRuleId},
+    )) {
+      return;
+    }
     final nextRules = _replacementRulesWithMergedSourceRule(
       rules: replacement.rules,
       sourceRuleId: sourceRuleId,
@@ -3804,6 +4677,12 @@ class StudioScriptViewModel extends ChangeNotifier {
       sourceRoleId,
       (replacement) => replacement.copyWith(
         rules: List.unmodifiable(nextRules),
+        layerOverrides: _layerOverridesAfterRuleMerge(
+          replacement.layerOverrides,
+          mergedRuleIds: {sourceRuleId, targetRuleId},
+          survivingRuleId: targetRuleId,
+          survivingRuleIds: {for (final rule in nextRules) rule.id},
+        ),
       ),
     )) {
       return;
@@ -3842,7 +4721,13 @@ class StudioScriptViewModel extends ChangeNotifier {
         if (nextRules.length == replacement.rules.length) {
           return replacement;
         }
-        return replacement.copyWith(rules: List.unmodifiable(nextRules));
+        return replacement.copyWith(
+          rules: List.unmodifiable(nextRules),
+          layerOverrides: _layerOverridesRetainingRules(
+            replacement.layerOverrides,
+            {for (final rule in nextRules) rule.id},
+          ),
+        );
       },
     )) {
       return;
@@ -3922,6 +4807,136 @@ class StudioScriptViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void assignRoleReplacementRulesToLayer({
+    required String sourceRoleId,
+    required Iterable<String> ruleIds,
+    required ScriptRoleReplacementRuleLayerKind kind,
+    String stageId = '',
+  }) {
+    final normalizedRuleIds = {
+      for (final ruleId in ruleIds)
+        if (ruleId.trim().isNotEmpty) ruleId.trim(),
+    };
+    if (normalizedRuleIds.isEmpty) {
+      return;
+    }
+    if (kind == ScriptRoleReplacementRuleLayerKind.stage &&
+        !_roleHasStage(sourceRoleId, stageId)) {
+      return;
+    }
+    if (!_updateRoleReplacement(
+      sourceRoleId,
+      (replacement) {
+        final existingRuleIds = {
+          for (final rule in replacement.rules) rule.id,
+        };
+        final applicableRuleIds =
+            normalizedRuleIds.intersection(existingRuleIds);
+        if (applicableRuleIds.isEmpty) {
+          return replacement;
+        }
+        return replacement.copyWith(
+          layerOverrides: _layerOverridesWithAssignment(
+            replacement.layerOverrides,
+            ruleIds: applicableRuleIds,
+            kind: kind,
+            stageId: stageId,
+          ),
+        );
+      },
+    )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void assignRoleReplacementRulesToCategory({
+    required String sourceRoleId,
+    required Iterable<String> ruleIds,
+    required PromptTagCategory category,
+  }) {
+    final normalizedRuleIds = {
+      for (final ruleId in ruleIds)
+        if (ruleId.trim().isNotEmpty) ruleId.trim(),
+    };
+    if (normalizedRuleIds.isEmpty ||
+        !_updateRoleReplacement(
+          sourceRoleId,
+          (replacement) {
+            final nextRules = _replacementRulesAssignedToCategory(
+              replacement.rules,
+              ruleIds: normalizedRuleIds,
+              category: category,
+            );
+            return identical(nextRules, replacement.rules)
+                ? replacement
+                : replacement.copyWith(rules: nextRules);
+          },
+          learnProfile: false,
+        )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void assignSelectedRoleReplacementRulesToLayer({
+    required String sourceRoleId,
+    required ScriptRoleReplacementRuleLayerKind kind,
+    String stageId = '',
+  }) {
+    assignRoleReplacementRulesToLayer(
+      sourceRoleId: sourceRoleId,
+      ruleIds: _selectedRoleReplacementRuleIdsByRole[sourceRoleId] ?? const {},
+      kind: kind,
+      stageId: stageId,
+    );
+  }
+
+  void restoreAutomaticRoleReplacementLayer({
+    required String sourceRoleId,
+    required Iterable<String> ruleIds,
+  }) {
+    final normalizedRuleIds = ruleIds.toSet();
+    if (normalizedRuleIds.isEmpty ||
+        !_updateRoleReplacement(
+          sourceRoleId,
+          (replacement) {
+            final nextOverrides = [
+              for (final override in replacement.layerOverrides)
+                if (!normalizedRuleIds.contains(override.ruleId)) override,
+            ];
+            return nextOverrides.length == replacement.layerOverrides.length
+                ? replacement
+                : replacement.copyWith(
+                    layerOverrides: List.unmodifiable(nextOverrides),
+                  );
+          },
+        )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void restoreAllAutomaticRoleReplacementLayers(String sourceRoleId) {
+    if (!_updateRoleReplacement(
+      sourceRoleId,
+      (replacement) => replacement.layerOverrides.isEmpty
+          ? replacement
+          : replacement.copyWith(layerOverrides: const []),
+    )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
   void mergeSelectedRoleReplacementRules(String sourceRoleId) {
     final selectedIds = _selectedRoleReplacementRuleIdsByRole[sourceRoleId];
     if (selectedIds == null || selectedIds.length < 2) {
@@ -3938,11 +4953,24 @@ class StudioScriptViewModel extends ChangeNotifier {
         if (selectedRules.length < 2) {
           return replacement;
         }
+        if (!_rulesShareReplacementLayer(
+          replacement: replacement,
+          ruleIds: selectedIds,
+        )) {
+          return replacement;
+        }
         keptRuleId = selectedRules.first.id;
+        final nextRules = _mergedReplacementRules(
+          rules: replacement.rules,
+          selectedIds: selectedIds,
+        );
         return replacement.copyWith(
-          rules: _mergedReplacementRules(
-            rules: replacement.rules,
-            selectedIds: selectedIds,
+          rules: nextRules,
+          layerOverrides: _layerOverridesAfterRuleMerge(
+            replacement.layerOverrides,
+            mergedRuleIds: selectedIds,
+            survivingRuleId: keptRuleId!,
+            survivingRuleIds: {for (final rule in nextRules) rule.id},
           ),
         );
       },
@@ -4105,6 +5133,36 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     _refreshReplacementMappings();
     notifyListeners();
+  }
+
+  void assignSceneReplacementRulesToCategory({
+    required String groupId,
+    required Iterable<String> ruleIds,
+    required PromptTagCategory category,
+  }) {
+    final normalizedRuleIds = {
+      for (final ruleId in ruleIds)
+        if (ruleId.trim().isNotEmpty) ruleId.trim(),
+    };
+    if (normalizedRuleIds.isEmpty ||
+        !_updateSceneReplacement(
+          groupId,
+          (replacement) {
+            final nextRules = _replacementRulesAssignedToCategory(
+              replacement.rules,
+              ruleIds: normalizedRuleIds,
+              category: category,
+            );
+            return identical(nextRules, replacement.rules)
+                ? replacement
+                : replacement.copyWith(rules: nextRules);
+          },
+        )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
   }
 
   void mergeSelectedSceneReplacementRules(String groupId) {
@@ -4354,22 +5412,34 @@ class StudioScriptViewModel extends ChangeNotifier {
     required String sourceRoleId,
     required ScriptRolePromptReplacement? resetReplacement,
   }) {
+    final currentReplacement = current
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final replacementWithPreservedLayers =
+        resetReplacement == null || currentReplacement == null
+            ? resetReplacement
+            : resetReplacement.copyWith(
+                layerOverrides: _layerOverridesRetainingRules(
+                  currentReplacement.layerOverrides,
+                  {for (final rule in resetReplacement.rules) rule.id},
+                ),
+              );
     final next = <ScriptRolePromptReplacement>[];
     var removedExisting = false;
     var insertedReset = false;
     for (final replacement in current) {
       if (replacement.sourceRoleId == sourceRoleId) {
         removedExisting = true;
-        if (!insertedReset && resetReplacement != null) {
-          next.add(resetReplacement);
+        if (!insertedReset && replacementWithPreservedLayers != null) {
+          next.add(replacementWithPreservedLayers);
           insertedReset = true;
         }
         continue;
       }
       next.add(replacement);
     }
-    if (!insertedReset && resetReplacement != null) {
-      next.add(resetReplacement);
+    if (!insertedReset && replacementWithPreservedLayers != null) {
+      next.add(replacementWithPreservedLayers);
       insertedReset = true;
     }
     if (!removedExisting && !insertedReset) {
@@ -4445,19 +5515,253 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
   }
 
+  RoleMappingProfileRepository _requireRoleMappingProfileRepository() {
+    final repository = roleMappingProfileRepository;
+    if (repository == null) {
+      throw StateError('全局角色档案仓库未配置。');
+    }
+    return repository;
+  }
+
+  ScriptRolePromptReplacement? _roleReplacementById(String sourceRoleId) {
+    return _mapping?.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+  }
+
+  RoleAssembly? _roleAssemblyById(String sourceRoleId) {
+    return _mapping?.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+  }
+
+  ScriptRolePromptReplacement _requireRoleReplacement(String sourceRoleId) {
+    final replacement = _roleReplacementById(sourceRoleId);
+    if (replacement == null) {
+      throw StateError('当前角色替换组已不存在：$sourceRoleId');
+    }
+    return replacement;
+  }
+
+  void _setRoleMappingProfileLibrary(RoleMappingProfileLibrary library) {
+    roleMappingProfiles = List.unmodifiable(
+      library.profiles.toList()
+        ..sort((left, right) {
+          final byUpdated = right.updatedAt.compareTo(left.updatedAt);
+          return byUpdated != 0
+              ? byUpdated
+              : left.name.toLowerCase().compareTo(right.name.toLowerCase());
+        }),
+    );
+  }
+
+  RoleMappingProfile _normalizedRoleMappingProfile(
+    RoleMappingProfile profile,
+  ) {
+    final name = profile.name.trim();
+    if (name.isEmpty) {
+      throw const FormatException('全局角色档案名称不能为空。');
+    }
+    RoleMappingProfileBlock normalizeBlock(RoleMappingProfileBlock block) {
+      return block.copyWith(
+        terms: List.unmodifiable([
+          for (final term in block.terms)
+            if (term.text.trim().isNotEmpty)
+              term.copyWith(
+                text: term.text.trim(),
+                normalizedKey: normalizeRoleMappingProfileTerm(term.text),
+              ),
+        ]),
+        anchorTermKey: normalizeRoleMappingProfileTerm(block.anchorTermKey),
+        targetPrompt: block.targetPrompt.trim(),
+      );
+    }
+
+    final layers = [
+      for (final layer in profile.effectiveLayers)
+        () {
+          final blocks = [
+            for (final block in layer.blocks) normalizeBlock(block),
+          ];
+          final signature = <String>{
+            for (final block in blocks)
+              for (final term in block.terms)
+                if (term.autoDetect && term.normalizedKey.isNotEmpty)
+                  term.normalizedKey,
+          }.toList()
+            ..sort();
+          return layer.copyWith(
+            displayName: layer.displayName.trim().isEmpty
+                ? '未命名分层'
+                : layer.displayName.trim(),
+            recognitionSignature: List.unmodifiable(signature),
+            blocks: List.unmodifiable(blocks),
+          );
+        }(),
+    ];
+    final blocks = [
+      for (final layer in layers) ...layer.blocks,
+    ];
+    for (final block in blocks) {
+      if (block.terms.isEmpty) {
+        throw const FormatException('映射组至少需要一个源标签。');
+      }
+      if (block.matchMode == ScriptPromptReplacementMatchMode.anchor &&
+          !block.normalizedTermKeys.contains(block.anchorTermKey)) {
+        throw const FormatException('锚点必须来自当前映射组的源标签。');
+      }
+    }
+    final normalized = profile.copyWith(
+      name: name,
+      targetCharacterNameSnapshot: profile.targetCharacterNameSnapshot.trim(),
+      targetIdentityPrompt: profile.targetIdentityPrompt.trim(),
+      layers: List.unmodifiable(layers),
+    );
+    return RoleMappingProfile.fromJson(normalized.toJson());
+  }
+
+  String _uniqueRoleMappingProfileCopyName(
+    String sourceName,
+    Iterable<RoleMappingProfile> profiles,
+  ) {
+    final names = {
+      for (final profile in profiles) profile.name.trim().toLowerCase(),
+    };
+    final base = '${sourceName.trim()} 副本';
+    if (!names.contains(base.toLowerCase())) return base;
+    for (var index = 2;; index += 1) {
+      final candidate = '$base $index';
+      if (!names.contains(candidate.toLowerCase())) return candidate;
+    }
+  }
+
+  bool _setRoleReplacementActiveProfile(
+    String sourceRoleId,
+    String? profileId,
+  ) {
+    final changed = _updateRoleReplacement(
+      sourceRoleId,
+      (replacement) => replacement.copyWith(
+        activeMappingProfileId: profileId,
+      ),
+      learnProfile: false,
+    );
+    if (changed) {
+      _refreshReplacementMappings();
+    }
+    return changed;
+  }
+
+  void _detachRoleMappingProfile(String profileId) {
+    final mapping = _mapping;
+    if (mapping == null) return;
+    var changed = false;
+    final replacements = [
+      for (final replacement in mapping.rolePromptReplacements)
+        if (replacement.activeMappingProfileId == profileId)
+          _markChanged(
+            replacement.copyWith(activeMappingProfileId: null),
+            () => changed = true,
+          )
+        else
+          replacement,
+    ];
+    if (!changed) return;
+    _mapping = mapping.copyWith(
+      rolePromptReplacements: List.unmodifiable(replacements),
+    );
+    _refreshReplacementMappings();
+  }
+
+  Future<void> _learnActiveRoleMappingProfile(
+    ScriptRolePromptReplacement before,
+    ScriptRolePromptReplacement after, {
+    RoleAssembly? beforeAssembly,
+    RoleAssembly? afterAssembly,
+  }) async {
+    final profileId =
+        after.activeMappingProfileId ?? before.activeMappingProfileId;
+    final repository = roleMappingProfileRepository;
+    if (profileId == null || repository == null || _disposed) return;
+    try {
+      final library = await repository.update((current) {
+        final profile = current.profiles
+            .where((entry) => entry.id == profileId)
+            .firstOrNull;
+        if (profile == null) return current;
+        final prompts = roleMappingProfileService.deletionPrompts(
+          profile: profile,
+          before: before,
+          after: after,
+          beforeAssembly:
+              beforeAssembly ?? _roleAssemblyById(before.sourceRoleId),
+          afterAssembly: afterAssembly ?? _roleAssemblyById(after.sourceRoleId),
+        );
+        for (final prompt in prompts) {
+          final duplicate = _pendingRoleMappingProfileDeletions.any(
+            (entry) =>
+                entry.profileId == prompt.profileId &&
+                entry.kind == prompt.kind &&
+                entry.blockId == prompt.blockId,
+          );
+          if (!duplicate) {
+            _pendingRoleMappingProfileDeletions.add(prompt);
+          }
+        }
+        final characterName = after.targetCharacterId == null
+            ? ''
+            : _characterById(after.targetCharacterId!)?.name ?? '';
+        final learned = roleMappingProfileService.learnReplacement(
+          profile: profile,
+          before: before,
+          after: after,
+          targetCharacterNameSnapshot: characterName,
+          now: DateTime.now().toUtc(),
+          assembly: afterAssembly ?? _roleAssemblyById(after.sourceRoleId),
+        );
+        return current.copyWith(
+          profiles: List.unmodifiable([
+            for (final entry in current.profiles)
+              if (entry.id == learned.id) learned else entry,
+          ]),
+        );
+      });
+      if (_disposed) return;
+      _setRoleMappingProfileLibrary(library);
+      final profile = roleMappingProfileById(profileId);
+      if (profile != null) {
+        roleMappingProfileStatus = '已自动更新：${profile.name}';
+      }
+      notifyListeners();
+    } catch (error) {
+      if (_disposed) return;
+      roleMappingProfileError = error;
+      roleMappingProfileStatus = '自动更新全局角色档案失败';
+      notifyListeners();
+    }
+  }
+
   bool _updateRoleReplacement(
     String sourceRoleId,
-    ScriptRolePromptReplacement Function(ScriptRolePromptReplacement) update,
-  ) {
+    ScriptRolePromptReplacement Function(ScriptRolePromptReplacement) update, {
+    bool learnProfile = true,
+  }) {
     final mapping = _mapping;
     if (mapping == null) {
       return false;
     }
     var changed = false;
+    ScriptRolePromptReplacement? before;
+    ScriptRolePromptReplacement? after;
     final next = [
       for (final replacement in mapping.rolePromptReplacements)
         if (replacement.sourceRoleId == sourceRoleId)
-          _markChanged(update(replacement), () => changed = true)
+          _markChanged(
+            after = _normalizedRoleReplacement(
+              update(before = replacement),
+            ),
+            () => changed = true,
+          )
         else
           replacement,
     ];
@@ -4466,6 +5770,9 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     _mapping =
         mapping.copyWith(rolePromptReplacements: List.unmodifiable(next));
+    if (learnProfile && before != null && after != null) {
+      unawaited(_learnActiveRoleMappingProfile(before, after));
+    }
     return true;
   }
 
@@ -4546,6 +5853,31 @@ class StudioScriptViewModel extends ChangeNotifier {
     return value;
   }
 
+  List<ScriptPromptReplacementRule> _replacementRulesAssignedToCategory(
+    List<ScriptPromptReplacementRule> rules, {
+    required Set<String> ruleIds,
+    required PromptTagCategory category,
+  }) {
+    var changed = false;
+    final next = [
+      for (final rule in rules)
+        if (ruleIds.contains(rule.id) &&
+            rule.sourceTerms.any((term) => term.category != category))
+          _markChanged(
+            rule.copyWith(
+              sourceTerms: List.unmodifiable([
+                for (final term in rule.sourceTerms)
+                  term.copyWith(category: category),
+              ]),
+            ),
+            () => changed = true,
+          )
+        else
+          rule,
+    ];
+    return changed ? List.unmodifiable(next) : rules;
+  }
+
   List<String> _replacementExcludedTermIds(
     List<String> current,
     String termId,
@@ -4598,6 +5930,139 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
   }
 
+  bool _roleHasStage(String sourceRoleId, String stageId) {
+    if (stageId.trim().isEmpty) {
+      return false;
+    }
+    return _mapping?.roleAssemblies.any(
+          (assembly) =>
+              assembly.sourceRoleId == sourceRoleId &&
+              assembly.stages.any((stage) => stage.id == stageId),
+        ) ??
+        false;
+  }
+
+  bool _rulesShareReplacementLayer({
+    required ScriptRolePromptReplacement replacement,
+    required Iterable<String> ruleIds,
+  }) {
+    final existingRuleIds = {for (final rule in replacement.rules) rule.id};
+    final normalizedRuleIds = ruleIds.toSet().intersection(existingRuleIds);
+    if (normalizedRuleIds.length < 2) {
+      return false;
+    }
+    final assembly = _mapping?.roleAssemblies
+        .where(
+          (assembly) => assembly.sourceRoleId == replacement.sourceRoleId,
+        )
+        .firstOrNull;
+    final result = roleReplacementLayerService.resolve(
+      replacement: replacement,
+      assembly: assembly,
+    );
+    final layerIds = {
+      for (final ruleId in normalizedRuleIds)
+        if (result.assignmentForRule(ruleId) != null)
+          result.assignmentForRule(ruleId)!.layerId,
+    };
+    return layerIds.length == 1;
+  }
+
+  List<ScriptRoleReplacementRuleLayerOverride> _layerOverridesWithAssignment(
+    List<ScriptRoleReplacementRuleLayerOverride> current, {
+    required Set<String> ruleIds,
+    required ScriptRoleReplacementRuleLayerKind kind,
+    required String stageId,
+  }) {
+    final normalizedStageId = stageId.trim();
+    final normalizedKind = kind == ScriptRoleReplacementRuleLayerKind.stage &&
+            normalizedStageId.isEmpty
+        ? ScriptRoleReplacementRuleLayerKind.pending
+        : kind;
+    return List.unmodifiable([
+      for (final override in current)
+        if (!ruleIds.contains(override.ruleId)) override,
+      for (final ruleId in ruleIds)
+        ScriptRoleReplacementRuleLayerOverride(
+          ruleId: ruleId,
+          kind: normalizedKind,
+          stageId: normalizedKind == ScriptRoleReplacementRuleLayerKind.stage
+              ? normalizedStageId
+              : '',
+        ),
+    ]);
+  }
+
+  List<ScriptRoleReplacementRuleLayerOverride> _layerOverridesAfterRuleSplit(
+    List<ScriptRoleReplacementRuleLayerOverride> current, {
+    required String sourceRuleId,
+    required String newRuleId,
+  }) {
+    final sourceOverride =
+        current.where((override) => override.ruleId == sourceRuleId).lastOrNull;
+    if (sourceOverride == null) {
+      return current;
+    }
+    return List.unmodifiable([
+      ...current,
+      sourceOverride.copyWith(ruleId: newRuleId),
+    ]);
+  }
+
+  List<ScriptRoleReplacementRuleLayerOverride> _layerOverridesAfterRuleMerge(
+    List<ScriptRoleReplacementRuleLayerOverride> current, {
+    required Set<String> mergedRuleIds,
+    required String survivingRuleId,
+    required Set<String> survivingRuleIds,
+  }) {
+    final byRuleId = <String, ScriptRoleReplacementRuleLayerOverride>{
+      for (final override in current) override.ruleId: override,
+    };
+    final survivingOverride = byRuleId[survivingRuleId];
+    return List.unmodifiable([
+      for (final override in current)
+        if (survivingRuleIds.contains(override.ruleId) &&
+            !mergedRuleIds.contains(override.ruleId))
+          override,
+      if (survivingOverride != null)
+        survivingOverride.copyWith(ruleId: survivingRuleId),
+    ]);
+  }
+
+  List<ScriptRoleReplacementRuleLayerOverride> _layerOverridesRetainingRules(
+    List<ScriptRoleReplacementRuleLayerOverride> current,
+    Set<String> survivingRuleIds,
+  ) {
+    return List.unmodifiable([
+      for (final override in current)
+        if (survivingRuleIds.contains(override.ruleId)) override,
+    ]);
+  }
+
+  ScriptRolePromptReplacement _normalizedRoleReplacement(
+    ScriptRolePromptReplacement replacement,
+  ) {
+    final ruleIds = {for (final rule in replacement.rules) rule.id};
+    final byRuleId = <String, ScriptRoleReplacementRuleLayerOverride>{};
+    for (final override in replacement.layerOverrides) {
+      if (!ruleIds.contains(override.ruleId)) {
+        continue;
+      }
+      if (override.kind == ScriptRoleReplacementRuleLayerKind.stage &&
+          override.stageId.trim().isEmpty) {
+        byRuleId[override.ruleId] = ScriptRoleReplacementRuleLayerOverride(
+          ruleId: override.ruleId,
+          kind: ScriptRoleReplacementRuleLayerKind.pending,
+        );
+        continue;
+      }
+      byRuleId[override.ruleId] = override;
+    }
+    return replacement.copyWith(
+      layerOverrides: List.unmodifiable(byRuleId.values),
+    );
+  }
+
   List<ScriptPromptReplacementRule> _mergedReplacementRules({
     required List<ScriptPromptReplacementRule> rules,
     required Set<String> selectedIds,
@@ -4623,7 +6088,9 @@ class StudioScriptViewModel extends ChangeNotifier {
         }
       }
     }
-    final merged = first.copyWith(
+    final merged = _replacementRuleWithMergedSemantics(
+      survivor: first,
+      mergedRules: selectedRules,
       sourceTerms: List.unmodifiable(sourceTerms),
       excludedTermIds: List.unmodifiable(excludedTermIds),
     );
@@ -4636,6 +6103,104 @@ class StudioScriptViewModel extends ChangeNotifier {
     ];
   }
 
+  ScriptPromptReplacementRule _replacementRuleWithMergedSemantics({
+    required ScriptPromptReplacementRule survivor,
+    required List<ScriptPromptReplacementRule> mergedRules,
+    required List<ScriptPromptReplacementTerm> sourceTerms,
+    required List<String> excludedTermIds,
+  }) {
+    final targetPrompt = _joinPromptTags([
+      for (final rule in mergedRules)
+        if (rule.effectiveAction == ScriptPromptReplacementAction.replace)
+          _materializedReplacementRuleOutputForMerge(rule),
+    ]);
+    final hasDelete = mergedRules.any(
+      (rule) => rule.effectiveAction == ScriptPromptReplacementAction.delete,
+    );
+    final sourceWeightMultiplier = targetPrompt.trim().isEmpty && !hasDelete
+        ? _commonSourceWeightMultiplierForMerge(mergedRules)
+        : null;
+    final action =
+        targetPrompt.trim().isNotEmpty || sourceWeightMultiplier != null
+            ? ScriptPromptReplacementAction.replace
+            : hasDelete
+                ? ScriptPromptReplacementAction.delete
+                : ScriptPromptReplacementAction.none;
+    return survivor.copyWith(
+      sourceTerms: sourceTerms,
+      excludedTermIds: excludedTermIds,
+      action: action,
+      matchMode: ScriptPromptReplacementMatchMode.any,
+      targetPrompt: targetPrompt,
+      targetWeightMultiplier: sourceWeightMultiplier,
+      manualPhrase: '',
+      anchorTermId: '',
+    );
+  }
+
+  String _materializedReplacementRuleOutputForMerge(
+    ScriptPromptReplacementRule rule,
+  ) {
+    final output = rule.manualPhrase.trim().isNotEmpty
+        ? rule.manualPhrase
+        : rule.targetPrompt;
+    if (output.trim().isEmpty) {
+      return '';
+    }
+    final multiplier = rule.targetWeightMultiplier;
+    final tags = _splitDisplayTags(output);
+    if (multiplier == null || (multiplier - 1.0).abs() < 0.000001) {
+      return _joinPromptTags(tags);
+    }
+    return _joinPromptTags([
+      for (final tag in tags) _promptTagWithScaledWeight(tag, multiplier),
+    ]);
+  }
+
+  String _promptTagWithScaledWeight(String rawTag, double multiplier) {
+    final analyses = PromptTagProcessor.analyzeWorkshopTags(rawTag);
+    if (analyses.isEmpty) {
+      return rawTag.trim();
+    }
+    final analysis = analyses.first;
+    final displayText = analysis.displayText.trim();
+    if (displayText.isEmpty) {
+      return rawTag.trim();
+    }
+    final weight = (analysis.weight ?? 1.0) * multiplier;
+    if ((weight - 1.0).abs() < 0.000001) {
+      return displayText;
+    }
+    return PromptTagProcessor.formatInlineWeightTag(displayText, weight);
+  }
+
+  double? _commonSourceWeightMultiplierForMerge(
+    List<ScriptPromptReplacementRule> rules,
+  ) {
+    double? common;
+    for (final rule in rules) {
+      if (rule.effectiveAction == ScriptPromptReplacementAction.none) {
+        continue;
+      }
+      final multiplier = rule.targetWeightMultiplier;
+      final hasOutput = rule.targetPrompt.trim().isNotEmpty ||
+          rule.manualPhrase.trim().isNotEmpty;
+      if (rule.effectiveAction != ScriptPromptReplacementAction.replace ||
+          hasOutput ||
+          multiplier == null) {
+        return null;
+      }
+      if (common == null) {
+        common = multiplier;
+        continue;
+      }
+      if ((common - multiplier).abs() >= 0.000001) {
+        return null;
+      }
+    }
+    return common;
+  }
+
   List<ScriptPromptReplacementRule>? _replacementRulesWithMergedSourceRule({
     required List<ScriptPromptReplacementRule> rules,
     required String sourceRuleId,
@@ -4646,12 +6211,35 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (sourceRule == null || sourceRule.sourceTerms.isEmpty) {
       return null;
     }
-    return _replacementRulesWithMovedSourceTerms(
+    final targetRule =
+        rules.where((rule) => rule.id == targetRuleId).firstOrNull;
+    if (targetRule == null) {
+      return null;
+    }
+    final nextRules = _replacementRulesWithMovedSourceTerms(
       rules: rules,
       sourceRuleIds: {sourceRuleId},
       targetRuleId: targetRuleId,
       tags: sourceRule.sourceTerms.map((term) => term.text),
     );
+    if (nextRules == null) {
+      return null;
+    }
+    final mergedTarget =
+        nextRules.where((rule) => rule.id == targetRuleId).firstOrNull;
+    if (mergedTarget == null) {
+      return null;
+    }
+    final merged = _replacementRuleWithMergedSemantics(
+      survivor: mergedTarget,
+      mergedRules: [targetRule, sourceRule],
+      sourceTerms: mergedTarget.sourceTerms,
+      excludedTermIds: mergedTarget.excludedTermIds,
+    );
+    return List.unmodifiable([
+      for (final rule in nextRules)
+        if (rule.id == targetRuleId) merged else rule,
+    ]);
   }
 
   _ReplacementRuleSplitResult? _replacementRulesWithSplitSourceTerms({
@@ -4942,6 +6530,366 @@ class StudioScriptViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? roleStageExistingOverlapMessage(String sourceRoleId) {
+    final assembly = _mapping?.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (assembly == null) {
+      return null;
+    }
+    final overlaps = <String>[];
+    for (var firstIndex = 0;
+        firstIndex < assembly.stages.length;
+        firstIndex += 1) {
+      final first = assembly.stages[firstIndex];
+      final firstFrames = first.frameIndexes.toSet();
+      for (var secondIndex = firstIndex + 1;
+          secondIndex < assembly.stages.length;
+          secondIndex += 1) {
+        final second = assembly.stages[secondIndex];
+        final sharedFrames = firstFrames
+            .intersection(second.frameIndexes.toSet())
+            .toList()
+          ..sort();
+        if (sharedFrames.isEmpty) {
+          continue;
+        }
+        overlaps.add(
+          '${first.label} / ${second.label}：${_compressedFrameIndexes(sharedFrames)}',
+        );
+      }
+    }
+    return overlaps.isEmpty ? null : '已有阶段帧重叠：${overlaps.join('；')}';
+  }
+
+  String? roleStageFrameOverlapMessage({
+    required String sourceRoleId,
+    String? stageId,
+    required Iterable<int> frameIndexes,
+  }) {
+    final assembly = _mapping?.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (assembly == null) {
+      return stageId == null ? null : '找不到角色阶段。';
+    }
+    final proposed = _normalizedRoleStageFrameIndexes(frameIndexes).toSet();
+    final current = stageId == null
+        ? const <int>{}
+        : assembly.stages
+                .where((stage) => stage.id == stageId)
+                .firstOrNull
+                ?.frameIndexes
+                .toSet() ??
+            const <int>{};
+    final conflicts = <String>[];
+    for (final stage in assembly.stages) {
+      if (stage.id == stageId) {
+        continue;
+      }
+      final otherFrames = stage.frameIndexes.toSet();
+      final newlyOverlapping = proposed
+          .intersection(otherFrames)
+          .difference(current.intersection(otherFrames))
+          .toList()
+        ..sort();
+      if (newlyOverlapping.isNotEmpty) {
+        conflicts.add(
+          '${stage.label}：${_compressedFrameIndexes(newlyOverlapping)}',
+        );
+      }
+    }
+    return conflicts.isEmpty ? null : '这些帧会与已有阶段重叠：${conflicts.join('；')}';
+  }
+
+  String? addRoleStage({
+    required String sourceRoleId,
+    required String label,
+    List<int> frameIndexes = const [],
+  }) {
+    final mapping = _mapping;
+    final assembly = mapping?.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final replacement = mapping?.rolePromptReplacements
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (mapping == null || (assembly == null && replacement == null)) {
+      return null;
+    }
+    final normalizedFrames = _normalizedRoleStageFrameIndexes(frameIndexes);
+    if (roleStageFrameOverlapMessage(
+          sourceRoleId: sourceRoleId,
+          frameIndexes: normalizedFrames,
+        ) !=
+        null) {
+      return null;
+    }
+    final normalizedLabel = label.trim().isEmpty
+        ? '服装阶段 ${(assembly?.stages.length ?? 0) + 1}'
+        : label.trim();
+    var stageId = '$sourceRoleId-stage-${const Uuid().v4()}';
+    final existingIds = {
+      for (final stage in assembly?.stages ?? const <RoleAssemblyStage>[])
+        stage.id,
+    };
+    while (existingIds.contains(stageId)) {
+      stageId = '$sourceRoleId-stage-${const Uuid().v4()}';
+    }
+    _mapping = mapping.copyWith(
+      roleAssemblies: List.unmodifiable([
+        for (final candidate in mapping.roleAssemblies)
+          if (candidate.sourceRoleId == sourceRoleId)
+            candidate.copyWith(
+              stages: List.unmodifiable([
+                ...candidate.stages,
+                RoleAssemblyStage(
+                  id: stageId,
+                  label: normalizedLabel,
+                  frameIndexes: normalizedFrames,
+                ),
+              ]),
+            )
+          else
+            candidate,
+        if (assembly == null)
+          RoleAssembly(
+            sourceRoleId: sourceRoleId,
+            displayLabel: replacement!.displayLabel.trim().isEmpty
+                ? sourceRoleId
+                : replacement.displayLabel.trim(),
+            sourceName: replacement.displayLabel.trim(),
+            stages: [
+              RoleAssemblyStage(
+                id: stageId,
+                label: normalizedLabel,
+                frameIndexes: normalizedFrames,
+              ),
+            ],
+          ),
+      ]),
+    );
+    _manualSelectedStageIdsByRole[sourceRoleId] = stageId;
+    _learnRoleMappingProfileAfterStageStructureChange(
+      beforeMapping: mapping,
+      sourceRoleId: sourceRoleId,
+    );
+    _commitRoleStageEdit(sourceRoleId);
+    return stageId;
+  }
+
+  String? splitRoleStage({
+    required String sourceRoleId,
+    required String stageId,
+    required String label,
+    required Iterable<int> frameIndexes,
+  }) {
+    final mapping = _mapping;
+    final assembly = mapping?.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final sourceStage =
+        assembly?.stages.where((stage) => stage.id == stageId).firstOrNull;
+    if (mapping == null || assembly == null || sourceStage == null) {
+      return null;
+    }
+    final movedFrames = _normalizedRoleStageFrameIndexes(frameIndexes)
+        .where(sourceStage.frameIndexes.contains)
+        .toList(growable: false);
+    if (movedFrames.isEmpty ||
+        movedFrames.length == sourceStage.frameIndexes.toSet().length) {
+      return null;
+    }
+    final movedFrameSet = movedFrames.toSet();
+    final remainingFrames = [
+      for (final frameIndex in sourceStage.frameIndexes)
+        if (!movedFrameSet.contains(frameIndex)) frameIndex,
+    ];
+    final newStageId = '$sourceRoleId-stage-${const Uuid().v4()}';
+    final normalizedLabel =
+        label.trim().isEmpty ? '${sourceStage.label} 2' : label.trim();
+    _mapping = mapping.copyWith(
+      roleAssemblies: List.unmodifiable([
+        for (final candidate in mapping.roleAssemblies)
+          if (candidate.sourceRoleId == sourceRoleId)
+            candidate.copyWith(
+              stages: List.unmodifiable([
+                for (final stage in candidate.stages)
+                  if (stage.id == stageId)
+                    stage.copyWith(
+                      frameIndexes:
+                          _normalizedRoleStageFrameIndexes(remainingFrames),
+                    )
+                  else
+                    stage,
+                sourceStage.copyWith(
+                  id: newStageId,
+                  label: normalizedLabel,
+                  frameIndexes: _normalizedRoleStageFrameIndexes(movedFrames),
+                ),
+              ]),
+            )
+          else
+            candidate,
+      ]),
+    );
+    _manualSelectedStageIdsByRole[sourceRoleId] = newStageId;
+    _learnRoleMappingProfileAfterStageStructureChange(
+      beforeMapping: mapping,
+      sourceRoleId: sourceRoleId,
+    );
+    _commitRoleStageEdit(sourceRoleId);
+    return newStageId;
+  }
+
+  bool mergeRoleStages({
+    required String sourceRoleId,
+    required String sourceStageId,
+    required String targetStageId,
+  }) {
+    if (sourceStageId == targetStageId) {
+      return false;
+    }
+    final mapping = _mapping;
+    final assembly = mapping?.roleAssemblies
+        .where((entry) => entry.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final sourceStage = assembly?.stages
+        .where((stage) => stage.id == sourceStageId)
+        .firstOrNull;
+    final targetStage = assembly?.stages
+        .where((stage) => stage.id == targetStageId)
+        .firstOrNull;
+    if (mapping == null ||
+        assembly == null ||
+        sourceStage == null ||
+        targetStage == null) {
+      return false;
+    }
+    final mergedFrames = _normalizedRoleStageFrameIndexes([
+      ...targetStage.frameIndexes,
+      ...sourceStage.frameIndexes,
+    ]);
+    _mapping = mapping.copyWith(
+      roleAssemblies: List.unmodifiable([
+        for (final candidate in mapping.roleAssemblies)
+          if (candidate.sourceRoleId == sourceRoleId)
+            candidate.copyWith(
+              stages: List.unmodifiable([
+                for (final stage in candidate.stages)
+                  if (stage.id == targetStageId)
+                    stage.copyWith(frameIndexes: mergedFrames)
+                  else if (stage.id != sourceStageId)
+                    stage,
+              ]),
+            )
+          else
+            candidate,
+      ]),
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          if (replacement.sourceRoleId == sourceRoleId)
+            replacement.copyWith(
+              layerOverrides: List.unmodifiable([
+                for (final override in replacement.layerOverrides)
+                  if (override.kind ==
+                          ScriptRoleReplacementRuleLayerKind.stage &&
+                      override.stageId == sourceStageId)
+                    override.copyWith(stageId: targetStageId)
+                  else
+                    override,
+              ]),
+            )
+          else
+            replacement,
+      ]),
+    );
+    if (_manualSelectedStageIdsByRole[sourceRoleId] == sourceStageId) {
+      _manualSelectedStageIdsByRole[sourceRoleId] = targetStageId;
+    }
+    _learnRoleMappingProfileAfterStageStructureChange(
+      beforeMapping: mapping,
+      sourceRoleId: sourceRoleId,
+    );
+    _commitRoleStageEdit(sourceRoleId);
+    return true;
+  }
+
+  bool restoreAiRoleStageLayers(String sourceRoleId) {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null || !aiRoleExtraction.isReady) {
+      return false;
+    }
+    final currentAssembly = mapping.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final withoutRoleAssembly = mapping.copyWith(
+      roleAssemblies: List.unmodifiable([
+        for (final assembly in mapping.roleAssemblies)
+          if (assembly.sourceRoleId != sourceRoleId) assembly,
+      ]),
+    );
+    final application = _mappingWithAppliedAiRoleExtraction(
+      script: script,
+      mapping: withoutRoleAssembly,
+      extraction: aiRoleExtraction,
+    );
+    final aiAssembly = application.mapping.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (aiAssembly == null || aiAssembly.stages.isEmpty) {
+      return false;
+    }
+    final currentStageById = {
+      for (final stage
+          in currentAssembly?.stages ?? const <RoleAssemblyStage>[])
+        stage.id: stage,
+    };
+    final restoredStages = [
+      for (final aiStage in aiAssembly.stages)
+        () {
+          final current = currentStageById[aiStage.id];
+          if (current == null) {
+            return aiStage;
+          }
+          return aiStage.copyWith(
+            targetCharacterId: current.targetCharacterId,
+            targetUpperOutfitId: current.targetUpperOutfitId,
+            targetLowerOutfitId: current.targetLowerOutfitId,
+            omittedParts: current.omittedParts,
+            preservedParts: current.preservedParts,
+            manualParts: current.manualParts,
+          );
+        }(),
+    ];
+    _mapping = mapping.copyWith(
+      roleAssemblies: List.unmodifiable([
+        for (final assembly in mapping.roleAssemblies)
+          if (assembly.sourceRoleId == sourceRoleId)
+            assembly.copyWith(stages: List.unmodifiable(restoredStages))
+          else
+            assembly,
+        if (currentAssembly == null)
+          aiAssembly.copyWith(stages: List.unmodifiable(restoredStages)),
+      ]),
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          if (replacement.sourceRoleId == sourceRoleId)
+            replacement.copyWith(layerOverrides: const [])
+          else
+            replacement,
+      ]),
+    );
+    _manualSelectedStageIdsByRole.remove(sourceRoleId);
+    _learnRoleMappingProfileAfterStageStructureChange(
+      beforeMapping: mapping,
+      sourceRoleId: sourceRoleId,
+    );
+    _commitRoleStageEdit(sourceRoleId);
+    return true;
+  }
+
   void clearRoleStageTarget({
     required String sourceRoleId,
     required String stageId,
@@ -4991,6 +6939,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (mapping == null) {
       return;
     }
+    final targetAssembly = mapping.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (targetAssembly == null || targetAssembly.stages.length <= 1) {
+      return;
+    }
     var changed = false;
     final nextAssemblies = [
       for (final assembly in mapping.roleAssemblies) ...[
@@ -5012,10 +6966,35 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     _mapping = mapping.copyWith(
       roleAssemblies: List.unmodifiable(nextAssemblies),
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          if (replacement.sourceRoleId == sourceRoleId)
+            replacement.copyWith(
+              layerOverrides: List.unmodifiable([
+                for (final override in replacement.layerOverrides)
+                  if (override.kind ==
+                          ScriptRoleReplacementRuleLayerKind.stage &&
+                      override.stageId == stageId)
+                    override.copyWith(
+                      kind: ScriptRoleReplacementRuleLayerKind.pending,
+                    )
+                  else
+                    override,
+              ]),
+            )
+          else
+            replacement,
+      ]),
     );
-    _refreshRoleEditPreview(sourceRoleId);
-    notifyListeners();
-    _scheduleCurrentCacheSave();
+    if (_manualSelectedStageIdsByRole[sourceRoleId] == stageId) {
+      _manualSelectedStageIdsByRole[sourceRoleId] =
+          targetAssembly.stages.firstWhere((stage) => stage.id != stageId).id;
+    }
+    _learnRoleMappingProfileAfterStageStructureChange(
+      beforeMapping: mapping,
+      sourceRoleId: sourceRoleId,
+    );
+    _commitRoleStageEdit(sourceRoleId);
   }
 
   void renameRoleStage({
@@ -5030,6 +7009,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     _updateRoleStage(
       sourceRoleId: sourceRoleId,
       stageId: stageId,
+      learnReplacementProfile: true,
       update: (stage, _) => stage.copyWith(label: normalized),
     );
   }
@@ -5039,9 +7019,18 @@ class StudioScriptViewModel extends ChangeNotifier {
     required String stageId,
     required List<int> frameIndexes,
   }) {
+    if (roleStageFrameOverlapMessage(
+          sourceRoleId: sourceRoleId,
+          stageId: stageId,
+          frameIndexes: frameIndexes,
+        ) !=
+        null) {
+      return;
+    }
     _updateRoleStage(
       sourceRoleId: sourceRoleId,
       stageId: stageId,
+      learnReplacementProfile: true,
       update: (stage, _) => stage.copyWith(
         frameIndexes: _normalizedRoleStageFrameIndexes(frameIndexes),
       ),
@@ -5418,6 +7407,39 @@ class StudioScriptViewModel extends ChangeNotifier {
     _scheduleCurrentCacheSave();
   }
 
+  void _learnRoleMappingProfileAfterStageStructureChange({
+    required RecastMapping beforeMapping,
+    required String sourceRoleId,
+  }) {
+    final afterMapping = _mapping;
+    if (afterMapping == null) {
+      return;
+    }
+    final beforeReplacement = beforeMapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final afterReplacement = afterMapping.rolePromptReplacements
+        .where((replacement) => replacement.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    if (beforeReplacement == null || afterReplacement == null) {
+      return;
+    }
+    final beforeAssembly = beforeMapping.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    final afterAssembly = afterMapping.roleAssemblies
+        .where((assembly) => assembly.sourceRoleId == sourceRoleId)
+        .firstOrNull;
+    unawaited(
+      _learnActiveRoleMappingProfile(
+        beforeReplacement,
+        afterReplacement,
+        beforeAssembly: beforeAssembly,
+        afterAssembly: afterAssembly,
+      ),
+    );
+  }
+
   void _flushBatchedRoleStageEdits() {
     if (_batchedRoleEditSourceRoleIds.isEmpty) {
       return;
@@ -5445,6 +7467,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       CharacterEntry? character,
     ) update,
     bool materializeSourceIdentity = false,
+    bool learnReplacementProfile = false,
   }) {
     final mapping = _mapping;
     if (mapping == null) {
@@ -5475,6 +7498,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     _mapping = materializeSourceIdentity
         ? _mappingWithVisibleSourceIdentityParts(nextMapping)
         : nextMapping;
+    if (learnReplacementProfile) {
+      _learnRoleMappingProfileAfterStageStructureChange(
+        beforeMapping: mapping,
+        sourceRoleId: sourceRoleId,
+      );
+    }
     _commitRoleStageEdit(sourceRoleId);
   }
 
@@ -5482,6 +7511,27 @@ class StudioScriptViewModel extends ChangeNotifier {
     final result = frameIndexes.where((index) => index >= 0).toSet().toList()
       ..sort();
     return List.unmodifiable(result);
+  }
+
+  String _compressedFrameIndexes(Iterable<int> frameIndexes) {
+    final values = _normalizedRoleStageFrameIndexes(frameIndexes);
+    if (values.isEmpty) {
+      return '无';
+    }
+    final ranges = <String>[];
+    var start = values.first;
+    var end = values.first;
+    for (final value in values.skip(1)) {
+      if (value == end + 1) {
+        end = value;
+        continue;
+      }
+      ranges.add(start == end ? '$start' : '$start–$end');
+      start = value;
+      end = value;
+    }
+    ranges.add(start == end ? '$start' : '$start–$end');
+    return ranges.join('、');
   }
 
   void setArtistChain(String? artistChainId) {
@@ -5632,6 +7682,24 @@ class StudioScriptViewModel extends ChangeNotifier {
 
   void setPromptBlockManualPrompt(String block, String value) {
     _updatePromptBlockSwap(block: block, manualPrompt: value.trim());
+  }
+
+  void appendPromptBlockManualPrompt(String block, String value) {
+    final normalizedBlock = block.trim();
+    final nextValue = value.trim();
+    if (normalizedBlock.isEmpty || nextValue.isEmpty) {
+      return;
+    }
+    final current = promptBlockMappings
+        .where((entry) => entry.block == normalizedBlock)
+        .firstOrNull;
+    _updatePromptBlockSwap(
+      block: normalizedBlock,
+      manualPrompt: _joinPromptTags([
+        current?.manualPrompt ?? '',
+        nextValue,
+      ]),
+    );
   }
 
   void setPromptBlockDeleted(String block, bool deleted) {
@@ -5938,7 +8006,32 @@ class StudioScriptViewModel extends ChangeNotifier {
     return loader();
   }
 
+  Future<List<Recipe>> _loadRecipes() async {
+    final loader = loadRecipes;
+    if (loader == null) {
+      return const [];
+    }
+    return loader();
+  }
+
+  Future<List<TagEntry>> _loadTags() async {
+    final loader = loadTags;
+    if (loader == null) {
+      return const [];
+    }
+    return loader();
+  }
+
+  Future<List<PromptAssetCategory>> _loadPromptAssetCategories() async {
+    final loader = loadPromptAssetCategories;
+    if (loader == null) {
+      return const [];
+    }
+    return loader();
+  }
+
   Future<void> _loadAssets() async {
+    await ensureRoleMappingProfilesLoaded();
     final assetContextLoader = loadAssetContext;
     if (assetContextLoader != null) {
       final context = await assetContextLoader();
@@ -5947,6 +8040,10 @@ class StudioScriptViewModel extends ChangeNotifier {
       _characterPreviewPaths = context.characterPreviewPaths;
       _outfitPreviewPaths = context.outfitPreviewPaths;
       _artistChainPreviewPaths = context.artistChainPreviewPaths;
+      _availableRecipes = List.unmodifiable(await _loadRecipes());
+      _availableTags = List.unmodifiable(await _loadTags());
+      _promptAssetCategories =
+          List.unmodifiable(await _loadPromptAssetCategories());
       _availableVibes = List.unmodifiable(await _loadVibes());
       _filterRuleConfig = context.filterRules;
       _applyGlobalBlockWords(context.filterRules.deleteKeywords);
@@ -5956,6 +8053,10 @@ class StudioScriptViewModel extends ChangeNotifier {
     }
     _characters = await _loadCharacters();
     _availableArtistChains = List.unmodifiable(await _loadArtistChains());
+    _availableRecipes = List.unmodifiable(await _loadRecipes());
+    _availableTags = List.unmodifiable(await _loadTags());
+    _promptAssetCategories =
+        List.unmodifiable(await _loadPromptAssetCategories());
     _availableVibes = List.unmodifiable(await _loadVibes());
     _characterPreviewPaths = const {};
     _outfitPreviewPaths = const {};
@@ -6601,46 +8702,49 @@ class StudioScriptViewModel extends ChangeNotifier {
     _refreshPreview();
   }
 
-  Future<void> _saveCache(Script script) async {
-    final mapping = _mapping;
-    if (mapping == null) {
-      cacheStatus = '缓存未配置';
-      return;
-    }
+  RecastScriptCache _cacheDraftForScript(
+    Script script, {
+    required RecastMapping mapping,
+    DateTime? updatedAt,
+  }) {
     final cacheMapping = _mappingForCurrentScript(script, mapping);
-    if (!identical(cacheMapping, mapping)) {
-      _mapping = cacheMapping;
-    }
-    final cacheDraft = RecastScriptCache(
+    return RecastScriptCache(
       scriptId: script.id,
       scriptName: script.name,
       sourceRootPath: script.rootPath,
       sourceFingerprint: cacheRestoreService.sourceFingerprint(script),
       sourceContentFingerprint:
           cacheRestoreService.sourceContentFingerprint(script),
-      updatedAt: DateTime.now().toUtc(),
+      updatedAt: updatedAt ?? DateTime.now().toUtc(),
       mapping: cacheMapping,
       aiRoleExtraction: aiRoleExtraction,
       aiRoleExtractionChunks: aiRoleExtractionChunks,
       aiRoleExtractionDraftCollapsed: _aiRoleExtractionDraftDismissed,
+      aiRoleExtractionFinalized: _aiRoleExtractionFinalized,
       scriptBlockWords: scriptBlockWords,
       scriptSnapshot: script.toJson(),
-    );
-    final cache = RecastScriptCache(
-      scriptId: cacheDraft.scriptId,
-      scriptName: cacheDraft.scriptName,
-      sourceRootPath: cacheDraft.sourceRootPath,
-      sourceFingerprint: cacheDraft.sourceFingerprint,
-      sourceContentFingerprint: cacheDraft.sourceContentFingerprint,
-      updatedAt: cacheDraft.updatedAt,
-      mapping: cacheDraft.mapping,
-      aiRoleExtraction: cacheDraft.aiRoleExtraction,
-      aiRoleExtractionChunks: cacheDraft.aiRoleExtractionChunks,
-      aiRoleExtractionDraftCollapsed: cacheDraft.aiRoleExtractionDraftCollapsed,
-      scriptBlockWords: cacheDraft.scriptBlockWords,
-      scriptSnapshot: cacheDraft.scriptSnapshot,
       knowledgeSnapshot: const {},
+      mappingVariants: _mappingVariants,
+      activeMappingVariantId: _activeMappingVariantId,
     );
+  }
+
+  Future<void> _saveCurrentStateForScript(Script script) async {
+    final mapping = _mapping;
+    if (mapping == null) {
+      cacheStatus = '缓存未配置';
+      return;
+    }
+    await _saveCache(
+      script,
+      cache: _cacheDraftForScript(script, mapping: mapping),
+    );
+  }
+
+  Future<void> _saveCache(
+    Script script, {
+    required RecastScriptCache cache,
+  }) async {
     final singleSaver = saveRecastCache;
     if (singleSaver != null) {
       final existingExact = await _loadExistingExactCacheForSave(
@@ -6763,6 +8867,15 @@ class StudioScriptViewModel extends ChangeNotifier {
   }
 
   Future<void> _enqueueCurrentCacheSave() async {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      return;
+    }
+    final cacheSnapshot = _cacheDraftForScript(
+      script,
+      mapping: mapping,
+    );
     final previous = _cacheSaveTail;
     final next = () async {
       if (previous != null) {
@@ -6772,11 +8885,7 @@ class StudioScriptViewModel extends ChangeNotifier {
           // A failed earlier save must not permanently block later saves.
         }
       }
-      final script = _script;
-      if (script == null) {
-        return;
-      }
-      await _saveCache(script);
+      await _saveCache(script, cache: cacheSnapshot);
     }();
     _cacheSaveTail = next;
     try {
@@ -7009,6 +9118,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     ).collapseEquivalentStages();
     aiRoleExtraction = _extractionWithVisibleRolePromptTerms(aiRoleExtraction);
     _aiRoleExtractionDraftDismissed = false;
+    _aiRoleExtractionDraftSuppressed = false;
+    _aiRoleExtractionFinalized = false;
     _refreshRecastPlan();
     await _saveCurrentCache();
     notifyListeners();
@@ -8645,7 +10756,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     final parsedFrames = script.frames
         .where((frame) => frame.parseStatus == ScriptFrameParseStatus.parsed)
         .toList(growable: false);
-    final mapping = _mappingWithRoleAssemblies(
+    var mapping = _mappingWithRoleAssemblies(
       script,
       mappingOverride ?? RecastMapping.defaults(script.id),
     );
@@ -8733,6 +10844,27 @@ class StudioScriptViewModel extends ChangeNotifier {
     _selectedRoleReplacementRuleIdsByRole.clear();
     _selectedSceneReplacementRuleIdsByGroup.clear();
     final script = _script;
+    final expectedScriptId = script?.id.trim() ?? cache.scriptId.trim();
+    final expectedSourceFingerprint = script == null
+        ? cache.sourceFingerprint.trim()
+        : cacheRestoreService.sourceFingerprint(script).trim();
+    final validMappingVariants = [
+      for (final variant in cache.mappingVariants)
+        if (variant.scriptId.trim() == expectedScriptId &&
+            variant.mapping.scriptId.trim() == expectedScriptId &&
+            variant.sourceFingerprint.trim() == expectedSourceFingerprint)
+          variant,
+    ];
+    _mappingVariants = List.unmodifiable(validMappingVariants);
+    _activeMappingVariantId = validMappingVariants.any(
+      (variant) => variant.id == cache.activeMappingVariantId,
+    )
+        ? cache.activeMappingVariantId
+        : null;
+    mappingVariantStatus =
+        validMappingVariants.length == cache.mappingVariants.length
+            ? ''
+            : '已忽略与当前剧本或来源指纹不匹配的映射版本';
     final restoredMapping = script == null
         ? cache.mapping
         : _mappingWithRoleAssemblies(script, cache.mapping);
@@ -8748,14 +10880,26 @@ class StudioScriptViewModel extends ChangeNotifier {
             script: script,
             extraction: materializedExtraction,
           );
-    final restoredExtraction = extractionFrameRepair.extraction;
-    final appliedExtractionMapping = script == null
-        ? null
-        : _mappingWithAppliedAiRoleExtraction(
-            script: script,
-            mapping: restoredMapping,
-            extraction: restoredExtraction,
-          );
+    final sourceRepairedExtraction = extractionFrameRepair.extraction;
+    final restoredExtraction =
+        sourceRepairedExtraction.collapseEquivalentStages();
+    final extractionNormalizationChanged =
+        !identical(restoredExtraction, sourceRepairedExtraction);
+    final explicitlyFinalized = cache.aiRoleExtractionFinalized &&
+        restoredExtraction.isReady &&
+        (restoredExtraction.roles.isNotEmpty ||
+            restoredExtraction.sceneTerms.isNotEmpty) &&
+        !restoredExtraction.attentionItems.any((item) => item.blocking);
+    final shouldApplyExtractionMapping =
+        !explicitlyFinalized || extractionNormalizationChanged;
+    final appliedExtractionMapping =
+        script == null || !shouldApplyExtractionMapping
+            ? null
+            : _mappingWithAppliedAiRoleExtraction(
+                script: script,
+                mapping: restoredMapping,
+                extraction: sourceRepairedExtraction,
+              );
     final mapped = appliedExtractionMapping?.mapping ?? restoredMapping;
     final mappingFrameRepair = script == null
         ? (mapping: mapped, changed: false)
@@ -8764,11 +10908,21 @@ class StudioScriptViewModel extends ChangeNotifier {
     aiRoleExtraction = restoredExtraction;
     aiRoleExtractionChunks = cache.aiRoleExtractionChunks;
     _aiRoleExtractionDraftDismissed = cache.aiRoleExtractionDraftCollapsed;
+    final inferredFinalized = restoredExtraction.isReady &&
+        (restoredExtraction.roles.isNotEmpty ||
+            restoredExtraction.sceneTerms.isNotEmpty) &&
+        !restoredExtraction.attentionItems.any((item) => item.blocking) &&
+        appliedExtractionMapping != null &&
+        !appliedExtractionMapping.changed;
+    _aiRoleExtractionFinalized = explicitlyFinalized || inferredFinalized;
+    _aiRoleExtractionDraftSuppressed = _aiRoleExtractionFinalized;
     scriptBlockWords = _normalizeBlockWords(cache.scriptBlockWords);
     aiRoleExtractionReasoningContent = '';
     aiRoleExtractionRequestCount = 0;
     if (aiRoleExtraction.status != ScriptAiRoleExtractionStatus.idle) {
-      aiStatus = '已从缓存恢复 AI 角色字段草稿';
+      aiStatus = _aiRoleExtractionDraftSuppressed
+          ? '已从缓存恢复已应用角色字段'
+          : '已从缓存恢复 AI 角色字段草稿';
       aiOperationStatus = OperationStatus.success(
         code: OperationStatusCode.aiExtraction,
         message: aiStatus,
@@ -8783,6 +10937,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       _refreshPreview();
     }
     if ((appliedExtractionMapping?.changed ?? false) ||
+        extractionNormalizationChanged ||
         extractionFrameRepair.changed ||
         mappingFrameRepair.changed) {
       _scheduleCurrentCacheSave();
@@ -9682,26 +11837,59 @@ class StudioScriptViewModel extends ChangeNotifier {
   List<StudioScriptRoleReplacementItem> _roleReplacementItems(
     RecastMapping mapping,
   ) {
-    return List.unmodifiable([
-      for (final replacement in mapping.rolePromptReplacements)
+    final result = <StudioScriptRoleReplacementItem>[];
+    for (final replacement in mapping.rolePromptReplacements) {
+      final assembly = mapping.roleAssemblies
+          .where(
+            (assembly) => assembly.sourceRoleId == replacement.sourceRoleId,
+          )
+          .firstOrNull;
+      final layerResult = roleReplacementLayerService.resolve(
+        replacement: replacement,
+        assembly: assembly,
+      );
+      final ruleItemsById = <String, StudioScriptReplacementRuleItem>{};
+      for (final rule in replacement.rules) {
+        final assignment = layerResult.assignmentForRule(rule.id);
+        ruleItemsById[rule.id] = _replacementRuleItem(
+          rule,
+          selected:
+              _selectedRoleReplacementRuleIdsByRole[replacement.sourceRoleId]
+                      ?.contains(rule.id) ??
+                  false,
+          assignment: assignment,
+        );
+      }
+      final rules = List<StudioScriptReplacementRuleItem>.unmodifiable([
+        for (final rule in replacement.rules) ruleItemsById[rule.id]!,
+      ]);
+      result.add(
         StudioScriptRoleReplacementItem(
           sourceRoleId: replacement.sourceRoleId,
           sourceLabel: replacement.displayLabel,
           sourcePreview: replacement.sourcePreview,
           targetCharacterId: replacement.targetCharacterId,
           targetIdentityPrompt: replacement.targetIdentityPrompt,
-          rules: List.unmodifiable([
-            for (final rule in replacement.rules)
-              _replacementRuleItem(
-                rule,
-                selected: _selectedRoleReplacementRuleIdsByRole[
-                            replacement.sourceRoleId]
-                        ?.contains(rule.id) ??
-                    false,
+          activeMappingProfileId: replacement.activeMappingProfileId,
+          rules: rules,
+          layers: List.unmodifiable([
+            for (final layer in layerResult.layers)
+              StudioScriptRoleReplacementLayerItem(
+                id: layer.id,
+                label: layer.label,
+                kind: layer.kind,
+                stageId: layer.stageId,
+                frameIndexes: layer.frameIndexes,
+                rules: List.unmodifiable([
+                  for (final ruleId in layer.ruleIds) ruleItemsById[ruleId]!,
+                ]),
+                mappedRuleCount: layer.mappedRuleCount,
               ),
           ]),
         ),
-    ]);
+      );
+    }
+    return List.unmodifiable(result);
   }
 
   List<StudioScriptSceneReplacementItem> _sceneReplacementItems(
@@ -9729,6 +11917,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   StudioScriptReplacementRuleItem _replacementRuleItem(
     ScriptPromptReplacementRule rule, {
     required bool selected,
+    ScriptRoleReplacementLayerAssignment? assignment,
   }) {
     return StudioScriptReplacementRuleItem(
       id: rule.id,
@@ -9744,6 +11933,10 @@ class StudioScriptViewModel extends ChangeNotifier {
       manualPhrase: rule.manualPhrase,
       anchorTermId: rule.anchorTermId,
       selected: selected,
+      layerKind: assignment?.kind ?? ScriptRoleReplacementRuleLayerKind.pending,
+      layerStageId: assignment?.stageId ?? '',
+      manuallyLayered: assignment?.isManual ?? false,
+      hasStaleLayerOverride: assignment?.hasStaleOverride ?? false,
     );
   }
 

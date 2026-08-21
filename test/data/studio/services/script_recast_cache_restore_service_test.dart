@@ -132,6 +132,7 @@ void main() {
           roles: [ScriptAiExtractedRole(displayName: 'cached alice')],
         ),
         aiRoleExtractionDraftCollapsed: true,
+        aiRoleExtractionFinalized: true,
       );
 
       final preserved = service.cachePreservingExistingAiDraft(draft, existing);
@@ -141,6 +142,7 @@ void main() {
         'cached alice',
       );
       expect(preserved.aiRoleExtractionDraftCollapsed, isTrue);
+      expect(preserved.aiRoleExtractionFinalized, isTrue);
     });
 
     test('rejects cache snapshots without frames', () {
@@ -188,6 +190,7 @@ RecastScriptCache _cache(
   RecastMapping? mapping,
   ScriptAiRoleExtraction aiRoleExtraction = const ScriptAiRoleExtraction(),
   bool aiRoleExtractionDraftCollapsed = false,
+  bool aiRoleExtractionFinalized = false,
   Map<String, dynamic>? scriptSnapshot,
 }) {
   const service = ScriptRecastCacheRestoreService();
@@ -202,6 +205,7 @@ RecastScriptCache _cache(
     mapping: mapping ?? RecastMapping.defaults(script.id),
     aiRoleExtraction: aiRoleExtraction,
     aiRoleExtractionDraftCollapsed: aiRoleExtractionDraftCollapsed,
+    aiRoleExtractionFinalized: aiRoleExtractionFinalized,
     scriptSnapshot: scriptSnapshot ?? script.toJson(),
   );
 }

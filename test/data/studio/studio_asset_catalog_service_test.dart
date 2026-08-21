@@ -1019,6 +1019,13 @@ void main() {
         traits: ViewVariantTexts(frontFull: 'blue eyes'),
       ),
     ]);
+    await workspaceService.savePromptAssetCategories([
+      const PromptAssetCategory(
+        id: 'style',
+        name: '常用风格',
+        showInScriptDrawer: true,
+      ),
+    ]);
     final service = StudioAssetCatalogService(
       workspaceService: workspaceService,
     );
@@ -1031,12 +1038,17 @@ void main() {
     );
     expect(await cacheFile.exists(), isTrue);
     final cacheJson = jsonDecode(await cacheFile.readAsString());
-    expect(cacheJson['schemaVersion'], 9);
+    expect(cacheJson['schemaVersion'], 10);
     final entries = Map<String, dynamic>.from(cacheJson['entries'] as Map);
     expect(entries, hasLength(1));
     final cacheEntry = Map<String, dynamic>.from(entries.values.single as Map);
     expect(cacheEntry['snapshot']['characters'].single['id'], 'char-cache');
+    expect(
+      cacheEntry['snapshot']['promptAssetCategories'].single['id'],
+      'style',
+    );
     expect(snapshot.characters.single.name, 'Cached Hero');
+    expect(snapshot.promptAssetCategories.single.name, '常用风格');
   });
 
   test('loadSnapshotWithCache restores a persisted snapshot after restart',

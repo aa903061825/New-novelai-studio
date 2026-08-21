@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,9 +49,14 @@ void main() {
       fileName: 'v4.vibe',
       vibeB64: 'abc123',
       infoExtracted: 0.42,
+      encodedInfoExtracted: 0.76,
+      encodedModel: 'nai-diffusion-4-5-full',
       referenceStrength: 0.65,
       imageBytes: fullSizePng,
       sourceImagePath: r'C:\app\vibe-assets\current\v4.png',
+      cachedEncodings: const {
+        'v45full@0.7600': 'abc123',
+      },
     );
 
     final json = config.toJson();
@@ -62,6 +68,9 @@ void main() {
     expect(restored.fileName, config.fileName);
     expect(restored.vibeB64, config.vibeB64);
     expect(restored.infoExtracted, config.infoExtracted);
+    expect(restored.encodedInfoExtracted, 0.76);
+    expect(restored.encodedModel, 'nai-diffusion-4-5-full');
+    expect(restored.cachedEncodings, config.cachedEncodings);
     expect(restored.referenceStrength, config.referenceStrength);
     expect(restored.sourceImagePath, config.sourceImagePath);
     expect(restored.imageBytes, isNull);
@@ -76,9 +85,11 @@ void main() {
           'strength': 0.33,
           'information_extracted': 0.7,
         },
+        'image': base64Encode(const [1, 2, 3]),
         'encodings': {
           'v4-5full': {
-            'unknown': {'encoding': 'encoded-vibe'},
+            '0.7': {'encoding': 'encoded-vibe'},
+            '0.4': {'encoding': 'encoded-vibe-04'},
           },
         },
       },
@@ -88,7 +99,13 @@ void main() {
     expect(config.fileName, 'Soft Vibe');
     expect(config.vibeB64, 'encoded-vibe');
     expect(config.infoExtracted, 0.7);
+    expect(config.encodedInfoExtracted, 0.7);
     expect(config.referenceStrength, 0.33);
+    expect(config.imageBytes, Uint8List.fromList(const [1, 2, 3]));
+    expect(
+      config.encodingFor('nai-diffusion-4-5-full', 0.4),
+      'encoded-vibe-04',
+    );
   });
 
   test('VibeConfigV4 keeps legacy image json lazy during config load', () {

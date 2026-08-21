@@ -1,50 +1,65 @@
 {
-  "schemaVersion": 2,
-  "bootstrapVersion": "2.0.0",
-  "projectSchemaVersion": 2,
-  "installedAt": "2026-07-14T05:18:58.4086727Z",
-  "updatedAt": "2026-07-14T05:18:58.4086727Z",
-  "managedFiles": [
-    {
-      "path": "agents/openai.yaml",
-      "sourceHash": "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2",
-      "installedHash": "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2"
-    },
-    {
-      "path": "scripts/capture-accepted-change.ps1",
-      "sourceHash": "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea",
-      "installedHash": "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea"
-    },
-    {
-      "path": "scripts/doctor-context.ps1",
-      "sourceHash": "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df",
-      "installedHash": "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df"
-    },
-    {
-      "path": "scripts/record-history.ps1",
-      "sourceHash": "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56",
-      "installedHash": "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56"
-    },
-    {
-      "path": "scripts/refresh-context.ps1",
-      "sourceHash": "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9",
-      "installedHash": "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9"
-    },
-    {
-      "path": "scripts/review-history-cleanup.ps1",
-      "sourceHash": "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38",
-      "installedHash": "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38"
-    },
-    {
-      "path": "SKILL.md",
-      "sourceHash": "987fa268a26a5179e3de2c98029b044fb633644139c106feca85feb8635c5dc9",
-      "installedHash": "987fa268a26a5179e3de2c98029b044fb633644139c106feca85feb8635c5dc9"
-    }
-  ],
-  "migrations": [
-    {
-      "id": "project-context-v1-to-v2",
-      "appliedAt": "2026-07-14T05:18:58.4086727Z"
-    }
-  ]
+    "schemaVersion":  2,
+    "bootstrapVersion":  "2.0.0",
+    "projectSchemaVersion":  2,
+    "installedAt":  "2026-07-14T05:18:58.4086727Z",
+    "updatedAt":  "2026-07-30T12:02:29.4110355Z",
+    "managedFiles":  [
+                         {
+                             "path":  "agents/openai.yaml",
+                             "sourceHash":  "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2",
+                             "installedHash":  "701ca294e7f62162831948360130efc4d29c0198286238e4789236c3c1eaf8c2"
+                         },
+                         {
+                             "path":  "scripts/accept-knowledge-review.ps1",
+                             "sourceHash":  "8f8d243011df1f0da512e0dee6a6a8e73e576014e1122c11e78652a18add5d3c",
+                             "installedHash":  "8f8d243011df1f0da512e0dee6a6a8e73e576014e1122c11e78652a18add5d3c"
+                         },
+                         {
+                             "path":  "scripts/capture-accepted-change.ps1",
+                             "sourceHash":  "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea",
+                             "installedHash":  "fb963ac2967b9fc7a3f811bc77f273d9feb5c2f344999f8979302028811dbeea"
+                         },
+                         {
+                             "path":  "scripts/doctor-context.ps1",
+                             "sourceHash":  "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df",
+                             "installedHash":  "4a7afcd8fe47748fa117f41559a1828909c2781b7a2390f730d31c6637cdd3df"
+                         },
+                         {
+                             "path":  "scripts/manage-knowledge.ps1",
+                             "sourceHash":  "ebb739c8ba9173cfa902e1f81decaf4177811f7dee694cc569cec075b3ebeb22",
+                             "installedHash":  "ebb739c8ba9173cfa902e1f81decaf4177811f7dee694cc569cec075b3ebeb22"
+                         },
+                         {
+                             "path":  "scripts/record-history.ps1",
+                             "sourceHash":  "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56",
+                             "installedHash":  "2023104cee5be4290ef7613aacdbe1f06820c660b3641b01cf42a3215b59ce56"
+                         },
+                         {
+                             "path":  "scripts/refresh-context.ps1",
+                             "sourceHash":  "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9",
+                             "installedHash":  "23b03c399c2d05468a242c6358fe444574fb1950c4bb53abb1f12a75c13ad8f9"
+                         },
+                         {
+                             "path":  "scripts/review-history-cleanup.ps1",
+                             "sourceHash":  "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38",
+                             "installedHash":  "a6590f6725590b93e32d70538d5cab489cfe10fb6549d0f576cb3ba99e609c38"
+                         },
+                         {
+                             "path":  "scripts/review-knowledge.ps1",
+                             "sourceHash":  "8bbaf49c983d36b37bc0fb8848f03f3e205081ea9c9e0e1c7fea372db05048fe",
+                             "installedHash":  "8bbaf49c983d36b37bc0fb8848f03f3e205081ea9c9e0e1c7fea372db05048fe"
+                         },
+                         {
+                             "path":  "SKILL.md",
+                             "sourceHash":  "27ef40548fb5436c7746dd29dc0935ea6da506507b0a444f021e117b6fb52be5",
+                             "installedHash":  "27ef40548fb5436c7746dd29dc0935ea6da506507b0a444f021e117b6fb52be5"
+                         }
+                     ],
+    "migrations":  [
+                       {
+                           "id":  "project-context-v1-to-v2",
+                           "appliedAt":  "2026-07-14T05:18:58.4086727Z"
+                       }
+                   ]
 }

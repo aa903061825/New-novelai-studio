@@ -13,6 +13,7 @@ import 'package:novel_studio/ui/studio_batch/view_models/production_queue_viewmo
 import 'package:novel_studio/ui/studio_batch/widgets/studio_batch_page.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_tokens.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_button.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
 
 ProductionPlan _fakePlan() {
@@ -439,6 +440,48 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.byKey(const ValueKey('studio-production-cfg-rescale-use-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-noise-schedule-use-original'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-advanced-expansion')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('studio-production-sm-use-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-sm-dyn-use-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-dynamic-thresholding-use-original'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-variety-use-original')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-auto-position-use-original'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-legacy-uc-use-original')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(const ValueKey('studio-production-seed-use-original')),
       findsOneWidget,
     );
@@ -458,16 +501,7 @@ void main() {
     expect(find.text(r'C:\outputs'), findsWidgets);
     expect(find.text('Frame 1'), findsWidgets);
     expect(find.text('Frame 2'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.text('HTTP 429'),
-      120,
-      scrollable: find
-          .descendant(
-            of: find.byKey(const ValueKey('studio-production-task-list-panel')),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
+    await tester.ensureVisible(find.text('HTTP 429').first);
     await tester.pump();
     expect(find.text('HTTP 429'), findsWidgets);
     expect(find.text('重跑'), findsWidgets);
@@ -513,6 +547,85 @@ void main() {
     expect(find.textContaining('cfg_rescale'), findsNothing);
     expect(find.textContaining('noise_schedule'), findsNothing);
     expect(find.textContaining('sm_dyn'), findsNothing);
+  });
+
+  testWidgets('batch generation terms expose hover explanations',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_buildProductionBatchPageWithFakePlan());
+    await tester.pump();
+
+    expect(
+      find.byTooltip(
+        'CFG（Prompt Guidance）控制画面遵循提示词的强度。数值越高越贴近提示词，但过高可能带来过饱和、对比失衡或伪影。',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byTooltip(
+        'CFG Rescale 用于缓和较高 CFG 引起的过曝和色彩失真，同时尽量保留提示词引导。',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('batch page edits the new core and advanced generation settings',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final viewModel = ProductionQueueViewModel(
+      plans: [_fakePlan()],
+      settings: const ProductionQueueExecutionSettings(
+        model: 'nai-diffusion-4-curated-preview',
+        cfgRescale: 0.1,
+        noiseSchedule: 'karras',
+        dynamicThresholding: false,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('studio-production-cfg-rescale-input')),
+      '0.55',
+    );
+    expect(viewModel.batchCfgRescale, 0.55);
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-noise-schedule-select')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('exponential').last);
+    await tester.pumpAndSettle();
+    expect(viewModel.batchNoiseSchedule, 'exponential');
+
+    final expansion =
+        find.byKey(const ValueKey('studio-production-advanced-expansion'));
+    await tester.ensureVisible(expansion);
+    await tester.tap(expansion);
+    await tester.pumpAndSettle();
+    final thresholdSwitch = find.byKey(
+      const ValueKey('studio-production-dynamic-thresholding-switch'),
+    );
+    await tester.ensureVisible(thresholdSwitch);
+    await tester.tap(
+      find.descendant(of: thresholdSwitch, matching: find.byType(Switch)),
+    );
+    await tester.pump();
+
+    expect(viewModel.batchDynamicThresholding, isTrue);
   });
 
   testWidgets('batch page can mix original and edited parameter controls',
@@ -743,6 +856,222 @@ void main() {
 
     expect(find.text('Renamed Queue'), findsOneWidget);
     expect(find.text('Script Recast Queue'), findsNothing);
+  });
+
+  testWidgets('batch page shows queue tabs and switches the viewed plan',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final secondPlan = _queuedPlan().copyWith(name: 'Queue Two');
+    final viewModel = ProductionQueueViewModel(
+      plans: [_fakePlan(), secondPlan],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('studio-production-plan-tabs')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-plan-tab-plan-running'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('studio-production-plan-tab-plan-running'),
+      ),
+    );
+    await tester.pump();
+
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+    expect(viewModel.selectedTask?.id, 'task-running');
+  });
+
+  testWidgets('switching tabs while running exposes a read-only queue',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _queuedPlan();
+    final waitingPlan = _fakePlan();
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, waitingPlan],
+      executorService: ProductionExecutorService(
+        requestImage: (_) {
+          if (!requestStarted.isCompleted) requestStarted.complete();
+          return requestCompleter.future;
+        },
+        saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+        now: () => DateTime.utc(2026, 5, 25, 12),
+      ),
+    );
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(
+              const ValueKey('studio-production-delete-plan-plan-running'),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(
+              const ValueKey('studio-production-delete-plan-plan-1'),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-1')),
+    );
+    await tester.pump();
+
+    expect(viewModel.selectedPlan?.id, waitingPlan.id);
+    expect(viewModel.activePlan?.id, activePlan.id);
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-read-only-queue-notice'),
+      ),
+      findsOneWidget,
+    );
+    final modelField = tester.widget<DropdownButtonFormField<String>>(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('studio-production-model-select'),
+        ),
+        matching: find.byType(DropdownButtonFormField<String>),
+      ),
+    );
+    expect(modelField.onChanged, isNull);
+
+    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
+    await startFuture;
+  });
+
+  testWidgets('queue tab delete confirms and removes only that plan',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final secondPlan = _queuedPlan().copyWith(name: 'Queue Two');
+    final viewModel = ProductionQueueViewModel(
+      plans: [_fakePlan(), secondPlan],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('studio-production-plan-tab-plan-running'),
+      ),
+    );
+    await tester.pump();
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(
+              const ValueKey('studio-production-delete-plan-plan-1'),
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-delete-plan-plan-1')),
+    );
+    await tester.pumpAndSettle();
+
+    // The child delete button must not select its parent tab first.
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+
+    final deleteImagesCheckbox = tester.widget<CheckboxListTile>(
+      find.byKey(
+        const ValueKey('studio-production-delete-local-images'),
+      ),
+    );
+    expect(deleteImagesCheckbox.value, isFalse);
+
+    await tester.tap(find.text('取消').last);
+    await tester.pumpAndSettle();
+    expect(viewModel.selectedPlan?.id, secondPlan.id);
+    expect(viewModel.plans.map((plan) => plan.id), [
+      _fakePlan().id,
+      secondPlan.id,
+    ]);
+
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-delete-plan-plan-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('studio-production-confirm-delete-plan'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.plans.map((plan) => plan.id), [secondPlan.id]);
+    expect(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-1')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('studio-production-plan-tab-plan-running'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('batch result waterfall scrolls without debug error widgets',
@@ -985,9 +1314,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(
-      find.byKey(const ValueKey('studio-production-rerun-task-1')),
-    );
+    final rerunButton =
+        find.byKey(const ValueKey('studio-production-rerun-task-1'));
+    await tester.ensureVisible(rerunButton);
+    await tester.tap(rerunButton);
     await tester.pump();
 
     expect(tester.takeException(), isNull);
@@ -1444,5 +1774,214 @@ void main() {
     expect(viewModel.totalTasks, 0);
     expect(viewModel.selectedTask, isNull);
     expect(find.text('暂无生产任务'), findsOneWidget);
+  });
+
+  testWidgets('batch page exposes clear completed with stable feedback',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewModel = ProductionQueueViewModel(
+      plans: [_fakePlan()],
+      now: () => DateTime.utc(2026, 5, 28, 10, 30),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump();
+
+    final clearButton = find.byKey(
+      const ValueKey('studio-production-clear-completed'),
+    );
+    expect(clearButton, findsOneWidget);
+    expect(find.text('清理已完成'), findsOneWidget);
+    final statsActions = find.byKey(
+      const ValueKey('studio-production-queue-stats-actions'),
+    );
+    expect(
+      find.descendant(of: statsActions, matching: clearButton),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(clearButton).dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(const ValueKey('studio-production-start')),
+            )
+            .dy,
+      ),
+    );
+    expect(
+      find.byTooltip('可清理 1 个已完成任务；生成结果保留'),
+      findsOneWidget,
+    );
+
+    await tester.tap(clearButton);
+    await tester.pump();
+
+    expect(viewModel.completedTasksPendingDismissal, 0);
+    expect(
+      viewModel.plans.single.tasks.first.isQueueDismissed,
+      isTrue,
+    );
+    expect(find.text('已清理 1 个已完成任务，生成结果已保留'), findsOneWidget);
+  });
+
+  testWidgets(
+      'batch page clears completed work from a viewed inactive plan and keeps the active tab',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final activePlan = _queuedPlan();
+    final inactivePlan = _fakePlan();
+    final viewModel = ProductionQueueViewModel(
+      plans: [activePlan, inactivePlan],
+      executorService: ProductionExecutorService(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+        saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+        now: () => DateTime.utc(2026, 5, 25, 12),
+      ),
+    );
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-1')),
+    );
+    await tester.pump();
+
+    final clearButton = find.byKey(
+      const ValueKey('studio-production-clear-completed'),
+    );
+    expect(
+      tester.widget<StudioButton>(clearButton).onPressed,
+      isNotNull,
+    );
+    expect(viewModel.activePlan?.id, activePlan.id);
+    expect(viewModel.selectedPlan?.id, inactivePlan.id);
+    expect(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-running')),
+      findsOneWidget,
+    );
+
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('已清理 1 个已完成任务，生成结果已保留'), findsOneWidget);
+    expect(viewModel.activePlan?.id, activePlan.id);
+    expect(viewModel.selectedPlan?.id, inactivePlan.id);
+    expect(
+      find.byKey(const ValueKey('studio-production-plan-tab-plan-running')),
+      findsOneWidget,
+    );
+    expect(
+        viewModel.activePlan!.tasks.first.status, ProductionTaskStatus.running);
+    expect(viewModel.activePlan!.tasks.first.outputImagePath, isNull);
+    expect(
+        viewModel.plans
+            .singleWhere((plan) => plan.id == inactivePlan.id)
+            .tasks
+            .first
+            .isQueueDismissed,
+        isTrue);
+
+    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
+    await startFuture;
+  });
+
+  testWidgets('batch page disables clear when only the active plan qualifies',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final requestStarted = Completer<void>();
+    final requestCompleter = Completer<Uint8List>();
+    final viewModel = ProductionQueueViewModel(
+      plans: [_partialQueuedPlan()],
+      executorService: ProductionExecutorService(
+        requestImage: (_) {
+          requestStarted.complete();
+          return requestCompleter.future;
+        },
+        saveImage: (bytes, fileName) async => 'C:/out/$fileName',
+        now: () => DateTime.utc(2026, 5, 25, 12),
+      ),
+    );
+    final startFuture = viewModel.start();
+    await requestStarted.future;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final clearButton = find.byKey(
+      const ValueKey('studio-production-clear-completed'),
+    );
+    expect(tester.widget<StudioButton>(clearButton).onPressed, isNull);
+    expect(viewModel.completedTasksPendingDismissal, 0);
+
+    requestCompleter.complete(Uint8List.fromList([137, 80, 78, 71]));
+    await startFuture;
+  });
+
+  testWidgets('queue overview command controls wrap at compact widths',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: ProductionQueueViewModel(plans: [_fakePlan()]),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('studio-production-start')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('studio-production-queue-stats-actions')),
+      findsOneWidget,
+    );
   });
 }

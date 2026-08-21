@@ -27,8 +27,32 @@ project-stored credential.
 - Treat this as a hard project rule for "改剧本", "剧本缓存", "翻译缓存", and
   related Script Recast work.
 
+## Missing Target Character Appearance Evidence
+
+- When a target character card lacks a stable hairstyle or other appearance tag
+  needed for Script Recast replacement, the user authorizes a read-only search
+  on `https://danbooru.donmai.us/` for the missing evidence.
+- Record the exact Danbooru character/variant tag, post ids, and source tags.
+  Separate character-level stable traits from outfit/skin-specific traits; do
+  not promote one skin's hairstyle to the character-level default.
+- Prefer official-art/default-form posts for character-level evidence. Back up
+  the active character library before filling it, keep the source script root
+  read-only, and do not use any project/user API or credential for the lookup.
+
+## Default Script Recast Source Scope
+
+- Treat `E:\NAI的脚本群\作品集\带图精品` as the default source root for the
+  user's scripts.
+- When the user says scripts were added or asks to update Script Recast caches
+  without naming another source path, inspect this root and update caches only
+  for new or changed scripts contained under it.
+- Do not scan or process scripts from any other source root unless the user
+  explicitly names or authorizes that root in the current chat.
+- Keep the source root read-only during cache work. This source-scope rule does
+  not change the active application cache output directory.
+
 <!-- project-context:begin -->
-For non-trivial project-specific work, use an ephemeral goal brief and decide whether the on-demand project knowledge index at `.agents/skills/project-context` is needed. When it is needed, read `references/index.md` first and only load relevant references; keep them limited to current references. Never read project history unless the user explicitly asks to consult history. Never read `history/index.md` or history records unless the user explicitly asks to consult project history.
+For non-trivial project-specific work, use an ephemeral goal brief and decide whether the on-demand project knowledge index at `.agents/skills/project-context` is useful. When current knowledge is useful, read `references/index.md` first and only load relevant references. Codex decides when project history is relevant; when it is useful, start at `history/index.md` and load the history needed for the task.
 <!-- project-context:end -->
 
 ## Project Update Shortcut

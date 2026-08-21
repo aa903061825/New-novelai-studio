@@ -43,6 +43,78 @@ void main() {
     expect(report['violation_count'], 0);
   });
 
+  test('validator rejects a source identity alias without exact mapping coverage',
+      () async {
+    final fixture = await _ValidationFixture.create();
+    addTearDown(fixture.dispose);
+    final cache = _cleanCache(fixture.sourceRoot.path);
+    final snapshot = cache['scriptSnapshot'] as Map<String, dynamic>;
+    final frame =
+        ((snapshot['frames'] as List).cast<Map<String, dynamic>>()).single;
+    final parsed = frame['parsed'] as Map<String, dynamic>;
+    (parsed['charCaptions'] as List)[0] =
+        'alice_(serise), girl, red jacket';
+    fixture.writeCache(cache);
+
+    final result = await fixture.runValidator();
+
+    expect(result.exitCode, isNot(0));
+    final report = fixture.readReport();
+    expect(report['mapped_role_source_identity_coverage_gap_count'], 1);
+    expect(
+      jsonEncode(report['rows']),
+      contains('source_identity_coverage_gap:role-alice:32:slot-0 prompt'),
+    );
+  });
+
+  test('validator recognizes source-evidenced girl identity prompt terms',
+      () async {
+    final fixture = await _ValidationFixture.create();
+    addTearDown(fixture.dispose);
+    final cache = _cleanCache(fixture.sourceRoot.path);
+    final roles =
+        ((cache['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final role = roles.first;
+    role['display_name'] = 'kamisato ayaka / 神里绫华';
+    role['canonical_name'] = 'kamisato ayaka';
+    role['raw_identity_tags'] = ['kamisato ayaka'];
+    (role['stages'] as List).cast<Map>().single['identity'] = 'kamisato ayaka';
+    (role['prompt_terms'] as List).add({
+      'id': 'term-role-alice-girl',
+      'text': 'girl',
+      'category': 'identity',
+      'frame_indexes': [32],
+    });
+    final mapping = cache['mapping'] as Map;
+    final replacement =
+        (mapping['rolePromptReplacements'] as List).cast<Map>().first;
+    (replacement['rules'] as List).add({
+      'id': 'rule-role-alice-girl',
+      'sourceTerms': [
+        {
+          'id': 'term-role-alice-girl',
+          'text': 'girl',
+          'category': 'identity',
+          'frameIndexes': [32],
+        },
+      ],
+      'action': 'replace',
+      'targetPrompt': 'loli, girl, cat_girl',
+    });
+    fixture.writeCache(cache);
+
+    final result = await fixture.runValidator();
+
+    expect(
+      result.exitCode,
+      0,
+      reason: 'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
+    );
+    final report = fixture.readReport();
+    expect(report['mapped_nonfemale_role_count'], 0);
+    expect(report['violation_count'], 0);
+  });
+
   test('validator keeps legacy behavior when term review is disabled',
       () async {
     final fixture = await _ValidationFixture.create();
@@ -1503,7 +1575,11 @@ Map<String, dynamic> _cleanCache(String sourceRoot) {
     ],
     roleSwaps: const [],
     replacements: [
-      _replacement('role-alice', 'legacy-character-sheet-r14'),
+      _replacement(
+        'role-alice',
+        'legacy-character-sheet-r14',
+        identityText: 'alice_(series)',
+      ),
       _replacement('role-male', null),
     ],
     assemblies: [
@@ -1731,7 +1807,11 @@ Map<String, dynamic> _role({
   };
 }
 
-Map<String, dynamic> _replacement(String roleId, String? targetId) {
+Map<String, dynamic> _replacement(
+  String roleId,
+  String? targetId, {
+  String? identityText,
+}) {
   return {
     'sourceRoleId': roleId,
     'displayLabel': roleId,
@@ -1745,7 +1825,7 @@ Map<String, dynamic> _replacement(String roleId, String? targetId) {
         'sourceTerms': [
           {
             'id': 'term-$roleId',
-            'text': roleId,
+            'text': identityText ?? roleId,
             'category': 'character',
             'frameIndexes': [32],
           },

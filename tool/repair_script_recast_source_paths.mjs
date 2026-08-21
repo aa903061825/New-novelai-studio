@@ -27,7 +27,12 @@ for (const file of fs.readdirSync(options.cacheDir).filter((name) => name.endsWi
   const outputPath = path.join(outputDir, file);
   const cache = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
   const oldRoot = stringValue(cache.sourceRootPath);
-  if (!oldRoot || fs.existsSync(oldRoot)) {
+  const oldRootExists = oldRoot ? fs.existsSync(oldRoot) : false;
+  const oldRootWithinRequestedSource = pathIsWithin(
+    oldRoot,
+    options.sourceRoot,
+  );
+  if (!oldRoot || (oldRootExists && oldRootWithinRequestedSource)) {
     if (sourcePath !== outputPath) fs.copyFileSync(sourcePath, outputPath);
     rows.push({
       file_name: file,
@@ -56,7 +61,11 @@ for (const file of fs.readdirSync(options.cacheDir).filter((name) => name.endsWi
       script_name: scriptName,
       old_source_root_path: oldRoot,
       candidates,
-      status: candidates.length === 0 ? 'unresolved_no_match' : 'unresolved_multiple_matches',
+      status: oldRootExists
+        ? 'unchanged_existing_external_root'
+        : candidates.length === 0
+          ? 'unresolved_no_match'
+          : 'unresolved_multiple_matches',
     });
     continue;
   }
@@ -143,16 +152,18 @@ function rebaseScriptSnapshotPaths(cache, sourceRoot) {
       stringValue(frame.fileName),
     ]);
     const sourceFile = fileForLeaf(filesByLeaf, sourceLeaf);
-    const nextSourcePath = sourceFile ?? joinPath(sourceRoot, sourceLeaf);
+    const nextSourcePath = sourceFile || joinPath(sourceRoot, sourceLeaf);
 
     const imageLeaf = pathLeaf(stringValue(frame.sourceImagePath));
     const imageFile = fileForLeaf(filesByLeaf, imageLeaf);
     const sourceImageFile = isImagePath(sourceFile ?? '') ? sourceFile : '';
     const pairedImageFile = sourceLeaf ? pairedImageForSource(filesByLeaf, sourceLeaf) : '';
+    const indexedImageFile = indexedImageForFrame(filesByLeaf, frame.index);
     const nextSourceImagePath = firstNonEmpty([
       imageFile,
       sourceImageFile,
       pairedImageFile,
+      indexedImageFile,
     ]);
 
     if (nextSourcePath && frame.sourcePath !== nextSourcePath) {
@@ -218,6 +229,35 @@ function pairedImageForSource(filesByLeaf, sourceLeaf) {
   return '';
 }
 
+function indexedImageForFrame(filesByLeaf, frameIndex) {
+  const images = [...filesByLeaf.values()]
+    .filter(isImagePath)
+    .sort(compareIndexedImages);
+  if (images.length === 0) return '';
+  const numericIndex = Number(frameIndex);
+  const index = Number.isInteger(numericIndex) && numericIndex > 0
+    ? numericIndex - 1
+    : numericIndex;
+  if (Number.isInteger(index) && index >= 0 && index < images.length) {
+    return images[index];
+  }
+  return images[0];
+}
+
+function compareIndexedImages(left, right) {
+  const leftNumber = lastNumberInLeaf(left);
+  const rightNumber = lastNumberInLeaf(right);
+  if (leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+  return left.localeCompare(right);
+}
+
+function lastNumberInLeaf(value) {
+  const match = pathLeaf(value).match(/(\d+)(?!.*\d)/);
+  return match ? Number(match[1]) : null;
+}
+
 function isImagePath(value) {
   return /\.(?:png|jpe?g|webp)$/i.test(stringValue(value));
 }
@@ -267,6 +307,18 @@ function normalizeFingerprintPath(value) {
 
 function normalizeName(value) {
   return stringValue(value).normalize('NFC').trim().toLowerCase();
+}
+
+function pathIsWithin(candidate, root) {
+  const candidatePath = path.resolve(stringValue(candidate));
+  const rootPath = path.resolve(stringValue(root));
+  const relative = path.relative(rootPath, candidatePath);
+  return (
+    relative === '' ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== '..' &&
+      !path.isAbsolute(relative))
+  );
 }
 
 function parseArgs(args) {

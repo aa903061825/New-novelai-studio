@@ -222,7 +222,15 @@ class PromptTagProcessor {
   }
 
   static String normalizeMatchKey(String text) {
-    return cleanTagPure(text).replaceAll(RegExp(r'[\s_]+'), ' ').trim();
+    return cleanTagPure(text)
+        .replaceAll(
+          RegExp(
+            r'[（）［］｛｝【】〈〉《》「」『』〔〕〖〗〘〙〚〛<>＜＞“”‘’]',
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'[\s_＿\-‐‑‒–—−]+'), ' ')
+        .trim();
   }
 
   static String cleanTagDisplay(String text, {bool removeWeights = true}) {

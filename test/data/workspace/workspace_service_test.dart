@@ -8,6 +8,7 @@ import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/models/tokenizer_script.dart';
 import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
@@ -104,9 +105,14 @@ void main() {
     expect(characters.single.recastNotes, 'source script extraction');
   });
 
-  test('writes and reads artist chains, recipes, and tags', () async {
+  test('writes and reads artist chains, prompt categories, recipes, and tags',
+      () async {
     final service = WorkspaceService();
     await service.createWorkspace(tempDir.path);
+    var artistChainRevisionChanges = 0;
+    service.artistChainRevision.addListener(() {
+      artistChainRevisionChanges += 1;
+    });
 
     await service.saveArtistChains([
       const ArtistChain(id: 'artist-1', name: 'Painter', tags: ['soft light']),
@@ -122,14 +128,26 @@ void main() {
     await service.saveTags('style', [
       const TagEntry(id: 'tag-1', tag: 'watercolor', block: 'style'),
     ]);
+    await service.savePromptAssetCategories([
+      const PromptAssetCategory(
+        id: 'style',
+        name: '常用风格',
+        showInScriptDrawer: true,
+      ),
+    ]);
 
     final artistChains = await service.loadArtistChains();
     final recipes = await service.loadRecipes('style');
     final tags = await service.loadTags('style');
+    final categories = await service.loadPromptAssetCategories();
 
     expect(artistChains.single.tags, ['soft light']);
+    expect(artistChainRevisionChanges, 1);
     expect(recipes.single.tags, 'watercolor, soft');
     expect(tags.single.tag, 'watercolor');
+    expect(categories.single.id, 'style');
+    expect(categories.single.name, '常用风格');
+    expect(categories.single.showInScriptDrawer, isTrue);
   });
 
   test('writes and reads asset favorite keys', () async {
@@ -551,6 +569,146 @@ void main() {
     expect(cache, isNotNull);
     expect(cache!.scriptId, scriptId);
     expect(cache.scriptName, 'Target Cache');
+  });
+
+  test('removes only targeted recast caches without rewriting siblings',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    RecastScriptCache cache(String scriptId) => RecastScriptCache(
+          scriptId: scriptId,
+          scriptName: scriptId,
+          sourceRootPath: 'C:\\scripts\\$scriptId',
+          sourceFingerprint: 'fingerprint-$scriptId',
+          updatedAt: DateTime.utc(2026, 7, 24),
+          mapping: RecastMapping.defaults(scriptId),
+        );
+    await service.saveRecastScriptCache(cache('script-delete-target'));
+    await service.saveRecastScriptCache(cache('script-delete-sibling'));
+    final cacheDirectory = Directory(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache',
+    );
+    final siblingFile = File(
+      '${cacheDirectory.path}${Platform.pathSeparator}'
+      'script-delete-sibling.json',
+    );
+    final untouchedTimestamp = DateTime.utc(2001, 2, 3, 4, 5, 6);
+    await siblingFile.setLastModified(untouchedTimestamp);
+    final indexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final summaryIndexFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.scriptRecastExhibitionSummaryIndex.replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    await indexFile.parent.create(recursive: true);
+    await indexFile.writeAsString('stale');
+    await summaryIndexFile.writeAsString('stale');
+
+    await service.removeRecastScriptCaches([
+      'script-delete-target',
+      'script-delete-target',
+      ' ',
+    ]);
+
+    expect(
+      await service.loadRecastScriptCache('script-delete-target'),
+      isNull,
+    );
+    expect(
+      (await service.loadRecastScriptCache('script-delete-sibling'))?.scriptId,
+      'script-delete-sibling',
+    );
+    expect(
+      (await siblingFile.lastModified()).millisecondsSinceEpoch,
+      untouchedTimestamp.millisecondsSinceEpoch,
+    );
+    expect(await indexFile.exists(), isFalse);
+    expect(await summaryIndexFile.exists(), isFalse);
+  });
+
+  test('matches recast cache aliases from lightweight file headers', () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    RecastScriptCache cache({
+      required String scriptId,
+      required String scriptName,
+      required String sourceRootPath,
+    }) =>
+        RecastScriptCache(
+          scriptId: scriptId,
+          scriptName: scriptName,
+          sourceRootPath: sourceRootPath,
+          sourceFingerprint: 'fingerprint-$scriptId',
+          updatedAt: DateTime.utc(2026, 7, 24),
+          mapping: RecastMapping.defaults(scriptId),
+        );
+    await service.saveRecastScriptCache(
+      cache(
+        scriptId: 'script-delete-old-id',
+        scriptName: 'Shared Script',
+        sourceRootPath: r'C:\scripts\shared',
+      ),
+    );
+    await service.saveRecastScriptCache(
+      cache(
+        scriptId: 'script-delete-current-id',
+        scriptName: 'Shared Script',
+        sourceRootPath: r'C:\scripts\shared',
+      ),
+    );
+    final currentFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache${Platform.pathSeparator}'
+      'script-delete-current-id.json',
+    );
+    await currentFile.writeAsString('{broken header');
+    await service.saveRecastScriptCache(
+      cache(
+        scriptId: 'script-delete-sibling',
+        scriptName: 'Sibling Script',
+        sourceRootPath: r'C:\scripts\sibling',
+      ),
+    );
+    final siblingFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache${Platform.pathSeparator}'
+      'script-delete-sibling.json',
+    );
+    final untouchedTimestamp = DateTime.utc(2001, 2, 3, 4, 5, 6);
+    await siblingFile.setLastModified(untouchedTimestamp);
+
+    await service.removeRecastScriptCachesMatching(
+      scriptId: 'script-delete-current-id',
+      scriptName: 'Shared Script',
+      sourceRootPath: r'C:\scripts\shared',
+    );
+
+    expect(
+      await service.loadRecastScriptCache('script-delete-old-id'),
+      isNull,
+    );
+    expect(
+      await service.loadRecastScriptCache('script-delete-current-id'),
+      isNull,
+    );
+    expect(await currentFile.exists(), isFalse);
+    expect(
+      (await service.loadRecastScriptCache('script-delete-sibling'))?.scriptId,
+      'script-delete-sibling',
+    );
+    expect(
+      (await siblingFile.lastModified()).millisecondsSinceEpoch,
+      untouchedTimestamp.millisecondsSinceEpoch,
+    );
   });
 
   test('restores a single script snapshot without returning the raw snapshot',
@@ -1255,6 +1413,103 @@ void main() {
     expect(rawIndex, isNot(contains(heavyReference)));
   });
 
+  test('script exhibition keeps only the latest cache for one current source',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final sourceDir = Directory(
+      '${tempDir.path}${Platform.pathSeparator}Moved Script',
+    )..createSync();
+    final currentId = ScriptRecastParserService.scriptIdForDirectory(sourceDir);
+
+    Script script(String id, String caption) => Script(
+          id: id,
+          name: 'Moved Script',
+          rootPath: sourceDir.path,
+          frames: [
+            ScriptFrame(
+              index: 1,
+              fileName: '001.json',
+              sourcePath: '${sourceDir.path}${Platform.pathSeparator}001.json',
+              rawJson: '{}',
+              parsed: ParsedFrame(baseCaption: caption),
+              detectedSchema: ScriptSchema.baseInline,
+              parseStatus: ScriptFrameParseStatus.parsed,
+            ),
+          ],
+          detectedSchema: ScriptSchema.baseInline,
+        );
+
+    const oldId = 'script-old-source-id';
+    final oldScript = script(oldId, 'old prompt');
+    final latestScript = script(currentId, 'latest prompt');
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: oldId,
+        scriptName: oldScript.name,
+        sourceRootPath: sourceDir.path,
+        sourceFingerprint: 'old-fingerprint',
+        sourceContentFingerprint: 'same-content',
+        updatedAt: DateTime.utc(2026, 7, 20),
+        mapping: RecastMapping.defaults(oldId),
+        exhibitionCategoryNames: const ['NTR'],
+        scriptSnapshot: oldScript.toJson(),
+      ),
+    );
+    await service.saveRecastScriptCache(
+      RecastScriptCache(
+        scriptId: currentId,
+        scriptName: latestScript.name,
+        sourceRootPath: sourceDir.path,
+        sourceFingerprint: 'current-fingerprint',
+        sourceContentFingerprint: 'same-content',
+        updatedAt: DateTime.utc(2026, 7, 21),
+        mapping: RecastMapping.defaults(currentId),
+        exhibitionCategoryNames: const ['最新'],
+        scriptSnapshot: latestScript.toJson(),
+      ),
+    );
+
+    final summaries = await service.loadRecastExhibitionSummaries();
+    final details = await service.loadRecastExhibitionScripts();
+
+    expect(summaries, hasLength(1));
+    expect(summaries.single.scriptId, currentId);
+    expect(summaries.single.categoryNames.toSet(), {'NTR', '最新'});
+    expect(details, hasLength(1));
+    expect(details.single.scriptId, currentId);
+    expect(details.single.frames.single.prompt, 'latest prompt');
+  });
+
+  test('falls back to full cache parsing when the summary header is incomplete',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    const scriptId = 'script-summary-header-fallback';
+    final cache = _bloatedRecastScriptCache(
+      scriptId,
+      _heavyReferencePayload(),
+    ).toJson();
+    final mapping = Map<String, dynamic>.from(cache.remove('mapping') as Map)
+      ..['headerPadding'] = List.filled(20000, 'x').join();
+    final reordered = <String, dynamic>{
+      'mapping': mapping,
+      ...cache,
+    };
+    final cacheFile = File(
+      '${tempDir.path}${Platform.pathSeparator}script_recast'
+      '${Platform.pathSeparator}cache'
+      '${Platform.pathSeparator}$scriptId.json',
+    );
+    await cacheFile.writeAsString(jsonEncode(reordered));
+
+    final summaries = await service.loadRecastExhibitionSummaries();
+
+    expect(summaries.map((script) => script.scriptId), [scriptId]);
+    expect(summaries.single.summaryOnly, isTrue);
+    expect(summaries.single.frameCount, 1);
+  });
+
   test('quarantines empty script recast cache files while loading', () async {
     final service = WorkspaceService();
     await service.createWorkspace(tempDir.path);
@@ -1654,6 +1909,76 @@ void main() {
     );
   });
 
+  test('updates and deletes production plans without rewriting siblings',
+      () async {
+    final service = WorkspaceService();
+    await service.createWorkspace(tempDir.path);
+    final now = DateTime.utc(2026, 7, 24, 8);
+    ProductionPlan plan(String planId, String taskTitle) => ProductionPlan(
+          id: planId,
+          name: planId,
+          createdAt: now,
+          updatedAt: now,
+          tasks: [
+            ProductionTask.manualSingleFrame(
+              id: 'task-$planId',
+              planId: planId,
+              title: taskTitle,
+              payload: const {'input': 'prompt'},
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+        );
+    final target = plan('target-plan', 'Before');
+    final sibling = plan('sibling-plan', 'Sibling');
+    await service.saveProductionPlans([target, sibling]);
+    final siblingFile = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.productionPlanFile('sibling-plan').replaceAll(
+        '/',
+        Platform.pathSeparator,
+      )}',
+    );
+    final untouchedTimestamp = DateTime.utc(2001, 2, 3, 4, 5, 6);
+    await siblingFile.setLastModified(untouchedTimestamp);
+
+    await service.saveProductionPlanUpdates(
+      updatedPlans: [
+        target.copyWith(
+          tasks: [plan('target-plan', 'After').tasks.single],
+          updatedAt: now.add(const Duration(minutes: 1)),
+        ),
+      ],
+      deletedPlanIds: const [],
+    );
+
+    expect(
+      (await service.loadProductionPlan('target-plan'))?.tasks.single.title,
+      'After',
+    );
+    expect(
+      (await service.loadProductionPlan('sibling-plan'))?.tasks.single.title,
+      'Sibling',
+    );
+    expect(
+      (await siblingFile.lastModified()).millisecondsSinceEpoch,
+      untouchedTimestamp.millisecondsSinceEpoch,
+    );
+
+    await service.saveProductionPlanUpdates(
+      updatedPlans: const [],
+      deletedPlanIds: const ['target-plan'],
+    );
+
+    expect(await service.loadProductionPlan('target-plan'), isNull);
+    expect(await service.loadProductionPlan('sibling-plan'), isNotNull);
+    expect(
+      (await siblingFile.lastModified()).millisecondsSinceEpoch,
+      untouchedTimestamp.millisecondsSinceEpoch,
+    );
+  });
+
   test(
     'retries production plan replacement while the target file is locked',
     () async {
@@ -1876,7 +2201,7 @@ RecastScriptCache _bloatedRecastScriptCache(
   return RecastScriptCache(
     scriptId: scriptId,
     scriptName: 'Heavy Recast Cache',
-    sourceRootPath: r'C:\scripts\heavy',
+    sourceRootPath: 'C:\\scripts\\heavy\\$scriptId',
     sourceFingerprint: 'fingerprint',
     sourceContentFingerprint: 'content-fingerprint',
     updatedAt: DateTime.utc(2026, 6, 10),
@@ -1910,12 +2235,12 @@ Script _bloatedRecastScript(String scriptId, String heavyReference) {
   return Script(
     id: scriptId,
     name: 'Heavy Recast Cache',
-    rootPath: r'C:\scripts\heavy',
+    rootPath: 'C:\\scripts\\heavy\\$scriptId',
     frames: [
       ScriptFrame(
         index: 0,
         fileName: '001.json',
-        sourcePath: r'C:\scripts\heavy\001.json',
+        sourcePath: 'C:\\scripts\\heavy\\$scriptId\\001.json',
         rawJson: jsonEncode(sourcePayload),
         parsed: ParsedFrame(
           baseCaption: 'artist:test, scenic lighting',

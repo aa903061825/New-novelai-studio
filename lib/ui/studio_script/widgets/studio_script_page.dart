@@ -9,8 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
 import 'package:novel_studio/data/studio/models/studio_asset_capture.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/services/script_recast_mapping_variant_service.dart';
 import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
 import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
 import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
@@ -41,6 +43,7 @@ import 'package:novel_studio/ui/studio_core/widgets/studio_scrollbar.dart';
 import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
 import 'package:novel_studio/ui/studio_script/models/studio_script_recast_plan.dart';
 import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
+import 'package:novel_studio/ui/studio_script/widgets/role_mapping_profile_dialog.dart';
 
 const _scriptPromptFilterRuleTargets = [
   PromptTagFilterRuleTarget.deleteKeywords,
@@ -240,6 +243,8 @@ class _StudioScriptPageState extends State<StudioScriptPage> {
                 viewModel.lastProductionPlanName,
                 viewModel.isSendingToProduction,
                 viewModel.sentToProduction,
+                viewModel.hasOpenScript,
+                viewModel.mappingVariants.length,
               ),
               builder: (context, _) => _Header(
                 viewModel: viewModel,
@@ -373,6 +378,308 @@ class _StudioScriptPageState extends State<StudioScriptPage> {
       ),
     );
   }
+}
+
+class _ScriptMappingVersionsPanel extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _ScriptMappingVersionsPanel({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!viewModel.hasOpenScript) {
+      return const SizedBox.shrink();
+    }
+    final items = viewModel.mappingVariantItems;
+    return StudioPanel(
+      key: const ValueKey('script-mapping-version-panel'),
+      color: StudioTokens.surface2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Icon(
+                Icons.layers_outlined,
+                color: StudioTokens.primary,
+                size: 20,
+              ),
+              Text(
+                '剧本专属映射版本',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: StudioTokens.textPrimary,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              Text(
+                '每个版本保存当前剧本的整套映射快照；角色卡中的“全局角色档案”可跨剧本复用。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textSecondary,
+                    ),
+              ),
+              TextButton.icon(
+                key: const ValueKey('script-mapping-version-save'),
+                onPressed: viewModel.canPersistMappingVariants
+                    ? () => _saveVersion(context)
+                    : null,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('保存为剧本专属版本'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (items.isEmpty)
+            Container(
+              key: const ValueKey('script-mapping-version-empty'),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: StudioTokens.surface1,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: StudioTokens.border),
+              ),
+              child: Text(
+                '尚未保存剧本专属版本。当前工作映射仍会照常写入本剧本缓存；保存后可一键切换整套快照。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textSecondary,
+                    ),
+              ),
+            )
+          else
+            Column(
+              key: const ValueKey('script-mapping-version-list'),
+              children: [
+                for (final item in items) ...[
+                  _ScriptMappingVersionTile(
+                    item: item,
+                    enabled: viewModel.canPersistMappingVariants,
+                    onActivate: () => _activateVersion(context, item),
+                  ),
+                  if (item != items.last) const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          if (viewModel.mappingVariantStatus.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              viewModel.mappingVariantStatus,
+              key: const ValueKey('script-mapping-version-status'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: StudioTokens.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveVersion(BuildContext context) async {
+    var pendingName = '映射版本 ${viewModel.mappingVariantItems.length + 1}';
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey('script-mapping-version-name-dialog'),
+        title: const Text('保存当前整套映射'),
+        content: TextFormField(
+          key: const ValueKey('script-mapping-version-name-field'),
+          initialValue: pendingName,
+          autofocus: true,
+          maxLength: 80,
+          decoration: const InputDecoration(
+            labelText: '版本名称',
+            hintText: '例如：r15 Mari 调整版',
+          ),
+          onChanged: (value) => pendingName = value,
+          onFieldSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              Navigator.of(dialogContext).pop(value.trim());
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey('script-mapping-version-name-confirm'),
+            onPressed: () {
+              final value = pendingName.trim();
+              if (value.isNotEmpty) {
+                Navigator.of(dialogContext).pop(value);
+              }
+            },
+            child: const Text('保存版本'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty || !context.mounted) return;
+    try {
+      await viewModel.saveCurrentMappingAsVariant(name);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存剧本专属映射版本失败：$error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _activateVersion(
+    BuildContext context,
+    StudioScriptMappingVariantItem item,
+  ) async {
+    if (item.isActive && !item.isModified) return;
+    try {
+      await viewModel.activateMappingVariant(item.id);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('切换剧本专属映射版本失败：$error')),
+        );
+      }
+    }
+  }
+}
+
+class _ScriptMappingVersionTile extends StatelessWidget {
+  final StudioScriptMappingVariantItem item;
+  final bool enabled;
+  final VoidCallback onActivate;
+
+  const _ScriptMappingVersionTile({
+    required this.item,
+    required this.enabled,
+    required this.onActivate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = item.isActive;
+    final visibleTargetNames = item.targetCharacterNames.take(3).join('、');
+    final targetLabel = visibleTargetNames.isEmpty
+        ? ''
+        : ' · 目标：$visibleTargetNames'
+            '${item.targetCharacterNames.length > 3 ? ' 等' : ''}';
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        key: ValueKey('script-mapping-version-option-${item.id}'),
+        color: active
+            ? StudioTokens.primary.withValues(alpha: 0.08)
+            : StudioTokens.surface1,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: enabled ? onActivate : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: active ? StudioTokens.primary : StudioTokens.border,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  active ? Icons.check_circle_rounded : Icons.layers_outlined,
+                  color: active
+                      ? StudioTokens.primary
+                      : StudioTokens.textSecondary,
+                  size: 19,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: StudioTokens.textPrimary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                          if (active) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              key: ValueKey(
+                                'script-mapping-version-current-${item.id}',
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: StudioTokens.primary
+                                    .withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                item.isModified ? '当前 · 已修改' : '当前',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      color: StudioTokens.primary,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${item.summaryLabel}$targetLabel · '
+                        '${_mappingVersionTime(item.capturedAt)}',
+                        key: ValueKey(
+                          'script-mapping-version-summary-${item.id}',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: StudioTokens.textSecondary,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!active || item.isModified)
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: StudioTokens.textSecondary,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _mappingVersionTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }
 
 class _ScriptImportQueuePanel extends StatelessWidget {
@@ -616,6 +923,9 @@ class _ScopedScriptAssetDrawer extends StatelessWidget {
       select: (viewModel) => (
         viewModel.characterOptions,
         viewModel.artistChainOptions,
+        viewModel.recipeOptions,
+        viewModel.tagOptions,
+        viewModel.promptAssetCategories,
         _scriptAssetDrawerPreviewSignature(viewModel),
       ),
       builder: (context, _) => _ScriptAssetDrawer(
@@ -901,6 +1211,8 @@ class _HeaderActionsState extends State<_HeaderActions> {
                   viewModel.importScriptFolder();
                 },
         ),
+        if (viewModel.hasOpenScript)
+          _ScriptMappingVersionsButton(viewModel: viewModel),
         if (viewModel.isAiBusy)
           StudioButton(
             key: const ValueKey('script-ai-stop-processing'),
@@ -948,6 +1260,52 @@ class _HeaderActionsState extends State<_HeaderActions> {
       ],
     );
   }
+}
+
+class _ScriptMappingVersionsButton extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _ScriptMappingVersionsButton({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    final count = viewModel.mappingVariantItems.length;
+    return StudioButton(
+      key: const ValueKey('script-mapping-version-open'),
+      label: count == 0 ? '剧本专属版本' : '剧本专属版本 ($count)',
+      icon: Icons.layers_outlined,
+      tone: StudioButtonTone.secondary,
+      onPressed: () => _showScriptMappingVersionsDialog(context, viewModel),
+    );
+  }
+}
+
+Future<void> _showScriptMappingVersionsDialog(
+  BuildContext context,
+  StudioScriptViewModel viewModel,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AnimatedBuilder(
+      animation: viewModel,
+      builder: (context, _) => AlertDialog(
+        key: const ValueKey('script-mapping-version-dialog'),
+        title: const Text('剧本专属映射版本'),
+        content: SizedBox(
+          width: 900,
+          child: SingleChildScrollView(
+            child: _ScriptMappingVersionsPanel(viewModel: viewModel),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _GlobalBlockWordsButton extends StatelessWidget {
@@ -1087,7 +1445,13 @@ class _Metrics extends StatelessWidget {
   }
 }
 
-enum _ScriptAssetDragKind { character, outfit, outfitPart, artistChain }
+enum _ScriptAssetDragKind {
+  character,
+  outfit,
+  outfitPart,
+  artistChain,
+  promptFragment,
+}
 
 class _ScriptAssetDragData {
   final _ScriptAssetDragKind kind;
@@ -1133,50 +1497,88 @@ class _ScriptAssetDragData {
         outfitId = null,
         rolePart = null,
         partValue = null;
+
+  const _ScriptAssetDragData.promptFragment({
+    required this.label,
+    required this.partValue,
+  })  : kind = _ScriptAssetDragKind.promptFragment,
+        characterId = null,
+        outfitId = null,
+        artistChainId = null,
+        rolePart = null;
 }
 
-enum _ScriptAssetDrawerCategory {
-  character(
-    keySuffix: 'character',
-    title: '角色',
-    icon: Icons.person_outline,
-  ),
-  outfit(
-    keySuffix: 'outfit',
-    title: 'Outfit / 造型',
-    icon: Icons.checkroom_outlined,
-  ),
-  artist(
-    keySuffix: 'artist',
-    title: '画师串',
-    icon: Icons.palette_outlined,
-  );
+enum _ScriptAssetDrawerFixedCategory { character, outfit, artist }
+
+class _ScriptAssetDrawerCategory {
+  final _ScriptAssetDrawerFixedCategory? fixedCategory;
+  final PromptAssetCategory? promptCategory;
 
   final String keySuffix;
   final String title;
   final IconData icon;
 
-  static const topLevelValues = [
-    character,
-    artist,
-  ];
+  static const character = _ScriptAssetDrawerCategory._fixed(
+    fixedCategory: _ScriptAssetDrawerFixedCategory.character,
+    keySuffix: 'character',
+    title: '角色',
+    icon: Icons.person_outline,
+  );
+  static const artist = _ScriptAssetDrawerCategory._fixed(
+    fixedCategory: _ScriptAssetDrawerFixedCategory.artist,
+    keySuffix: 'artist',
+    title: '画师串',
+    icon: Icons.palette_outlined,
+  );
 
-  const _ScriptAssetDrawerCategory({
+  const _ScriptAssetDrawerCategory._fixed({
+    required this.fixedCategory,
     required this.keySuffix,
     required this.title,
     required this.icon,
-  });
+  }) : promptCategory = null;
+
+  _ScriptAssetDrawerCategory.prompt(PromptAssetCategory category)
+      : fixedCategory = null,
+        promptCategory = category,
+        keySuffix = 'prompt-${category.id}',
+        title = category.name,
+        icon = Icons.category_outlined;
 
   int countFrom(StudioScriptViewModel viewModel) {
-    return switch (this) {
-      _ScriptAssetDrawerCategory.character => viewModel.characterOptions.length,
-      _ScriptAssetDrawerCategory.outfit => viewModel.characterOptions.fold<int>(
+    final promptCategoryId = promptCategory?.id;
+    if (promptCategoryId != null) {
+      return viewModel.recipeOptions
+              .where((recipe) => recipe.block == promptCategoryId)
+              .length +
+          viewModel.tagOptions
+              .where((tag) => tag.block == promptCategoryId)
+              .length;
+    }
+    return switch (fixedCategory!) {
+      _ScriptAssetDrawerFixedCategory.character =>
+        viewModel.characterOptions.length,
+      _ScriptAssetDrawerFixedCategory.outfit =>
+        viewModel.characterOptions.fold<int>(
           0,
           (count, character) => count + character.outfits.length,
         ),
-      _ScriptAssetDrawerCategory.artist => viewModel.artistChainOptions.length,
+      _ScriptAssetDrawerFixedCategory.artist =>
+        viewModel.artistChainOptions.length,
     };
   }
+}
+
+List<_ScriptAssetDrawerCategory> _scriptAssetDrawerCategories(
+  StudioScriptViewModel viewModel,
+) {
+  return [
+    _ScriptAssetDrawerCategory.character,
+    _ScriptAssetDrawerCategory.artist,
+    for (final category in viewModel.promptAssetCategories)
+      if (category.showInScriptDrawer)
+        _ScriptAssetDrawerCategory.prompt(category),
+  ];
 }
 
 class _ScriptAssetDrawer extends StatefulWidget {
@@ -1236,7 +1638,9 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final totalCount = _ScriptAssetDrawerCategory.topLevelValues.fold<int>(
+    final totalCount = _scriptAssetDrawerCategories(
+      widget.viewModel,
+    ).fold<int>(
       0,
       (count, category) => count + category.countFrom(widget.viewModel),
     );
@@ -1244,7 +1648,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
         ? const StudioAssetDrawerStateMessage(
             icon: Icons.inventory_2_outlined,
             title: '素材抽屉',
-            message: '导入剧本后会显示可用角色和画师串，服装可在角色内展开',
+            message: '导入剧本后会显示角色、画师串和已启用的自定义分类，造型可在角色内展开',
           )
         : _selectedCategory == null
             ? _ScriptDrawerCategoryList(
@@ -1337,8 +1741,68 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
   List<_ScriptDrawerAssetItem> _itemsFor(
     _ScriptAssetDrawerCategory category,
   ) {
-    return switch (category) {
-      _ScriptAssetDrawerCategory.character => [
+    final promptCategoryId = category.promptCategory?.id;
+    if (promptCategoryId != null) {
+      return [
+        for (final recipe in widget.viewModel.recipeOptions)
+          if (recipe.block == promptCategoryId)
+            _ScriptDrawerAssetItem(
+              favoriteKey: StudioAssetFavoriteKeys.recipe(
+                recipe.block,
+                recipe.id,
+              ),
+              favoriteButtonKey: ValueKey(
+                'script-asset-favorite-recipe-${recipe.id}',
+              ),
+              key: ValueKey('script-asset-recipe-${recipe.id}'),
+              previewKey: ValueKey('script-asset-preview-recipe-${recipe.id}'),
+              icon: Icons.auto_awesome_mosaic_outlined,
+              title: recipe.name,
+              subtitle: '配方 · ${category.title}',
+              previewPaths: const [],
+              searchableText: [
+                recipe.name,
+                recipe.block,
+                recipe.category,
+                recipe.group,
+                recipe.tags,
+                recipe.variants.values.join(' '),
+              ].join(' '),
+              data: _ScriptAssetDragData.promptFragment(
+                label: recipe.name,
+                partValue: _scriptRecipePrompt(recipe),
+              ),
+            ),
+        for (final tag in widget.viewModel.tagOptions)
+          if (tag.block == promptCategoryId)
+            _ScriptDrawerAssetItem(
+              favoriteKey: StudioAssetFavoriteKeys.tag(tag.block, tag.id),
+              favoriteButtonKey: ValueKey(
+                'script-asset-favorite-tag-${tag.id}',
+              ),
+              key: ValueKey('script-asset-tag-${tag.id}'),
+              previewKey: ValueKey('script-asset-preview-tag-${tag.id}'),
+              icon: Icons.local_offer_outlined,
+              title: tag.zh.isEmpty ? tag.tag : tag.zh,
+              subtitle: 'Tag · ${category.title}',
+              previewPaths: const [],
+              searchableText: [
+                tag.zh,
+                tag.tag,
+                tag.block,
+                tag.category,
+                tag.aliases.join(' '),
+                tag.sections.values.join(' '),
+              ].join(' '),
+              data: _ScriptAssetDragData.promptFragment(
+                label: tag.zh.isEmpty ? tag.tag : tag.zh,
+                partValue: tag.tag,
+              ),
+            ),
+      ];
+    }
+    return switch (category.fixedCategory!) {
+      _ScriptAssetDrawerFixedCategory.character => [
           for (final character in widget.viewModel.characterOptions)
             _ScriptDrawerAssetItem(
               favoriteKey: StudioAssetFavoriteKeys.character(character.id),
@@ -1375,7 +1839,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
               ),
             ),
         ],
-      _ScriptAssetDrawerCategory.outfit => [
+      _ScriptAssetDrawerFixedCategory.outfit => [
           for (final character in widget.viewModel.characterOptions)
             for (final outfit in character.outfits)
               _ScriptDrawerAssetItem(
@@ -1415,7 +1879,7 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
                 ),
               ),
         ],
-      _ScriptAssetDrawerCategory.artist => [
+      _ScriptAssetDrawerFixedCategory.artist => [
           for (final chain in widget.viewModel.artistChainOptions)
             _ScriptDrawerAssetItem(
               favoriteKey: StudioAssetFavoriteKeys.artistChain(chain.id),
@@ -1647,7 +2111,7 @@ class _ScriptDrawerCategoryList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final categories = [
-      for (final category in _ScriptAssetDrawerCategory.topLevelValues)
+      for (final category in _scriptAssetDrawerCategories(viewModel))
         if (category.countFrom(viewModel) > 0)
           StudioAssetDrawerCategory<_ScriptAssetDrawerCategory>(
             value: category,
@@ -1670,16 +2134,19 @@ class _ScriptDrawerCategoryList extends StatelessWidget {
   }
 
   List<String> _previewPathsFor(_ScriptAssetDrawerCategory category) {
-    final paths = switch (category) {
-      _ScriptAssetDrawerCategory.character => [
+    if (category.promptCategory != null) {
+      return const [];
+    }
+    final paths = switch (category.fixedCategory!) {
+      _ScriptAssetDrawerFixedCategory.character => [
           for (final character in viewModel.characterOptions)
             ...viewModel.characterPreviewPaths(character),
         ],
-      _ScriptAssetDrawerCategory.artist => [
+      _ScriptAssetDrawerFixedCategory.artist => [
           for (final chain in viewModel.artistChainOptions)
             ...viewModel.artistChainPreviewPaths(chain),
         ],
-      _ScriptAssetDrawerCategory.outfit => const <String>[],
+      _ScriptAssetDrawerFixedCategory.outfit => const <String>[],
     };
     return paths.take(3).toList(growable: false);
   }
@@ -5836,6 +6303,9 @@ class _RecastPlanPanel extends StatelessWidget {
               viewModel.roleReplacementMappings,
               viewModel.sceneReplacementMappings,
               viewModel.characterOptions,
+              viewModel.currentMapping,
+              viewModel.mappingVariants.length,
+              viewModel.activeMappingVariantId,
             ),
             builder: (context, _) => _ReplacementMapping(viewModel: viewModel),
           ),
@@ -5979,6 +6449,96 @@ class _ReplacementMapping extends StatelessWidget {
   }
 }
 
+class _RoleMappingProfileDeletionPrompt extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _RoleMappingProfileDeletionPrompt({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    final deletion = viewModel.pendingRoleMappingProfileDeletion;
+    if (deletion == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      key: const ValueKey('role-mapping-profile-delete-prompt'),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: StudioTokens.warning.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(StudioTokens.radiusSmall),
+        border: Border.all(
+          color: StudioTokens.warning.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.warning_amber_outlined,
+            color: StudioTokens.warning,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              deletion.kind == RoleMappingProfileDeletionKind.layerMove
+                  ? '“${deletion.profileName}”中的“${deletion.label}”已移动到其他分层，'
+                      '是否保留并让缓存记忆跟随新分层？'
+                  : '“${deletion.profileName}”中的“${deletion.label}”已在当前剧本清空，'
+                      '是否也删除长期记忆？',
+            ),
+          ),
+          TextButton(
+            onPressed: () => viewModel.resolveRoleMappingProfileDeletion(
+              deleteFromProfile: false,
+            ),
+            child: const Text('保留记忆'),
+          ),
+          const SizedBox(width: 4),
+          FilledButton.tonal(
+            onPressed: () => viewModel.resolveRoleMappingProfileDeletion(
+              deleteFromProfile: true,
+            ),
+            child: const Text('删除记忆'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleMappingProfileErrorNotice extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _RoleMappingProfileErrorNotice({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    if (viewModel.roleMappingProfileError == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      key: const ValueKey('role-mapping-profile-error-notice'),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(StudioTokens.radiusSmall),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            color: Theme.of(context).colorScheme.onErrorContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(viewModel.roleMappingProfileStatus)),
+        ],
+      ),
+    );
+  }
+}
+
 class _RoleReplacementSection extends StatelessWidget {
   final StudioScriptViewModel viewModel;
 
@@ -5992,6 +6552,8 @@ class _RoleReplacementSection extends StatelessWidget {
       title: '角色替换',
       icon: Icons.manage_accounts_outlined,
       children: [
+        _RoleMappingProfileDeletionPrompt(viewModel: viewModel),
+        _RoleMappingProfileErrorNotice(viewModel: viewModel),
         if (roles.isEmpty)
           const _EmptyHint(text: '暂无角色替换规则')
         else
@@ -5999,7 +6561,12 @@ class _RoleReplacementSection extends StatelessWidget {
             StudioStaggeredReveal(
               index: index,
               child: _RoleReplacementCard(
+                viewModel: viewModel,
                 item: role,
+                roleMappingProfiles: viewModel.roleMappingProfiles,
+                activeProfileName: viewModel
+                    .roleMappingProfileById(role.activeMappingProfileId)
+                    ?.name,
                 characters: viewModel.characterOptions,
                 translationCache: viewModel.translationCache,
                 classificationCache: viewModel.classificationCache,
@@ -6009,7 +6576,8 @@ class _RoleReplacementSection extends StatelessWidget {
                 onSuppressTagWarningForScope:
                     viewModel.suppressPromptTagWarningForCurrentScript,
                 onTargetAssetDropped: (data) {
-                  if (data.kind == _ScriptAssetDragKind.outfitPart) {
+                  if (data.kind == _ScriptAssetDragKind.outfitPart ||
+                      data.kind == _ScriptAssetDragKind.promptFragment) {
                     viewModel.appendRoleReplacementPendingPrompt(
                       role.sourceRoleId,
                       data.partValue ?? '',
@@ -6115,6 +6683,20 @@ class _RoleReplacementSection extends StatelessWidget {
                 ),
                 onResetReplacementGroup: () =>
                     viewModel.resetRoleReplacementGroup(role.sourceRoleId),
+                onQuickApplyProfile: (profileId) =>
+                    viewModel.quickApplyRoleMappingProfile(
+                  profileId: profileId,
+                  sourceRoleId: role.sourceRoleId,
+                ),
+                onManageProfiles: () => showRoleMappingProfileManagerDialog(
+                  context,
+                  viewModel: viewModel,
+                  sourceRoleId: role.sourceRoleId,
+                ),
+                onStopProfileRecording: () =>
+                    viewModel.stopRoleMappingProfileRecording(
+                  role.sourceRoleId,
+                ),
               ),
             ),
       ],
@@ -6193,6 +6775,14 @@ class _SceneReplacementSection extends StatelessWidget {
                   group.id,
                   ruleId,
                 ),
+                onRulesCategoryChanged: (ruleIds, category) {
+                  viewModel.assignSceneReplacementRulesToCategory(
+                    groupId: group.id,
+                    ruleIds: ruleIds,
+                    category: category,
+                  );
+                  viewModel.clearSceneReplacementRuleSelection(group.id);
+                },
                 onRuleSelectedChanged: (ruleId, selected) =>
                     viewModel.setSceneReplacementRuleSelected(
                   group.id,
@@ -6523,7 +7113,10 @@ class _ReplacementRuleInteractionRegionState
 }
 
 class _RoleReplacementCard extends StatefulWidget {
+  final StudioScriptViewModel viewModel;
   final StudioScriptRoleReplacementItem item;
+  final List<RoleMappingProfile> roleMappingProfiles;
+  final String? activeProfileName;
   final List<CharacterEntry> characters;
   final TranslationCache translationCache;
   final PromptTagClassificationCache classificationCache;
@@ -6556,9 +7149,15 @@ class _RoleReplacementCard extends StatefulWidget {
   final VoidCallback onMergeSelectedRules;
   final VoidCallback onResetReplacementGroup;
   final VoidCallback onSyncIdentityToSelectedRules;
+  final Future<void> Function(String profileId) onQuickApplyProfile;
+  final VoidCallback onManageProfiles;
+  final VoidCallback onStopProfileRecording;
 
   const _RoleReplacementCard({
+    required this.viewModel,
     required this.item,
+    required this.roleMappingProfiles,
+    required this.activeProfileName,
     required this.characters,
     required this.translationCache,
     required this.classificationCache,
@@ -6583,6 +7182,9 @@ class _RoleReplacementCard extends StatefulWidget {
     required this.onMergeSelectedRules,
     required this.onSyncIdentityToSelectedRules,
     required this.onResetReplacementGroup,
+    required this.onQuickApplyProfile,
+    required this.onManageProfiles,
+    required this.onStopProfileRecording,
   });
 
   @override
@@ -6591,10 +7193,45 @@ class _RoleReplacementCard extends StatefulWidget {
 
 class _RoleReplacementCardState extends State<_RoleReplacementCard> {
   bool _collapsed = false;
+  bool _profilePickerExpanded = false;
+  String? _applyingProfileId;
+  String? _activatingVariantId;
+  late String _selectedLayerId;
+  final GlobalKey _profileDropdownKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedLayerId = _preferredInitialLayerId(widget.item);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RoleReplacementCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.item.layers.any((layer) => layer.id == _selectedLayerId)) {
+      _selectedLayerId = _preferredInitialLayerId(widget.item);
+    }
+  }
+
+  String _preferredInitialLayerId(StudioScriptRoleReplacementItem item) {
+    final shared = item.layers
+        .where(
+          (layer) => layer.kind == ScriptRoleReplacementRuleLayerKind.shared,
+        )
+        .firstOrNull;
+    if (shared != null && shared.ruleCount > 0) {
+      return shared.id;
+    }
+    return item.layers.where((layer) => layer.ruleCount > 0).firstOrNull?.id ??
+        shared?.id ??
+        item.layers.firstOrNull?.id ??
+        'shared';
+  }
 
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final activeProfileName = widget.activeProfileName;
     final characters = widget.characters;
     final translationCache = widget.translationCache;
     final classificationCache = widget.classificationCache;
@@ -6619,7 +7256,13 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
     final onMergeSelectedRules = widget.onMergeSelectedRules;
     final onResetReplacementGroup = widget.onResetReplacementGroup;
     final onSyncIdentityToSelectedRules = widget.onSyncIdentityToSelectedRules;
-    final selectedCount = item.rules.where((rule) => rule.selected).length;
+    final onStopProfileRecording = widget.onStopProfileRecording;
+    final selectedLayer = item.layers
+            .where((layer) => layer.id == _selectedLayerId)
+            .firstOrNull ??
+        item.layers.firstOrNull;
+    final visibleRules = selectedLayer?.rules ?? item.rules;
+    final selectedCount = visibleRules.where((rule) => rule.selected).length;
     final selectedCharacter =
         _characterById(characters, item.targetCharacterId);
     return GestureDetector(
@@ -6637,6 +7280,7 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
         child: _collapsed
             ? _CollapsedRoleReplacementCardSummary(
                 item: item,
+                activeProfileName: activeProfileName,
                 onExpanded: () {
                   setState(() {
                     _collapsed = false;
@@ -6699,6 +7343,45 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                             ),
                           ),
                           const SizedBox(width: 8),
+                          _RoleMappingProfilePickerButton(
+                            sourceRoleId: item.sourceRoleId,
+                            scriptMappingCount:
+                                widget.viewModel.mappingVariantItems.length,
+                            profileCount: widget.roleMappingProfiles.length,
+                            enabled: _applyingProfileId == null &&
+                                _activatingVariantId == null,
+                            expanded: _profilePickerExpanded,
+                            busy: _applyingProfileId != null ||
+                                _activatingVariantId != null,
+                            onPressed: () {
+                              final expanding = !_profilePickerExpanded;
+                              setState(() {
+                                _profilePickerExpanded = expanding;
+                              });
+                              if (expanding) {
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (!mounted) return;
+                                  final dropdownContext =
+                                      _profileDropdownKey.currentContext;
+                                  if (dropdownContext != null) {
+                                    unawaited(
+                                      Scrollable.ensureVisible(
+                                        dropdownContext,
+                                        duration:
+                                            const Duration(milliseconds: 180),
+                                        curve: Curves.easeOutCubic,
+                                        alignmentPolicy:
+                                            ScrollPositionAlignmentPolicy
+                                                .keepVisibleAtEnd,
+                                      ),
+                                    );
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(width: 8),
                           StudioIconButton(
                             key: ValueKey(
                               'role-replacement-collapse-${item.sourceRoleId}',
@@ -6712,6 +7395,52 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                             },
                           ),
                         ],
+                      ),
+                      if (_profilePickerExpanded) ...[
+                        const SizedBox(height: 4),
+                        _RoleMappingProfileDropdown(
+                          key: _profileDropdownKey,
+                          sourceRoleId: item.sourceRoleId,
+                          scriptVariants: widget.viewModel.mappingVariantItems,
+                          currentMappingSummaryLabel: widget
+                              .viewModel.currentMappingVariantSummaryLabel,
+                          currentTargetCharacterName: widget.viewModel
+                                  .currentMappingTargetCharacterNamesByRoleId[
+                              item.sourceRoleId],
+                          profiles: widget.roleMappingProfiles,
+                          activeProfileId: item.activeMappingProfileId,
+                          activeVariantId:
+                              widget.viewModel.activeMappingVariantId,
+                          onCurrentMappingSelected: () {
+                            setState(() => _profilePickerExpanded = false);
+                          },
+                          onScriptVariantSelected: (variantId) {
+                            setState(() => _profilePickerExpanded = false);
+                            _quickActivateMappingVariant(variantId);
+                          },
+                          onManageScriptVariants: () {
+                            setState(() => _profilePickerExpanded = false);
+                            _showScriptMappingVersionsDialog(
+                              context,
+                              widget.viewModel,
+                            );
+                          },
+                          onSelected: (profileId) {
+                            setState(() => _profilePickerExpanded = false);
+                            _quickApplyProfile(profileId);
+                          },
+                          onManage: () {
+                            setState(() => _profilePickerExpanded = false);
+                            widget.onManageProfiles();
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      _RoleMappingScopeStatus(
+                        sourceRoleId: item.sourceRoleId,
+                        activeProfileId: item.activeMappingProfileId,
+                        activeProfileName: activeProfileName,
+                        onStopProfileRecording: onStopProfileRecording,
                       ),
                       const SizedBox(height: 12),
                       _RoleReplacementIdentityEditor(
@@ -6759,25 +7488,75 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                                 : onSyncIdentityToSelectedRules,
                           ),
                           const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            key: ValueKey(
-                              'role-replacement-merge-selected-${item.sourceRoleId}',
+                          Tooltip(
+                            message: '合并源标签与目标标签；各标签权重会保留，任一源标签命中即可套用',
+                            child: OutlinedButton.icon(
+                              key: ValueKey(
+                                'role-replacement-merge-selected-${item.sourceRoleId}',
+                              ),
+                              icon: const Icon(Icons.call_merge_outlined,
+                                  size: 16),
+                              label: Text('合并为一组($selectedCount)'),
+                              onPressed: selectedCount < 2
+                                  ? null
+                                  : onMergeSelectedRules,
                             ),
-                            icon:
-                                const Icon(Icons.call_merge_outlined, size: 16),
-                            label: Text('合并选中($selectedCount)'),
-                            onPressed:
-                                selectedCount < 2 ? null : onMergeSelectedRules,
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
+                      if (item.layers.isNotEmpty) ...[
+                        _RoleReplacementLayerTabs(
+                          sourceRoleId: item.sourceRoleId,
+                          layers: item.layers,
+                          selectedLayerId: selectedLayer?.id ?? '',
+                          selectedRuleIds: {
+                            for (final rule in visibleRules)
+                              if (rule.selected) rule.id,
+                          },
+                          existingOverlapMessage:
+                              widget.viewModel.roleStageExistingOverlapMessage(
+                            item.sourceRoleId,
+                          ),
+                          onSelected: (layerId) {
+                            if (layerId == _selectedLayerId) {
+                              return;
+                            }
+                            onClearRuleSelection();
+                            setState(() => _selectedLayerId = layerId);
+                          },
+                          onRulesDropped: (layer, ruleIds) {
+                            widget.viewModel.assignRoleReplacementRulesToLayer(
+                              sourceRoleId: item.sourceRoleId,
+                              ruleIds: ruleIds,
+                              kind: layer.kind,
+                              stageId: layer.stageId,
+                            );
+                            onClearRuleSelection();
+                            setState(() => _selectedLayerId = layer.id);
+                          },
+                          onStageAction: (action) {
+                            unawaited(
+                              _handleStageAction(action, selectedLayer),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 4),
+                      ],
                       _ReplacementRuleGrid(
                         scope: 'role',
                         ownerId: item.sourceRoleId,
                         selectionController: selectionController,
                         selectionGroupId: selectionGroupId,
-                        rules: item.rules,
+                        rules: visibleRules,
+                        onRulesCategoryChanged: (ruleIds, category) {
+                          widget.viewModel.assignRoleReplacementRulesToCategory(
+                            sourceRoleId: item.sourceRoleId,
+                            ruleIds: ruleIds,
+                            category: category,
+                          );
+                          onClearRuleSelection();
+                        },
                         translationCache: translationCache,
                         classificationCache: classificationCache,
                         saveClassificationCache: saveClassificationCache,
@@ -6802,6 +7581,11 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                         onRuleTermExcludedChanged: onRuleTermExcludedChanged,
                         onRuleSelectedChanged: onRuleSelectedChanged,
                         onMergeSelectedRules: onMergeSelectedRules,
+                        onRestoreAutomaticLayer: (ruleId) => widget.viewModel
+                            .restoreAutomaticRoleReplacementLayer(
+                          sourceRoleId: item.sourceRoleId,
+                          ruleIds: {ruleId},
+                        ),
                       ),
                     ],
                   );
@@ -6810,14 +7594,1407 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
       ),
     );
   }
+
+  Future<void> _handleStageAction(
+    _RoleStageAction action,
+    StudioScriptRoleReplacementLayerItem? selectedLayer,
+  ) async {
+    final viewModel = widget.viewModel;
+    final sourceRoleId = widget.item.sourceRoleId;
+    switch (action) {
+      case _RoleStageAction.add:
+        final value = await _showStageEditorDialog(
+          title: '新增服装阶段',
+          initialLabel: '',
+          initialFrames: const [],
+        );
+        if (!mounted || value == null) return;
+        final frames = _parseFrameIndexes(value.frames);
+        if (frames == null) {
+          _showStageMessage('帧范围格式无效，例如：0-8, 12, 15-18');
+          return;
+        }
+        final overlap = viewModel.roleStageFrameOverlapMessage(
+          sourceRoleId: sourceRoleId,
+          frameIndexes: frames,
+        );
+        if (overlap != null) {
+          _showStageMessage(overlap);
+          return;
+        }
+        final stageId = viewModel.addRoleStage(
+          sourceRoleId: sourceRoleId,
+          label: value.label,
+          frameIndexes: frames,
+        );
+        if (stageId == null) {
+          _showStageMessage('未能新增阶段。');
+          return;
+        }
+        setState(() => _selectedLayerId = 'stage:$stageId');
+        return;
+      case _RoleStageAction.rename:
+        if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
+          return;
+        }
+        final value = await _showStageEditorDialog(
+          title: '重命名服装阶段',
+          initialLabel: selectedLayer!.label,
+          initialFrames: selectedLayer.frameIndexes,
+          showFrames: false,
+        );
+        if (!mounted || value == null || value.label.trim().isEmpty) return;
+        viewModel.renameRoleStage(
+          sourceRoleId: sourceRoleId,
+          stageId: selectedLayer.stageId,
+          label: value.label,
+        );
+        return;
+      case _RoleStageAction.editFrames:
+        if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
+          return;
+        }
+        final value = await _showStageEditorDialog(
+          title: '编辑适用帧',
+          initialLabel: selectedLayer!.label,
+          initialFrames: selectedLayer.frameIndexes,
+          showLabel: false,
+        );
+        if (!mounted || value == null) return;
+        final frames = _parseFrameIndexes(value.frames);
+        if (frames == null) {
+          _showStageMessage('帧范围格式无效，例如：0-8, 12, 15-18');
+          return;
+        }
+        final overlap = viewModel.roleStageFrameOverlapMessage(
+          sourceRoleId: sourceRoleId,
+          stageId: selectedLayer.stageId,
+          frameIndexes: frames,
+        );
+        if (overlap != null) {
+          _showStageMessage(overlap);
+          return;
+        }
+        viewModel.setRoleStageFrameIndexes(
+          sourceRoleId: sourceRoleId,
+          stageId: selectedLayer.stageId,
+          frameIndexes: frames,
+        );
+        return;
+      case _RoleStageAction.split:
+        if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
+          return;
+        }
+        final value = await _showStageEditorDialog(
+          title: '拆分服装阶段',
+          initialLabel: '${selectedLayer!.label} 2',
+          initialFrames: const [],
+          frameHint: '输入要移入新阶段的帧；必须是当前阶段的部分帧',
+        );
+        if (!mounted || value == null) return;
+        final frames = _parseFrameIndexes(value.frames);
+        if (frames == null || frames.isEmpty) {
+          _showStageMessage('请输入要移入新阶段的有效帧范围。');
+          return;
+        }
+        final newStageId = viewModel.splitRoleStage(
+          sourceRoleId: sourceRoleId,
+          stageId: selectedLayer.stageId,
+          label: value.label,
+          frameIndexes: frames,
+        );
+        if (newStageId == null) {
+          _showStageMessage('拆分失败：帧必须来自当前阶段，且不能移走全部帧。');
+          return;
+        }
+        setState(() => _selectedLayerId = 'stage:$newStageId');
+        return;
+      case _RoleStageAction.merge:
+        if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
+          return;
+        }
+        final candidates = widget.item.layers
+            .where(
+              (layer) =>
+                  layer.kind == ScriptRoleReplacementRuleLayerKind.stage &&
+                  layer.stageId != selectedLayer!.stageId,
+            )
+            .toList(growable: false);
+        if (candidates.isEmpty) {
+          _showStageMessage('没有可合并的其他阶段。');
+          return;
+        }
+        final target = await showDialog<StudioScriptRoleReplacementLayerItem>(
+          context: context,
+          builder: (context) => SimpleDialog(
+            key: const ValueKey('role-stage-merge-dialog'),
+            title: Text('将“${selectedLayer!.label}”合并到'),
+            children: [
+              for (final candidate in candidates)
+                SimpleDialogOption(
+                  onPressed: () => Navigator.of(context).pop(candidate),
+                  child: Text(
+                    '${candidate.label} · ${_compactFrameRanges(candidate.frameIndexes)}',
+                  ),
+                ),
+            ],
+          ),
+        );
+        if (!mounted || target == null) return;
+        if (viewModel.mergeRoleStages(
+          sourceRoleId: sourceRoleId,
+          sourceStageId: selectedLayer!.stageId,
+          targetStageId: target.stageId,
+        )) {
+          setState(() => _selectedLayerId = target.id);
+        }
+        return;
+      case _RoleStageAction.delete:
+        if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
+          return;
+        }
+        if (widget.item.stageCount <= 1) {
+          _showStageMessage('至少需要保留一个服装阶段。');
+          return;
+        }
+        final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                key: const ValueKey('role-stage-delete-dialog'),
+                title: Text('删除“${selectedLayer!.label}”？'),
+                content: const Text('该阶段的人工归组规则会进入“待确认”。'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('删除'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (!mounted || !confirmed) return;
+        viewModel.deleteRoleStage(
+          sourceRoleId: sourceRoleId,
+          stageId: selectedLayer!.stageId,
+        );
+        setState(() => _selectedLayerId = 'pending');
+        return;
+      case _RoleStageAction.restoreAutomaticRules:
+        viewModel.restoreAllAutomaticRoleReplacementLayers(sourceRoleId);
+        return;
+      case _RoleStageAction.restoreAi:
+        if (!viewModel.restoreAiRoleStageLayers(sourceRoleId)) {
+          _showStageMessage('当前没有可恢复的 AI 服装阶段结果。');
+          return;
+        }
+        setState(() => _selectedLayerId = 'shared');
+        return;
+    }
+  }
+
+  Future<({String label, String frames})?> _showStageEditorDialog({
+    required String title,
+    required String initialLabel,
+    required List<int> initialFrames,
+    bool showLabel = true,
+    bool showFrames = true,
+    String frameHint = '支持 0-8, 12, 15-18',
+  }) async {
+    return showDialog<({String label, String frames})>(
+      context: context,
+      builder: (context) => _RoleStageEditorDialog(
+        title: title,
+        initialLabel: initialLabel,
+        initialFrames: _compactFrameRanges(initialFrames),
+        showLabel: showLabel,
+        showFrames: showFrames,
+        frameHint: frameHint,
+      ),
+    );
+  }
+
+  void _showStageMessage(String message) {
+    _showProfileSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _quickActivateMappingVariant(String variantId) async {
+    final variant = widget.viewModel.mappingVariantItems
+        .where((entry) => entry.id == variantId)
+        .firstOrNull;
+    if (variant == null || _activatingVariantId != null) {
+      return;
+    }
+    if (variant.isActive && !variant.isModified) {
+      return;
+    }
+    setState(() => _activatingVariantId = variantId);
+    try {
+      await widget.viewModel.activateMappingVariant(variantId);
+      if (!mounted) return;
+      _showProfileSnackBar(
+        SnackBar(
+          content: Text('已整套切换到剧本专属版本“${variant.name}”'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showProfileSnackBar(
+        SnackBar(content: Text('切换剧本专属整套映射失败：$error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _activatingVariantId = null);
+      }
+    }
+  }
+
+  Future<void> _quickApplyProfile(String profileId) async {
+    final profile = widget.roleMappingProfiles
+        .where((entry) => entry.id == profileId)
+        .firstOrNull;
+    if (profile == null ||
+        _applyingProfileId != null ||
+        _activatingVariantId != null) {
+      return;
+    }
+    try {
+      final preview = widget.viewModel.previewRoleMappingProfile(
+        profileId: profileId,
+        sourceRoleId: widget.item.sourceRoleId,
+      );
+      final needsPreview = preview.layerEntries.any(
+            (entry) =>
+                entry.status != RoleMappingProfileLayerMatchStatus.matched,
+          ) ||
+          preview.entries.any(
+            (entry) => entry.status == RoleMappingApplyPreviewStatus.ambiguous,
+          );
+      if (needsPreview) {
+        await showRoleMappingProfileApplyPreviewDialog(
+          context,
+          viewModel: widget.viewModel,
+          profile: profile,
+          sourceRoleId: widget.item.sourceRoleId,
+        );
+        return;
+      }
+    } catch (error) {
+      if (mounted) {
+        _showProfileSnackBar(
+          SnackBar(content: Text('无法预览全局角色档案：$error')),
+        );
+      }
+      return;
+    }
+    setState(() => _applyingProfileId = profileId);
+    try {
+      await widget.onQuickApplyProfile(profileId);
+      if (!mounted) return;
+      _showProfileSnackBar(
+        SnackBar(
+          content: Text(
+            '已将全局角色档案“${profile.name}”复制到“${widget.item.sourceLabel}”',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _showProfileSnackBar(
+        SnackBar(content: Text('套用全局角色档案失败：$error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _applyingProfileId = null);
+      }
+    }
+  }
+
+  void _showProfileSnackBar(SnackBar snackBar) {
+    if (Scaffold.maybeOf(context) == null) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(snackBar);
+  }
+}
+
+enum _RoleStageAction {
+  add,
+  rename,
+  editFrames,
+  split,
+  merge,
+  delete,
+  restoreAutomaticRules,
+  restoreAi,
+}
+
+class _RoleStageEditorDialog extends StatefulWidget {
+  final String title;
+  final String initialLabel;
+  final String initialFrames;
+  final bool showLabel;
+  final bool showFrames;
+  final String frameHint;
+
+  const _RoleStageEditorDialog({
+    required this.title,
+    required this.initialLabel,
+    required this.initialFrames,
+    required this.showLabel,
+    required this.showFrames,
+    required this.frameHint,
+  });
+
+  @override
+  State<_RoleStageEditorDialog> createState() => _RoleStageEditorDialogState();
+}
+
+class _RoleStageEditorDialogState extends State<_RoleStageEditorDialog> {
+  late final TextEditingController _labelController;
+  late final TextEditingController _framesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _labelController = TextEditingController(text: widget.initialLabel);
+    _framesController = TextEditingController(text: widget.initialFrames);
+  }
+
+  @override
+  void dispose() {
+    _labelController.dispose();
+    _framesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('role-stage-editor-dialog'),
+      backgroundColor: StudioTokens.surface2,
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.showLabel)
+                TextField(
+                  key: const ValueKey('role-stage-label-field'),
+                  controller: _labelController,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: '阶段名称',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              if (widget.showLabel && widget.showFrames)
+                const SizedBox(height: 12),
+              if (widget.showFrames)
+                TextField(
+                  key: const ValueKey('role-stage-frames-field'),
+                  controller: _framesController,
+                  autofocus: !widget.showLabel,
+                  decoration: InputDecoration(
+                    labelText: '适用帧',
+                    hintText: widget.frameHint,
+                    helperText: widget.frameHint,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('role-stage-editor-save'),
+          onPressed: () => Navigator.of(context).pop(
+            (
+              label: _labelController.text,
+              frames: _framesController.text,
+            ),
+          ),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoleReplacementLayerTabs extends StatelessWidget {
+  final String sourceRoleId;
+  final List<StudioScriptRoleReplacementLayerItem> layers;
+  final String selectedLayerId;
+  final Set<String> selectedRuleIds;
+  final String? existingOverlapMessage;
+  final ValueChanged<String> onSelected;
+  final void Function(
+    StudioScriptRoleReplacementLayerItem layer,
+    Set<String> ruleIds,
+  ) onRulesDropped;
+  final ValueChanged<_RoleStageAction> onStageAction;
+
+  const _RoleReplacementLayerTabs({
+    required this.sourceRoleId,
+    required this.layers,
+    required this.selectedLayerId,
+    required this.selectedRuleIds,
+    required this.existingOverlapMessage,
+    required this.onSelected,
+    required this.onRulesDropped,
+    required this.onStageAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedLayer =
+        layers.where((layer) => layer.id == selectedLayerId).firstOrNull;
+    final selectedIsStage =
+        selectedLayer?.kind == ScriptRoleReplacementRuleLayerKind.stage;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final layer in layers) ...[
+                      _RoleReplacementLayerTab(
+                        sourceRoleId: sourceRoleId,
+                        layer: layer,
+                        selected: layer.id == selectedLayerId,
+                        selectedRuleIds: selectedRuleIds,
+                        onSelected: () => onSelected(layer.id),
+                        onRulesDropped: (ruleIds) =>
+                            onRulesDropped(layer, ruleIds),
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            PopupMenuButton<_RoleStageAction>(
+              key: ValueKey('role-stage-menu-$sourceRoleId'),
+              tooltip: '管理服装阶段',
+              icon: const Icon(Icons.more_horiz, size: 20),
+              onSelected: onStageAction,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: _RoleStageAction.add,
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.add),
+                    title: Text('新增阶段'),
+                  ),
+                ),
+                if (selectedIsStage) ...[
+                  const PopupMenuItem(
+                    value: _RoleStageAction.rename,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('重命名'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _RoleStageAction.editFrames,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.view_timeline_outlined),
+                      title: Text('编辑适用帧'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _RoleStageAction.split,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.call_split_outlined),
+                      title: Text('拆分阶段'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _RoleStageAction.merge,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.merge_outlined),
+                      title: Text('合并到其他阶段'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _RoleStageAction.delete,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('删除阶段'),
+                    ),
+                  ),
+                ],
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: _RoleStageAction.restoreAutomaticRules,
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.auto_fix_high_outlined),
+                    title: Text('恢复规则自动归组'),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: _RoleStageAction.restoreAi,
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.restart_alt_outlined),
+                    title: Text('恢复 AI 分层'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        if (existingOverlapMessage != null) ...[
+          const SizedBox(height: 7),
+          Container(
+            key: ValueKey('role-stage-overlap-warning-$sourceRoleId'),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+            decoration: BoxDecoration(
+              color: StudioTokens.warning.withAlpha(18),
+              borderRadius: StudioTokens.radiusSlot,
+              border: Border.all(color: StudioTokens.warning.withAlpha(120)),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  size: 16,
+                  color: StudioTokens.warning,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    existingOverlapMessage!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RoleReplacementLayerTab extends StatelessWidget {
+  final String sourceRoleId;
+  final StudioScriptRoleReplacementLayerItem layer;
+  final bool selected;
+  final Set<String> selectedRuleIds;
+  final VoidCallback onSelected;
+  final ValueChanged<Set<String>> onRulesDropped;
+
+  const _RoleReplacementLayerTab({
+    required this.sourceRoleId,
+    required this.layer,
+    required this.selected,
+    required this.selectedRuleIds,
+    required this.onSelected,
+    required this.onRulesDropped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final warning = layer.kind == ScriptRoleReplacementRuleLayerKind.pending &&
+        layer.ruleCount > 0;
+    final accent = warning
+        ? StudioTokens.warning
+        : selected
+            ? StudioTokens.primary
+            : StudioTokens.borderStrong;
+    final frameLabel = _compactFrameRanges(layer.frameIndexes);
+    return DragTarget<_ReplacementRuleDragData>(
+      key: ValueKey('role-replacement-layer-tab-$sourceRoleId-${layer.id}'),
+      hitTestBehavior: HitTestBehavior.translucent,
+      onWillAcceptWithDetails: (details) =>
+          details.data.scope == 'role' &&
+          details.data.ownerId == sourceRoleId &&
+          (details.data.ruleIds.isNotEmpty ||
+              details.data.ruleId.trim().isNotEmpty),
+      onAcceptWithDetails: (details) {
+        final ruleIds = details.data.ruleIds.isEmpty
+            ? {details.data.ruleId}
+            : details.data.ruleIds;
+        onRulesDropped(ruleIds);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final dragActive = candidateData.isNotEmpty;
+        return InkWell(
+          onTap: onSelected,
+          borderRadius: StudioTokens.radiusPill,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            constraints: const BoxConstraints(minHeight: 38),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: dragActive || selected
+                  ? accent.withAlpha(dragActive ? 36 : 22)
+                  : StudioTokens.surface1,
+              borderRadius: StudioTokens.radiusPill,
+              border: Border.all(
+                color: dragActive ? accent : accent.withAlpha(150),
+                width: dragActive ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  layer.kind == ScriptRoleReplacementRuleLayerKind.shared
+                      ? Icons.layers_outlined
+                      : layer.kind == ScriptRoleReplacementRuleLayerKind.pending
+                          ? Icons.help_outline
+                          : Icons.checkroom_outlined,
+                  size: 15,
+                  color: accent,
+                ),
+                const SizedBox(width: 7),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      layer.label,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: warning ? StudioTokens.warning : null,
+                          ),
+                    ),
+                    Text(
+                      [
+                        if (frameLabel.isNotEmpty) frameLabel,
+                        '${layer.ruleCount} 条',
+                        '${layer.mappedRuleCount} 已映射',
+                      ].join(' · '),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: StudioTokens.textMuted,
+                          ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RoleMappingScopeStatus extends StatelessWidget {
+  final String sourceRoleId;
+  final String? activeProfileId;
+  final String? activeProfileName;
+  final VoidCallback onStopProfileRecording;
+
+  const _RoleMappingScopeStatus({
+    required this.sourceRoleId,
+    required this.activeProfileId,
+    required this.activeProfileName,
+    required this.onStopProfileRecording,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final profileId = activeProfileId?.trim() ?? '';
+    final profileName = activeProfileName?.trim() ?? '';
+    final linkedToGlobalProfile = profileId.isNotEmpty;
+    final color =
+        linkedToGlobalProfile ? StudioTokens.primary : StudioTokens.info;
+    final description = linkedToGlobalProfile
+        ? profileName.isNotEmpty
+            ? '已连接全局角色档案“$profileName”；剧本内仍保留完整快照，后续修改会同步回全局档案'
+            : '引用的全局角色档案暂未载入（$profileId）；剧本内完整快照仍保留，不会被清空'
+        : '仅保存于当前剧本；不会写回任何全局角色档案';
+    return Container(
+      key: ValueKey('role-mapping-scope-status-$sourceRoleId'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(StudioTokens.radiusSmall),
+        border: Border.all(color: color.withValues(alpha: 0.34)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            linkedToGlobalProfile
+                ? Icons.sync_alt_rounded
+                : Icons.description_outlined,
+            size: 17,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '剧本专属角色映射',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  description,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          if (linkedToGlobalProfile) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              key: ValueKey(
+                'role-mapping-profile-stop-sync-$sourceRoleId',
+              ),
+              onPressed: onStopProfileRecording,
+              child: const Text('断开全局同步'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleMappingProfilePickerButton extends StatelessWidget {
+  final String sourceRoleId;
+  final int scriptMappingCount;
+  final int profileCount;
+  final bool enabled;
+  final bool expanded;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  const _RoleMappingProfilePickerButton({
+    required this.sourceRoleId,
+    required this.scriptMappingCount,
+    required this.profileCount,
+    required this.enabled,
+    required this.expanded,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = enabled
+        ? StudioTokens.primary.withValues(alpha: 0.12)
+        : StudioTokens.surface3;
+    final border = enabled
+        ? StudioTokens.primary.withValues(alpha: 0.55)
+        : StudioTokens.border;
+    return Tooltip(
+      message: '蓝色为本剧本整套映射；黄色为跨剧本复用的全局角色档案',
+      child: Material(
+        key: ValueKey('role-mapping-profile-picker-surface-$sourceRoleId'),
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: StudioTokens.radiusPill,
+          side: BorderSide(color: border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('role-mapping-profile-picker-$sourceRoleId'),
+          onTap: enabled ? onPressed : null,
+          mouseCursor:
+              enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          hoverColor: enabled
+              ? StudioTokens.primary.withValues(alpha: 0.18)
+              : Colors.transparent,
+          highlightColor: enabled
+              ? StudioTokens.primary.withValues(alpha: 0.24)
+              : Colors.transparent,
+          splashColor: enabled
+              ? StudioTokens.primary.withValues(alpha: 0.20)
+              : Colors.transparent,
+          borderRadius: StudioTokens.radiusPill,
+          child: SizedBox(
+            height: 36,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!busy)
+                    const Icon(
+                      Icons.library_books_outlined,
+                      size: 17,
+                      color: StudioTokens.primary,
+                    )
+                  else
+                    const SizedBox.square(
+                      dimension: 15,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  const SizedBox(width: 7),
+                  Text(
+                    '映射库（专属 $scriptMappingCount · 全局 $profileCount）',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: enabled
+                              ? StudioTokens.textPrimary
+                              : StudioTokens.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    expanded ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleMappingProfileDropdown extends StatelessWidget {
+  final String sourceRoleId;
+  final List<StudioScriptMappingVariantItem> scriptVariants;
+  final String currentMappingSummaryLabel;
+  final String? currentTargetCharacterName;
+  final List<RoleMappingProfile> profiles;
+  final String? activeProfileId;
+  final String? activeVariantId;
+  final VoidCallback onCurrentMappingSelected;
+  final ValueChanged<String> onScriptVariantSelected;
+  final VoidCallback onManageScriptVariants;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onManage;
+
+  const _RoleMappingProfileDropdown({
+    super.key,
+    required this.sourceRoleId,
+    required this.scriptVariants,
+    required this.currentMappingSummaryLabel,
+    required this.currentTargetCharacterName,
+    required this.profiles,
+    required this.activeProfileId,
+    required this.activeVariantId,
+    required this.onCurrentMappingSelected,
+    required this.onScriptVariantSelected,
+    required this.onManageScriptVariants,
+    required this.onSelected,
+    required this.onManage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: ValueKey('role-mapping-profile-dropdown-$sourceRoleId'),
+      color: StudioTokens.surface3,
+      shape: RoundedRectangleBorder(
+        borderRadius: StudioTokens.radiusCard,
+        side: const BorderSide(color: StudioTokens.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 470),
+        child: ListView(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+          children: [
+            Container(
+              key: ValueKey(
+                'role-mapping-script-header-$sourceRoleId',
+              ),
+              color: StudioTokens.info.withValues(alpha: 0.13),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.layers_rounded,
+                    size: 18,
+                    color: StudioTokens.info,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '剧本专属整套映射',
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: StudioTokens.info,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                        ),
+                        Text(
+                          '仅当前剧本 · 点击已存版本会原子切换角色、场景及策略',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textSecondary,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _MappingLibraryBadge(
+                    label: '优先',
+                    color: StudioTokens.info,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            InkWell(
+              key: ValueKey('role-mapping-script-current-$sourceRoleId'),
+              onTap: onCurrentMappingSelected,
+              mouseCursor: SystemMouseCursors.click,
+              hoverColor: StudioTokens.info.withValues(alpha: 0.12),
+              highlightColor: StudioTokens.info.withValues(alpha: 0.18),
+              splashColor: StudioTokens.info.withValues(alpha: 0.16),
+              child: Ink(
+                color: StudioTokens.info.withValues(alpha: 0.07),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: _CurrentScriptMappingMenuRow(
+                    summaryLabel: currentMappingSummaryLabel,
+                    targetCharacterName: currentTargetCharacterName,
+                  ),
+                ),
+              ),
+            ),
+            if (scriptVariants.isEmpty)
+              Container(
+                key: ValueKey('role-mapping-script-empty-$sourceRoleId'),
+                color: StudioTokens.info.withValues(alpha: 0.035),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 48, vertical: 10),
+                child: Text(
+                  '当前缓存只有工作映射，尚未另存剧本专属版本。',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+              )
+            else
+              for (final (index, variant) in scriptVariants.indexed) ...[
+                if (index > 0) const Divider(height: 1, indent: 48),
+                InkWell(
+                  key: ValueKey(
+                    'role-mapping-script-variant-$sourceRoleId-${variant.id}',
+                  ),
+                  onTap: () => onScriptVariantSelected(variant.id),
+                  mouseCursor: SystemMouseCursors.click,
+                  hoverColor: StudioTokens.info.withValues(alpha: 0.12),
+                  highlightColor: StudioTokens.info.withValues(alpha: 0.18),
+                  splashColor: StudioTokens.info.withValues(alpha: 0.16),
+                  child: Ink(
+                    color: variant.id == activeVariantId
+                        ? StudioTokens.info.withValues(alpha: 0.06)
+                        : Colors.transparent,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: _ScriptMappingVariantMenuRow(
+                        index: index,
+                        item: variant,
+                        sourceRoleId: sourceRoleId,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            const Divider(height: 1),
+            InkWell(
+              key: ValueKey('role-mapping-script-manage-$sourceRoleId'),
+              onTap: onManageScriptVariants,
+              mouseCursor: SystemMouseCursors.click,
+              hoverColor: StudioTokens.info.withValues(alpha: 0.12),
+              highlightColor: StudioTokens.info.withValues(alpha: 0.18),
+              splashColor: StudioTokens.info.withValues(alpha: 0.16),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.add_to_photos_outlined,
+                      size: 18,
+                      color: StudioTokens.info,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      '管理 / 保存剧本专属整套版本',
+                      style: TextStyle(
+                        color: StudioTokens.info,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Container(
+              height: 8,
+              color: StudioTokens.surface1,
+            ),
+            Container(
+              key: ValueKey(
+                'role-mapping-profile-global-header-$sourceRoleId',
+              ),
+              color: StudioTokens.primary.withValues(alpha: 0.10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.public_rounded,
+                    size: 18,
+                    color: StudioTokens.primary,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '全局角色档案',
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: StudioTokens.primary,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                        ),
+                        Text(
+                          '跨剧本共享 · 只套用当前角色；之后可另存为整套版本',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textMuted,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            if (profiles.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(
+                  '暂无全局角色档案，请先新建。',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+              )
+            else
+              for (final (index, profile) in profiles.indexed) ...[
+                if (index > 0) const Divider(height: 1, indent: 48),
+                InkWell(
+                  key: ValueKey(
+                    'role-mapping-profile-option-$sourceRoleId-${profile.id}',
+                  ),
+                  onTap: () => onSelected(profile.id),
+                  mouseCursor: SystemMouseCursors.click,
+                  hoverColor: StudioTokens.primary.withValues(alpha: 0.12),
+                  highlightColor: StudioTokens.primary.withValues(alpha: 0.18),
+                  splashColor: StudioTokens.primary.withValues(alpha: 0.16),
+                  child: Ink(
+                    color: profile.id == activeProfileId
+                        ? StudioTokens.primary.withValues(alpha: 0.07)
+                        : Colors.transparent,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: _RoleMappingProfileMenuRow(
+                        index: index,
+                        profile: profile,
+                        selected: profile.id == activeProfileId,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            const Divider(height: 1),
+            InkWell(
+              key: ValueKey('role-mapping-profile-manage-$sourceRoleId'),
+              onTap: onManage,
+              mouseCursor: SystemMouseCursors.click,
+              hoverColor: StudioTokens.primary.withValues(alpha: 0.12),
+              highlightColor: StudioTokens.primary.withValues(alpha: 0.18),
+              splashColor: StudioTokens.primary.withValues(alpha: 0.16),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.settings_outlined,
+                      size: 18,
+                      color: StudioTokens.primary,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      '管理 / 新建全局角色档案',
+                      style: TextStyle(
+                        color: StudioTokens.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CurrentScriptMappingMenuRow extends StatelessWidget {
+  final String summaryLabel;
+  final String? targetCharacterName;
+
+  const _CurrentScriptMappingMenuRow({
+    required this.summaryLabel,
+    required this.targetCharacterName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final target = targetCharacterName?.trim() ?? '';
+    return Row(
+      children: [
+        const SizedBox(
+          width: 28,
+          child: Icon(
+            Icons.edit_document,
+            size: 18,
+            color: StudioTokens.info,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '当前剧本工作映射（不计入版本数）',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                '$summaryLabel${target.isEmpty ? '' : ' · 当前角色：$target'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textSecondary,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        const _MappingLibraryBadge(
+          label: '正在使用',
+          color: StudioTokens.info,
+        ),
+      ],
+    );
+  }
+}
+
+class _ScriptMappingVariantMenuRow extends StatelessWidget {
+  final int index;
+  final StudioScriptMappingVariantItem item;
+  final String sourceRoleId;
+
+  const _ScriptMappingVariantMenuRow({
+    required this.index,
+    required this.item,
+    required this.sourceRoleId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final target = item.targetCharacterNameForRole(sourceRoleId) ?? '';
+    return Row(
+      children: [
+        SizedBox(
+          width: 28,
+          child: item.isActive
+              ? const Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: StudioTokens.info,
+                )
+              : Text(
+                  '${index + 1}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                '${item.summaryLabel}${target.isEmpty ? '' : ' · 此角色：$target'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: item.summary.kind ==
+                              RecastMappingVariantSummaryKind.empty
+                          ? StudioTokens.warning
+                          : StudioTokens.textMuted,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (item.isActive)
+          _MappingLibraryBadge(
+            label: item.isModified ? '基准 · 已修改' : '当前版本',
+            color: StudioTokens.info,
+          )
+        else
+          const Text(
+            '整套切换',
+            style: TextStyle(
+              color: StudioTokens.info,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MappingLibraryBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _MappingLibraryBadge({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+    );
+  }
+}
+
+class _RoleMappingProfileMenuRow extends StatelessWidget {
+  final int index;
+  final RoleMappingProfile profile;
+  final bool selected;
+
+  const _RoleMappingProfileMenuRow({
+    required this.index,
+    required this.profile,
+    required this.selected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final character = profile.targetCharacterNameSnapshot.trim();
+    return Row(
+      children: [
+        SizedBox(
+          width: 28,
+          child: selected
+              ? const Icon(Icons.check, size: 18, color: StudioTokens.primary)
+              : Text(
+                  '${index + 1}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                profile.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                '全局 · ${profile.blocks.length} 个映射组'
+                '${character.isEmpty ? '' : ' · $character'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textMuted,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _CollapsedRoleReplacementCardSummary extends StatelessWidget {
   final StudioScriptRoleReplacementItem item;
+  final String? activeProfileName;
   final VoidCallback onExpanded;
 
   const _CollapsedRoleReplacementCardSummary({
     required this.item,
+    required this.activeProfileName,
     required this.onExpanded,
   });
 
@@ -6825,6 +9002,8 @@ class _CollapsedRoleReplacementCardSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final totalCount = item.rules.length;
     final mappedCount = item.rules.where(_replacementRuleHasResult).length;
+    final linkedToGlobalProfile =
+        item.activeMappingProfileId?.trim().isNotEmpty ?? false;
     return Row(
       key: ValueKey(
         'role-replacement-collapsed-summary-${item.sourceRoleId}',
@@ -6873,6 +9052,18 @@ class _CollapsedRoleReplacementCardSummary extends StatelessWidget {
                 children: [
                   StudioChip(label: '$totalCount 个'),
                   StudioChip(label: '$mappedCount 个已映射'),
+                  StudioChip(label: '${item.stageCount} 个服装阶段'),
+                  if (item.pendingRuleCount > 0)
+                    StudioChip(
+                      label: '${item.pendingRuleCount} 条待确认',
+                      selected: true,
+                      accentColor: StudioTokens.warning,
+                    ),
+                  StudioChip(
+                    label: linkedToGlobalProfile
+                        ? '全局同步：${activeProfileName ?? '档案未载入'}'
+                        : '剧本专属',
+                  ),
                 ],
               ),
             ],
@@ -6916,7 +9107,8 @@ class _RoleReplacementIdentityEditor extends StatelessWidget {
       hitTestBehavior: HitTestBehavior.translucent,
       onWillAcceptWithDetails: (details) {
         final data = details.data;
-        if (data.kind == _ScriptAssetDragKind.outfitPart) {
+        if (data.kind == _ScriptAssetDragKind.outfitPart ||
+            data.kind == _ScriptAssetDragKind.promptFragment) {
           return data.partValue?.trim().isNotEmpty ?? false;
         }
         return data.characterId != null &&
@@ -6954,6 +9146,14 @@ class _RoleReplacementIdentityEditor extends StatelessWidget {
                           ),
                     ),
                   ),
+                  Text(
+                    '全角色共享',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: StudioTokens.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(width: 7),
                   Icon(
                     active
                         ? Icons.download_done_outlined
@@ -7006,6 +9206,8 @@ class _SceneReplacementCard extends StatelessWidget {
   final void Function(String sourceRuleId, String targetRuleId) onRuleMerged;
   final void Function(String ruleId, bool deleted) onRuleDeletedChanged;
   final ValueChanged<String> onRuleRemoved;
+  final void Function(Set<String> ruleIds, PromptTagCategory category)
+      onRulesCategoryChanged;
   final void Function(String ruleId, bool selected) onRuleSelectedChanged;
   final VoidCallback onClearRuleSelection;
   final VoidCallback onMergeSelectedRules;
@@ -7022,6 +9224,7 @@ class _SceneReplacementCard extends StatelessWidget {
     required this.onRuleMerged,
     required this.onRuleDeletedChanged,
     required this.onRuleRemoved,
+    required this.onRulesCategoryChanged,
     required this.onRuleSelectedChanged,
     required this.onClearRuleSelection,
     required this.onMergeSelectedRules,
@@ -7071,13 +9274,16 @@ class _SceneReplacementCard extends StatelessWidget {
                       onPressed: onResetReplacementGroup,
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      key: ValueKey(
-                          'scene-replacement-merge-selected-${item.id}'),
-                      icon: const Icon(Icons.call_merge_outlined, size: 16),
-                      label: Text('合并选中($selectedCount)'),
-                      onPressed:
-                          selectedCount < 2 ? null : onMergeSelectedRules,
+                    Tooltip(
+                      message: '合并源标签与目标标签；各标签权重会保留，任一源标签命中即可套用',
+                      child: OutlinedButton.icon(
+                        key: ValueKey(
+                            'scene-replacement-merge-selected-${item.id}'),
+                        icon: const Icon(Icons.call_merge_outlined, size: 16),
+                        label: Text('合并为一组($selectedCount)'),
+                        onPressed:
+                            selectedCount < 2 ? null : onMergeSelectedRules,
+                      ),
                     ),
                   ],
                 ),
@@ -7088,6 +9294,7 @@ class _SceneReplacementCard extends StatelessWidget {
                   selectionController: selectionController,
                   selectionGroupId: selectionGroupId,
                   rules: item.rules,
+                  onRulesCategoryChanged: onRulesCategoryChanged,
                   translationCache: translationCache,
                   onRuleTargetChanged: onRuleTargetChanged,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
@@ -7115,6 +9322,8 @@ class _ReplacementRuleGrid extends StatelessWidget {
   final PromptTagSelectionController selectionController;
   final String selectionGroupId;
   final List<StudioScriptReplacementRuleItem> rules;
+  final void Function(Set<String> ruleIds, PromptTagCategory category)
+      onRulesCategoryChanged;
   final TranslationCache translationCache;
   final PromptTagClassificationCache? classificationCache;
   final PromptTagClassificationCacheSaver? saveClassificationCache;
@@ -7143,6 +9352,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
       onRuleTermExcludedChanged;
   final void Function(String ruleId, bool selected) onRuleSelectedChanged;
   final VoidCallback onMergeSelectedRules;
+  final ValueChanged<String>? onRestoreAutomaticLayer;
 
   const _ReplacementRuleGrid({
     required this.scope,
@@ -7150,6 +9360,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
     required this.selectionController,
     required this.selectionGroupId,
     required this.rules,
+    required this.onRulesCategoryChanged,
     required this.translationCache,
     this.classificationCache,
     this.saveClassificationCache,
@@ -7169,6 +9380,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
     this.onRuleTermExcludedChanged,
     required this.onRuleSelectedChanged,
     required this.onMergeSelectedRules,
+    this.onRestoreAutomaticLayer,
   });
 
   @override
@@ -7179,9 +9391,14 @@ class _ReplacementRuleGrid extends StatelessWidget {
       children: [
         for (final group in groups) ...[
           _ReplacementRuleGroupHeader(
+            scope: scope,
+            ownerId: ownerId,
+            category: group.category,
             label: group.label,
             totalCount: group.rules.length,
             mappedCount: group.rules.where(_replacementRuleHasResult).length,
+            onRulesDropped: (ruleIds) =>
+                onRulesCategoryChanged(ruleIds, group.category),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -7196,6 +9413,10 @@ class _ReplacementRuleGrid extends StatelessWidget {
                   selectionController: selectionController,
                   selectionGroupId: selectionGroupId,
                   rule: rule,
+                  selectedRuleIds: {
+                    for (final candidate in rules)
+                      if (candidate.selected) candidate.id,
+                  },
                   translationCache: translationCache,
                   classificationCache: classificationCache,
                   saveClassificationCache: saveClassificationCache,
@@ -7241,6 +9462,9 @@ class _ReplacementRuleGrid extends StatelessWidget {
                           ),
                   onSelectedChanged: (selected) =>
                       onRuleSelectedChanged(rule.id, selected),
+                  onRestoreAutomaticLayer: onRestoreAutomaticLayer == null
+                      ? null
+                      : () => onRestoreAutomaticLayer!(rule.id),
                   onMergeWithRule: (sourceRuleId) {
                     if (sourceRuleId == rule.id) {
                       return;
@@ -7263,35 +9487,100 @@ class _ReplacementRuleGrid extends StatelessWidget {
 }
 
 class _ReplacementRuleGroupHeader extends StatelessWidget {
+  final String scope;
+  final String ownerId;
+  final PromptTagCategory category;
   final String label;
   final int totalCount;
   final int mappedCount;
+  final ValueChanged<Set<String>> onRulesDropped;
 
   const _ReplacementRuleGroupHeader({
+    required this.scope,
+    required this.ownerId,
+    required this.category,
     required this.label,
     required this.totalCount,
     required this.mappedCount,
+    required this.onRulesDropped,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: StudioTokens.textPrimary,
-                fontWeight: FontWeight.w900,
+    return DragTarget<_ReplacementRuleDragData>(
+      key: ValueKey(
+        'replacement-rule-group-drop-$scope-$ownerId-${category.name}',
+      ),
+      hitTestBehavior: HitTestBehavior.translucent,
+      onWillAcceptWithDetails: (details) =>
+          details.data.scope == scope &&
+          details.data.ownerId == ownerId &&
+          (details.data.ruleIds.isNotEmpty ||
+              details.data.ruleId.trim().isNotEmpty),
+      onAcceptWithDetails: (details) {
+        final ruleIds = details.data.ruleIds.isEmpty
+            ? {details.data.ruleId}
+            : details.data.ruleIds;
+        onRulesDropped(ruleIds);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final active = candidateData.isNotEmpty;
+        return Tooltip(
+          message: '把规则拖到这里可改为“$label”分组',
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            constraints: const BoxConstraints(minHeight: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: active
+                  ? StudioTokens.info.withValues(alpha: 0.14)
+                  : Colors.transparent,
+              borderRadius: StudioTokens.radiusSlot,
+              border: Border.all(
+                color: active ? StudioTokens.info : Colors.transparent,
               ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$totalCount 个 · $mappedCount 个已映射',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: StudioTokens.textMuted,
-              ),
-        ),
-      ],
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  active
+                      ? Icons.move_down_outlined
+                      : Icons.drive_file_move_outline,
+                  size: 15,
+                  color:
+                      active ? StudioTokens.info : StudioTokens.textSecondary,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: active
+                            ? StudioTokens.info
+                            : StudioTokens.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '$totalCount 个 · $mappedCount 个已映射',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+                const Spacer(),
+                Text(
+                  active ? '松开以移动到此分组' : '可拖入',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color:
+                            active ? StudioTokens.info : StudioTokens.textMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -7366,6 +9655,7 @@ class _ReplacementRuleRow extends StatefulWidget {
   final PromptTagSelectionController selectionController;
   final String selectionGroupId;
   final StudioScriptReplacementRuleItem rule;
+  final Set<String> selectedRuleIds;
   final TranslationCache translationCache;
   final PromptTagClassificationCache? classificationCache;
   final PromptTagClassificationCacheSaver? saveClassificationCache;
@@ -7385,6 +9675,7 @@ class _ReplacementRuleRow extends StatefulWidget {
   final ValueChanged<ScriptPromptReplacementMatchMode>? onMatchModeChanged;
   final void Function(String termId, bool excluded)? onTermExcludedChanged;
   final ValueChanged<bool> onSelectedChanged;
+  final VoidCallback? onRestoreAutomaticLayer;
   final ValueChanged<String> onMergeWithRule;
 
   const _ReplacementRuleRow({
@@ -7394,6 +9685,7 @@ class _ReplacementRuleRow extends StatefulWidget {
     required this.selectionController,
     required this.selectionGroupId,
     required this.rule,
+    this.selectedRuleIds = const {},
     required this.translationCache,
     this.classificationCache,
     this.saveClassificationCache,
@@ -7411,6 +9703,7 @@ class _ReplacementRuleRow extends StatefulWidget {
     this.onMatchModeChanged,
     this.onTermExcludedChanged,
     required this.onSelectedChanged,
+    this.onRestoreAutomaticLayer,
     required this.onMergeWithRule,
   });
 
@@ -7673,17 +9966,23 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
     }
 
     List<Widget> frameLabelWidgets() {
-      if (frameLabel.isEmpty) {
-        return const [];
-      }
       return [
-        const SizedBox(width: 5),
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: _ReplacementFrameIcon(
-            label: frameLabel,
+        if (frameLabel.isNotEmpty) ...[
+          const SizedBox(width: 5),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: _ReplacementFrameIcon(
+              label: frameLabel,
+            ),
           ),
-        ),
+        ],
+        if (rule.manuallyLayered) ...[
+          const SizedBox(width: 5),
+          _ReplacementManualLayerBadge(
+            stale: rule.hasStaleLayerOverride,
+            onRestoreAutomatic: widget.onRestoreAutomaticLayer,
+          ),
+        ],
       ];
     }
 
@@ -7802,6 +10101,9 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
             scope: widget.scope,
             ownerId: widget.ownerId,
             ruleId: rule.id,
+            ruleIds: rule.selected && widget.selectedRuleIds.isNotEmpty
+                ? widget.selectedRuleIds
+                : {rule.id},
             label: dragLabel,
           );
           return DragTarget<PromptTagDragData>(
@@ -8012,12 +10314,14 @@ class _ReplacementRuleDragData {
   final String scope;
   final String ownerId;
   final String ruleId;
+  final Set<String> ruleIds;
   final String label;
 
   const _ReplacementRuleDragData({
     required this.scope,
     required this.ownerId,
     required this.ruleId,
+    this.ruleIds = const {},
     required this.label,
   });
 }
@@ -8149,7 +10453,7 @@ class _ReplacementRuleDragHandle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final handle = Tooltip(
-      message: '拖动合并整块规则',
+      message: '拖到另一规则可合并；拖到分组标题或上方阶段可换组',
       child: MouseRegion(
         cursor: SystemMouseCursors.grab,
         child: Container(
@@ -8245,6 +10549,47 @@ class _ReplacementFrameIcon extends StatelessWidget {
           Icons.filter_none_outlined,
           size: 12,
           color: StudioTokens.primary.withAlpha(210),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementManualLayerBadge extends StatelessWidget {
+  final bool stale;
+  final VoidCallback? onRestoreAutomatic;
+
+  const _ReplacementManualLayerBadge({
+    required this.stale,
+    this.onRestoreAutomatic,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = stale ? StudioTokens.warning : StudioTokens.info;
+    return Tooltip(
+      message: stale ? '原人工阶段已不存在；点击恢复自动归组' : '人工归组；点击恢复自动归组',
+      child: InkWell(
+        key: ValueKey(
+          stale
+              ? 'replacement-layer-override-stale'
+              : 'replacement-layer-override',
+        ),
+        onTap: onRestoreAutomatic,
+        borderRadius: StudioTokens.radiusBadge,
+        child: Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: color.withAlpha(24),
+            borderRadius: StudioTokens.radiusBadge,
+            border: Border.all(color: color.withAlpha(150)),
+          ),
+          child: Icon(
+            stale ? Icons.warning_amber_rounded : Icons.back_hand_outlined,
+            size: 12,
+            color: color,
+          ),
         ),
       ),
     );
@@ -8568,6 +10913,44 @@ String _compactFrameRanges(List<int> frames) {
   return ranges.join(', ');
 }
 
+List<int>? _parseFrameIndexes(String value) {
+  final normalized = value
+      .trim()
+      .replaceAll('，', ',')
+      .replaceAll('、', ',')
+      .replaceAll('–', '-')
+      .replaceAll('—', '-');
+  if (normalized.isEmpty) {
+    return const [];
+  }
+  final result = <int>{};
+  for (final part in normalized.split(',')) {
+    final token = part.trim();
+    if (token.isEmpty) {
+      continue;
+    }
+    final range = RegExp(r'^(\d+)\s*-\s*(\d+)$').firstMatch(token);
+    if (range != null) {
+      final start = int.parse(range.group(1)!);
+      final end = int.parse(range.group(2)!);
+      if (end < start || end - start > 100000) {
+        return null;
+      }
+      for (var frameIndex = start; frameIndex <= end; frameIndex += 1) {
+        result.add(frameIndex);
+      }
+      continue;
+    }
+    final frameIndex = int.tryParse(token);
+    if (frameIndex == null || frameIndex < 0) {
+      return null;
+    }
+    result.add(frameIndex);
+  }
+  final frames = result.toList()..sort();
+  return List.unmodifiable(frames);
+}
+
 class _ReplacementMatchModeSelector extends StatelessWidget {
   final String ruleKey;
   final ScriptPromptReplacementMatchMode value;
@@ -8826,6 +11209,11 @@ class _ArtistMapping extends StatelessWidget {
                     viewModel.setPromptBlockSource(block.block, value),
                 onTargetChanged: (value) =>
                     viewModel.setPromptBlockManualPrompt(block.block, value),
+                onAssetDropped: (data) =>
+                    viewModel.appendPromptBlockManualPrompt(
+                  block.block,
+                  data.partValue ?? '',
+                ),
                 onDeleted: (deleted) =>
                     viewModel.setPromptBlockDeleted(block.block, deleted),
               ),
@@ -10824,6 +13212,7 @@ class _PromptBlockMappingRow extends StatelessWidget {
   final TranslationCache translationCache;
   final ValueChanged<String> onSourceChanged;
   final ValueChanged<String> onTargetChanged;
+  final ValueChanged<_ScriptAssetDragData> onAssetDropped;
   final ValueChanged<bool> onDeleted;
 
   const _PromptBlockMappingRow({
@@ -10832,6 +13221,7 @@ class _PromptBlockMappingRow extends StatelessWidget {
     required this.translationCache,
     required this.onSourceChanged,
     required this.onTargetChanged,
+    required this.onAssetDropped,
     required this.onDeleted,
   });
 
@@ -10888,17 +13278,37 @@ class _PromptBlockMappingRow extends StatelessWidget {
             onChanged: onSourceChanged,
           ),
           const SizedBox(height: 8),
-          _ArtistPromptCell(
-            key: ValueKey('prompt-block-target-${item.block}'),
-            inputKey: ValueKey('prompt-block-target-input-${item.block}'),
-            title: 'Replacement ${item.label}',
-            text: item.manualPrompt,
-            translationCache: translationCache,
-            editable: true,
-            emptyText: item.deleteSource
-                ? 'Marked deleted'
-                : 'Leave blank to keep source',
-            onChanged: onTargetChanged,
+          DragTarget<_ScriptAssetDragData>(
+            key: ValueKey('prompt-block-asset-drop-${item.block}'),
+            hitTestBehavior: HitTestBehavior.translucent,
+            onWillAcceptWithDetails: (details) =>
+                details.data.kind == _ScriptAssetDragKind.promptFragment &&
+                (details.data.partValue?.trim().isNotEmpty ?? false),
+            onAcceptWithDetails: (details) => onAssetDropped(details.data),
+            builder: (context, candidates, rejected) => AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              decoration: BoxDecoration(
+                borderRadius: StudioTokens.radiusSlot,
+                border: Border.all(
+                  color: candidates.isEmpty
+                      ? Colors.transparent
+                      : StudioTokens.primary,
+                  width: 2,
+                ),
+              ),
+              child: _ArtistPromptCell(
+                key: ValueKey('prompt-block-target-${item.block}'),
+                inputKey: ValueKey('prompt-block-target-input-${item.block}'),
+                title: 'Replacement ${item.label}',
+                text: item.manualPrompt,
+                translationCache: translationCache,
+                editable: true,
+                emptyText: item.deleteSource
+                    ? 'Marked deleted'
+                    : 'Leave blank to keep source',
+                onChanged: onTargetChanged,
+              ),
+            ),
           ),
         ],
       ),
@@ -11634,6 +14044,17 @@ String _artistChainLabel(ArtistChain chain) {
     ...chain.tags,
     ...chain.styleTags,
   ].join(', ');
+}
+
+String _scriptRecipePrompt(Recipe recipe) {
+  final tags = recipe.tags.trim();
+  if (tags.isNotEmpty) {
+    return tags;
+  }
+  return recipe.variants.values
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .join(', ');
 }
 
 class _FrameChip extends StatelessWidget {

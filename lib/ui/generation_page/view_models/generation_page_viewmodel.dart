@@ -14,6 +14,7 @@ import 'package:novel_studio/data/models/i2i_config.dart';
 import 'package:novel_studio/data/models/info_card_content.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/services/vibe_encoding_service.dart';
 import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
 import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
 import 'package:novel_studio/data/studio/models/studio_gallery_record.dart';
@@ -131,6 +132,63 @@ class GenerationPageViewmodel extends ChangeNotifier {
   @protected
   Future<ApiResponse> fetchData(ApiRequest request) {
     return ApiService().fetchData(request);
+  }
+
+  @protected
+  Future<int> prepareVibesForGeneration() async {
+    final model = payloadConfig.paramConfig.model;
+    if (!_shouldPrepareVibes) {
+      return 0;
+    }
+    final vibes = payloadConfig.vibeConfigListV4
+        .where(
+          (vibe) =>
+              vibe.vibeB64.trim().isNotEmpty ||
+              VibeEncodingService.hasSourceImage(vibe),
+        )
+        .toList(growable: false);
+    if (vibes.isEmpty) return 0;
+
+    final encodedCount = await VibeEncodingService(
+      fetchData: fetchData,
+    ).prepareForGeneration(
+      vibes: vibes,
+      model: model,
+      generationEndpoint: payloadConfig.settings.imageGenerationEndpoint,
+      proxy: payloadConfig.settings.proxy,
+      headers: payloadConfig.getHeaders(),
+    );
+    if (encodedCount > 0) {
+      await configService?.saveConfig(payloadConfig.toJson());
+      notifyListeners();
+    }
+    return encodedCount;
+  }
+
+  bool get _hasPendingVibePreparation {
+    final model = payloadConfig.paramConfig.model;
+    if (!_shouldPrepareVibes) {
+      return false;
+    }
+    for (final vibe in payloadConfig.vibeConfigListV4) {
+      final encoding = vibe.encodingFor(model, vibe.infoExtracted);
+      if (encoding == null || encoding != vibe.vibeB64) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool get _shouldPrepareVibes {
+    final model = payloadConfig.paramConfig.model;
+    if (!payloadConfig.generationRuntimeState.vibeEnabled ||
+        !model.contains('-4-')) {
+      return false;
+    }
+    final preciseReferenceActive = payloadConfig.usePreciseReference &&
+        model.contains('-4-5-') &&
+        payloadConfig.preciseReferenceList.isNotEmpty;
+    return !preciseReferenceActive;
   }
 
   @protected
@@ -565,6 +623,8 @@ class GenerationPageViewmodel extends ChangeNotifier {
     }
     // Push command into list and run command
     commandList.add(command);
+    command.isExecuting.addListener(notifyListeners);
+    notifyListeners();
     command();
   }
 
@@ -585,10 +645,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
       commandFunc,
       initialValue: InfoCardContent.fromEmpty(),
     );
-    command.isExecuting.addListener(() {
-      if (command.isExecuting.value) return;
-      notifyListeners();
-    });
     addAndRunCommand(command);
   }
 
@@ -709,7 +765,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
       initialValue: InfoCardContent.fromEmpty(),
     );
     command.isExecuting.addListener(() {
-      notifyListeners();
       // Only update after execution
       if (command.isExecuting.value) return;
       if (!commandStatus.isBatchActive.value) return;
@@ -814,6 +869,19 @@ class GenerationPageViewmodel extends ChangeNotifier {
     _pendingFastRetry429 = false;
     _cooldownGeneration++;
     commandStatus.isCoolingDown.value = false;
+
+    if (_hasPendingVibePreparation) {
+      try {
+        await prepareVibesForGeneration();
+      } catch (error) {
+        commandStatus.isBatchActive.value = false;
+        _addSystemMessageCard(
+          title: 'Vibe 编码失败',
+          message: error.toString(),
+        );
+        return;
+      }
+    }
 
     _prepareBatchStartState(initialTotalCount);
 

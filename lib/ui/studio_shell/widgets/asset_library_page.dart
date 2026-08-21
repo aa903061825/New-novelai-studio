@@ -245,6 +245,9 @@ class AssetLibraryPage extends StatefulWidget {
   final Future<void> Function(List<CharacterEntry>)? saveCharacters;
   final Future<void> Function(String, List<Recipe>)? saveRecipes;
   final Future<void> Function(String, List<TagEntry>)? saveTags;
+  final Future<void> Function(List<PromptAssetCategory>)?
+      savePromptAssetCategories;
+  final VoidCallback? onPromptAssetsChanged;
 
   const AssetLibraryPage({
     super.key,
@@ -258,6 +261,8 @@ class AssetLibraryPage extends StatefulWidget {
     this.saveCharacters,
     this.saveRecipes,
     this.saveTags,
+    this.savePromptAssetCategories,
+    this.onPromptAssetsChanged,
   });
 
   @override
@@ -397,6 +402,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                           widget.saveTags == null
                       ? null
                       : () => _showAssetCreator(catalog),
+                  onManagePromptCategories:
+                      widget.savePromptAssetCategories == null
+                          ? null
+                          : () => _showPromptCategoryManager(catalog),
                 ),
                 const SizedBox(height: 14),
                 _AssetLibraryBody(
@@ -1963,12 +1972,46 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     return id;
   }
 
+  String _promptCategoryId(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[<>:"/\\|?*\u0000-\u001f]+'), '-')
+        .replaceAll(RegExp(r'\s+'), '-')
+        .replaceAll(RegExp(r'^[-.]+|[-.]+$'), '');
+  }
+
+  Future<void> _showPromptCategoryManager(
+    StudioAssetCatalogSnapshot catalog,
+  ) async {
+    final saveCategories = widget.savePromptAssetCategories;
+    if (saveCategories == null) return;
+    final result = await showDialog<List<PromptAssetCategory>>(
+      context: context,
+      builder: (dialogContext) => _PromptCategoryManagerDialog(
+        initialCategories: catalog.promptAssetCategories,
+        normalizeId: _promptCategoryId,
+      ),
+    );
+    if (result == null) return;
+    await saveCategories(result);
+    widget.onPromptAssetsChanged?.call();
+    if (!mounted) return;
+    setState(() {
+      _localCatalog = _snapshotWith(
+        catalog,
+        promptAssetCategories: result,
+      );
+    });
+  }
+
   StudioAssetCatalogSnapshot _snapshotWith(
     StudioAssetCatalogSnapshot catalog, {
     List<CharacterEntry>? characters,
     List<ArtistChain>? artistChains,
     List<Recipe>? recipes,
     List<TagEntry>? tags,
+    List<PromptAssetCategory>? promptAssetCategories,
   }) {
     final nextCharacters = characters ?? catalog.characters;
     final nextOutfits =
@@ -1985,6 +2028,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         recipes: nextRecipes,
         tags: nextTags,
       ),
+      promptAssetCategories:
+          promptAssetCategories ?? catalog.promptAssetCategories,
       characters: nextCharacters,
       outfits: nextOutfits,
       artistChains: nextArtistChains,
@@ -3221,7 +3266,10 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                       TextField(
                         key: const ValueKey('asset-editor-block-field'),
                         controller: blockController,
-                        decoration: const InputDecoration(labelText: '保存分类'),
+                        decoration: const InputDecoration(
+                          labelText: '所属分类 ID',
+                          helperText: '可在素材库的“管理素材分类”中新增和配置',
+                        ),
                       ),
                     ],
                     const SizedBox(height: 12),
@@ -3309,8 +3357,16 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   }
 
   String _defaultPromptBlock(StudioAssetCatalogSnapshot catalog) {
+    final configuredCategoryIds = catalog.promptAssetCategories
+        .map((category) => category.id.trim())
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
+    if (configuredCategoryIds.isNotEmpty) {
+      return configuredCategoryIds.first;
+    }
     final blocks = {
       ...WorkspacePaths.blocks,
+      ...configuredCategoryIds,
       ...catalog.summary.recipeCountsByBlock.keys,
       ...catalog.summary.tagCountsByBlock.keys,
       for (final recipe in catalog.recipes) recipe.block,
@@ -3347,6 +3403,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           if (!(entry.block == originalBlock && entry.id == recipe.id)) entry,
       ]);
     }
+    widget.onPromptAssetsChanged?.call();
     if (!mounted) return;
     final recipes = [
       for (final entry in catalog.recipes)
@@ -3378,6 +3435,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
           if (!(entry.block == originalBlock && entry.id == tag.id)) entry,
       ]);
     }
+    widget.onPromptAssetsChanged?.call();
     if (!mounted) return;
     final tags = [
       for (final entry in catalog.tags)
@@ -3404,6 +3462,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       for (final entry in recipes)
         if (entry.block == recipe.block) entry,
     ]);
+    widget.onPromptAssetsChanged?.call();
     if (!mounted) return;
     setState(() {
       _localCatalog = _snapshotWith(catalog, recipes: recipes);
@@ -3425,6 +3484,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       for (final entry in tags)
         if (entry.block == tag.block) entry,
     ]);
+    widget.onPromptAssetsChanged?.call();
     if (!mounted) return;
     setState(() {
       _localCatalog = _snapshotWith(catalog, tags: tags);
@@ -3609,13 +3669,19 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   Set<_AssetFilter> _availableFilters(StudioAssetCatalogSnapshot catalog) {
     return {
       _AssetFilter.all,
-      if (catalog.characters.isNotEmpty) _AssetFilter.character,
+      if (catalog.characters.isNotEmpty || widget.saveCharacters != null)
+        _AssetFilter.character,
       if (catalog.summary.outfitCount > 0 || catalog.outfits.isNotEmpty)
         _AssetFilter.outfit,
-      if (catalog.artistChains.isNotEmpty) _AssetFilter.artistChain,
-      if (catalog.summary.recipeCount > 0 || catalog.recipes.isNotEmpty)
+      if (catalog.artistChains.isNotEmpty || widget.saveArtistChains != null)
+        _AssetFilter.artistChain,
+      if (catalog.summary.recipeCount > 0 ||
+          catalog.recipes.isNotEmpty ||
+          widget.saveRecipes != null)
         _AssetFilter.recipe,
-      if (catalog.summary.tagCount > 0 || catalog.tags.isNotEmpty)
+      if (catalog.summary.tagCount > 0 ||
+          catalog.tags.isNotEmpty ||
+          widget.saveTags != null)
         _AssetFilter.tag,
       if (catalog.legacyCodexAvailable || catalog.legacyCodexTotalCount > 0)
         _AssetFilter.codex,
@@ -4014,6 +4080,210 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   }
 }
 
+class _PromptCategoryManagerDialog extends StatefulWidget {
+  final List<PromptAssetCategory> initialCategories;
+  final String Function(String value) normalizeId;
+
+  const _PromptCategoryManagerDialog({
+    required this.initialCategories,
+    required this.normalizeId,
+  });
+
+  @override
+  State<_PromptCategoryManagerDialog> createState() =>
+      _PromptCategoryManagerDialogState();
+}
+
+class _PromptCategoryManagerDialogState
+    extends State<_PromptCategoryManagerDialog> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _idController = TextEditingController();
+  late final List<PromptAssetCategory> _categories = [
+    ...widget.initialCategories,
+  ];
+  String? _validationMessage;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _idController.dispose();
+    super.dispose();
+  }
+
+  void _addCategory() {
+    final name = _nameController.text.trim();
+    final id = widget.normalizeId(
+      _idController.text.trim().isEmpty ? name : _idController.text,
+    );
+    if (name.isEmpty || id.isEmpty) {
+      setState(() {
+        _validationMessage = '请输入分类名称；分类 ID 需包含有效字符。';
+      });
+      return;
+    }
+    if (_categories.any((category) => category.id == id)) {
+      setState(() {
+        _validationMessage = '分类 ID “$id” 已存在。';
+      });
+      return;
+    }
+    setState(() {
+      _categories.add(PromptAssetCategory(id: id, name: name));
+      _nameController.clear();
+      _idController.clear();
+      _validationMessage = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('管理素材分类'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '分类 ID 对应配方和 Tag 的“所属分类”。删除这里只会移除分类配置，不会删除分类中的素材。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textMuted,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              if (_categories.isEmpty) const _EmptyRow(message: '还没有自定义分类'),
+              for (var index = 0; index < _categories.length; index += 1)
+                Container(
+                  key: ValueKey(
+                    'prompt-asset-category-row-${_categories[index].id}',
+                  ),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: StudioTokens.surface2,
+                    borderRadius: StudioTokens.radiusSlot,
+                    border: StudioTokens.cardBorder,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _categories[index].name,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'ID ${_categories[index].id}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: StudioTokens.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '素材抽屉',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      Switch(
+                        key: ValueKey(
+                          'prompt-asset-category-drawer-${_categories[index].id}',
+                        ),
+                        value: _categories[index].showInScriptDrawer,
+                        onChanged: (value) {
+                          setState(() {
+                            _categories[index] = _categories[index]
+                                .copyWith(showInScriptDrawer: value);
+                          });
+                        },
+                      ),
+                      StudioIconButton(
+                        key: ValueKey(
+                          'prompt-asset-category-delete-${_categories[index].id}',
+                        ),
+                        tooltip: '删除分类配置',
+                        icon: Icons.delete_outline,
+                        onPressed: () {
+                          setState(() => _categories.removeAt(index));
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              const Divider(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey(
+                        'prompt-asset-category-name-field',
+                      ),
+                      controller: _nameController,
+                      decoration: const InputDecoration(labelText: '分类名称'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('prompt-asset-category-id-field'),
+                      controller: _idController,
+                      decoration: const InputDecoration(
+                        labelText: '分类 ID（可留空自动生成）',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: StudioIconButton(
+                      key: const ValueKey('prompt-asset-category-add'),
+                      tooltip: '新增分类',
+                      icon: Icons.add_circle_outline,
+                      onPressed: _addCategory,
+                    ),
+                  ),
+                ],
+              ),
+              if (_validationMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _validationMessage!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.danger,
+                      ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('prompt-asset-category-save'),
+          onPressed: () => Navigator.of(context).pop(
+            List<PromptAssetCategory>.unmodifiable(_categories),
+          ),
+          child: const Text('保存分类'),
+        ),
+      ],
+    );
+  }
+}
+
 class _LibraryFrame extends StatelessWidget {
   final Widget child;
   final VoidCallback? onScrolledNearEnd;
@@ -4154,6 +4424,7 @@ class _AssetLibraryControls extends StatelessWidget {
   final VoidCallback onReload;
   final String? catalogRefreshStatus;
   final VoidCallback? onAddAsset;
+  final VoidCallback? onManagePromptCategories;
 
   const _AssetLibraryControls({
     required this.selectedFilter,
@@ -4171,6 +4442,7 @@ class _AssetLibraryControls extends StatelessWidget {
     required this.onReload,
     this.catalogRefreshStatus,
     this.onAddAsset,
+    this.onManagePromptCategories,
   });
 
   IconData _assetFilterIcon(_AssetFilter filter) {
@@ -4342,6 +4614,13 @@ class _AssetLibraryControls extends StatelessWidget {
                   tooltip: '添加素材',
                   icon: Icons.add_circle_outline,
                   onPressed: onAddAsset,
+                ),
+              if (onManagePromptCategories != null)
+                StudioIconButton(
+                  key: const ValueKey('asset-library-manage-categories'),
+                  tooltip: '管理素材分类',
+                  icon: Icons.category_outlined,
+                  onPressed: onManagePromptCategories,
                 ),
             ],
           ),

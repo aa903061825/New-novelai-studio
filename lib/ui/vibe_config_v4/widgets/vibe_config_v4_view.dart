@@ -33,12 +33,16 @@ class VibeConfigV4View extends StatelessWidget {
           onDelete: onDelete,
           sliders: [
             ImageConfigSliderSpec(
-              label: 'Info Extracted',
+              label: viewmodel.canChangeInfoExtracted
+                  ? 'Info Extracted'
+                  : 'Info Extracted (encoded)',
               editTitle: 'Edit Information Extracted',
               editTooltip: 'Edit Information Extracted Value',
               inputLabel: 'Value (0.0 to 1.0)',
               value: viewmodel.infoExtracted,
-              onChanged: viewmodel.setInfoExtracted,
+              onChanged: viewmodel.canChangeInfoExtracted
+                  ? viewmodel.setInfoExtracted
+                  : null,
             ),
             ImageConfigSliderSpec(
               label: 'Strength',

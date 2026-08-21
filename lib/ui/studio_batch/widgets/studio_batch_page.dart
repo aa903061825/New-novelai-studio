@@ -122,34 +122,38 @@ class _StudioBatchPageState extends State<StudioBatchPage> {
               children: [
                 Expanded(
                   flex: 5,
-                  child: Column(
-                    children: [
-                      _ViewModelRebuildGate(
-                        viewModel: viewModel,
-                        selector: _queueOverviewRebuildToken,
-                        builder: (context) => _QueueOverviewPanel(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('studio-batch-left-scroll'),
+                    child: Column(
+                      children: [
+                        _ViewModelRebuildGate(
                           viewModel: viewModel,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _ViewModelRebuildGate(
-                        viewModel: viewModel,
-                        selector: _settingsRebuildToken,
-                        builder: (context) => _ExecutionSettingsPanel(
-                          viewModel: viewModel,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: _ViewModelRebuildGate(
-                          viewModel: viewModel,
-                          selector: _tasksRebuildToken,
-                          builder: (context) => _TaskListPanel(
+                          selector: _queueOverviewRebuildToken,
+                          builder: (context) => _QueueOverviewPanel(
                             viewModel: viewModel,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        _ViewModelRebuildGate(
+                          viewModel: viewModel,
+                          selector: _settingsRebuildToken,
+                          builder: (context) => _ExecutionSettingsPanel(
+                            viewModel: viewModel,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: constraints.maxHeight * 0.55,
+                          child: _ViewModelRebuildGate(
+                            viewModel: viewModel,
+                            selector: _tasksRebuildToken,
+                            builder: (context) => _TaskListPanel(
+                              viewModel: viewModel,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -230,12 +234,21 @@ class _ViewModelRebuildGateState<T> extends State<_ViewModelRebuildGate<T>> {
 
 Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
   final plan = viewModel.selectedPlan;
+  final activePlan = viewModel.activePlan;
   return (
+    plans: viewModel.visiblePlans
+        .map((plan) =>
+            '${plan.id}\u0000${plan.name}\u0000${plan.updatedAt}\u0000${viewModel.canDeletePlan(plan.id)}')
+        .join('\u0001'),
     planId: plan?.id,
     planName: plan?.name,
     planFingerprint: plan?.planFingerprint,
+    activePlanId: activePlan?.id,
+    activePlanName: activePlan?.name,
+    isViewingActivePlan: viewModel.isViewingActivePlan,
     totalTasks: viewModel.totalTasks,
     completedTasks: viewModel.completedTasks,
+    completedTasksPendingDismissal: viewModel.completedTasksPendingDismissal,
     failedTasks: viewModel.failedTasks,
     abnormalTasks: viewModel.abnormalTasks,
     runningTasks: viewModel.runningTasks,
@@ -246,6 +259,7 @@ Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
     canResume: viewModel.canResume,
     canStop: viewModel.canStop,
     canClearCurrentPlan: viewModel.canClearCurrentPlan,
+    canClearCompletedTasks: viewModel.canClearCompletedTasks,
     canRenameSelectedPlan: viewModel.canRenameSelectedPlan,
   );
 }
@@ -253,6 +267,9 @@ Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
 Object _settingsRebuildToken(ProductionQueueViewModel viewModel) {
   final selectedTask = viewModel.selectedTask;
   return (
+    selectedPlanId: viewModel.selectedPlan?.id,
+    activePlanId: viewModel.activePlan?.id,
+    canEditSelectedPlanSettings: viewModel.canEditSelectedPlanSettings,
     selectedTaskId: selectedTask?.id,
     selectedTaskUpdatedAt:
         selectedTask?.updatedAt.toUtc().microsecondsSinceEpoch,
@@ -262,6 +279,14 @@ Object _settingsRebuildToken(ProductionQueueViewModel viewModel) {
     useOriginalSampler: viewModel.useOriginalSampler,
     useOriginalSteps: viewModel.useOriginalSteps,
     useOriginalScale: viewModel.useOriginalScale,
+    useOriginalCfgRescale: viewModel.useOriginalCfgRescale,
+    useOriginalNoiseSchedule: viewModel.useOriginalNoiseSchedule,
+    useOriginalSm: viewModel.useOriginalSm,
+    useOriginalSmDyn: viewModel.useOriginalSmDyn,
+    useOriginalDynamicThresholding: viewModel.useOriginalDynamicThresholding,
+    useOriginalVarietyPlus: viewModel.useOriginalVarietyPlus,
+    useOriginalAutoPosition: viewModel.useOriginalAutoPosition,
+    useOriginalLegacyUc: viewModel.useOriginalLegacyUc,
     useOriginalSeed: viewModel.useOriginalSeed,
     batchModel: viewModel.batchModel,
     batchSampler: viewModel.batchSampler,
@@ -269,6 +294,14 @@ Object _settingsRebuildToken(ProductionQueueViewModel viewModel) {
     batchHeight: viewModel.batchHeight,
     batchSteps: viewModel.batchSteps,
     batchScale: viewModel.batchScale,
+    batchCfgRescale: viewModel.batchCfgRescale,
+    batchNoiseSchedule: viewModel.batchNoiseSchedule,
+    batchSm: viewModel.batchSm,
+    batchSmDyn: viewModel.batchSmDyn,
+    batchDynamicThresholding: viewModel.batchDynamicThresholding,
+    batchVarietyPlus: viewModel.batchVarietyPlus,
+    batchAutoPosition: viewModel.batchAutoPosition,
+    batchLegacyUc: viewModel.batchLegacyUc,
     batchSeed: viewModel.batchSeed,
     requestIntervalSeconds: viewModel.requestIntervalSeconds,
     requestIntervalRandomRangeSeconds:
@@ -282,8 +315,9 @@ Object _settingsRebuildToken(ProductionQueueViewModel viewModel) {
 
 Object _tasksRebuildToken(ProductionQueueViewModel viewModel) {
   return (
+    selectedPlanId: viewModel.selectedPlan?.id,
     selectedTaskId: viewModel.selectedTask?.id,
-    tasks: viewModel.selectedPlan?.tasks,
+    tasks: viewModel.visibleTasksForPlan(viewModel.selectedPlan),
   );
 }
 
@@ -310,6 +344,23 @@ void _showProductionSnack(BuildContext context, String message) {
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+Future<void> _clearCompletedProductionTasks(
+  BuildContext context,
+  ProductionQueueViewModel viewModel,
+) async {
+  try {
+    final count = await viewModel.clearCompletedTasks();
+    if (!context.mounted) return;
+    _showProductionSnack(
+      context,
+      count > 0 ? '已清理 $count 个已完成任务，生成结果已保留' : '暂无可清理的已完成任务',
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    _showProductionSnack(context, '清理已完成任务失败：$error');
+  }
 }
 
 Future<void> _renameProductionPlan(
@@ -367,6 +418,268 @@ Future<String?> _showProductionRenameDialog({
   );
 }
 
+Future<void> _deleteProductionPlan(
+  BuildContext context,
+  ProductionQueueViewModel viewModel,
+  ProductionPlan plan,
+) async {
+  final deleteLocalImages = await _showProductionDeleteDialog(
+    context: context,
+    plan: plan,
+  );
+  if (deleteLocalImages == null) return;
+  try {
+    final result = await viewModel.deletePlan(
+      plan.id,
+      deleteLocalImages: deleteLocalImages,
+    );
+    if (!context.mounted) return;
+    if (!result.deleted) {
+      _showProductionSnack(context, '运行中或暂停中的队列不能删除');
+      return;
+    }
+    if (result.failedImagePaths.isNotEmpty) {
+      _showProductionSnack(
+        context,
+        '队列已删除，${result.failedImagePaths.length} 个本地图片未能删除',
+      );
+      return;
+    }
+    _showProductionSnack(
+      context,
+      deleteLocalImages
+          ? '队列已删除，本地图片已清理 ${result.deletedImageCount} 张'
+          : '队列已删除，本地图片已保留',
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    _showProductionSnack(context, '删除队列失败：$error');
+  }
+}
+
+Future<bool?> _showProductionDeleteDialog({
+  required BuildContext context,
+  required ProductionPlan plan,
+}) {
+  var deleteLocalImages = false;
+  final outputCount = {
+    for (final task in plan.tasks)
+      if (task.outputImagePath?.trim().isNotEmpty == true)
+        task.outputImagePath!.trim(),
+  }.length;
+  return showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('删除队列标签'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('将删除“${plan.name}”及其 ${plan.tasks.length} 条任务记录。'),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  key: const ValueKey(
+                    'studio-production-delete-local-images',
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                  value: deleteLocalImages,
+                  onChanged: outputCount == 0
+                      ? null
+                      : (value) {
+                          setState(() {
+                            deleteLocalImages = value ?? false;
+                          });
+                        },
+                  title: Text('同时删除本地图片（$outputCount 张）'),
+                  subtitle: const Text('默认保留图片；不会删除文件夹。'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                key: const ValueKey(
+                  'studio-production-confirm-delete-plan',
+                ),
+                onPressed: () => Navigator.of(context).pop(deleteLocalImages),
+                child: const Text('删除'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+class _ProductionQueueTabs extends StatelessWidget {
+  final ProductionQueueViewModel viewModel;
+  final ValueChanged<ProductionPlan> onDeletePlan;
+
+  const _ProductionQueueTabs({
+    required this.viewModel,
+    required this.onDeletePlan,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visiblePlans = viewModel.visiblePlans;
+    if (visiblePlans.isEmpty) {
+      return Text(
+        '暂无队列',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: StudioTokens.textSecondary,
+            ),
+      );
+    }
+    return SingleChildScrollView(
+      key: const ValueKey('studio-production-plan-tabs-scroll'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        key: const ValueKey('studio-production-plan-tabs'),
+        children: [
+          for (var index = 0; index < visiblePlans.length; index++) ...[
+            if (index > 0) const SizedBox(width: 8),
+            _ProductionQueueTab(
+              plan: visiblePlans[index],
+              selected: viewModel.selectedPlan?.id == visiblePlans[index].id,
+              active: viewModel.activePlan?.id == visiblePlans[index].id,
+              paused: viewModel.isPaused &&
+                  viewModel.activePlan?.id == visiblePlans[index].id,
+              canDelete: viewModel.canDeletePlan(visiblePlans[index].id),
+              onTap: () => viewModel.selectPlan(visiblePlans[index].id),
+              onDelete: () => onDeletePlan(visiblePlans[index]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductionQueueTab extends StatelessWidget {
+  final ProductionPlan plan;
+  final bool selected;
+  final bool active;
+  final bool paused;
+  final bool canDelete;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const _ProductionQueueTab({
+    required this.plan,
+    required this.selected,
+    required this.active,
+    required this.paused,
+    required this.canDelete,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = selected
+        ? StudioTokens.primary.withValues(alpha: 0.18)
+        : StudioTokens.surface1;
+    final borderColor = active
+        ? paused
+            ? StudioTokens.warning
+            : StudioTokens.active
+        : selected
+            ? StudioTokens.primary
+            : StudioTokens.border;
+    final foreground =
+        selected ? StudioTokens.textPrimary : StudioTokens.textSecondary;
+    final shape = RoundedRectangleBorder(
+      borderRadius: StudioTokens.radiusTag,
+      side: BorderSide(color: borderColor),
+    );
+    final deleteTooltip =
+        canDelete ? '删除队列标签：${plan.name}' : '当前队列正在运行或暂停，不能删除：${plan.name}';
+    final deleteButton = IconButton(
+      key: ValueKey(
+        'studio-production-delete-plan-${plan.id}',
+      ),
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(
+        width: 28,
+        height: 28,
+      ),
+      padding: EdgeInsets.zero,
+      tooltip: deleteTooltip,
+      icon: const Icon(Icons.delete_outline, size: 16),
+      color: canDelete ? StudioTokens.textSecondary : StudioTokens.textMuted,
+      onPressed: canDelete ? onDelete : null,
+    );
+    return Material(
+      key: ValueKey('studio-production-plan-tab-${plan.id}'),
+      color: fill,
+      clipBehavior: Clip.antiAlias,
+      shape: shape,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 11,
+              right: 3,
+              top: 5,
+              bottom: 5,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  active
+                      ? paused
+                          ? Icons.pause_circle_outline
+                          : Icons.bolt
+                      : Icons.queue_outlined,
+                  size: 15,
+                  color: active ? borderColor : foreground,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    plan.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: foreground,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Semantics(
+                  button: true,
+                  enabled: canDelete,
+                  label: deleteTooltip,
+                  child: Tooltip(
+                    message: deleteTooltip,
+                    child: canDelete
+                        ? deleteButton
+                        : AbsorbPointer(child: deleteButton),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _QueueOverviewPanel extends StatelessWidget {
   final ProductionQueueViewModel viewModel;
 
@@ -375,10 +688,12 @@ class _QueueOverviewPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final plan = viewModel.selectedPlan;
+    final activePlan = viewModel.activePlan;
     final isExecuting = viewModel.isExecuting;
     final isPaused = viewModel.isPaused;
+    final isViewingActivePlan = viewModel.isViewingActivePlan;
     final isWaitingForPause = isExecuting && viewModel.pauseRequested;
-    final canContinue = isPaused || viewModel.canResume;
+    final canContinue = viewModel.canResume;
     final queueStateLabel = isWaitingForPause
         ? '暂停中'
         : isExecuting
@@ -406,7 +721,9 @@ class _QueueOverviewPanel extends StatelessWidget {
             ? viewModel.pause
             : canContinue
                 ? () => unawaited(viewModel.resume())
-                : viewModel.start;
+                : viewModel.canStartSelectedPlan
+                    ? viewModel.start
+                    : null;
     final primaryTone = isExecuting || isWaitingForPause
         ? StudioButtonTone.warning
         : StudioButtonTone.primary;
@@ -439,11 +756,11 @@ class _QueueOverviewPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  plan?.name ?? 'Deterministic Queue',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
+                child: _ProductionQueueTabs(
+                  viewModel: viewModel,
+                  onDeletePlan: (plan) => unawaited(
+                    _deleteProductionPlan(context, viewModel, plan),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -459,8 +776,29 @@ class _QueueOverviewPanel extends StatelessWidget {
               ),
             ],
           ),
+          if (!isViewingActivePlan && activePlan != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('studio-production-read-only-queue-notice'),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: StudioTokens.warning.withValues(alpha: 0.12),
+                borderRadius: StudioTokens.radiusTag,
+                border: Border.all(
+                  color: StudioTokens.warning.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Text(
+                '“${activePlan.name}”正在运行；当前仅查看“${plan?.name ?? ''}”，不会改变排队顺序。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: StudioTokens.textSecondary,
+                    ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
+            key: const ValueKey('studio-production-queue-stats-actions'),
             spacing: 8,
             runSpacing: 8,
             children: [
@@ -485,61 +823,128 @@ class _QueueOverviewPanel extends StatelessWidget {
                   icon: Icons.fingerprint,
                   label: _shortFingerprint(plan.planFingerprint),
                 ),
+              Semantics(
+                button: true,
+                enabled: viewModel.canClearCompletedTasks,
+                label: viewModel.completedTasksPendingDismissal > 0
+                    ? '清理已完成：可清理 ${viewModel.completedTasksPendingDismissal} 个任务，生成结果保留'
+                    : '清理已完成：暂无可清理任务，生成结果保留',
+                child: Tooltip(
+                  message: viewModel.completedTasksPendingDismissal > 0
+                      ? '可清理 ${viewModel.completedTasksPendingDismissal} 个已完成任务；生成结果保留'
+                      : '暂无可清理的已完成任务；生成结果保留',
+                  child: StudioButton(
+                    key: const ValueKey('studio-production-clear-completed'),
+                    icon: Icons.cleaning_services_outlined,
+                    label: '清理已完成',
+                    tone: StudioButtonTone.secondary,
+                    onPressed: viewModel.canClearCompletedTasks
+                        ? () => unawaited(
+                              _clearCompletedProductionTasks(
+                                  context, viewModel),
+                            )
+                        : null,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: StudioButton(
-                  key: const ValueKey('studio-production-start'),
-                  icon: primaryIcon,
-                  label: primaryLabel,
-                  tone: primaryTone,
-                  onPressed: primaryAction,
-                ),
-              ),
-              const SizedBox(width: 8),
-              StudioIconButton(
-                key: const ValueKey('studio-production-hard-stop'),
-                icon: Icons.stop_circle_outlined,
-                tooltip: '停止产线并从头开始',
-                onPressed: viewModel.canStop
-                    ? () => unawaited(viewModel.stop())
-                    : null,
-              ),
-              const SizedBox(width: 8),
-              StudioIconButton(
-                key: const ValueKey('studio-production-resume'),
-                icon: Icons.history,
-                tooltip: '继续',
-                onPressed: viewModel.canResume
-                    ? () => unawaited(viewModel.resume())
-                    : null,
-              ),
-              const SizedBox(width: 8),
-              StudioButton(
-                key: const ValueKey('studio-production-retry-failed'),
-                icon: Icons.refresh,
-                label: '重跑异常',
-                tone: StudioButtonTone.secondary,
-                onPressed: viewModel.hasAbnormalTasks
-                    ? () => unawaited(viewModel.rerunAbnormalTasks())
-                    : null,
-              ),
-              const SizedBox(width: 8),
-              StudioIconButton(
-                key: const ValueKey('studio-production-clear-current'),
-                icon: Icons.delete_sweep_outlined,
-                tooltip: '清空当前产线',
-                onPressed: viewModel.canClearCurrentPlan
-                    ? () => unawaited(viewModel.clearCurrentPlan())
-                    : null,
-              ),
-            ],
+          _ProductionQueueCommandRow(
+            viewModel: viewModel,
+            primaryIcon: primaryIcon,
+            primaryLabel: primaryLabel,
+            primaryTone: primaryTone,
+            primaryAction: primaryAction,
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ProductionQueueCommandRow extends StatelessWidget {
+  final ProductionQueueViewModel viewModel;
+  final IconData primaryIcon;
+  final String primaryLabel;
+  final StudioButtonTone primaryTone;
+  final VoidCallback? primaryAction;
+
+  const _ProductionQueueCommandRow({
+    required this.viewModel,
+    required this.primaryIcon,
+    required this.primaryLabel,
+    required this.primaryTone,
+    required this.primaryAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryButton = StudioButton(
+      key: const ValueKey('studio-production-start'),
+      icon: primaryIcon,
+      label: primaryLabel,
+      tone: primaryTone,
+      onPressed: primaryAction,
+    );
+    final secondaryCommands = <Widget>[
+      StudioIconButton(
+        key: const ValueKey('studio-production-hard-stop'),
+        icon: Icons.stop_circle_outlined,
+        tooltip: '停止产线并从头开始',
+        onPressed: viewModel.canStop ? () => unawaited(viewModel.stop()) : null,
+      ),
+      StudioIconButton(
+        key: const ValueKey('studio-production-resume'),
+        icon: Icons.history,
+        tooltip: '继续',
+        onPressed:
+            viewModel.canResume ? () => unawaited(viewModel.resume()) : null,
+      ),
+      StudioButton(
+        key: const ValueKey('studio-production-retry-failed'),
+        icon: Icons.refresh,
+        label: '重跑异常',
+        tone: StudioButtonTone.secondary,
+        onPressed: viewModel.activePlan == null && viewModel.hasAbnormalTasks
+            ? () => unawaited(viewModel.rerunAbnormalTasks())
+            : null,
+      ),
+      StudioIconButton(
+        key: const ValueKey('studio-production-clear-current'),
+        icon: Icons.delete_sweep_outlined,
+        tooltip: '清空当前产线',
+        onPressed: viewModel.canClearCurrentPlan
+            ? () => unawaited(viewModel.clearCurrentPlan())
+            : null,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 640) {
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              SizedBox(
+                width: constraints.maxWidth,
+                child: primaryButton,
+              ),
+              ...secondaryCommands,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: primaryButton),
+            for (final command in secondaryCommands) ...[
+              const SizedBox(width: 8),
+              command,
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -564,6 +969,13 @@ class _ExecutionSettingsPanel extends StatelessWidget {
             icon: Icons.tune,
             title: '执行设置',
           ),
+          if (!viewModel.canEditSelectedPlanSettings) ...[
+            const SizedBox(height: 10),
+            const StudioChip(
+              icon: Icons.lock_outline,
+              label: '其他队列正在运行，当前设置为只读',
+            ),
+          ],
           const SizedBox(height: 12),
           _BatchGenerationParameterEditor(
             viewModel: viewModel,
@@ -625,8 +1037,11 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const canEdit = true;
+    final canEdit = viewModel.canEditSelectedPlanSettings;
     final samplerOptions = _samplerOptionsForModel(generationSettings.model);
+    final noiseScheduleOptions =
+        _noiseScheduleOptionsForModel(generationSettings.model);
+    final isV4 = generationSettings.model.contains('diffusion-4');
     return LayoutBuilder(
       builder: (context, constraints) {
         final tileWidth = constraints.maxWidth >= 760
@@ -634,157 +1049,362 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
             : constraints.maxWidth >= 520
                 ? (constraints.maxWidth - 16) / 2
                 : constraints.maxWidth;
-        return Wrap(
-          spacing: 16,
-          runSpacing: 10,
+        final advancedTileWidth = constraints.maxWidth >= 1180
+            ? (constraints.maxWidth - 32) / 3
+            : constraints.maxWidth >= 620
+                ? (constraints.maxWidth - 16) / 2
+                : constraints.maxWidth;
+        final coreTiles = <Widget>[
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.memory_outlined,
+            label: '模型',
+            tooltip: _modelTooltip,
+            useOriginal: viewModel.useOriginalModel,
+            switchKey: const ValueKey('studio-production-model-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalModel,
+            child: _BatchSettingSelectField(
+              key: const ValueKey('studio-production-model-select'),
+              value: viewModel.useOriginalModel
+                  ? generationSettings.model
+                  : viewModel.batchModel,
+              label: 'model',
+              options: models,
+              enabled: canEdit && !viewModel.useOriginalModel,
+              onChanged: viewModel.setBatchModel,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.photo_size_select_large_outlined,
+            label: '尺寸',
+            tooltip: _sizeTooltip,
+            useOriginal: viewModel.useOriginalSize,
+            switchKey: const ValueKey('studio-production-size-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSize,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _BatchSettingTextField(
+                    key: const ValueKey('studio-production-width-input'),
+                    value: _formatNullableInt(
+                      viewModel.useOriginalSize
+                          ? generationSettings.width
+                          : viewModel.batchWidth,
+                    ),
+                    label: 'width',
+                    enabled: canEdit && !viewModel.useOriginalSize,
+                    keyboardType: TextInputType.number,
+                    onChanged: viewModel.setBatchWidthText,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _BatchSettingTextField(
+                    key: const ValueKey('studio-production-height-input'),
+                    value: _formatNullableInt(
+                      viewModel.useOriginalSize
+                          ? generationSettings.height
+                          : viewModel.batchHeight,
+                    ),
+                    label: 'height',
+                    enabled: canEdit && !viewModel.useOriginalSize,
+                    keyboardType: TextInputType.number,
+                    onChanged: viewModel.setBatchHeightText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.grain_outlined,
+            label: '采样',
+            tooltip: _samplerTooltip,
+            useOriginal: viewModel.useOriginalSampler,
+            switchKey: const ValueKey('studio-production-sampler-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSampler,
+            child: _BatchSettingSelectField(
+              key: const ValueKey('studio-production-sampler-select'),
+              value: viewModel.useOriginalSampler
+                  ? generationSettings.sampler
+                  : viewModel.batchSampler,
+              label: 'sampler',
+              options: samplerOptions,
+              enabled: canEdit && !viewModel.useOriginalSampler,
+              onChanged: viewModel.setBatchSampler,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.motion_photos_auto_outlined,
+            label: '步数',
+            tooltip: _stepsTooltip,
+            useOriginal: viewModel.useOriginalSteps,
+            switchKey: const ValueKey('studio-production-steps-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSteps,
+            child: _BatchSettingTextField(
+              key: const ValueKey('studio-production-steps-input'),
+              value: _formatNullableInt(
+                viewModel.useOriginalSteps
+                    ? generationSettings.steps
+                    : viewModel.batchSteps,
+              ),
+              label: 'steps',
+              enabled: canEdit && !viewModel.useOriginalSteps,
+              keyboardType: TextInputType.number,
+              onChanged: viewModel.setBatchStepsText,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.exposure_outlined,
+            label: 'CFG',
+            tooltip: _cfgTooltip,
+            useOriginal: viewModel.useOriginalScale,
+            switchKey: const ValueKey('studio-production-scale-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalScale,
+            child: _BatchSettingTextField(
+              key: const ValueKey('studio-production-scale-input'),
+              value: _formatNullableDouble(
+                viewModel.useOriginalScale
+                    ? generationSettings.scale
+                    : viewModel.batchScale,
+              ),
+              label: 'scale',
+              enabled: canEdit && !viewModel.useOriginalScale,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: viewModel.setBatchScaleText,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.tonality_outlined,
+            label: 'CFG Rescale',
+            tooltip: _cfgRescaleTooltip,
+            useOriginal: viewModel.useOriginalCfgRescale,
+            switchKey: const ValueKey(
+              'studio-production-cfg-rescale-use-original',
+            ),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalCfgRescale,
+            child: _BatchSettingTextField(
+              key: const ValueKey('studio-production-cfg-rescale-input'),
+              value: _formatNullableDouble(
+                viewModel.useOriginalCfgRescale
+                    ? generationSettings.cfgRescale
+                    : viewModel.batchCfgRescale,
+              ),
+              label: '0.0~1.0',
+              enabled: canEdit && !viewModel.useOriginalCfgRescale,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: viewModel.setBatchCfgRescaleText,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.waves_outlined,
+            label: '噪声调度',
+            tooltip: _noiseScheduleTooltip,
+            useOriginal: viewModel.useOriginalNoiseSchedule,
+            switchKey: const ValueKey(
+              'studio-production-noise-schedule-use-original',
+            ),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalNoiseSchedule,
+            child: _BatchSettingSelectField(
+              key: const ValueKey(
+                'studio-production-noise-schedule-select',
+              ),
+              value: viewModel.useOriginalNoiseSchedule
+                  ? generationSettings.noiseSchedule
+                  : viewModel.batchNoiseSchedule,
+              label: 'schedule',
+              options: noiseScheduleOptions,
+              enabled: canEdit && !viewModel.useOriginalNoiseSchedule,
+              onChanged: viewModel.setBatchNoiseSchedule,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: tileWidth,
+            icon: Icons.casino_outlined,
+            label: 'Seed',
+            tooltip: _seedTooltip,
+            useOriginal: viewModel.useOriginalSeed,
+            switchKey: const ValueKey('studio-production-seed-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSeed,
+            child: _BatchSettingTextField(
+              key: const ValueKey('studio-production-seed-input'),
+              value: _formatNullableInt(
+                viewModel.useOriginalSeed
+                    ? generationSettings.seed
+                    : viewModel.batchSeed,
+              ),
+              label: 'seed (-1=random)',
+              enabled: canEdit && !viewModel.useOriginalSeed,
+              keyboardType: const TextInputType.numberWithOptions(
+                signed: true,
+              ),
+              onChanged: viewModel.setBatchSeedText,
+            ),
+          ),
+        ];
+        final advancedTiles = <Widget>[
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.auto_fix_high_outlined,
+            label: 'SMEA',
+            tooltip: _smeaTooltip,
+            useOriginal: viewModel.useOriginalSm,
+            switchKey: const ValueKey('studio-production-sm-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSm,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey('studio-production-sm-switch'),
+              value: (viewModel.useOriginalSm
+                      ? generationSettings.sm
+                      : viewModel.batchSm) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalSm && !isV4,
+              onChanged: viewModel.setBatchSm,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.auto_awesome_motion_outlined,
+            label: 'SMEA DYN',
+            tooltip: _smeaDynTooltip,
+            useOriginal: viewModel.useOriginalSmDyn,
+            switchKey: const ValueKey('studio-production-sm-dyn-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalSmDyn,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey('studio-production-sm-dyn-switch'),
+              value: (viewModel.useOriginalSmDyn
+                      ? generationSettings.smDyn
+                      : viewModel.batchSmDyn) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalSmDyn && !isV4,
+              onChanged: viewModel.setBatchSmDyn,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.dynamic_form_outlined,
+            label: '动态阈值',
+            tooltip: _dynamicThresholdingTooltip,
+            useOriginal: viewModel.useOriginalDynamicThresholding,
+            switchKey: const ValueKey(
+              'studio-production-dynamic-thresholding-use-original',
+            ),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalDynamicThresholding,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey(
+                'studio-production-dynamic-thresholding-switch',
+              ),
+              value: (viewModel.useOriginalDynamicThresholding
+                      ? generationSettings.dynamicThresholding
+                      : viewModel.batchDynamicThresholding) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalDynamicThresholding,
+              onChanged: viewModel.setBatchDynamicThresholding,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.shuffle_outlined,
+            label: 'Variety+',
+            tooltip: _varietyPlusTooltip,
+            useOriginal: viewModel.useOriginalVarietyPlus,
+            switchKey: const ValueKey('studio-production-variety-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalVarietyPlus,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey('studio-production-variety-switch'),
+              value: (viewModel.useOriginalVarietyPlus
+                      ? generationSettings.varietyPlus
+                      : viewModel.batchVarietyPlus) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalVarietyPlus,
+              onChanged: viewModel.setBatchVarietyPlus,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.location_searching_outlined,
+            label: '自动位置',
+            tooltip: _autoPositionTooltip,
+            useOriginal: viewModel.useOriginalAutoPosition,
+            switchKey: const ValueKey(
+              'studio-production-auto-position-use-original',
+            ),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalAutoPosition,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey('studio-production-auto-position-switch'),
+              value: (viewModel.useOriginalAutoPosition
+                      ? generationSettings.autoPosition
+                      : viewModel.batchAutoPosition) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalAutoPosition && isV4,
+              onChanged: viewModel.setBatchAutoPosition,
+            ),
+          ),
+          _GenerationParameterTile(
+            width: advancedTileWidth,
+            icon: Icons.history_toggle_off_outlined,
+            label: 'Legacy UC',
+            tooltip: _legacyUcTooltip,
+            useOriginal: viewModel.useOriginalLegacyUc,
+            switchKey:
+                const ValueKey('studio-production-legacy-uc-use-original'),
+            canChange: canEdit,
+            onUseOriginalChanged: viewModel.setUseOriginalLegacyUc,
+            child: _BatchSettingSwitchField(
+              key: const ValueKey('studio-production-legacy-uc-switch'),
+              value: (viewModel.useOriginalLegacyUc
+                      ? generationSettings.legacyUc
+                      : viewModel.batchLegacyUc) ??
+                  false,
+              enabled: canEdit && !viewModel.useOriginalLegacyUc,
+              onChanged: viewModel.setBatchLegacyUc,
+            ),
+          ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.memory_outlined,
-              label: '模型',
-              useOriginal: viewModel.useOriginalModel,
-              switchKey: const ValueKey('studio-production-model-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalModel,
-              child: _BatchSettingSelectField(
-                key: const ValueKey('studio-production-model-select'),
-                value: viewModel.useOriginalModel
-                    ? generationSettings.model
-                    : viewModel.batchModel,
-                label: 'model',
-                options: models,
-                enabled: canEdit && !viewModel.useOriginalModel,
-                onChanged: viewModel.setBatchModel,
-              ),
-            ),
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.photo_size_select_large_outlined,
-              label: '尺寸',
-              useOriginal: viewModel.useOriginalSize,
-              switchKey: const ValueKey('studio-production-size-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalSize,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _BatchSettingTextField(
-                      key: const ValueKey('studio-production-width-input'),
-                      value: _formatNullableInt(
-                        viewModel.useOriginalSize
-                            ? generationSettings.width
-                            : viewModel.batchWidth,
-                      ),
-                      label: 'width',
-                      enabled: canEdit && !viewModel.useOriginalSize,
-                      keyboardType: TextInputType.number,
-                      onChanged: viewModel.setBatchWidthText,
-                    ),
+            const _BatchParameterGroupLabel(label: '核心生成参数'),
+            const SizedBox(height: 8),
+            Wrap(spacing: 16, runSpacing: 10, children: coreTiles),
+            const SizedBox(height: 12),
+            ExpansionTile(
+              key: const ValueKey('studio-production-advanced-expansion'),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(top: 8),
+              title: const _BatchParameterGroupLabel(label: '高级生成参数'),
+              subtitle: const Text('SMEA、动态阈值、Variety+、角色位置与 Legacy UC'),
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 10,
+                    children: advancedTiles,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _BatchSettingTextField(
-                      key: const ValueKey('studio-production-height-input'),
-                      value: _formatNullableInt(
-                        viewModel.useOriginalSize
-                            ? generationSettings.height
-                            : viewModel.batchHeight,
-                      ),
-                      label: 'height',
-                      enabled: canEdit && !viewModel.useOriginalSize,
-                      keyboardType: TextInputType.number,
-                      onChanged: viewModel.setBatchHeightText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.grain_outlined,
-              label: '采样',
-              useOriginal: viewModel.useOriginalSampler,
-              switchKey:
-                  const ValueKey('studio-production-sampler-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalSampler,
-              child: _BatchSettingSelectField(
-                key: const ValueKey('studio-production-sampler-select'),
-                value: viewModel.useOriginalSampler
-                    ? generationSettings.sampler
-                    : viewModel.batchSampler,
-                label: 'sampler',
-                options: samplerOptions,
-                enabled: canEdit && !viewModel.useOriginalSampler,
-                onChanged: viewModel.setBatchSampler,
-              ),
-            ),
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.motion_photos_auto_outlined,
-              label: '步数',
-              useOriginal: viewModel.useOriginalSteps,
-              switchKey: const ValueKey('studio-production-steps-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalSteps,
-              child: _BatchSettingTextField(
-                key: const ValueKey('studio-production-steps-input'),
-                value: _formatNullableInt(
-                  viewModel.useOriginalSteps
-                      ? generationSettings.steps
-                      : viewModel.batchSteps,
                 ),
-                label: 'steps',
-                enabled: canEdit && !viewModel.useOriginalSteps,
-                keyboardType: TextInputType.number,
-                onChanged: viewModel.setBatchStepsText,
-              ),
-            ),
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.exposure_outlined,
-              label: 'CFG',
-              useOriginal: viewModel.useOriginalScale,
-              switchKey: const ValueKey('studio-production-scale-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalScale,
-              child: _BatchSettingTextField(
-                key: const ValueKey('studio-production-scale-input'),
-                value: _formatNullableDouble(
-                  viewModel.useOriginalScale
-                      ? generationSettings.scale
-                      : viewModel.batchScale,
-                ),
-                label: 'scale',
-                enabled: canEdit && !viewModel.useOriginalScale,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                onChanged: viewModel.setBatchScaleText,
-              ),
-            ),
-            _GenerationParameterTile(
-              width: tileWidth,
-              icon: Icons.casino_outlined,
-              label: 'Seed',
-              useOriginal: viewModel.useOriginalSeed,
-              switchKey: const ValueKey('studio-production-seed-use-original'),
-              canChange: canEdit,
-              onUseOriginalChanged: viewModel.setUseOriginalSeed,
-              child: _BatchSettingTextField(
-                key: const ValueKey('studio-production-seed-input'),
-                value: _formatNullableInt(
-                  viewModel.useOriginalSeed
-                      ? generationSettings.seed
-                      : viewModel.batchSeed,
-                ),
-                label: 'seed (-1=random)',
-                enabled: canEdit && !viewModel.useOriginalSeed,
-                keyboardType: const TextInputType.numberWithOptions(
-                  signed: true,
-                ),
-                onChanged: viewModel.setBatchSeedText,
-              ),
+              ],
             ),
           ],
         );
@@ -800,7 +1420,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const canEdit = true;
+    final canEdit = viewModel.canEditSelectedPlanSettings;
     return LayoutBuilder(
       builder: (context, constraints) {
         final tileWidth = constraints.maxWidth >= 960
@@ -818,6 +1438,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
               width: tileWidth,
               icon: Icons.timer_outlined,
               label: '间隔',
+              tooltip: _intervalTooltip,
               child: _BatchSettingTextField(
                 key: const ValueKey('studio-production-interval-input'),
                 value: viewModel.requestIntervalSeconds.toString(),
@@ -831,6 +1452,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
               width: tileWidth,
               icon: Icons.shuffle,
               label: '随机范围',
+              tooltip: _randomIntervalTooltip,
               child: _BatchSettingTextField(
                 key: const ValueKey(
                   'studio-production-random-interval-input',
@@ -846,6 +1468,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
               width: tileWidth,
               icon: Icons.replay_circle_filled_outlined,
               label: '重试',
+              tooltip: _retryTooltip,
               child: _BatchRetrySettingField(
                 value: viewModel.retryCount.toString(),
                 retryOn429DelayValue:
@@ -862,6 +1485,7 @@ class _BatchRuntimeSettingsEditor extends StatelessWidget {
               width: tileWidth,
               icon: Icons.folder_outlined,
               label: '输出',
+              tooltip: _outputTooltip,
               child: _BatchOutputDirectoryField(
                 value: viewModel.outputDirectory,
                 enabled: canEdit,
@@ -881,12 +1505,14 @@ class _RuntimeSettingTile extends StatelessWidget {
   final double width;
   final IconData icon;
   final String label;
+  final String tooltip;
   final Widget child;
 
   const _RuntimeSettingTile({
     required this.width,
     required this.icon,
     required this.label,
+    required this.tooltip,
     required this.child,
   });
 
@@ -904,19 +1530,13 @@ class _RuntimeSettingTile extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: StudioTokens.textSecondary),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 46,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
+              _BatchHelpIcon(
+                icon: icon,
+                tooltip: tooltip,
+                color: StudioTokens.textSecondary,
               ),
+              const SizedBox(width: 8),
+              _BatchTermLabel(label: label),
               const SizedBox(width: 8),
               Expanded(child: child),
             ],
@@ -931,6 +1551,7 @@ class _GenerationParameterTile extends StatelessWidget {
   final double width;
   final IconData icon;
   final String label;
+  final String tooltip;
   final bool useOriginal;
   final Key switchKey;
   final bool canChange;
@@ -941,6 +1562,7 @@ class _GenerationParameterTile extends StatelessWidget {
     required this.width,
     required this.icon,
     required this.label,
+    required this.tooltip,
     required this.useOriginal,
     required this.switchKey,
     required this.canChange,
@@ -962,23 +1584,13 @@ class _GenerationParameterTile extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 18,
+              _BatchHelpIcon(
+                icon: icon,
+                tooltip: tooltip,
                 color: useOriginal ? StudioTokens.warning : StudioTokens.active,
               ),
               const SizedBox(width: 8),
-              SizedBox(
-                width: 46,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-              ),
+              _BatchTermLabel(label: label),
               const SizedBox(width: 8),
               Expanded(child: child),
               const SizedBox(width: 8),
@@ -1029,6 +1641,122 @@ class _GenerationParameterTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _BatchParameterGroupLabel extends StatelessWidget {
+  final String label;
+
+  const _BatchParameterGroupLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: StudioTokens.textSecondary,
+            fontWeight: FontWeight.w800,
+          ),
+    );
+  }
+}
+
+class _BatchTermLabel extends StatelessWidget {
+  final String label;
+
+  const _BatchTermLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 46,
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+    );
+  }
+}
+
+class _BatchHelpIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+
+  const _BatchHelpIcon({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const Positioned(
+              right: -3,
+              top: -5,
+              child: Icon(
+                Icons.priority_high_rounded,
+                size: 11,
+                color: StudioTokens.warning,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BatchSettingSwitchField extends StatelessWidget {
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _BatchSettingSwitchField({
+    super.key,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Flexible(
+          child: Text(
+            value ? '开启' : '关闭',
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: enabled
+                      ? StudioTokens.textPrimary
+                      : StudioTokens.textMuted,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        Switch(
+          value: value,
+          onChanged: enabled ? onChanged : null,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ],
     );
   }
 }
@@ -1264,6 +1992,14 @@ class _BatchGenerationSettings {
   final int? height;
   final int? steps;
   final double? scale;
+  final double? cfgRescale;
+  final String noiseSchedule;
+  final bool? sm;
+  final bool? smDyn;
+  final bool? dynamicThresholding;
+  final bool? varietyPlus;
+  final bool? autoPosition;
+  final bool? legacyUc;
   final int? seed;
 
   const _BatchGenerationSettings({
@@ -1273,6 +2009,14 @@ class _BatchGenerationSettings {
     required this.height,
     required this.steps,
     required this.scale,
+    required this.cfgRescale,
+    required this.noiseSchedule,
+    required this.sm,
+    required this.smDyn,
+    required this.dynamicThresholding,
+    required this.varietyPlus,
+    required this.autoPosition,
+    required this.legacyUc,
     required this.seed,
   });
 
@@ -1286,6 +2030,9 @@ class _BatchGenerationSettings {
             : viewModel.selectedPlan!.tasks.first);
     final payload = task?.payload ?? const <String, dynamic>{};
     final parameters = _mapValue(payload['parameters']);
+    final v4Prompt = _mapValue(parameters['v4_prompt']);
+    final v4NegativePrompt = _mapValue(parameters['v4_negative_prompt']);
+    final originalUseCoords = _boolValue(v4Prompt['use_coords']);
     final original = _BatchGenerationSettings(
       model: _stringValue(payload['model']) ??
           _stringValue(parameters['model']) ??
@@ -1305,6 +2052,30 @@ class _BatchGenerationSettings {
       scale: _doubleValue(parameters['scale']) ??
           _doubleValue(payload['scale']) ??
           settings.scale,
+      cfgRescale: _doubleValue(parameters['cfg_rescale']) ??
+          _doubleValue(payload['cfg_rescale']) ??
+          settings.cfgRescale,
+      noiseSchedule: _stringValue(parameters['noise_schedule']) ??
+          _stringValue(payload['noise_schedule']) ??
+          settings.noiseSchedule,
+      sm: _boolValue(parameters['sm']) ??
+          _boolValue(payload['sm']) ??
+          settings.sm,
+      smDyn: _boolValue(parameters['sm_dyn']) ??
+          _boolValue(payload['sm_dyn']) ??
+          settings.smDyn,
+      dynamicThresholding: _boolValue(parameters['dynamic_thresholding']) ??
+          _boolValue(payload['dynamic_thresholding']) ??
+          settings.dynamicThresholding,
+      varietyPlus: parameters.containsKey('skip_cfg_above_sigma')
+          ? parameters['skip_cfg_above_sigma'] != null
+          : settings.varietyPlus,
+      autoPosition: originalUseCoords == null
+          ? settings.autoPosition
+          : !originalUseCoords,
+      legacyUc: _boolValue(v4NegativePrompt['legacy_uc']) ??
+          _boolValue(parameters['legacy_uc']) ??
+          settings.legacyUc,
       seed: _intValue(parameters['seed']) ??
           _intValue(payload['seed']) ??
           settings.seed,
@@ -1319,6 +2090,26 @@ class _BatchGenerationSettings {
           viewModel.useOriginalSize ? original.height : viewModel.batchHeight,
       steps: viewModel.useOriginalSteps ? original.steps : viewModel.batchSteps,
       scale: viewModel.useOriginalScale ? original.scale : viewModel.batchScale,
+      cfgRescale: viewModel.useOriginalCfgRescale
+          ? original.cfgRescale
+          : viewModel.batchCfgRescale,
+      noiseSchedule: viewModel.useOriginalNoiseSchedule
+          ? original.noiseSchedule
+          : viewModel.batchNoiseSchedule,
+      sm: viewModel.useOriginalSm ? original.sm : viewModel.batchSm,
+      smDyn: viewModel.useOriginalSmDyn ? original.smDyn : viewModel.batchSmDyn,
+      dynamicThresholding: viewModel.useOriginalDynamicThresholding
+          ? original.dynamicThresholding
+          : viewModel.batchDynamicThresholding,
+      varietyPlus: viewModel.useOriginalVarietyPlus
+          ? original.varietyPlus
+          : viewModel.batchVarietyPlus,
+      autoPosition: viewModel.useOriginalAutoPosition
+          ? original.autoPosition
+          : viewModel.batchAutoPosition,
+      legacyUc: viewModel.useOriginalLegacyUc
+          ? original.legacyUc
+          : viewModel.batchLegacyUc,
       seed: viewModel.useOriginalSeed ? original.seed : viewModel.batchSeed,
     );
   }
@@ -1410,7 +2201,7 @@ class _TaskListPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tasks = viewModel.selectedPlan?.tasks ?? const <ProductionTask>[];
+    final tasks = viewModel.visibleTasksForPlan(viewModel.selectedPlan);
     final groups = _productionTaskGroups(tasks);
     return StudioPanel(
       key: const ValueKey('studio-production-task-list-panel'),
@@ -1591,7 +2382,7 @@ class _ProductionResultsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tasks = viewModel.selectedPlan?.tasks ?? const <ProductionTask>[];
+    final tasks = viewModel.visibleTasksForPlan(viewModel.selectedPlan);
     final selectedTask = viewModel.selectedTask;
     return StudioPanel(
       key: const ValueKey('studio-production-payload-panel'),
@@ -3158,6 +3949,17 @@ String? _stringValue(Object? value) {
   return null;
 }
 
+bool? _boolValue(Object? value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1') return true;
+    if (normalized == 'false' || normalized == '0') return false;
+  }
+  return null;
+}
+
 int? _intValue(Object? value) {
   if (value is int) return value;
   if (value is num) return value.round();
@@ -3197,6 +3999,35 @@ List<String> _samplerOptionsForModel(String model) {
   if (model.contains('diffusion-4')) return samplersV4;
   return samplers;
 }
+
+List<String> _noiseScheduleOptionsForModel(String model) {
+  if (model.contains('diffusion-4')) return noiseSchedulesV4;
+  return noiseSchedules;
+}
+
+const _modelTooltip = '选择 NovelAI 的生成模型。不同模型支持的采样器和高级参数不同，切换模型会同步整理不兼容参数。';
+const _sizeTooltip = '设置输出图像的宽度和高度。更大的尺寸通常需要更长生成时间，并会改变构图空间。';
+const _samplerTooltip = '采样器决定模型逐步去噪的算法，会影响画面风格、细节、稳定性以及与噪声调度的组合效果。';
+const _stepsTooltip = 'Steps 是去噪迭代次数。更多步数通常带来更充分的细化，但并非越高越好，也会增加生成时间。';
+const _cfgTooltip =
+    'CFG（Prompt Guidance）控制画面遵循提示词的强度。数值越高越贴近提示词，但过高可能带来过饱和、对比失衡或伪影。';
+const _cfgRescaleTooltip = 'CFG Rescale 用于缓和较高 CFG 引起的过曝和色彩失真，同时尽量保留提示词引导。';
+const _noiseScheduleTooltip =
+    '噪声调度决定各个 Steps 如何分配去噪强度，会影响构图形成和细节收敛；部分模型不支持 native。';
+const _seedTooltip =
+    'Seed 是初始随机噪声。相同模型、参数、提示词和 Seed 有助于复现结果；-1 会让每个任务使用随机 Seed。';
+const _smeaTooltip = 'SMEA 是 V3 模型的采样增强选项，用于改善部分尺寸下的构图与细节；V4 模型会忽略它。';
+const _smeaDynTooltip = 'SMEA DYN 是动态版 SMEA，仅适用于 V3；它会进一步改变采样过程和构图表现。';
+const _dynamicThresholdingTooltip =
+    '动态阈值会限制去噪过程中的极端响应，常用于减轻高引导强度下的过曝、颜色失控和细节崩坏。';
+const _varietyPlusTooltip =
+    'Variety+ 会在采样前段降低 CFG 的约束，让同一提示词产生更丰富的构图变化；批量执行会按当前尺寸计算配套阈值。';
+const _autoPositionTooltip = '自动位置让 V4 模型自行安排角色提示词的位置，而不是使用固定坐标；V3 模型不使用此选项。';
+const _legacyUcTooltip = 'Legacy UC 使用旧版负面提示词解释方式，主要用于复现旧参数或兼容旧作品。';
+const _intervalTooltip = '每个请求完成后等待的基础秒数，可用于控制请求节奏。';
+const _randomIntervalTooltip = '在基础间隔上额外加入 0 到设定秒数的随机等待，避免请求节奏完全固定。';
+const _retryTooltip = '任务请求失败时的重试策略；遇到 HTTP 429 时会使用单独的重跑间隔。';
+const _outputTooltip = '生成图片和相关结果写入的本地目录。留空时由执行环境决定默认位置。';
 
 String _shortFingerprint(String fingerprint) {
   if (fingerprint.length <= 8) return fingerprint;

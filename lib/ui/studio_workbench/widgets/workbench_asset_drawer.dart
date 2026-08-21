@@ -43,6 +43,8 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
   void initState() {
     super.initState();
     _summaryFuture = widget.catalogService.loadSummary();
+    widget.catalogService.workspaceService.artistChainRevision
+        .addListener(_handleArtistChainsChanged);
     _searchController.addListener(_updateSearchQuery);
     _loadFavoriteKeys();
   }
@@ -51,6 +53,10 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
   void didUpdateWidget(covariant WorkbenchAssetDrawer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.catalogService != widget.catalogService) {
+      oldWidget.catalogService.workspaceService.artistChainRevision
+          .removeListener(_handleArtistChainsChanged);
+      widget.catalogService.workspaceService.artistChainRevision
+          .addListener(_handleArtistChainsChanged);
       _summaryFuture = widget.catalogService.loadSummary();
       _selectedCategory = null;
       _detailFuture = null;
@@ -64,9 +70,22 @@ class _WorkbenchAssetDrawerState extends State<WorkbenchAssetDrawer> {
 
   @override
   void dispose() {
+    widget.catalogService.workspaceService.artistChainRevision
+        .removeListener(_handleArtistChainsChanged);
     _searchController.removeListener(_updateSearchQuery);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _handleArtistChainsChanged() {
+    if (!mounted) return;
+    setState(() {
+      _summaryFuture = widget.catalogService.loadSummary();
+      final selectedCategory = _selectedCategory;
+      if (selectedCategory != null) {
+        _detailFuture = _loadCategoryItems(selectedCategory);
+      }
+    });
   }
 
   @override

@@ -219,6 +219,7 @@ void main() {
         updatedAt: DateTime.utc(2026, 6, 3),
         mapping: RecastMapping.defaults('script'),
         aiRoleExtractionDraftCollapsed: true,
+        aiRoleExtractionFinalized: true,
         aiRoleExtraction: const ScriptAiRoleExtraction(
           status: ScriptAiRoleExtractionStatus.ready,
           confidence: 0.9,
@@ -229,7 +230,9 @@ void main() {
       final restored = RecastScriptCache.fromJson(json);
 
       expect(json['aiRoleExtractionDraftCollapsed'], isTrue);
+      expect(json['aiRoleExtractionFinalized'], isTrue);
       expect(restored.aiRoleExtractionDraftCollapsed, isTrue);
+      expect(restored.aiRoleExtractionFinalized, isTrue);
     });
 
     test('script cache persists AI role extraction chunk checkpoints', () {

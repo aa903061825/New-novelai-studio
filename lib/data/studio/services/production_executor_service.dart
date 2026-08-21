@@ -93,7 +93,8 @@ class ProductionExecutorService {
       requestIntervalRandomRange: requestIntervalRandomRange,
       retryOn429Delay: retryOn429Delay,
       onTaskUpdate: onTaskUpdate,
-      shouldRun: (task) => task.status == ProductionTaskStatus.queued,
+      shouldRun: (task) =>
+          !task.isQueueDismissed && task.status == ProductionTaskStatus.queued,
       shouldContinue: shouldContinue,
       shouldAcceptResult: shouldAcceptResult,
     );
@@ -116,7 +117,8 @@ class ProductionExecutorService {
       requestIntervalRandomRange: Duration.zero,
       retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
-      shouldRun: (task) => task.status == ProductionTaskStatus.failed,
+      shouldRun: (task) =>
+          !task.isQueueDismissed && task.status == ProductionTaskStatus.failed,
     );
     await _saveUpdatedPlan(plans, result.plan);
     return result.plan;
@@ -132,7 +134,12 @@ class ProductionExecutorService {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, planId);
     final result = await _runMatchingTasks(
-      plan,
+      _prepareExplicitRerunPlan(
+        plan,
+        (task) =>
+            task.taskType == ProductionTaskType.scriptRecastFrame &&
+            task.source.frameIndex == frameIndex,
+      ),
       maxRetries: maxRetries,
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
@@ -157,7 +164,7 @@ class ProductionExecutorService {
     final plans = await _loadPlans();
     final plan = _findPlan(plans, planId);
     final result = await _runMatchingTasks(
-      plan,
+      _prepareExplicitRerunPlan(plan, (task) => task.id == taskId),
       maxRetries: maxRetries,
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
@@ -181,7 +188,7 @@ class ProductionExecutorService {
     ProductionShouldContinue? shouldAcceptResult,
   }) {
     return _runMatchingTasks(
-      plan,
+      _prepareExplicitRerunPlan(plan, (task) => task.id == taskId),
       maxRetries: maxRetries,
       retryIndefinitely: retryIndefinitely,
       requestInterval: Duration.zero,
@@ -211,7 +218,9 @@ class ProductionExecutorService {
       requestIntervalRandomRange: Duration.zero,
       retryOn429Delay: retryOn429Delay,
       onTaskUpdate: onTaskUpdate,
-      shouldRun: _isAbnormalTask,
+      // Queue-dismissed rows remain in the plan for Script Exhibition, but
+      // must never be picked up by an abnormal-task retry.
+      shouldRun: (task) => !task.isQueueDismissed && _isAbnormalTask(task),
       shouldContinue: shouldContinue,
       shouldAcceptResult: shouldAcceptResult,
     );
@@ -250,7 +259,8 @@ class ProductionExecutorService {
       requestIntervalRandomRange: Duration.zero,
       retryOn429Delay: retryOn429Delay,
       onTaskUpdate: null,
-      shouldRun: (task) => task.status == ProductionTaskStatus.queued,
+      shouldRun: (task) =>
+          !task.isQueueDismissed && task.status == ProductionTaskStatus.queued,
     );
     await _saveUpdatedPlan(plans, result.plan);
     return result.plan;
@@ -434,6 +444,29 @@ class ProductionExecutorService {
         : configuredSeed;
     final payload = _payloadWithSeed(task.payload, seed);
     return task.copyWith(payload: payload);
+  }
+
+  ProductionPlan _prepareExplicitRerunPlan(
+    ProductionPlan plan,
+    bool Function(ProductionTask task) matches,
+  ) {
+    var changed = false;
+    final tasks = [
+      for (final task in plan.tasks)
+        if (matches(task) && task.isQueueDismissed)
+          task.copyWith(clearQueueDismissedAt: true)
+        else
+          task,
+    ];
+    for (var index = 0; index < tasks.length; index += 1) {
+      if (!identical(tasks[index], plan.tasks[index])) {
+        changed = true;
+        break;
+      }
+    }
+    return changed
+        ? plan.copyWith(tasks: tasks, planFingerprint: plan.planFingerprint)
+        : plan;
   }
 
   Future<List<ProductionPlan>> _loadPlans() {

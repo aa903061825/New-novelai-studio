@@ -2408,7 +2408,7 @@ void main() {
     expect(headerSize.width, greaterThan(1700));
   });
 
-  testWidgets('changes script shelf sort from the room sort menu', (
+  testWidgets('selects, prioritizes, and removes multiple script sort rules', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1320, 980);
@@ -2456,19 +2456,15 @@ void main() {
       find.byKey(const ValueKey('script-exhibition-script-sort-menu')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-script-sort-title')),
+    expect(
+      find.byKey(const ValueKey('script-exhibition-script-sort-dialog')),
+      findsOneWidget,
     );
-    await tester.pumpAndSettle();
-
-    expect(viewModel.scriptSort, ScriptExhibitionScriptSort.title);
-    expect(viewModel.visibleScripts.map((script) => script.scriptId), [
-      'script-alpha',
-      'script-beta',
-    ]);
 
     await tester.tap(
-      find.byKey(const ValueKey('script-exhibition-script-sort-menu')),
+      find.byKey(
+        const ValueKey('script-exhibition-script-sort-imageCount'),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -2477,8 +2473,46 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-script-sort-up-unbatchedFirst',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-apply')),
+    );
+    await tester.pumpAndSettle();
 
-    expect(viewModel.scriptSort, ScriptExhibitionScriptSort.unbatchedFirst);
+    expect(viewModel.scriptSortRules, [
+      ScriptExhibitionScriptSort.unbatchedFirst,
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+    expect(find.text('未批量生成优先 +1 条'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-script-sort-remove-unbatchedFirst',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-sort-apply')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewModel.scriptSortRules, [
+      ScriptExhibitionScriptSort.imageCount,
+    ]);
+    expect(find.text('图片数多到少'), findsOneWidget);
   });
 
   testWidgets('searches the script shelf and clears the query', (tester) async {
@@ -2767,7 +2801,7 @@ void main() {
     );
     expect(find.byKey(itemKey), findsOneWidget);
     expect(find.text('Default 1'), findsOneWidget);
-    expect(viewModel.selectedVersion?.label, '导入图片 1');
+    expect(viewModel.selectedVersion?.label, '雨夜档案版本2');
 
     await tester.tap(
       find.byKey(
@@ -3131,6 +3165,176 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requestedDeleteLocalFiles, isTrue);
+  });
+
+  testWidgets('quickly clears script versions that never produced an image',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final failedTemplate = _planWithFailedAction();
+    final neverGeneratedPlan = failedTemplate.copyWith(
+      id: 'plan-never-generated',
+      name: '从未成图测试',
+      tasks: [
+        failedTemplate.tasks.first.copyWith(
+          id: 'task-never-generated',
+          planId: 'plan-never-generated',
+        ),
+      ],
+    );
+    var plans = [_plan(), neverGeneratedPlan];
+    final deletedVersionIds = <String>[];
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteVersionsRecord: (
+        script,
+        versions, {
+        bool deleteLocalFiles = false,
+      }) async {
+        deletedVersionIds.addAll(versions.map((version) => version.id));
+        final versionIds = versions.map((version) => version.id).toSet();
+        plans = [
+          for (final plan in plans)
+            if (!versionIds.contains('production-${plan.id}')) plan,
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+
+    final cleanupButton = find.byKey(
+      const ValueKey(
+        'script-exhibition-clear-never-generated-versions-script-1',
+      ),
+    );
+    expect(cleanupButton, findsOneWidget);
+    expect(find.text('清理无成图版本 · 1'), findsOneWidget);
+
+    await tester.tap(cleanupButton);
+    await tester.pumpAndSettle();
+    expect(find.text('清理无成图版本'), findsOneWidget);
+    expect(find.textContaining('1 个完全没有成图的版本'), findsOneWidget);
+    expect(find.textContaining('正在生成中的版本不会处理'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-confirm-clear-never-generated-versions',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedVersionIds, ['production-plan-never-generated']);
+    expect(cleanupButton, findsNothing);
+    expect(find.text('从未成图测试'), findsNothing);
+  });
+
+  testWidgets(
+      'cleans older reruns from the selected version while keeping each latest frame',
+      (tester) async {
+    tester.view.physicalSize = const Size(1320, 980);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var plans = [_planWithTwoCompletedImages()];
+    final deletedTaskIds = <String>[];
+    bool? requestedDeleteLocalFiles;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () async => plans,
+      loadGalleryRecords: () async => const [],
+      deleteItemsRecord: (
+        items, {
+        bool deleteLocalFiles = false,
+      }) async {
+        requestedDeleteLocalFiles = deleteLocalFiles;
+        deletedTaskIds.addAll(items.map((item) => item.taskId!));
+        final removedTaskIds = items.map((item) => item.taskId).toSet();
+        plans = [
+          for (final plan in plans)
+            plan.copyWith(
+              tasks: [
+                for (final task in plan.tasks)
+                  if (!removedTaskIds.contains(task.id)) task,
+              ],
+            ),
+        ];
+      },
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: ScriptExhibitionRoomPage(
+          viewModel: viewModel,
+          onSendToScriptWorkbench: (_) {},
+          onSendToWorkbench: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-version-production-plan-2'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final cleanupButton = find.byKey(
+      const ValueKey(
+        'script-exhibition-keep-latest-per-frame-production-plan-2',
+      ),
+    );
+    expect(cleanupButton, findsOneWidget);
+    expect(find.text('每帧只留最新 · 可清理 1'), findsOneWidget);
+
+    await tester.tap(cleanupButton);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('清理 1 条较早的重复重跑记录'), findsOneWidget);
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-keep-latest-per-frame-local-files',
+        ),
+      ),
+    );
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
+          'script-exhibition-confirm-keep-latest-per-frame',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedTaskIds, ['task-1']);
+    expect(requestedDeleteLocalFiles, isTrue);
+    expect(find.text('雨夜档案版本2 2'), findsOneWidget);
+    expect(cleanupButton, findsNothing);
   });
 
   testWidgets('selects multiple version chips for batch deletion', (

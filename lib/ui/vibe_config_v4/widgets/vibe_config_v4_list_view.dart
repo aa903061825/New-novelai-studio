@@ -18,6 +18,7 @@ class VibeConfigV4ListView extends StatelessWidget {
   final Widget? footer;
   final bool compact;
   final bool showEnabledSwitch;
+  final VoidCallback? onConfigChanged;
 
   const VibeConfigV4ListView({
     super.key,
@@ -27,6 +28,7 @@ class VibeConfigV4ListView extends StatelessWidget {
     this.footer,
     this.compact = false,
     this.showEnabledSwitch = true,
+    this.onConfigChanged,
   });
 
   @override
@@ -38,6 +40,7 @@ class VibeConfigV4ListView extends StatelessWidget {
         onVibeEnabledChanged: onVibeEnabledChanged,
         footer: footer,
         showEnabledSwitch: showEnabledSwitch,
+        onConfigChanged: onConfigChanged,
       );
     }
 
@@ -101,7 +104,10 @@ class VibeConfigV4ListView extends StatelessWidget {
             if (contentIndex < viewmodel.vibeList.length) {
               final config = viewmodel.vibeList[contentIndex];
               // Each item needs its own ViewModel instance
-              final itemViewModel = VibeConfigV4Viewmodel(config: config);
+              final itemViewModel = VibeConfigV4Viewmodel(
+                config: config,
+                onChanged: onConfigChanged,
+              );
               child = VibeConfigV4View(
                 key: ValueKey(config.vibeB64),
                 viewmodel: itemViewModel,
@@ -141,6 +147,7 @@ class _CompactVibeConfigV4List extends StatelessWidget {
   final ValueChanged<bool> onVibeEnabledChanged;
   final Widget? footer;
   final bool showEnabledSwitch;
+  final VoidCallback? onConfigChanged;
 
   const _CompactVibeConfigV4List({
     required this.viewmodel,
@@ -148,6 +155,7 @@ class _CompactVibeConfigV4List extends StatelessWidget {
     required this.onVibeEnabledChanged,
     required this.footer,
     required this.showEnabledSwitch,
+    required this.onConfigChanged,
   });
 
   @override
@@ -178,7 +186,10 @@ class _CompactVibeConfigV4List extends StatelessWidget {
                   children: [
                     for (final (index, config) in viewmodel.vibeList.indexed)
                       _CompactVibeV4Card(
-                        viewmodel: VibeConfigV4Viewmodel(config: config),
+                        viewmodel: VibeConfigV4Viewmodel(
+                          config: config,
+                          onChanged: onConfigChanged,
+                        ),
                         onDelete: () => viewmodel.removeConfigAtIndex(index),
                       ),
                     DropRegion(
@@ -231,7 +242,9 @@ class _CompactVibeV4Card extends StatelessWidget {
             MiniLabeledSlider(
               label: 'I',
               value: viewmodel.infoExtracted,
-              onChanged: viewmodel.setInfoExtracted,
+              onChanged: viewmodel.canChangeInfoExtracted
+                  ? viewmodel.setInfoExtracted
+                  : null,
             ),
             MiniLabeledSlider(
               label: 'S',

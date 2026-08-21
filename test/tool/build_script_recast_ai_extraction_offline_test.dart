@@ -75,14 +75,14 @@ void main() {
           'white gloves',
           'elbow gloves',
         ]));
-    expect(termsByText['alternate hairstyle']?['category'], 'upperBody');
-    expect(termsByText['twin drills']?['category'], 'upperBody');
-    expect(termsByText['magical girl']?['category'], 'character');
+    expect(termsByText['alternate hairstyle']?['category'], 'body');
+    expect(termsByText['twin drills']?['category'], 'body');
+    expect(termsByText['magical girl']?['category'], 'identity');
     expect(termsByText['white witch hat']?['category'], 'accessory');
     expect(termsByText['no panties']?['category'], 'clothingState');
     expect(termsByText['bridal lingerie']?['category'], 'clothing');
-    expect(termsByText['spade tattoo']?['category'], 'other');
-    expect(termsByText['wet hair']?['category'], 'upperBody');
+    expect(termsByText['spade tattoo']?['category'], 'body');
+    expect(termsByText['wet hair']?['category'], 'body');
     expect(
         termsByText['wet hair']?['source_location'], contains('base prompt'));
     expect(termsByText['white gloves']?['category'], 'accessory');
@@ -146,7 +146,11 @@ void main() {
     };
     expect(rulesByText.keys, unorderedEquals(termsByText.keys));
     expect(rulesByText.keys, isNot(contains('facial')));
-    expect(rulesByText['high twintails']?['action'], 'replace');
+    expect(
+      rulesByText['high twintails']?['action'],
+      'replace',
+      reason: jsonEncode(rules),
+    );
     expect(rulesByText['high twintails']?['targetPrompt'], 'long hair');
     expect(rulesByText['reisa (blue archive)']?['action'], 'replace');
     expect(
@@ -563,9 +567,9 @@ void main() {
     ]) {
       expect(termsByText.keys, isNot(contains(actionTerm)));
     }
-    expect(termsByText['black jacket']?['category'], 'upperClothing');
-    expect(termsByText['black pantyhose']?['category'], 'lowerClothing');
-    expect(termsByText['white panties']?['category'], 'lowerClothing');
+    expect(termsByText['black jacket']?['category'], 'clothing');
+    expect(termsByText['black pantyhose']?['category'], 'clothing');
+    expect(termsByText['white panties']?['category'], 'clothing');
     expect(termsByText['open shirt']?['category'], 'clothingState');
     expect(termsByText['undressing']?['category'], 'clothingState');
     expect(girlReplacement['targetCharacterId'], 'target-pepe');
@@ -726,7 +730,128 @@ void main() {
     final roleIds = roles.map((role) => role['source_role_id']).toList();
 
     expect(roleIds, contains('role-muscular-male'));
-    expect(roleIds, isNot(contains('role-anonymous-male')));
+    expect(
+      roleIds,
+      isNot(contains('role-anonymous-male')),
+      reason: jsonEncode(roles),
+    );
+    final muscular = roles.singleWhere(
+      (role) => role['source_role_id'] == 'role-muscular-male',
+    );
+    expect(muscular['frame_indexes'], isNot(contains(3)));
+  });
+
+  test('offline extraction retains stable evidence in a partial POV slot',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-offline-partial-stable-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final cacheDir = Directory('${tempRoot.path}/cache')
+      ..createSync(recursive: true);
+    final outputDir = Directory('${tempRoot.path}/output')
+      ..createSync(recursive: true);
+    File('${cacheDir.path}/script-partial-stable.json')
+        .writeAsStringSync(jsonEncode(_partialStableRoleCache()));
+
+    final result = await Process.run(
+      'node',
+      [
+        'tool/build_script_recast_ai_extraction_offline.mjs',
+        '--cache-dir',
+        cacheDir.path,
+        '--output-dir',
+        outputDir.path,
+        '--apply',
+      ],
+      workingDirectory: Directory.current.path,
+    );
+
+    expect(
+      result.exitCode,
+      0,
+      reason: 'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
+    );
+    final updated = jsonDecode(
+      File('${outputDir.path}/script-partial-stable.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final sensei = roles.singleWhere(
+      (role) =>
+          role['source_role_id'] == 'role-sensei-blue-archive-the-animation',
+    );
+    final slotOne = (sensei['appearances'] as List).cast<Map>().singleWhere(
+          (appearance) => appearance['source_id'] == 'slot-1',
+        );
+
+    expect(slotOne['frame_indexes'], contains(4));
+    expect(
+      roles.map((role) => role['source_role_id']),
+      isNot(contains('role-anonymous-male')),
+    );
+  });
+
+  test('offline extraction splits simultaneous generic roles by source slot',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-offline-generic-slot-collision-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final cacheDir = Directory('${tempRoot.path}/cache')
+      ..createSync(recursive: true);
+    final outputDir = Directory('${tempRoot.path}/output')
+      ..createSync(recursive: true);
+    File('${cacheDir.path}/script-generic-slot-collision.json')
+        .writeAsStringSync(jsonEncode(_genericSlotCollisionCache()));
+
+    final result = await Process.run(
+      'node',
+      [
+        'tool/build_script_recast_ai_extraction_offline.mjs',
+        '--cache-dir',
+        cacheDir.path,
+        '--output-dir',
+        outputDir.path,
+        '--apply',
+      ],
+      workingDirectory: Directory.current.path,
+    );
+
+    expect(
+      result.exitCode,
+      0,
+      reason: 'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
+    );
+    final updated = jsonDecode(
+      File('${outputDir.path}/script-generic-slot-collision.json')
+          .readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final maleRoles = roles
+        .where((role) =>
+            (role['source_role_id'] as String).startsWith('role-muscular-male'))
+        .toList();
+
+    expect(maleRoles, hasLength(2));
+    expect(
+      maleRoles
+          .map((role) =>
+              (role['appearances'] as List).cast<Map>().single['source_id'])
+          .toSet(),
+      {'slot-0', 'slot-1'},
+    );
   });
 
   test('offline extraction rejects non-character tags classified as characters',
@@ -895,6 +1020,113 @@ void main() {
   });
 
   test(
+      'offline extraction keeps named costume variants under one canonical role',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-offline-named-costume-variant-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final updated = await _runOfflineBuilderFixture(
+      tempRoot: tempRoot,
+      fileName: 'script-named-costume-variant.json',
+      cache: _fixtureCache('script-named-costume-variant', [
+        _fixtureFrame(
+          1,
+          charCaptions: const ['girl, kamisato ayaka, blue hair'],
+        ),
+        _fixtureFrame(
+          2,
+          charCaptions: const [
+            'girl, kamisato ayaka (springbloom missive), blue hair, blue dress',
+          ],
+        ),
+        _fixtureFrame(
+          3,
+          charCaptions: const [
+            'girl, kamisato ayaka（springbloom missive）, blue hair, blue dress',
+          ],
+        ),
+        _fixtureFrame(
+          4,
+          charCaptions: const [
+            'girl, kamisato ayaka【springbloom missive】, blue hair, blue dress',
+          ],
+        ),
+        _fixtureFrame(
+          5,
+          charCaptions: const [
+            'girl, hamedoori template (meme), kamisato ayaka, blue hair',
+          ],
+        ),
+      ]),
+      termReview: _reviewDocument([
+        ('girl', 'character'),
+        ('kamisato ayaka', 'character'),
+        ('kamisato ayaka (springbloom missive)', 'character'),
+        ('blue hair', 'upperBody'),
+        ('blue dress', 'upperClothing'),
+      ]),
+      classificationCache: const {},
+    );
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final ayakaRoles = roles
+        .where((role) => role['canonical_name'] == 'kamisato ayaka')
+        .toList();
+
+    expect(ayakaRoles, hasLength(1));
+    expect(ayakaRoles.single['source_role_id'], 'role-kamisato-ayaka');
+    expect(ayakaRoles.single['frame_indexes'], [1, 2, 3, 4, 5]);
+    expect(ayakaRoles.single['variant_tags'], contains('springbloom missive'));
+    final promptTerms = (ayakaRoles.single['prompt_terms'] as List).cast<Map>();
+    expect(
+      promptTerms.map((term) => term['text']),
+      containsAll(<String>[
+        'kamisato ayaka',
+        'kamisato ayaka (springbloom missive)',
+      ]),
+    );
+    expect(
+      roles.map((role) => role['source_role_id']),
+      isNot(contains('role-hamedoori-template-meme')),
+    );
+  });
+
+  test(
+      'offline extraction ignores parenthetical pseudo identities on no-human frames',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-offline-no-human-pseudo-identity-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final updated = await _runOfflineBuilderFixture(
+      tempRoot: tempRoot,
+      fileName: 'script-no-human-pseudo-identity.json',
+      cache: _fixtureCache('script-no-human-pseudo-identity', [
+        _fixtureFrame(
+          1,
+          baseCaption: 'no human, null (nyanpyoun), indoors',
+          charCaptions: const [],
+        ),
+      ]),
+    );
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+
+    expect(roles, isEmpty);
+  });
+
+  test(
       'offline extraction keeps normal and aside clothing transitions in separate stages',
       () async {
     final tempRoot = await Directory.systemTemp.createTemp(
@@ -1016,6 +1248,15 @@ void main() {
     );
     final routed = maleTerms.singleWhere(
       (term) => term['text'] == 'large penis',
+    );
+    expect(male['frame_indexes'], [1]);
+    expect(
+      (male['appearances'] as List)
+          .cast<Map>()
+          .expand(
+              (appearance) => (appearance['frame_indexes'] as List).cast<int>())
+          .toSet(),
+      {1},
     );
     expect(routed['source_location'], contains('slot-0 prompt'));
     expect(routed['source_occurrences'], [
@@ -1150,6 +1391,12 @@ void main() {
     final term = (role['prompt_terms'] as List)
         .cast<Map>()
         .singleWhere((item) => item['text'] == 'alice (black survival)');
+    expect(
+      term['frame_indexes'],
+      [1, 2],
+      reason:
+          'A role identity summary must not widen point-mapping frames beyond physical prompt evidence.',
+    );
     expect(term['source_location'], contains('role identity evidence'));
     expect(term['source_occurrences'], [
       {'frame_index': 1, 'source_location': 'slot-0 prompt'},
@@ -1162,10 +1409,141 @@ void main() {
         (item) =>
             ((item['sourceTerms'] as List).single as Map)['text'] ==
             'alice (black survival)');
+    expect(
+        ((rule['sourceTerms'] as List).single as Map)['frameIndexes'], [1, 2]);
     expect(((rule['sourceTerms'] as List).single as Map)['sourceOccurrences'], [
       {'frameIndex': 1, 'sourceLocation': 'slot-0 prompt'},
       {'frameIndex': 2, 'sourceLocation': 'slot-0 prompt'},
     ]);
+  });
+
+  test(
+      'offline extraction keeps a source-evidenced identity typo as a mapped alias',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-offline-identity-typo-alias-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final cache = _fixtureCache('script-identity-typo-alias', [
+      _fixtureFrame(
+        1,
+        charCaptions: const [
+          'girl, alice (black survival), blue hair',
+        ],
+      ),
+      _fixtureFrame(
+        2,
+        charCaptions: const [
+          'girl, alice (black surviaval), blue hair',
+        ],
+      ),
+      _fixtureFrame(
+        3,
+        charCaptions: const [
+          'girl, alice (black survival), blue hair',
+        ],
+      ),
+    ]);
+    cache['mapping'] = {
+      'id': 'mapping-script-identity-typo-alias',
+      'scriptId': 'script-identity-typo-alias',
+      'roleSwaps': [],
+      'artistSwap': null,
+      'roleAssemblies': [
+        {
+          'sourceRoleId': 'role-alice-black-survival',
+          'displayLabel': 'alice (black survival) / 爱丽丝',
+          'sourceName': 'alice (black survival) / 爱丽丝',
+          'sourceAppearances': [
+            {
+              'sourceId': 'slot-0',
+              'sourceKind': 'slot',
+              'frameIndexes': [1, 2, 3],
+            },
+          ],
+          'stages': [
+            {
+              'id': 'stage-1',
+              'label': '旧阶段',
+              'frameIndexes': [1, 2, 3],
+              'sourceSummary': 'alice (black survival)',
+              'sourceParts': {'identity': 'alice (black survival)'},
+              'targetCharacterId': 'target-pepe',
+            },
+          ],
+        },
+      ],
+      'rolePromptReplacements': [
+        {
+          'sourceRoleId': 'role-alice-black-survival',
+          'displayLabel': 'alice (black survival) / 爱丽丝',
+          'targetCharacterId': 'target-pepe',
+          'targetIdentityPrompt': 'target-pepe',
+          'rules': [
+            {
+              'id': 'existing-alice-identity',
+              'sourceTerms': [
+                {
+                  'id': 'alice-canonical',
+                  'text': 'alice (black survival)',
+                  'category': 'character',
+                },
+              ],
+              'action': 'replace',
+              'targetPrompt': 'target-pepe',
+            },
+          ],
+        },
+      ],
+    };
+
+    final updated = await _runOfflineBuilderFixture(
+      tempRoot: tempRoot,
+      fileName: 'script-identity-typo-alias.json',
+      cache: cache,
+    );
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final role = roles.singleWhere(
+      (candidate) => candidate['source_role_id'] == 'role-alice-black-survival',
+    );
+    expect(
+      roles.map((candidate) => candidate['source_role_id']),
+      isNot(contains('role-alice-black-surviaval')),
+    );
+    expect(role['frame_indexes'], [1, 2, 3]);
+
+    final promptTerms = (role['prompt_terms'] as List).cast<Map>();
+    final canonicalTerm = promptTerms.singleWhere(
+      (term) => term['text'] == 'alice (black survival)',
+    );
+    final typoTerm = promptTerms.singleWhere(
+      (term) => term['text'] == 'alice (black surviaval)',
+    );
+    expect(canonicalTerm['frame_indexes'], [1, 3]);
+    expect(typoTerm['frame_indexes'], [2]);
+    expect(typoTerm['source_occurrences'], [
+      {'frame_index': 2, 'source_location': 'slot-0 prompt'},
+    ]);
+
+    final replacement =
+        (updated['mapping']['rolePromptReplacements'] as List).cast<Map>().single;
+    final typoRule = (replacement['rules'] as List).cast<Map>().singleWhere(
+      (rule) =>
+          ((rule['sourceTerms'] as List).single as Map)['text'] ==
+          'alice (black surviaval)',
+    );
+    expect(typoRule['action'], 'replace');
+    expect(typoRule['targetPrompt'], 'target-pepe');
+    expect(
+      ((typoRule['sourceTerms'] as List).single as Map)['frameIndexes'],
+      [2],
+    );
   });
 
   test(
@@ -1302,6 +1680,86 @@ void main() {
       isTrue,
       reason:
           'Competing old generic roles must be rejected, not chosen by order.',
+    );
+  });
+
+  test(
+      'canonical variant merge preserves both legacy targets with frame-scoped conflicts',
+      () async {
+    final tempRoot = await Directory.systemTemp.createTemp(
+      'script-recast-canonical-variant-migration-test-',
+    );
+    addTearDown(() async {
+      if (await tempRoot.exists()) {
+        await tempRoot.delete(recursive: true);
+      }
+    });
+
+    final updated = await _runOfflineBuilderFixture(
+      tempRoot: tempRoot,
+      fileName: 'script-canonical-variant-migration.json',
+      cache: _canonicalVariantMigrationCache(),
+    );
+    expect(updated['aiRoleExtractionDraftCollapsed'], isTrue);
+    expect(updated['aiRoleExtractionFinalized'], isTrue);
+    final roles =
+        ((updated['aiRoleExtraction'] as Map)['roles'] as List).cast<Map>();
+    final ayakaRoles = roles
+        .where((role) => role['canonical_name'] == 'kamisato ayaka')
+        .toList();
+    expect(ayakaRoles, hasLength(1));
+    final ayaka = ayakaRoles.single;
+    expect(
+      (ayaka['stages'] as List)
+          .cast<Map>()
+          .map((stage) => stage['frame_indexes']),
+      containsAll(<Object>[
+        [1],
+        [2],
+      ]),
+      reason:
+          'Conflicting user targets must split the otherwise equivalent source stage.',
+    );
+
+    final mapping = updated['mapping'] as Map;
+    final assembly = (mapping['roleAssemblies'] as List)
+        .cast<Map>()
+        .singleWhere((item) => item['sourceRoleId'] == ayaka['source_role_id']);
+    final mappedStages = (assembly['stages'] as List).cast<Map>();
+    expect(
+      mappedStages.map((stage) => stage['targetCharacterId']).toSet(),
+      {'target-pepe', 'target-suzuran'},
+    );
+
+    final replacement = (mapping['rolePromptReplacements'] as List)
+        .cast<Map>()
+        .singleWhere((item) => item['sourceRoleId'] == ayaka['source_role_id']);
+    final blueHairRules = (replacement['rules'] as List).cast<Map>().where(
+          (rule) =>
+              (((rule['sourceTerms'] as List).single as Map)['text']) ==
+              'blue hair',
+        );
+    expect(blueHairRules, hasLength(2));
+    expect(
+      blueHairRules.map((rule) => rule['targetPrompt']).toSet(),
+      {'long_hair', 'blonde_hair, long_hair'},
+    );
+    expect(
+      blueHairRules
+          .map((rule) => (((rule['sourceTerms'] as List).single
+                  as Map)['frameIndexes'] as List)
+              .join(','))
+          .toSet(),
+      {'1', '2'},
+    );
+    final identityTargets = (replacement['rules'] as List)
+        .cast<Map>()
+        .where((rule) => rule['targetPrompt'] != null)
+        .map((rule) => rule['targetPrompt'])
+        .toSet();
+    expect(
+      identityTargets,
+      containsAll({'pepe_(arknights)', 'suzuran_(arknights)'}),
     );
   });
 }
@@ -1696,11 +2154,87 @@ Map<String, dynamic> _disembodiedHandOnlyCache() {
             ],
           },
         },
+        {
+          'index': 3,
+          'fileName': 'nai_3.png',
+          'parseStatus': 'parsed',
+          'parsed': {
+            'baseCaption': '1girl, bedroom',
+            'charCaptions': [
+              'girl, kyoka (summer) (princess connect!), purple hair',
+              'boy, disembodied hands, spreading another\'s legs, hands on thighs',
+            ],
+          },
+        },
       ],
     },
     'mapping': {
       'id': 'mapping-script-disembodied-hand',
       'scriptId': 'script-disembodied-hand',
+      'roleSwaps': [],
+      'artistSwap': null,
+    },
+  };
+}
+
+Map<String, dynamic> _partialStableRoleCache() {
+  return {
+    'scriptId': 'script-partial-stable',
+    'scriptName': 'Partial stable role fixture',
+    'sourceRootPath': 'C:/fixture/partial-stable',
+    'scriptSnapshot': {
+      'frames': [
+        for (var index = 1; index <= 4; index += 1)
+          {
+            'index': index,
+            'fileName': 'nai_$index.png',
+            'parseStatus': 'parsed',
+            'parsed': {
+              'baseCaption': '1girl, indoors',
+              'charCaptions': [
+                'girl, ako (dress) (blue archive), black dress',
+                if (index < 4)
+                  'boy, sensei (blue archive the animation), very dark skin'
+                else
+                  'boy, pov hands, very dark skin, grabbing another\'s arms',
+              ],
+            },
+          },
+      ],
+    },
+    'mapping': {
+      'id': 'mapping-script-partial-stable',
+      'scriptId': 'script-partial-stable',
+      'roleSwaps': [],
+      'artistSwap': null,
+    },
+  };
+}
+
+Map<String, dynamic> _genericSlotCollisionCache() {
+  return {
+    'scriptId': 'script-generic-slot-collision',
+    'scriptName': 'Generic slot collision fixture',
+    'sourceRootPath': 'C:/fixture/generic-slot-collision',
+    'scriptSnapshot': {
+      'frames': [
+        {
+          'index': 1,
+          'fileName': 'nai_1.png',
+          'parseStatus': 'parsed',
+          'parsed': {
+            'baseCaption': '2boys, indoors',
+            'charCaptions': [
+              'boy, muscular male, black shirt',
+              'boy, muscular male, white shirt',
+            ],
+          },
+        },
+      ],
+    },
+    'mapping': {
+      'id': 'mapping-script-generic-slot-collision',
+      'scriptId': 'script-generic-slot-collision',
       'roleSwaps': [],
       'artistSwap': null,
     },
@@ -2019,6 +2553,148 @@ Map<String, dynamic> _roleMigrationCache({required bool ambiguous}) {
   };
 }
 
+Map<String, dynamic> _canonicalVariantMigrationCache() {
+  Map<String, dynamic> assembly({
+    required String roleId,
+    required String sourceName,
+    required int frameIndex,
+    required String targetCharacterId,
+  }) =>
+      {
+        'sourceRoleId': roleId,
+        'displayLabel': sourceName,
+        'sourceName': sourceName,
+        'sourceAppearances': [
+          {
+            'sourceId': 'slot-0',
+            'sourceKind': 'slot',
+            'frameIndexes': [frameIndex],
+          },
+        ],
+        'stages': [
+          {
+            'id': '$roleId-stage-1',
+            'label': 'old nude stage',
+            'frameIndexes': [frameIndex],
+            'sourceSummary': 'completely nude',
+            'sourceParts': {
+              'identity': 'girl',
+              'upperClothing': 'completely nude'
+            },
+            'targetCharacterId': targetCharacterId,
+          },
+        ],
+      };
+  Map<String, dynamic> replacement({
+    required String roleId,
+    required String identity,
+    required String identityTarget,
+    required String hairTarget,
+  }) =>
+      {
+        'sourceRoleId': roleId,
+        'displayLabel': identity,
+        'rules': [
+          {
+            'id': '$roleId-identity',
+            'sourceTerms': [
+              {
+                'id': '$roleId-identity-term',
+                'text': identity,
+                'category': 'character',
+              },
+            ],
+            'action': 'replace',
+            'targetPrompt': identityTarget,
+          },
+          {
+            'id': '$roleId-blue-hair',
+            'sourceTerms': [
+              {
+                'id': '$roleId-blue-hair-term',
+                'text': 'blue hair',
+                'category': 'upperBody',
+              },
+            ],
+            'action': 'replace',
+            'targetPrompt': hairTarget,
+          },
+        ],
+      };
+
+  const baseRoleId = 'role-kamisato-ayaka';
+  const variantRoleId = 'role-kamisato-ayaka-springbloom-missive';
+  return {
+    'scriptId': 'script-canonical-variant-migration',
+    'scriptName': 'Canonical variant migration fixture',
+    'sourceRootPath': 'C:/fixture/canonical-variant-migration',
+    'scriptSnapshot': {
+      'detectedSchema': 'v4Partial',
+      'frames': [
+        {
+          'index': 1,
+          'fileName': 'nai_1.png',
+          'rawJson': '{}',
+          'parseStatus': 'parsed',
+          'parsed': {
+            'baseCaption': 'indoors',
+            'charCaptions': [
+              'girl, kamisato ayaka, blue hair, completely nude',
+            ],
+          },
+        },
+        {
+          'index': 2,
+          'fileName': 'nai_2.png',
+          'rawJson': '{}',
+          'parseStatus': 'parsed',
+          'parsed': {
+            'baseCaption': 'indoors',
+            'charCaptions': [
+              'girl, kamisato ayaka (springbloom missive), blue hair, completely nude',
+            ],
+          },
+        },
+      ],
+    },
+    'mapping': {
+      'id': 'mapping-script-canonical-variant-migration',
+      'scriptId': 'script-canonical-variant-migration',
+      'roleSwaps': [],
+      'artistSwap': null,
+      'roleAssemblies': [
+        assembly(
+          roleId: baseRoleId,
+          sourceName: 'kamisato ayaka / \u795e\u91cc\u7eeb\u534e',
+          frameIndex: 1,
+          targetCharacterId: 'target-pepe',
+        ),
+        assembly(
+          roleId: variantRoleId,
+          sourceName:
+              'kamisato ayaka (springbloom missive) / \u795e\u91cc\u7eeb\u534e\uff08\u6625\u7efd\u6765\u4fe1\uff09',
+          frameIndex: 2,
+          targetCharacterId: 'target-suzuran',
+        ),
+      ],
+      'rolePromptReplacements': [
+        replacement(
+          roleId: baseRoleId,
+          identity: 'kamisato ayaka',
+          identityTarget: 'pepe_(arknights)',
+          hairTarget: 'long_hair',
+        ),
+        replacement(
+          roleId: variantRoleId,
+          identity: 'kamisato ayaka (springbloom missive)',
+          identityTarget: 'suzuran_(arknights)',
+          hairTarget: 'blonde_hair, long_hair',
+        ),
+      ],
+    },
+  };
+}
+
 Future<Map<String, dynamic>> _runOfflineBuilderFixture({
   required Directory tempRoot,
   required String fileName,
@@ -2136,7 +2812,6 @@ Map<String, dynamic> _reviewedGenderRoutingCache() {
       2,
       charCaptions: const [
         'girl, chiara (black survival), large breasts, large penis',
-        'boy, faceless male, muscular',
       ],
     ),
   ]);

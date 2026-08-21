@@ -39,10 +39,11 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     this.previewPath,
     this.previewPathsByRef = const {},
     Set<String> favoriteKeys = const {},
+    WorkspaceService? workspaceService,
   })  : favoriteKeys = {...favoriteKeys},
-        super(workspaceService: WorkspaceService());
+        super(workspaceService: workspaceService ?? WorkspaceService());
 
-  final StudioAssetCatalogSnapshot snapshot;
+  StudioAssetCatalogSnapshot snapshot;
   final String? previewPath;
   final Map<String, String> previewPathsByRef;
   final Set<String> favoriteKeys;
@@ -285,6 +286,88 @@ void main() {
 
     expect(workbench.fragments.single.positiveText, 'cinematic lighting');
     expect(workbench.payloadConfig.overridePrompt, 'cinematic lighting');
+  });
+
+  testWidgets('open artist category refreshes after artist chain save',
+      (tester) async {
+    final workspace = WorkspaceService();
+
+    const initialSnapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 1,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [
+        ArtistChain(
+          id: 'artist-1',
+          name: 'Painter',
+          prompt: 'old artist prompt',
+        ),
+      ],
+      recipes: [],
+      tags: [],
+    );
+    final catalog = _FakeCatalogService(
+      initialSnapshot,
+      workspaceService: workspace,
+    );
+    final workbench = StudioWorkbenchAssetService(payloadConfig: _payload());
+
+    await tester.pumpWidget(
+      _studioApp(
+        WorkbenchAssetDrawer(
+          catalogService: catalog,
+          workbenchAssetService: workbench,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-drawer-category-artist')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('old artist prompt'), findsOneWidget);
+
+    const updatedSnapshot = StudioAssetCatalogSnapshot(
+      summary: StudioAssetCatalogSummary(
+        characterCount: 0,
+        outfitCount: 0,
+        artistChainCount: 1,
+        recipeCount: 0,
+        tagCount: 0,
+        recipeCountsByBlock: {},
+        tagCountsByBlock: {},
+      ),
+      characters: [],
+      artistChains: [
+        ArtistChain(
+          id: 'artist-1',
+          name: 'Painter',
+          prompt: 'latest artist prompt',
+        ),
+      ],
+      recipes: [],
+      tags: [],
+    );
+    catalog.snapshot = updatedSnapshot;
+    workspace.notifyArtistChainsChanged();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('latest artist prompt'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-drawer-add-artist-artist-1')),
+    );
+    await tester.pump();
+
+    expect(workbench.fragments.single.positiveText, 'latest artist prompt');
   });
 
   testWidgets('drawer expands sectioned tag assets into prompt parts',

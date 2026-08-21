@@ -14,6 +14,7 @@ import 'package:novel_studio/data/services/config_service.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
 import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
 import 'package:novel_studio/data/studio/services/production_queue_service.dart';
+import 'package:novel_studio/data/studio/services/role_mapping_profile_repository.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_client.dart';
 import 'package:novel_studio/data/studio/services/script_ai_role_extraction_service.dart';
 import 'package:novel_studio/data/studio/services/prompt_translation_service.dart';
@@ -66,6 +67,9 @@ void main(List<String> args) async {
     () => ScriptRecastAssetContextService(
       catalogService: GetIt.I<StudioAssetCatalogService>(),
     ),
+  );
+  GetIt.instance.registerLazySingleton<RoleMappingProfileRepository>(
+    RoleMappingProfileRepository.new,
   );
   GetIt.instance.registerLazySingleton(
     () => StudioBatchPlanService(workspaceService: workspaceService),
@@ -219,6 +223,10 @@ void main(List<String> args) async {
       loadAssetContext: GetIt.I<ScriptRecastAssetContextService>().loadContext,
       loadCharacters: workspaceService.loadCharacters,
       loadArtistChains: workspaceService.loadArtistChains,
+      loadRecipes: GetIt.I<StudioAssetCatalogService>().loadWorkbenchRecipes,
+      loadTags: GetIt.I<StudioAssetCatalogService>().loadWorkbenchTags,
+      loadPromptAssetCategories:
+          GetIt.I<StudioAssetCatalogService>().loadPromptAssetCategories,
       loadVibes: () async => _scriptVibesFromPayload(payloadConfig),
       importVibes: GetIt.I<WorkspaceVibeImportService>().pickAndImport,
       loadFilterRules: workspaceService.loadFilterRules,
@@ -244,6 +252,7 @@ void main(List<String> args) async {
       classificationCache: promptTagClassificationCache,
       saveTranslationCache: PromptWorkshopBridge.saveTranslationCache,
       saveClassificationCache: PromptWorkshopBridge.saveTagClassificationCache,
+      roleMappingProfileRepository: GetIt.I<RoleMappingProfileRepository>(),
     ),
   );
   GetIt.instance.registerFactory<ProductionQueueViewModel>(
@@ -259,6 +268,14 @@ void main(List<String> args) async {
         sampler: payloadConfig.paramConfig.sampler,
         steps: payloadConfig.paramConfig.steps,
         scale: payloadConfig.paramConfig.scale,
+        cfgRescale: payloadConfig.paramConfig.cfgRescale,
+        noiseSchedule: payloadConfig.paramConfig.noiseSchedule,
+        sm: payloadConfig.paramConfig.sm,
+        smDyn: payloadConfig.paramConfig.smDyn,
+        dynamicThresholding: payloadConfig.paramConfig.dynamicThresholding,
+        varietyPlus: payloadConfig.paramConfig.varietyPlus,
+        autoPosition: payloadConfig.paramConfig.autoPosition,
+        legacyUc: payloadConfig.paramConfig.legacyUc,
         width: payloadConfig.paramConfig.sizes.isEmpty
             ? null
             : payloadConfig.paramConfig.sizes.first.width,
