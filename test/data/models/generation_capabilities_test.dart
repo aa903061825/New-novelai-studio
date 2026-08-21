@@ -23,9 +23,8 @@ void main() {
     });
 
     test('keeps legacy prompt mixing and SMEA controls for anime V3', () {
-      final capabilities = GenerationModelCapabilities.fromModel(
-        'nai-diffusion-3',
-      );
+      final capabilities =
+          GenerationModelCapabilities.fromModel('nai-diffusion-3');
 
       expect(capabilities.model, 'nai-diffusion-3');
       expect(capabilities.isV45, isFalse);
@@ -39,9 +38,8 @@ void main() {
     });
 
     test('keeps legacy prompt mixing and SMEA controls for furry V3', () {
-      final capabilities = GenerationModelCapabilities.fromModel(
-        'nai-diffusion-furry-3',
-      );
+      final capabilities =
+          GenerationModelCapabilities.fromModel('nai-diffusion-furry-3');
 
       expect(capabilities.model, 'nai-diffusion-furry-3');
       expect(capabilities.isV45, isFalse);
@@ -54,12 +52,37 @@ void main() {
       expect(capabilities.supportsSmeaControls, isTrue);
     });
 
+    test('V5 registry exposes official capabilities', () {
+      final curated =
+          GenerationModelCapabilities.fromModel(naiDiffusion5Curated);
+      final full = GenerationModelCapabilities.fromModel(naiDiffusion5Full);
+
+      for (final capabilities in [curated, full]) {
+        expect(capabilities.isKnownModel, isTrue);
+        expect(capabilities.isV5, isTrue);
+        expect(capabilities.paramsVersion, 4);
+        expect(capabilities.supportsMultiCharacterPrompts, isTrue);
+        expect(capabilities.supportsAutoPosition, isTrue);
+        expect(capabilities.supportsTransparency, isTrue);
+        expect(capabilities.supportsQualityPresets, isTrue);
+        expect(capabilities.supportsUcPresets, isTrue);
+        expect(capabilities.maxCharacters, 32);
+        expect(capabilities.supportsVibeTransfer, isFalse);
+        expect(capabilities.supportsPreciseReference, isFalse);
+        expect(capabilities.supportsNoiseSchedule, isFalse);
+        expect(capabilities.supportsSmeaControls, isFalse);
+        expect(capabilities.supportsVarietyPlus, isFalse);
+        expect(capabilities.supportsDynamicThresholding, isFalse);
+        expect(capabilities.supportsLegacyUc, isFalse);
+      }
+    });
+
     test('preserves unknown models without exposing advanced controls', () {
-      final capabilities = GenerationModelCapabilities.fromModel(
-        'custom-experimental-model',
-      );
+      final capabilities =
+          GenerationModelCapabilities.fromModel('custom-experimental-model');
 
       expect(capabilities.model, 'custom-experimental-model');
+      expect(capabilities.isKnownModel, isFalse);
       expect(capabilities.isV45, isFalse);
       expect(capabilities.isV4, isFalse);
       expect(capabilities.isV3, isFalse);
@@ -68,12 +91,13 @@ void main() {
       expect(capabilities.supportsMultiCharacterPrompts, isFalse);
       expect(capabilities.supportsPromptMixing, isFalse);
       expect(capabilities.supportsSmeaControls, isFalse);
+      expect(capabilities.supportsTransparency, isFalse);
+      expect(capabilities.paramsVersion, 3);
     });
 
     test('hides prompt mixing validation for V4 models', () {
-      final capabilities = GenerationModelCapabilities.fromModel(
-        'nai-diffusion-4-5-full',
-      );
+      final capabilities =
+          GenerationModelCapabilities.fromModel('nai-diffusion-4-5-full');
 
       final validation = capabilities.validatePromptMixingSyntax('cat|frog');
 
@@ -87,9 +111,8 @@ void main() {
     });
 
     test('validates V3 prompt mixing while ignoring randomizer bars', () {
-      final capabilities = GenerationModelCapabilities.fromModel(
-        'nai-diffusion-3',
-      );
+      final capabilities =
+          GenerationModelCapabilities.fromModel('nai-diffusion-3');
 
       expect(
         capabilities.validatePromptMixingSyntax('cat|frog:0.5').isValid,
@@ -101,10 +124,7 @@ void main() {
             .hasMixing,
         isFalse,
       );
-      expect(
-        capabilities.validatePromptMixingSyntax('cat|').isValid,
-        isFalse,
-      );
+      expect(capabilities.validatePromptMixingSyntax('cat|').isValid, isFalse);
     });
   });
 

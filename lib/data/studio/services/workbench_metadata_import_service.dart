@@ -209,6 +209,12 @@ class WorkbenchMetadataImportService {
       fieldsLoaded++;
     }
 
+    final model = modelFromNovelAiSource(parsed.source);
+    if (model != null) {
+      target.paramConfig.model = model;
+      fieldsLoaded++;
+    }
+
     fieldsLoaded += target.paramConfig.loadJson(parsed.parameters);
     if (parsed.width != null && parsed.height != null) {
       fieldsLoaded += target.paramConfig.loadJson({
@@ -220,12 +226,6 @@ class WorkbenchMetadataImportService {
     final negativePrompt = parsed.negativePrompt?.trim();
     if (negativePrompt != null && negativePrompt.isNotEmpty) {
       target.paramConfig.negativePrompt = negativePrompt;
-      fieldsLoaded++;
-    }
-
-    final model = sourceToModel[parsed.source];
-    if (model != null) {
-      target.paramConfig.model = model;
       fieldsLoaded++;
     }
 
@@ -587,6 +587,8 @@ class WorkbenchMetadataImportService {
           positions: [
             if (coord != null) _positionFromCoord(coord),
           ],
+          freeformPosition:
+              coord == null ? null : _freeformPositionFromCoord(coord),
           positivePromptConfig: PromptConfig(
             strs: [caption],
             prompts: const [],
@@ -605,6 +607,13 @@ class WorkbenchMetadataImportService {
     return Point(
       _nearestPositionIndex(coord['x']),
       _nearestPositionIndex(coord['y']),
+    );
+  }
+
+  Point<double> _freeformPositionFromCoord(Map<String, num> coord) {
+    return Point(
+      (coord['x']?.toDouble() ?? 0.5).clamp(0.0, 1.0).toDouble(),
+      (coord['y']?.toDouble() ?? 0.5).clamp(0.0, 1.0).toDouble(),
     );
   }
 

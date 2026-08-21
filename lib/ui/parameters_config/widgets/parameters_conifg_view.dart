@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/models/generation_presets.dart';
 import 'package:novel_studio/data/services/image_service.dart';
 import 'package:novel_studio/ui/core/utils/flushbar.dart';
 import 'package:novel_studio/ui/parameters_config/view_models/parameters_config_viewmodel.dart';
@@ -25,8 +26,26 @@ class ParametersConfigView extends StatelessWidget {
       builder: (context, _) => Column(
         children: [
           _buildModelSelector(context),
-          if (viewmodel.isV4) _buildAutoPositionTile(context),
-          if (viewmodel.isV4) _buildLegacyUcTile(context),
+          if (viewmodel.supportsTransparency)
+            _buildTransparentBackgroundTile(context),
+          if (viewmodel.supportsQualityPresets)
+            SelectableListTile(
+              leading: const Icon(Icons.auto_awesome),
+              title: 'V5 质量预设',
+              currentValue: viewmodel.config.qualityPreset,
+              options: generationQualityPresets,
+              onSelectComplete: viewmodel.setQualityPreset,
+            ),
+          if (viewmodel.supportsUcPresets)
+            SelectableListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: 'V5 排除内容预设',
+              currentValue: viewmodel.config.ucPresetMode,
+              options: generationUcPresets,
+              onSelectComplete: viewmodel.setUcPresetMode,
+            ),
+          if (viewmodel.supportsAutoPosition) _buildAutoPositionTile(context),
+          if (viewmodel.supportsLegacyUc) _buildLegacyUcTile(context),
           _buildSizeSelector(context),
           _buildBatchResolutionSwitch(context),
           if (viewmodel.config.enableBatchResolution)
@@ -84,27 +103,29 @@ class ParametersConfigView extends StatelessWidget {
               leading: const Icon(Icons.search),
               title: context.tr('sampler'),
               currentValue: viewmodel.displayedSampler,
-              options: viewmodel.isV4 ? samplersV4 : samplers,
+              options: viewmodel.supportsSmeaControls ? samplers : samplersV4,
               trailing: _buildGlobalToggle(
                 value: viewmodel.useGlobalSampler,
                 onChanged: viewmodel.setUseGlobalSampler,
               ),
               onSelectComplete: (value) => viewmodel.setSampler(value)),
-          SelectableListTile(
-              leading: const Icon(Icons.search),
-              title: context.tr('noise_scheduler'),
-              currentValue: viewmodel.config.noiseSchedule,
-              options: viewmodel.isV4 ? noiseSchedulesV4 : noiseSchedules,
-              onSelectComplete: (value) => viewmodel.setNoiseScheduler(value)),
+          if (viewmodel.supportsNoiseSchedule)
+            SelectableListTile(
+                leading: const Icon(Icons.search),
+                title: context.tr('noise_scheduler'),
+                currentValue: viewmodel.config.noiseSchedule,
+                options: viewmodel.isV4 ? noiseSchedulesV4 : noiseSchedules,
+                onSelectComplete: (value) =>
+                    viewmodel.setNoiseScheduler(value)),
           // SMEA
-          if (!viewmodel.isV4)
+          if (viewmodel.supportsSmeaControls)
             _buildSwitchTile(
               context.tr('sm'),
               viewmodel.config.sm,
               (newValue) => viewmodel.setSm(newValue),
               const Icon(Icons.keyboard_double_arrow_right),
             ),
-          if (!viewmodel.isV4)
+          if (viewmodel.supportsSmeaControls)
             _buildSwitchTile(
               context.tr('sm_dyn'),
               viewmodel.config.smDyn,
@@ -112,12 +133,13 @@ class ParametersConfigView extends StatelessWidget {
               const Icon(Icons.keyboard_double_arrow_right),
             ),
           // Variety+
-          _buildSwitchTile(
-            context.tr('variety_plus'),
-            viewmodel.config.varietyPlus,
-            (newValue) => viewmodel.setVarietyPlus(newValue),
-            const Icon(Icons.add),
-          ),
+          if (viewmodel.supportsVarietyPlus)
+            _buildSwitchTile(
+              context.tr('variety_plus'),
+              viewmodel.config.varietyPlus,
+              (newValue) => viewmodel.setVarietyPlus(newValue),
+              const Icon(Icons.add),
+            ),
           // Seed
           _buildRandomSeedTile(context),
           // UC
@@ -277,6 +299,18 @@ class ParametersConfigView extends StatelessWidget {
     );
   }
 
+  Widget _buildTransparentBackgroundTile(BuildContext context) {
+    return CheckboxListTile(
+      title: const Text('透明背景'),
+      subtitle: const Text('输出带 Alpha 通道的透明背景图片'),
+      secondary: const Icon(Icons.layers_clear_outlined),
+      value: viewmodel.config.transparentBackground,
+      onChanged: (value) {
+        if (value != null) viewmodel.setTransparentBackground(value);
+      },
+    );
+  }
+
   String _batchResolutionModeLabel(BuildContext context) {
     return switch (viewmodel.config.batchResolutionMode) {
       'random' => tr('batch_resolution_mode_random'),
@@ -401,7 +435,7 @@ class ParametersConfigView extends StatelessWidget {
       final commentData =
           json.decode(jsonData['Comment']) as Map<String, dynamic>;
       final source = jsonData['Source'] ?? '';
-      final String? model = sourceToModel[source];
+      final String? model = modelFromNovelAiSource(source);
       final String? prompt = jsonData['Description'];
       final toolTip = Padding(
         padding: const EdgeInsets.only(left: 8.0),

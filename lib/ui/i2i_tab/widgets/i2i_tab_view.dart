@@ -67,6 +67,14 @@ class I2iTabView extends StatelessWidget {
           showPresetControl: showPresetControl,
         );
 
+        if (!viewmodel.supportsVibeTransfer &&
+            !viewmodel.supportsPreciseReference) {
+          if (compact) return i2iConfigView;
+          return const Center(
+            child: Text('当前模型支持图生图，但不支持 Vibe / 精确参考'),
+          );
+        }
+
         if (compact && !viewmodel.isV45) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

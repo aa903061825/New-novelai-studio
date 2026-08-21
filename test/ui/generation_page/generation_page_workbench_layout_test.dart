@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_command/flutter_command.dart';
 import 'package:get_it/get_it.dart';
+import 'package:novel_studio/data/models/api_request.dart';
 import 'package:novel_studio/data/models/character_config.dart';
 import 'package:novel_studio/data/models/command_status.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
@@ -19,6 +21,7 @@ import 'package:novel_studio/data/models/prompt_config.dart';
 import 'package:novel_studio/data/models/settings.dart';
 import 'package:novel_studio/data/models/vibe_config.dart';
 import 'package:novel_studio/data/models/vibe_config_v4.dart';
+import 'package:novel_studio/data/services/nai_account_usage_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/data/studio/services/workbench_transfer_service.dart';
@@ -30,6 +33,7 @@ import 'package:novel_studio/ui/studio_core/motion/studio_animated_presence.dart
 import 'package:novel_studio/ui/studio_core/motion/studio_motion_sequence.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_editor.dart';
+import 'package:novel_studio/ui/studio_core/widgets/studio_chip.dart';
 import 'package:novel_studio/ui/studio_workbench/widgets/prompt_composer_panel.dart';
 import 'package:novel_studio/ui/studio_workbench/widgets/workbench_asset_drawer.dart';
 import 'package:novel_studio/ui/studio_workbench/view_models/workbench_transfer_viewmodel.dart';
@@ -117,10 +121,42 @@ class _FakeCatalogService extends StudioAssetCatalogService {
 class _WorkbenchLayoutViewmodel extends GenerationPageViewmodel {
   int? lastSingleImageGenerationCount;
 
+  _WorkbenchLayoutViewmodel({super.naiAccountUsageService});
+
   @override
   void startSingleImageGeneration({int count = 1}) {
     lastSingleImageGenerationCount = count;
   }
+}
+
+NaiAccountUsageService _simulatedUsageService({
+  required double percent,
+  bool isNegative = false,
+}) {
+  return NaiAccountUsageService(
+    fetchData: (_) async => ApiResponse(
+      status: '200',
+      data: Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'subscription': {
+              'tier': 3,
+              'active': true,
+              'usage': {
+                'percent': percent,
+                'isNegative': isNegative,
+                'timeUntilNextPercent': 7200,
+              },
+              'trainingStepsLeft': {
+                'fixedTrainingStepsLeft': 1000,
+                'purchasedTrainingSteps': 25,
+              },
+            },
+          }),
+        ),
+      ),
+    ),
+  );
 }
 
 const _sharedPreferencesChannel = MethodChannel(
@@ -230,6 +266,8 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+
+    GetIt.I<PayloadConfig>().paramConfig.model = 'nai-diffusion-4-5-full';
 
     await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
 
@@ -497,6 +535,56 @@ void main() {
     expect(find.text('底图 1 x 1'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('V5 explains that saved Vibes are unavailable and disables them',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.paramConfig = ParamConfig(model: 'nai-diffusion-5-full');
+    payload.generationRuntimeState.vibeEnabled = true;
+    payload.vibeConfigListV4.add(
+      VibeConfigV4(
+        fileName: 'saved-vibe.png',
+        vibeB64: 'saved-encoding',
+        referenceStrength: 0.6,
+      ),
+    );
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    expect(
+      find.byKey(const ValueKey('workbench-vibe-unsupported-hint')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'V5 暂不支持 Vibe；已保留 1 条配置，切回 V4 / V4.5 后可继续使用。',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<StudioChip>(
+            find.byKey(const ValueKey('workbench-vibe-section-toggle')),
+          )
+          .onTap,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<StudioAnimatedPresence>(
+            find.byKey(const ValueKey('workbench-vibe-presence')),
+          )
+          .visible,
+      isFalse,
+    );
+    expect(find.byKey(const ValueKey('workbench-vibe-editor')), findsNothing);
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
   });
 
   testWidgets('workbench shows pending Vibe encoding Anlas by generate',
@@ -840,6 +928,93 @@ void main() {
     } finally {
       debugDefaultTargetPlatformOverride = previousTargetPlatform;
     }
+  });
+
+  testWidgets('V5 workbench shows simulated Opus allowance', (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.settings.apiKey = 'pst-simulated';
+    payload.paramConfig.model = 'nai-diffusion-5-full';
+    final viewmodel = _WorkbenchLayoutViewmodel(
+      naiAccountUsageService: _simulatedUsageService(percent: 42.5),
+    );
+
+    await _pumpGenerationPage(tester, viewmodel);
+    await tester.pumpAndSettle();
+
+    expect(find.text('V5 Opus 剩余 42.5%'), findsOneWidget);
+    expect(find.textContaining('约 735 张普通生成'), findsOneWidget);
+  });
+
+  testWidgets('exhausted V5 allowance requires Anlas confirmation',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.settings.apiKey = 'pst-simulated';
+    payload.paramConfig.model = 'nai-diffusion-5-curated';
+    final viewmodel = _WorkbenchLayoutViewmodel(
+      naiAccountUsageService: _simulatedUsageService(
+        percent: -0.1,
+        isNegative: true,
+      ),
+    );
+
+    await _pumpGenerationPage(tester, viewmodel);
+    await tester.pumpAndSettle();
+
+    final startButton =
+        find.byKey(const ValueKey('workbench-start-generation-button'));
+    await tester.ensureVisible(startButton);
+    await tester.tap(startButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('V5 Opus 免费额度已用尽'), findsWidgets);
+    expect(find.textContaining('当前可用 Anlas：1025'), findsOneWidget);
+    expect(viewmodel.lastSingleImageGenerationCount, isNull);
+
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-confirm-v5-anlas-generation')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewmodel.lastSingleImageGenerationCount, 1);
+  });
+
+  testWidgets('V5 workbench exposes freeform character position canvas',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.paramConfig.model = 'nai-diffusion-5-full';
+    payload.characterConfigList = [
+      CharacterConfig.fromEmpty(name: '角色 1')
+        ..freeformPosition = const Point(0.5, 0.5),
+    ];
+
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+
+    expect(
+      find.byKey(const ValueKey('workbench-v5-character-position-canvas')),
+      findsOneWidget,
+    );
+    expect(find.text('V5 自由角色位置'), findsOneWidget);
+    expect(find.text('AI 自选'), findsOneWidget);
+    expect(find.text('自定义'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workbench-character-position-marker-0')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('character prompts render as compact cards that expand on tap',

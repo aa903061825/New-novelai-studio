@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_runtime_state.dart';
 import 'package:novel_studio/data/models/global_generation_params.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
@@ -99,6 +100,7 @@ class SavedConfigInfo {
 class ConfigService {
   static const _globalGenerationParamsKey = 'globalGenerationParams';
   static const _generationRuntimeStateKey = 'generationRuntimeState';
+  static const _novel5DefaultMigrationKey = 'novel5DefaultMigrationV1';
   late PackageInfo packageInfo;
   late Box saveBox;
 
@@ -141,6 +143,7 @@ class ConfigService {
     } else {
       currentUuid = savedUuid;
     }
+    await migrateCurrentConfigToNovel5DefaultIfNeeded(decodedConfig);
     await saveBox.delete('savedConfig');
 
     if (kDebugMode) {
@@ -150,6 +153,28 @@ class ConfigService {
     }
 
     return decodedConfig;
+  }
+
+  /// Moves the active configuration to the new Novel 5 default once.
+  ///
+  /// The marker keeps later explicit model choices intact across restarts.
+  Future<bool> migrateCurrentConfigToNovel5DefaultIfNeeded(
+    Map<String, dynamic> config,
+  ) async {
+    if (!_hasSaveBox || saveBox.get(_novel5DefaultMigrationKey) == true) {
+      return false;
+    }
+    final rawParamConfig = config['param_config'];
+    if (rawParamConfig is Map) {
+      rawParamConfig['model'] = defaultGenerationModel;
+    } else {
+      config['param_config'] = <String, dynamic>{
+        'model': defaultGenerationModel,
+      };
+    }
+    await saveConfig(config);
+    await saveBox.put(_novel5DefaultMigrationKey, true);
+    return true;
   }
 
   Future<void> saveConfig(Map<String, dynamic> jsonData) async {

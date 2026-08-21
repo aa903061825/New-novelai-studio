@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/data/models/character_config.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
@@ -205,6 +207,7 @@ void main() {
 
   test('adds blank character cards up to the workbench character limit', () {
     final payload = _payload();
+    payload.paramConfig.model = 'nai-diffusion-4-5-full';
     final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
 
     for (var index = 0; index < 7; index++) {
@@ -215,5 +218,97 @@ void main() {
     expect(payload.characterConfigList.last.name, '角色 6');
     expect(payload.characterConfigList.every((character) => character.enabled),
         isTrue);
+  });
+
+  test('switching to V5 exposes only V5-compatible workbench controls', () {
+    final payload = _payload();
+    payload.paramConfig.noiseSchedule = 'exponential';
+    payload.paramConfig.legacyUc = true;
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+
+    viewmodel.setModel('nai-diffusion-5-full');
+    viewmodel.setQualityPreset('light');
+    viewmodel.setUcPresetMode('humanFocus');
+    viewmodel.setTransparentBackground(true);
+
+    expect(viewmodel.usesStructuredPrompts, isTrue);
+    expect(viewmodel.supportsNoiseSchedule, isFalse);
+    expect(viewmodel.supportsSmeaControls, isFalse);
+    expect(viewmodel.supportsVarietyPlus, isFalse);
+    expect(viewmodel.supportsDynamicThresholding, isFalse);
+    expect(viewmodel.supportsLegacyUc, isFalse);
+    expect(viewmodel.supportsAutoPosition, isTrue);
+    expect(viewmodel.supportsTransparency, isTrue);
+    expect(viewmodel.maxCharacterCount, 32);
+    expect(payload.paramConfig.noiseSchedule, 'karras');
+    expect(payload.paramConfig.legacyUc, isFalse);
+    expect(payload.paramConfig.qualityPreset, 'light');
+    expect(payload.paramConfig.ucPresetMode, 'humanFocus');
+    expect(payload.paramConfig.transparentBackground, isTrue);
+  });
+
+  test('V5 disables Vibe without discarding the saved enabled state', () {
+    final payload = _payload();
+    payload.paramConfig = ParamConfig(model: 'nai-diffusion-4-5-full');
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+
+    viewmodel.setVibeEnabled(true);
+    expect(viewmodel.vibeEnabled, isTrue);
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
+
+    viewmodel.setModel('nai-diffusion-5-full');
+
+    expect(viewmodel.supportsVibeTransfer, isFalse);
+    expect(viewmodel.vibeEnabled, isFalse);
+    expect(payload.generationRuntimeState.vibeEnabled, isTrue);
+
+    viewmodel.setVibeEnabled(true);
+    viewmodel.setModel('nai-diffusion-4-5-full');
+
+    expect(viewmodel.supportsVibeTransfer, isTrue);
+    expect(viewmodel.vibeEnabled, isTrue);
+  });
+
+  test('V5 character positions are freeform, rounded, and serializable', () {
+    final payload = _payload();
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+    viewmodel.setModel('nai-diffusion-5-full');
+
+    viewmodel.addCharacter();
+    viewmodel.addCharacter();
+
+    expect(
+        payload.characterConfigList[0].freeformPosition, const Point(0.5, 0.5));
+    expect(
+        payload.characterConfigList[1].freeformPosition, const Point(0.3, 0.5));
+
+    viewmodel.setCharacterPosition(0, const Point(0.23456, 1.2));
+    expect(payload.characterConfigList[0].freeformPosition,
+        const Point(0.235, 1.0));
+
+    final restored = CharacterConfig.fromJson(
+      payload.characterConfigList[0].toJson(),
+    );
+    expect(restored.freeformPosition, const Point(0.235, 1.0));
+  });
+
+  test('character position editor detects overlaps and keeps legacy snapping',
+      () {
+    final payload = _payload();
+    final viewmodel = WorkbenchSingleImageParametersViewmodel(payload);
+    viewmodel.setModel('nai-diffusion-5-curated');
+    viewmodel.addCharacter();
+    viewmodel.addCharacter();
+
+    viewmodel.setCharacterPosition(0, const Point(0.4, 0.4));
+    viewmodel.setCharacterPosition(1, const Point(0.45, 0.45));
+    expect(viewmodel.overlappingCharacterIndexes(), {0, 1});
+
+    viewmodel.setModel('nai-diffusion-4-5-full');
+    expect(payload.characterConfigList[0].positions.single, const Point(3, 3));
+    expect(payload.characterConfigList[1].positions.single, const Point(3, 3));
+    viewmodel.setCharacterPosition(0, const Point(0.22, 0.83));
+    expect(payload.characterConfigList[0].positions.single, const Point(2, 5));
+    expect(viewmodel.characterPosition(0), const Point(0.3, 0.9));
   });
 }

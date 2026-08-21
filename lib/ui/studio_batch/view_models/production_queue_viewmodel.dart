@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
@@ -2074,14 +2075,46 @@ class ProductionQueueViewModel extends ChangeNotifier {
         (!executionSettings.useOriginalSm && executionSettings.sm != null) ||
         (!executionSettings.useOriginalSmDyn &&
             executionSettings.smDyn != null);
-    if (!generationFamilyChanged) return;
+    final capabilities = GenerationModelCapabilities.fromModel(model);
+    if (!generationFamilyChanged && !capabilities.isV5) return;
 
-    final isV4 = model.contains('diffusion-4');
-    if (isV4) {
+    if (!capabilities.supportsSmeaControls) {
       parameters.remove('sm');
       parameters.remove('sm_dyn');
-      if (parameters['noise_schedule'] == 'native') {
-        parameters['noise_schedule'] = 'karras';
+      if (parameters['sampler'] == 'ddim_v3') {
+        parameters['sampler'] = 'k_euler_ancestral';
+      }
+    }
+    if (!capabilities.supportsNoiseSchedule) {
+      parameters['noise_schedule'] = 'karras';
+    } else if (capabilities.isV4 && parameters['noise_schedule'] == 'native') {
+      parameters['noise_schedule'] = 'karras';
+    }
+    if (!capabilities.supportsVarietyPlus) {
+      parameters.remove('skip_cfg_above_sigma');
+    }
+    if (!capabilities.supportsDynamicThresholding) {
+      parameters['dynamic_thresholding'] = false;
+    }
+    parameters['params_version'] = capabilities.paramsVersion;
+    if (capabilities.isV5) {
+      parameters.putIfAbsent('tag_hint_qt', () => 0);
+      parameters.putIfAbsent('tag_hint_uc_preset', () => 0);
+      parameters.putIfAbsent('tag_hint_transparent_background', () => false);
+      parameters.putIfAbsent('straight_alpha', () => false);
+    }
+    if (!capabilities.supportsVibeTransfer) {
+      for (final key in const [
+        'reference_image_multiple',
+        'reference_strength_multiple',
+        'reference_information_extracted_multiple',
+        'director_reference_images',
+        'director_reference_strength_values',
+        'director_reference_secondary_strength_values',
+        'director_reference_information_extracted',
+        'director_reference_descriptions',
+      ]) {
+        parameters.remove(key);
       }
     }
 

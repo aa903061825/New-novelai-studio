@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
 import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_presets.dart';
 import 'package:novel_studio/data/models/info_card_content.dart';
+import 'package:novel_studio/data/services/nai_account_usage_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
 import 'package:novel_studio/ui/generation_page/widgets/info_card.dart';
@@ -138,7 +143,7 @@ class WorkbenchCreativeInputsPanel extends StatelessWidget {
   }
 }
 
-class WorkbenchSingleImageConsole extends StatelessWidget {
+class WorkbenchSingleImageConsole extends StatefulWidget {
   final GenerationPageViewmodel generationViewmodel;
   final WorkbenchSingleImageParametersViewmodel parametersViewmodel;
   final StudioWorkbenchAssetService workbenchAssetService;
@@ -153,6 +158,49 @@ class WorkbenchSingleImageConsole extends StatelessWidget {
   });
 
   @override
+  State<WorkbenchSingleImageConsole> createState() =>
+      _WorkbenchSingleImageConsoleState();
+}
+
+class _WorkbenchSingleImageConsoleState
+    extends State<WorkbenchSingleImageConsole> {
+  late String _lastModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastModel = widget.parametersViewmodel.config.model;
+    widget.parametersViewmodel.addListener(_handleParameterChange);
+    unawaited(widget.generationViewmodel.refreshNaiAccountUsage());
+  }
+
+  @override
+  void didUpdateWidget(covariant WorkbenchSingleImageConsole oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.parametersViewmodel != widget.parametersViewmodel) {
+      oldWidget.parametersViewmodel.removeListener(_handleParameterChange);
+      _lastModel = widget.parametersViewmodel.config.model;
+      widget.parametersViewmodel.addListener(_handleParameterChange);
+    }
+    if (oldWidget.generationViewmodel != widget.generationViewmodel) {
+      unawaited(widget.generationViewmodel.refreshNaiAccountUsage());
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.parametersViewmodel.removeListener(_handleParameterChange);
+    super.dispose();
+  }
+
+  void _handleParameterChange() {
+    final model = widget.parametersViewmodel.config.model;
+    if (model == _lastModel) return;
+    _lastModel = model;
+    unawaited(widget.generationViewmodel.refreshNaiAccountUsage());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return StudioPanel(
       key: const ValueKey('workbench-single-image-console'),
@@ -162,33 +210,33 @@ class WorkbenchSingleImageConsole extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _ConsoleHeader(
-            viewmodel: generationViewmodel,
-            transferViewModel: transferViewModel,
+            viewmodel: widget.generationViewmodel,
+            transferViewModel: widget.transferViewModel,
           ),
           const SizedBox(height: 12),
           StudioMotionSequenceRegion(
             region: StudioMotionRegion.controls,
             child: _ExecutionSection(
-              viewmodel: generationViewmodel,
-              parametersViewmodel: parametersViewmodel,
-              workbenchAssetService: workbenchAssetService,
-              transferViewModel: transferViewModel,
+              viewmodel: widget.generationViewmodel,
+              parametersViewmodel: widget.parametersViewmodel,
+              workbenchAssetService: widget.workbenchAssetService,
+              transferViewModel: widget.transferViewModel,
             ),
           ),
           const Divider(height: 24),
           Expanded(
             child: ListenableBuilder(
-              listenable: parametersViewmodel,
+              listenable: widget.parametersViewmodel,
               builder: (context, _) {
                 return SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _CoreOutputSection(viewmodel: parametersViewmodel),
+                      _CoreOutputSection(viewmodel: widget.parametersViewmodel),
                       const Divider(height: 24),
-                      _AdvancedSection(viewmodel: parametersViewmodel),
+                      _AdvancedSection(viewmodel: widget.parametersViewmodel),
                       const Divider(height: 24),
-                      _RandomnessSection(viewmodel: parametersViewmodel),
+                      _RandomnessSection(viewmodel: widget.parametersViewmodel),
                     ],
                   ),
                 );
@@ -319,73 +367,230 @@ class _ExecutionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final usageService = viewmodel.naiAccountUsageService;
     return ListenableBuilder(
       listenable: Listenable.merge([
         viewmodel.commandStatus.isBatchActive,
         viewmodel.commandStatus.isCoolingDown,
         parametersViewmodel,
+        if (usageService != null) usageService,
       ]),
       builder: (context, _) {
         final active = viewmodel.commandStatus.isBatchActive.value;
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: StudioButton(
-                key: const ValueKey('workbench-start-generation-button'),
-                label: active ? '停止生成' : '开始生成',
-                icon: active ? Icons.stop : Icons.play_arrow,
-                tone:
-                    active ? StudioButtonTone.danger : StudioButtonTone.primary,
-                onPressed: active
-                    ? () => viewmodel.stopBatch()
-                    : () {
-                        parametersViewmodel.commitPendingInputs();
-                        viewmodel.startSingleImageGeneration(
-                          count: parametersViewmodel.generationCount,
-                        );
-                      },
+            if (parametersViewmodel.capabilities.isV5) ...[
+              _OpusUsagePanel(
+                service: usageService,
+                onRefresh: viewmodel.refreshNaiAccountUsage,
               ),
-            ),
-            if (!active && parametersViewmodel.knownExtraAnlas > 0) ...[
-              const SizedBox(width: 10),
-              StudioChip(
-                key: const ValueKey('workbench-known-extra-anlas'),
-                icon: Icons.bolt_outlined,
-                label: parametersViewmodel.knownExtraAnlasLabel,
-                selected: true,
-                accentColor: StudioTokens.warning,
-              ),
+              const SizedBox(height: 10),
             ],
-            const SizedBox(width: 10),
-            _GenerationCountField(
-              viewmodel: parametersViewmodel,
-              enabled: !active,
-            ),
-            if (transferViewModel != null) ...[
-              const SizedBox(width: 10),
-              StudioButton(
-                key: const ValueKey('workbench-import-action'),
-                label: '导入',
-                icon: Icons.file_upload_outlined,
-                tone: StudioButtonTone.secondary,
-                onPressed: () => transferViewModel!.importFromFile(context),
-              ),
-            ],
-            const SizedBox(width: 10),
-            StudioIconButton(
-              key: const ValueKey('workbench-reset-action'),
-              tooltip: context.tr('reset'),
-              icon: Icons.restart_alt,
-              onPressed: active
-                  ? null
-                  : () {
-                      workbenchAssetService.resetCreativeState();
-                      parametersViewmodel.refreshFromPayload();
-                    },
+            Row(
+              children: [
+                Expanded(
+                  child: StudioButton(
+                    key: const ValueKey('workbench-start-generation-button'),
+                    label: active ? '停止生成' : '开始生成',
+                    icon: active ? Icons.stop : Icons.play_arrow,
+                    tone: active
+                        ? StudioButtonTone.danger
+                        : StudioButtonTone.primary,
+                    onPressed: active
+                        ? () => viewmodel.stopBatch()
+                        : () => _startGeneration(context),
+                  ),
+                ),
+                if (!active && parametersViewmodel.knownExtraAnlas > 0) ...[
+                  const SizedBox(width: 10),
+                  StudioChip(
+                    key: const ValueKey('workbench-known-extra-anlas'),
+                    icon: Icons.bolt_outlined,
+                    label: parametersViewmodel.knownExtraAnlasLabel,
+                    selected: true,
+                    accentColor: StudioTokens.warning,
+                  ),
+                ],
+                const SizedBox(width: 10),
+                _GenerationCountField(
+                  viewmodel: parametersViewmodel,
+                  enabled: !active,
+                ),
+                if (transferViewModel != null) ...[
+                  const SizedBox(width: 10),
+                  StudioButton(
+                    key: const ValueKey('workbench-import-action'),
+                    label: '导入',
+                    icon: Icons.file_upload_outlined,
+                    tone: StudioButtonTone.secondary,
+                    onPressed: () => transferViewModel!.importFromFile(context),
+                  ),
+                ],
+                const SizedBox(width: 10),
+                StudioIconButton(
+                  key: const ValueKey('workbench-reset-action'),
+                  tooltip: context.tr('reset'),
+                  icon: Icons.restart_alt,
+                  onPressed: active
+                      ? null
+                      : () {
+                          workbenchAssetService.resetCreativeState();
+                          parametersViewmodel.refreshFromPayload();
+                        },
+                ),
+              ],
             ),
           ],
         );
       },
+    );
+  }
+
+  Future<void> _startGeneration(BuildContext context) async {
+    parametersViewmodel.commitPendingInputs();
+    await viewmodel.refreshNaiAccountUsage();
+    if (!context.mounted) return;
+    if (viewmodel.isV5OpusUsageExhausted) {
+      final snapshot = viewmodel.naiAccountUsageService?.snapshot;
+      final anlas = snapshot?.totalAnlas;
+      final continueGeneration = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('V5 Opus 免费额度已用尽'),
+          content: Text(
+            '本次生成将开始消耗 Anlas。'
+            '${anlas == null ? '' : '\n当前可用 Anlas：$anlas'}'
+            '\n计划生成：${parametersViewmodel.generationCount} 张。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('workbench-confirm-v5-anlas-generation'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('继续并消耗 Anlas'),
+            ),
+          ],
+        ),
+      );
+      if (continueGeneration != true || !context.mounted) return;
+    }
+    viewmodel.startSingleImageGeneration(
+      count: parametersViewmodel.generationCount,
+    );
+  }
+}
+
+class _OpusUsagePanel extends StatelessWidget {
+  final NaiAccountUsageService? service;
+  final Future<void> Function() onRefresh;
+
+  const _OpusUsagePanel({
+    required this.service,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = service?.snapshot;
+    final usage = snapshot?.opusUsage;
+    final loading = service?.isLoading == true;
+    final unavailable = service == null ||
+        service?.state == NaiAccountUsageLoadState.unavailable;
+    final exhausted = usage?.isNegative == true;
+    final color = exhausted ? StudioTokens.warning : StudioTokens.primary;
+
+    String label;
+    String detail;
+    if (loading && snapshot == null) {
+      label = '正在同步 V5 Opus 额度';
+      detail = '从 NovelAI 获取真实剩余额度…';
+    } else if (snapshot != null && !snapshot.isOpus) {
+      label = '当前账号不是有效的 Opus 订阅';
+      detail = 'V5 生成将按 NovelAI 规则消耗 Anlas。';
+    } else if (usage != null) {
+      final refill = usage.refillPercentPerDay;
+      label = exhausted
+          ? 'V5 Opus 免费额度已用尽'
+          : 'V5 Opus 剩余 ${usage.visiblePercent.toStringAsFixed(1)}%';
+      detail = exhausted
+          ? '继续生成将消耗 Anlas，额度会随时间恢复。'
+          : '约 ${usage.estimatedNormalImages} 张普通生成'
+              '${refill == null ? '' : ' · 每日恢复约 $refill%'}';
+    } else {
+      label = 'V5 Opus 额度暂不可用';
+      detail = service?.errorMessage ?? '需要有效的 NovelAI Persistent API Token。';
+    }
+
+    return Container(
+      key: const ValueKey('workbench-v5-opus-usage-panel'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(StudioTokens.radiusSmall),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            exhausted ? Icons.battery_alert_outlined : Icons.battery_5_bar,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: StudioTokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  detail,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                      ),
+                ),
+                if (usage != null) ...[
+                  const SizedBox(height: 7),
+                  LinearProgressIndicator(
+                    key: const ValueKey('workbench-v5-opus-usage-progress'),
+                    value: usage.visiblePercent / 100,
+                    minHeight: 5,
+                    color: color,
+                    backgroundColor: StudioTokens.surface3,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (loading)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            StudioIconButton(
+              key: const ValueKey('workbench-refresh-v5-opus-usage'),
+              tooltip: unavailable ? '重试同步额度' : '刷新额度',
+              icon: Icons.refresh,
+              onPressed: () => unawaited(onRefresh()),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -540,7 +745,8 @@ class _CoreOutputSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final config = viewmodel.config;
-    final samplerOptions = viewmodel.isV4 ? samplersV4 : samplers;
+    final samplerOptions =
+        viewmodel.supportsSmeaControls ? samplers : samplersV4;
     final noiseOptions = viewmodel.isV4 ? noiseSchedulesV4 : noiseSchedules;
 
     return Column(
@@ -563,6 +769,56 @@ class _CoreOutputSection extends StatelessWidget {
           },
         ),
         const SizedBox(height: 10),
+        if (viewmodel.supportsTransparency) ...[
+          SwitchListTile(
+            key: const ValueKey('workbench-transparent-background-control'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.layers_clear_outlined),
+            title: const Text('透明背景'),
+            subtitle: const Text('输出带 Alpha 通道的图片'),
+            value: config.transparentBackground,
+            onChanged: viewmodel.setTransparentBackground,
+          ),
+          const SizedBox(height: 4),
+        ],
+        if (viewmodel.supportsQualityPresets) ...[
+          DropdownButtonFormField<String>(
+            key: const ValueKey('workbench-quality-preset-control'),
+            initialValue: _safeDropdownValue(
+              config.qualityPreset,
+              generationQualityPresets,
+            ),
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'V5 质量预设',
+              prefixIcon: Icon(Icons.auto_awesome),
+            ),
+            items: _items(generationQualityPresets),
+            onChanged: (value) {
+              if (value != null) viewmodel.setQualityPreset(value);
+            },
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (viewmodel.supportsUcPresets) ...[
+          DropdownButtonFormField<String>(
+            key: const ValueKey('workbench-uc-preset-control'),
+            initialValue: _safeDropdownValue(
+              config.ucPresetMode,
+              generationUcPresets,
+            ),
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'V5 排除内容预设',
+              prefixIcon: Icon(Icons.shield_outlined),
+            ),
+            items: _items(generationUcPresets),
+            onChanged: (value) {
+              if (value != null) viewmodel.setUcPresetMode(value);
+            },
+          ),
+          const SizedBox(height: 10),
+        ],
         _SizeSelector(viewmodel: viewmodel),
         const SizedBox(height: 10),
         _SliderRow(
@@ -609,20 +865,23 @@ class _CoreOutputSection extends StatelessWidget {
             if (value != null) viewmodel.setSampler(value);
           },
         ),
-        const SizedBox(height: 10),
-        DropdownButtonFormField<String>(
-          key: const ValueKey('workbench-noise-schedule-control'),
-          initialValue: _safeDropdownValue(config.noiseSchedule, noiseOptions),
-          isExpanded: true,
-          decoration: const InputDecoration(
-            labelText: '噪声调度',
-            prefixIcon: Icon(Icons.waves),
+        if (viewmodel.supportsNoiseSchedule) ...[
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            key: const ValueKey('workbench-noise-schedule-control'),
+            initialValue:
+                _safeDropdownValue(config.noiseSchedule, noiseOptions),
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: '噪声调度',
+              prefixIcon: Icon(Icons.waves),
+            ),
+            items: _items(noiseOptions),
+            onChanged: (value) {
+              if (value != null) viewmodel.setNoiseScheduler(value);
+            },
           ),
-          items: _items(noiseOptions),
-          onChanged: (value) {
-            if (value != null) viewmodel.setNoiseScheduler(value);
-          },
-        ),
+        ],
       ],
     );
   }
@@ -815,6 +1074,8 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
         final i2iConfig = payload.i2iConfig;
         final vibeCount =
             payload.vibeConfigList.length + payload.vibeConfigListV4.length;
+        final vibeSupported = viewmodel.supportsVibeTransfer;
+        final vibeSectionExpanded = vibeSupported && _vibeEnabled;
         final hasSourceImage = viewmodel.hasI2iImage;
         final sourceSize = i2iConfig.width > 0 && i2iConfig.height > 0
             ? '${i2iConfig.width} x ${i2iConfig.height}'
@@ -831,22 +1092,67 @@ class _ReferenceInputSectionState extends State<_ReferenceInputSection> {
                   StudioChip(
                     icon: Icons.auto_awesome_outlined,
                     label: 'Vibe $vibeCount',
-                    selected: viewmodel.vibeEnabled,
+                    selected: vibeSupported && viewmodel.vibeEnabled,
+                  ),
+                if (!vibeSupported)
+                  const StudioChip(
+                    icon: Icons.block_outlined,
+                    label: '当前模型不支持',
                   ),
               ],
               toggle: StudioChip(
                 key: const ValueKey('workbench-vibe-section-toggle'),
-                icon: _vibeEnabled
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                label: _vibeEnabled ? '关闭' : '开启',
-                selected: _vibeEnabled,
-                onTap: _toggleVibeEnabled,
+                icon: !vibeSupported
+                    ? Icons.lock_outline
+                    : vibeSectionExpanded
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                label: !vibeSupported
+                    ? '不可用'
+                    : vibeSectionExpanded
+                        ? '关闭'
+                        : '开启',
+                selected: vibeSectionExpanded,
+                onTap: vibeSupported ? _toggleVibeEnabled : null,
               ),
             ),
+            if (!vibeSupported) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const ValueKey('workbench-vibe-unsupported-hint'),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: StudioTokens.surface2,
+                  borderRadius:
+                      BorderRadius.circular(StudioTokens.radiusMedium),
+                  border: Border.all(color: StudioTokens.cardOutline),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: StudioTokens.textMuted,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        vibeCount > 0
+                            ? 'V5 暂不支持 Vibe；已保留 $vibeCount 条配置，切回 V4 / V4.5 后可继续使用。'
+                            : 'V5 暂不支持 Vibe；切换到 V4 / V4.5 后即可添加风格参考。',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: StudioTokens.textMuted,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             StudioAnimatedPresence(
               key: const ValueKey('workbench-vibe-presence'),
-              visible: _vibeEnabled,
+              visible: vibeSectionExpanded,
               builder: (context) => Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1013,8 +1319,7 @@ class _CharacterSectionState extends State<_CharacterSection> {
               key: const ValueKey('workbench-add-character'),
               tooltip: '新增角色',
               icon: Icons.person_add_alt_1_outlined,
-              onPressed: characters.length >=
-                      WorkbenchSingleImageParametersViewmodel.maxCharacterCount
+              onPressed: characters.length >= viewmodel.maxCharacterCount
                   ? null
                   : _addCharacter,
             ),
@@ -1029,6 +1334,16 @@ class _CharacterSectionState extends State<_CharacterSection> {
           value: viewmodel.payloadConfig.useCharacterPromptWithOverride,
           onChanged: viewmodel.setUseCharacterPromptWithOverride,
         ),
+        if (characters.isNotEmpty && viewmodel.supportsAutoPosition) ...[
+          _CharacterPositionEditor(
+            viewmodel: viewmodel,
+            selectedIndex: expandedIndex ?? 0,
+            onSelected: (index) {
+              setState(() => _expandedIndex = index);
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
         if (characters.isEmpty)
           Container(
             padding: const EdgeInsets.all(14),
@@ -1108,9 +1423,348 @@ class _CharacterSectionState extends State<_CharacterSection> {
 
   double _cardWidthFor(double maxWidth, double gap) {
     final available = maxWidth.isFinite ? maxWidth : 852.0;
-    final maxCount = WorkbenchSingleImageParametersViewmodel.maxCharacterCount;
+    final maxCount = widget.viewmodel.maxCharacterCount;
     final rawWidth = (available - gap * (maxCount - 1)) / maxCount;
     return rawWidth.clamp(96.0, 132.0).toDouble();
+  }
+}
+
+class _CharacterPositionEditor extends StatefulWidget {
+  final WorkbenchSingleImageParametersViewmodel viewmodel;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  const _CharacterPositionEditor({
+    required this.viewmodel,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  @override
+  State<_CharacterPositionEditor> createState() =>
+      _CharacterPositionEditorState();
+}
+
+class _CharacterPositionEditorState extends State<_CharacterPositionEditor> {
+  int? _draggingIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewmodel = widget.viewmodel;
+    final characters = viewmodel.payloadConfig.characterConfigList;
+    final selectedIndex =
+        widget.selectedIndex.clamp(0, characters.length - 1).toInt();
+    final overlaps = viewmodel.overlappingCharacterIndexes();
+    final size = viewmodel.selectedSize;
+    final aspectRatio = (size.width / size.height).clamp(0.55, 2.2).toDouble();
+    final freeform = viewmodel.supportsFreeformCharacterPosition;
+    final custom = !viewmodel.config.autoPosition;
+
+    return Container(
+      key: ValueKey(
+        freeform
+            ? 'workbench-v5-character-position-canvas'
+            : 'workbench-grid-character-position-canvas',
+      ),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: StudioTokens.surface3,
+        borderRadius: _characterCardRadius,
+        border: Border.all(color: StudioTokens.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                freeform ? Icons.open_with : Icons.grid_4x4_outlined,
+                size: 19,
+                color: StudioTokens.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  freeform ? 'V5 自由角色位置' : '角色格点位置',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: StudioTokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              ChoiceChip(
+                label: const Text('AI 自选'),
+                selected: !custom,
+                onSelected: (_) => viewmodel.setAutoPosition(true),
+              ),
+              const SizedBox(width: 6),
+              ChoiceChip(
+                label: const Text('自定义'),
+                selected: custom,
+                onSelected: (_) => viewmodel.setAutoPosition(false),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            custom
+                ? freeform
+                    ? '拖动编号或点击画布，可精确到 0.1%。'
+                    : '拖动编号或点击画布，位置会吸附到 5×5 格点。'
+                : 'AI 自选已开启；拖动画布会自动切换为自定义。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: StudioTokens.textMuted,
+                ),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const maxHeight = 230.0;
+              final canvasWidth = min(
+                constraints.maxWidth,
+                maxHeight * aspectRatio,
+              );
+              final canvasHeight = canvasWidth / aspectRatio;
+              return Align(
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: canvasWidth,
+                  height: canvasHeight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (details) {
+                      final index = _nearestCharacter(
+                            details.localPosition,
+                            Size(canvasWidth, canvasHeight),
+                          ) ??
+                          selectedIndex;
+                      _moveCharacter(
+                        index,
+                        details.localPosition,
+                        Size(canvasWidth, canvasHeight),
+                      );
+                    },
+                    onPanStart: (details) {
+                      final index = _nearestCharacter(
+                            details.localPosition,
+                            Size(canvasWidth, canvasHeight),
+                          ) ??
+                          selectedIndex;
+                      _draggingIndex = index;
+                      _moveCharacter(
+                        index,
+                        details.localPosition,
+                        Size(canvasWidth, canvasHeight),
+                      );
+                    },
+                    onPanUpdate: (details) {
+                      final index = _draggingIndex;
+                      if (index == null) return;
+                      _moveCharacter(
+                        index,
+                        details.localPosition,
+                        Size(canvasWidth, canvasHeight),
+                      );
+                    },
+                    onPanEnd: (_) => _draggingIndex = null,
+                    onPanCancel: () => _draggingIndex = null,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: StudioTokens.surface2,
+                        borderRadius:
+                            BorderRadius.circular(StudioTokens.radiusSmall),
+                        border: Border.all(
+                          color: custom
+                              ? StudioTokens.primary.withValues(alpha: 0.7)
+                              : StudioTokens.border,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius:
+                            BorderRadius.circular(StudioTokens.radiusSmall),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: _CharacterPositionGridPainter(
+                                  freeform: freeform,
+                                  active: custom,
+                                ),
+                              ),
+                            ),
+                            for (final (index, character) in characters.indexed)
+                              if (character.enabled)
+                                _CharacterPositionMarker(
+                                  index: index,
+                                  position: viewmodel.characterPosition(index),
+                                  canvasSize: Size(canvasWidth, canvasHeight),
+                                  selected: index == selectedIndex,
+                                  warning: overlaps.contains(index),
+                                  label:
+                                      viewmodel.characterPositionLabel(index),
+                                ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (overlaps.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '角色 ${overlaps.map((index) => index + 1).join('、')} 距离过近，可能降低角色分离效果。',
+              key: const ValueKey(
+                  'workbench-character-position-overlap-warning'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: StudioTokens.warning,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int? _nearestCharacter(Offset localPosition, Size canvasSize) {
+    var nearestDistance = 28.0;
+    int? nearest;
+    for (final (index, character)
+        in widget.viewmodel.payloadConfig.characterConfigList.indexed) {
+      if (!character.enabled) continue;
+      final position = widget.viewmodel.characterPosition(index);
+      final marker = Offset(
+        position.x * canvasSize.width,
+        position.y * canvasSize.height,
+      );
+      final distance = (marker - localPosition).distance;
+      if (distance <= nearestDistance) {
+        nearestDistance = distance;
+        nearest = index;
+      }
+    }
+    return nearest;
+  }
+
+  void _moveCharacter(int index, Offset localPosition, Size canvasSize) {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) return;
+    widget.onSelected(index);
+    if (widget.viewmodel.config.autoPosition) {
+      widget.viewmodel.setAutoPosition(false);
+    }
+    widget.viewmodel.setCharacterPosition(
+      index,
+      Point<double>(
+        (localPosition.dx / canvasSize.width).clamp(0.0, 1.0).toDouble(),
+        (localPosition.dy / canvasSize.height).clamp(0.0, 1.0).toDouble(),
+      ),
+    );
+  }
+}
+
+class _CharacterPositionMarker extends StatelessWidget {
+  static const diameter = 30.0;
+
+  final int index;
+  final Point<double> position;
+  final Size canvasSize;
+  final bool selected;
+  final bool warning;
+  final String label;
+
+  const _CharacterPositionMarker({
+    required this.index,
+    required this.position,
+    required this.canvasSize,
+    required this.selected,
+    required this.warning,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = warning
+        ? StudioTokens.warning
+        : selected
+            ? StudioTokens.primary
+            : StudioTokens.active;
+    return Positioned(
+      key: ValueKey('workbench-character-position-marker-$index'),
+      left: position.x * canvasSize.width - diameter / 2,
+      top: position.y * canvasSize.height - diameter / 2,
+      child: IgnorePointer(
+        child: Tooltip(
+          message: '角色 ${index + 1} · $label',
+          child: Container(
+            width: diameter,
+            height: diameter,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: StudioTokens.textPrimary,
+                width: selected ? 2 : 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Text(
+              '${index + 1}',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: StudioTokens.surface1,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CharacterPositionGridPainter extends CustomPainter {
+  final bool freeform;
+  final bool active;
+
+  const _CharacterPositionGridPainter({
+    required this.freeform,
+    required this.active,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = StudioTokens.border.withValues(alpha: active ? 0.75 : 0.4)
+      ..strokeWidth = 1;
+    final divisions =
+        freeform ? const [1 / 3, 2 / 3] : const [0.2, 0.4, 0.6, 0.8];
+    for (final value in divisions) {
+      canvas
+        ..drawLine(
+          Offset(size.width * value, 0),
+          Offset(size.width * value, size.height),
+          paint,
+        )
+        ..drawLine(
+          Offset(0, size.height * value),
+          Offset(size.width, size.height * value),
+          paint,
+        );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CharacterPositionGridPainter oldDelegate) {
+    return oldDelegate.freeform != freeform || oldDelegate.active != active;
   }
 }
 
@@ -1754,14 +2408,15 @@ class _AdvancedSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _SectionTitle(icon: Icons.tune_outlined, title: '高级'),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(Icons.do_not_disturb),
-          title: const Text('旧版提示词条件模式'),
-          value: config.legacyUc,
-          onChanged: viewmodel.setLegacyUc,
-        ),
-        if (viewmodel.isV4)
+        if (viewmodel.supportsLegacyUc)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.do_not_disturb),
+            title: const Text('旧版提示词条件模式'),
+            value: config.legacyUc,
+            onChanged: viewmodel.setLegacyUc,
+          ),
+        if (viewmodel.supportsAutoPosition)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.not_listed_location_outlined),
@@ -1769,7 +2424,7 @@ class _AdvancedSection extends StatelessWidget {
             value: config.autoPosition,
             onChanged: viewmodel.setAutoPosition,
           ),
-        if (!viewmodel.isV4)
+        if (viewmodel.supportsSmeaControls)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.keyboard_double_arrow_right),
@@ -1777,7 +2432,7 @@ class _AdvancedSection extends StatelessWidget {
             value: config.sm,
             onChanged: viewmodel.setSm,
           ),
-        if (!viewmodel.isV4)
+        if (viewmodel.supportsSmeaControls)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.keyboard_double_arrow_right),
@@ -1785,13 +2440,14 @@ class _AdvancedSection extends StatelessWidget {
             value: config.smDyn,
             onChanged: viewmodel.setSmDyn,
           ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(Icons.dynamic_form_outlined),
-          title: const Text('动态阈值'),
-          value: config.dynamicThresholding,
-          onChanged: viewmodel.setDynamicThresholding,
-        ),
+        if (viewmodel.supportsDynamicThresholding)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.dynamic_form_outlined),
+            title: const Text('动态阈值'),
+            value: config.dynamicThresholding,
+            onChanged: viewmodel.setDynamicThresholding,
+          ),
       ],
     );
   }
@@ -1834,13 +2490,14 @@ class _RandomnessSection extends StatelessWidget {
             ),
           ),
         ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          secondary: const Icon(Icons.add),
-          title: const Text('Variety+'),
-          value: config.varietyPlus,
-          onChanged: viewmodel.setVarietyPlus,
-        ),
+        if (viewmodel.supportsVarietyPlus)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.add),
+            title: const Text('Variety+'),
+            value: config.varietyPlus,
+            onChanged: viewmodel.setVarietyPlus,
+          ),
       ],
     );
   }

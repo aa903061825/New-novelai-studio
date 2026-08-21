@@ -11,13 +11,14 @@ const characterLibraryPath = path.resolve(args.characterLibrary);
 const reportPath = path.resolve(args.report);
 const backupDir = args.backupDir ? path.resolve(args.backupDir) : '';
 
-const targetIds = [
+const defaultTargetIds = [
   'legacy-character-sheet-r14',
   'legacy-character-sheet-r13',
   'legacy-character-sheet-r29',
   'legacy-character-sheet-r15',
   'legacy-character-sheet-r26',
 ];
+const targetIds = args.targetIds.length > 0 ? args.targetIds : defaultTargetIds;
 
 if (!fs.existsSync(cacheDir)) throw new Error(`Missing cache dir: ${cacheDir}`);
 if (!fs.existsSync(profilePath)) throw new Error(`Missing profile file: ${profilePath}`);
@@ -33,7 +34,7 @@ const characters = Array.isArray(characterLibrary)
     : [];
 const targetCards = targetIds.map((id) => buildTargetCard(findCharacter(characters, id)));
 if (targetCards.some((card) => !card)) {
-  throw new Error('The five requested target character cards are incomplete.');
+  throw new Error('One or more requested target character cards are incomplete.');
 }
 
 const sourceTerms = new Map();
@@ -171,6 +172,25 @@ const output = {
   profiles: outputProfiles,
 };
 
+const reviewTerms = [
+  '1girl',
+  'girl',
+  'bunny suit',
+  'leotard',
+  'tight clothing',
+  'black pantyhose',
+  'black socks',
+  'tail',
+  'cat ears',
+  'animal ears',
+  'hood',
+  'mask',
+  'black bow',
+  'hair ornament',
+  'white dress',
+  'nude',
+];
+
 const coverage = builtProfiles.map((profile) => {
   const blockKeys = new Set(
     profile.blocks.flatMap((block) => block.terms.map((term) => term.normalizedKey)),
@@ -213,6 +233,27 @@ const report = {
   source_term_count: sourceTerms.size,
   existing_profile_count: currentProfiles.length,
   output_profile_count: outputProfiles.length,
+  target_profile_previews: builtProfiles.map((profile) => ({
+    targetCharacterId: profile.targetCharacterId,
+    name: profile.name,
+    targetIdentityPrompt: profile.targetIdentityPrompt,
+    blockCount: profile.blocks.length,
+    sampleBlocks: profile.blocks
+      .filter((block) => block.action === 'delete' || block.targetPrompt)
+      .slice(0, 20),
+    reviewSamples: reviewTerms.map((term) => ({
+      sourceTerm: term,
+      blocks: profile.blocks
+        .filter((block) => block.terms.some((candidate) =>
+          normalizeProfileTerm(candidate.text) === normalizeProfileTerm(term),
+        ))
+        .map((block) => ({
+          action: block.action,
+          targetPrompt: block.targetPrompt || '',
+          terms: block.terms.map((candidate) => candidate.text),
+        })),
+    })),
+  })),
   target_profiles: coverage,
   validation,
 };
@@ -298,10 +339,11 @@ function targetPromptForTerm(entry, target) {
   const source = terms.map((term) => spacedText(term.text)).join(' ');
   const category = preferredCategory(entry);
   if (!source.trim()) return '';
+  if (isCompositionSource(source)) return '';
 
   if (isGenericGirl(category, source)) return target.genericTags.join(', ');
   if (isNegatedAppearanceTerm(source)) return DELETE_SENTINEL;
-  if (isHeadConflict(source) && target.id === 'legacy-character-sheet-r14') {
+  if (isHeadConflict(source) && !isBodyState(source) && target.id === 'legacy-character-sheet-r14') {
     return pepeHeadAnchor();
   }
   if (isCharacterAnchor(category, source)) return target.anchorPrompt;
@@ -323,19 +365,28 @@ function targetPromptForTerm(entry, target) {
   if (isPreservedHairState(source)) return '';
   if (isLowerDecoration(category, source)) return targetTailTags(target);
   if (isStableAppearance(category, source)) {
-    if (hasAnyWord(source, ['tail'])) return targetTailTags(target);
+    if (hasAnyWord(source, ['tail'])) return targetTailTags(target) || DELETE_SENTINEL;
+    if (hasAnyWord(source, ['hood', 'hooded', 'hat', 'bonnet', 'headwear'])) {
+      return targetTagsOrDelete(target, ['hood', 'hat', 'bonnet', 'headwear']);
+    }
+    if (hasAnyWord(source, ['mask', 'veil'])) {
+      return targetTagsOrDelete(target, ['mask', 'veil']);
+    }
+    if (hasAnyWord(source, ['collar', 'choker', 'necklace', 'jewelry', 'ring', 'rings'])) {
+      return targetTagsOrDelete(target, ['collar', 'choker', 'necklace', 'jewelry', 'ring']);
+    }
+    if (hasAnyWord(source, ['ribbon', 'bow', 'ornament', 'flower', 'headdress', 'headpiece', 'band', 'bell', 'key'])) {
+      return targetTagsOrDelete(target, ['ribbon', 'bow', 'ornament', 'flower', 'headdress', 'headpiece', 'band', 'bell', 'key']);
+    }
     if (hasAnyWord(source, ['hair', 'ahoge', 'bun', 'braid', 'bang', 'ponytail', 'twintail'])) {
-      return targetHairTags(target);
+      return targetHairTags(target) || DELETE_SENTINEL;
     }
-    if (hasAnyWord(source, ['eye', 'eyes'])) {
-      return targetTags(target, ['eye']);
+    if (hasAnyWord(source, ['eye', 'eyes', 'pupil', 'pupils', 'heterochromia'])) {
+      return targetTagsOrDelete(target, ['eye', 'pupil', 'heterochromia']);
     }
-    if (hasAnyWord(source, ['fang'])) return targetTags(target, ['fang']);
+    if (hasAnyWord(source, ['fang'])) return targetTagsOrDelete(target, ['fang']);
     if (hasAnyWord(source, ['ear', 'ears', 'horn', 'halo'])) {
-      return targetTags(target, ['ear', 'horn', 'halo']);
-    }
-    if (hasAnyWord(source, ['ribbon', 'ornament', 'jewelry', 'flower', 'headdress', 'headpiece', 'band', 'bell'])) {
-      return targetTags(target, ['ribbon', 'ornament', 'jewelry', 'flower', 'headdress', 'headpiece', 'band', 'bell']);
+      return targetTagsOrDelete(target, ['ear', 'horn', 'halo']);
     }
   }
   return '';
@@ -352,10 +403,17 @@ function buildTargetCard(character) {
     ...splitPromptTags(character.traits?.front_upper || ''),
     ...splitPromptTags(character.traits?.front_lower || ''),
   ];
-  const stable = uniqueTags(identityTags);
+  const rawStable = uniqueTags(identityTags);
+  const stable = rawStable.filter((tag) => !isCompositionTag(tag));
+  const femaleEvidence = rawStable.some((tag) =>
+    tag === 'girl' || tag === 'female' || /^\d+girls?$/.test(tag) || tag.endsWith('_girl'),
+  );
   const generic = id === 'legacy-character-sheet-r14'
     ? ['loli', 'girl', 'cat_girl']
-    : stable.filter((tag) => tag === 'girl' || tag === 'loli' || tag === 'young' || tag.endsWith('_girl'));
+    : uniqueTags([
+        ...stable.filter((tag) => tag === 'girl' || tag === 'loli' || tag === 'young' || tag.endsWith('_girl')),
+        ...(femaleEvidence ? ['girl'] : []),
+      ]);
   const outfits = Array.isArray(character.outfits) ? character.outfits : [];
   const defaultOutfit = id === 'legacy-character-sheet-r14'
     ? outfits.find((outfit) => outfit.id === 'default-outfit-copy' || outfit.name === '无兜帽') || outfits[0]
@@ -394,16 +452,64 @@ function buildTargetCard(character) {
 function targetHairTags(target) {
   return target.stable.filter((tag) =>
     /(?:hair|bang|braid|ponytail|twintail|bun|ahoge|sidelock|tress)/.test(tag) &&
-    !/(?:ornament|band|ribbon|flower)/.test(tag),
+    !/(?:ornament|band|ribbon|flower|bow|key)/.test(tag),
   ).join(', ');
 }
 
 function targetTailTags(target) {
-  return targetTags(target, ['tail']);
+  return target.stable
+    .filter((tag) => /(?:^|_)tail(?:_|$)/.test(tag))
+    .join(', ');
+}
+
+function targetTagsOrDelete(target, needles) {
+  return targetTags(target, needles) || DELETE_SENTINEL;
 }
 
 function targetTags(target, needles) {
-  return target.stable.filter((tag) => needles.some((needle) => tag.includes(needle))).join(', ');
+  return targetTagPool(target, needles)
+    .filter((tag) => needles.some((needle) => targetTagMatchesNeedle(tag, needle)))
+    .join(', ');
+}
+
+function targetTagPool(target, needles) {
+  const normalizedNeedles = needles.map((needle) => cleanTag(needle));
+  const includeDefaultOutfit = normalizedNeedles.some((needle) =>
+    ['hood', 'hat', 'bonnet', 'headwear', 'collar', 'choker', 'necklace', 'jewelry', 'ring'].includes(needle),
+  );
+  return includeDefaultOutfit
+    ? uniqueTags([...target.stable, ...splitPromptTags(target.clothing)])
+    : target.stable;
+}
+
+function targetTagMatchesNeedle(tag, needle) {
+  const tagTokens = cleanTag(tag).split('_').filter(Boolean);
+  const needleTokens = cleanTag(needle).split('_').filter(Boolean);
+  if (needleTokens.length === 0 || needleTokens.length > tagTokens.length) return false;
+  for (let index = 0; index <= tagTokens.length - needleTokens.length; index += 1) {
+    const matches = needleTokens.every((token, offset) =>
+      singularTagToken(tagTokens[index + offset]) === singularTagToken(token),
+    );
+    if (matches) return true;
+  }
+  return false;
+}
+
+function singularTagToken(value) {
+  const token = cleanTag(value);
+  if (token.endsWith('ies') && token.length > 3) return token.slice(0, -3) + 'y';
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 2) return token.slice(0, -1);
+  return token;
+}
+
+function isCompositionTag(tag) {
+  return /^\d+(?:girls?|boys?)$/.test(tag) ||
+    ['solo', 'multiple_girls', 'multiple_boys'].includes(tag);
+}
+
+function isCompositionSource(source) {
+  return /^\s*\d+\s*(?:girls?|boys?)\s*$/.test(source) ||
+    /^\s*(?:solo|multiple girls|multiple boys)\s*$/.test(source);
 }
 
 function preferredCategory(entry) {
@@ -431,7 +537,7 @@ function isCharacterAnchor(category, source) {
 
 function isGenericGirl(category, source) {
   return (category === 'identity' || category === 'character') &&
-    /^(?:1\s*)?(?:girl|loli|young|female|woman|heroine)$/.test(source.trim());
+    /^(?:girl|loli|young|female|woman|heroine)$/.test(source.trim());
 }
 
 function isClothingCategory(category, source) {
@@ -443,11 +549,11 @@ function isStableAppearance(category, source) {
   if (
     category === 'accessory' &&
     !isLowerDecoration(category, source) &&
-    !hasAnyWord(source, ['hair', 'head', 'ear', 'ears', 'hood', 'hat', 'headband', 'hairband', 'headdress', 'headpiece', 'veil'])
+    !hasAnyWord(source, ['hair', 'head', 'ear', 'ears', 'hood', 'hooded', 'hat', 'bonnet', 'headwear', 'headband', 'hairband', 'headdress', 'headpiece', 'veil', 'mask', 'collar', 'choker', 'necklace', 'jewelry', 'ring', 'ribbon', 'bow', 'ornament', 'flower', 'bell', 'key'])
   ) return false;
   return ['identity', 'character', 'upperbody', 'lowerbody', 'body', 'accessory'].includes(category) &&
     !isBodyState(source) &&
-    hasAnyWord(source, ['hair', 'ahoge', 'bun', 'braid', 'bang', 'ponytail', 'twintail', 'ear', 'ears', 'horn', 'halo', 'tail', 'fang', 'eye', 'eyes', 'ribbon', 'ornament', 'jewelry', 'flower', 'headdress', 'headpiece', 'band', 'bell']);
+    hasAnyWord(source, ['hair', 'ahoge', 'bun', 'braid', 'bang', 'ponytail', 'twintail', 'ear', 'ears', 'horn', 'halo', 'tail', 'fang', 'eye', 'eyes', 'pupil', 'pupils', 'heterochromia', 'hood', 'hooded', 'hat', 'bonnet', 'headwear', 'ribbon', 'bow', 'ornament', 'jewelry', 'flower', 'headdress', 'headpiece', 'band', 'bell', 'key', 'mask', 'veil', 'collar', 'choker', 'necklace', 'ring']);
 }
 
 function isLowerDecoration(category, source) {
@@ -465,6 +571,7 @@ function isLowerDecoration(category, source) {
 
 function isNegatedAppearanceTerm(source) {
   if (isUnderwearOrHosiery(source)) return false;
+  if (isBodyState(source)) return false;
   if (!/\b(?:no|without|lack of)\b/.test(source)) return false;
   return hasAnyWord(source, ['hair', 'ear', 'ears', 'horn', 'halo', 'tail', 'ornament', 'ribbon', 'headdress', 'headpiece', 'hood', 'hat', 'headband', 'hairband']);
 }
@@ -474,7 +581,7 @@ function isHeadConflict(source) {
 }
 
 function isBodyState(source) {
-  return hasAnyWord(source, ['ass', 'breast', 'breasts', 'cleavage', 'collarbone', 'pregnant', 'pussy', 'pubic', 'nipple', 'nipples', 'navel', 'belly', 'stomach', 'legs', 'leg', 'thighs']);
+  return hasAnyWord(source, ['ass', 'breast', 'breasts', 'cleavage', 'collarbone', 'pregnant', 'pussy', 'pubic', 'nipple', 'nipples', 'navel', 'belly', 'stomach', 'legs', 'leg', 'thighs', 'clitoris', 'clitoral', 'vulva', 'labia', 'anus', 'penis', 'testicles', 'genitals', 'cervix', 'areola']);
 }
 
 function isPreservedHairState(source) {
@@ -494,7 +601,7 @@ function recoloredUnderwearPrompt(values) {
     const hasDisallowed = colors.some((color) => hasWord(spaced, color));
     if (!hasDisallowed) continue;
     const targetColor = hasAnyWord(spaced, ['panties', 'panty', 'thong']) ? 'pink' : 'white';
-    const pattern = new RegExp(`\\b(?:${colors.join('|')})\\b`, 'gi');
+    const pattern = new RegExp(`(?:^|_)(${colors.join('|')})(?=_|$)`, 'gi');
     return source.replace(pattern, targetColor).trim();
   }
   return '';
@@ -623,6 +730,7 @@ function parseArgs(values) {
     characterLibrary: '',
     report: '',
     backupDir: '',
+    targetIds: [],
     apply: false,
   };
   for (let index = 0; index < values.length; index += 1) {
@@ -640,6 +748,7 @@ function parseArgs(values) {
     if (key === 'character-library') parsed.characterLibrary = value;
     if (key === 'report') parsed.report = value;
     if (key === 'backup-dir') parsed.backupDir = value;
+    if (key === 'target-id') parsed.targetIds.push(value);
   }
   for (const key of ['cacheDir', 'sourceRoot', 'profileFile', 'characterLibrary', 'report']) {
     if (!parsed[key]) throw new Error(`Pass --${key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}.`);

@@ -93,6 +93,10 @@ void main() {
     expect(payload.characterConfigList.first.negativePrompt, 'bad hands');
     expect(payload.characterConfigList.first.positions.single.x, 3);
     expect(payload.characterConfigList.first.positions.single.y, 3);
+    expect(payload.characterConfigList.first.freeformPosition?.x, 0.5);
+    expect(payload.characterConfigList.first.freeformPosition?.y, 0.5);
+    expect(payload.characterConfigList[1].freeformPosition?.x, 0.9);
+    expect(payload.characterConfigList[1].freeformPosition?.y, 0.5);
   });
 
   test('preserves official prompt randomizer syntax on metadata import',
@@ -342,6 +346,46 @@ void main() {
 
     expect(parsed.prompt, 'file fallback stealth prompt');
     expect(parsed.parameters['seed'], 13579);
+  });
+
+  test('imports V5 model and new preset hints from NovelAI metadata', () async {
+    final curatedPayload = _payload();
+    final fullPayload = _payload();
+    final service = WorkbenchMetadataImportService();
+
+    Uint8List metadata(String source) => Uint8List.fromList(utf8.encode(
+          jsonEncode({
+            'Software': 'NovelAI',
+            'Source': source,
+            'Description': '1girl, transparent background',
+            'Comment': {
+              'steps': 23,
+              'width': 832,
+              'height': 1216,
+              'tag_hint_qt': 3,
+              'tag_hint_uc_preset': 4,
+              'tag_hint_transparent_background': true,
+              'straight_alpha': true,
+            },
+          }),
+        ));
+
+    await service.importBytes(
+      curatedPayload,
+      'v5-curated.json',
+      metadata('NovelAI Diffusion V5 DB276663'),
+    );
+    await service.importBytes(
+      fullPayload,
+      'v5-full.json',
+      metadata('NovelAI Diffusion V5 657484A5'),
+    );
+
+    expect(curatedPayload.paramConfig.model, 'nai-diffusion-5-curated');
+    expect(fullPayload.paramConfig.model, 'nai-diffusion-5-full');
+    expect(curatedPayload.paramConfig.qualityPreset, 'light');
+    expect(curatedPayload.paramConfig.ucPresetMode, 'humanFocus');
+    expect(curatedPayload.paramConfig.transparentBackground, isTrue);
   });
 }
 

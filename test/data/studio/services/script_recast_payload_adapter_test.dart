@@ -376,6 +376,52 @@ void main() {
       expect(
           parameters.containsKey('director_reference_descriptions'), isFalse);
     });
+
+    test('sanitizes direct V5 payloads using the model capability registry',
+        () {
+      final request = const ScriptRecastPayloadAdapter().toNaiRequestPayload(
+        const {
+          'input': 'V5 prompt',
+          'model': 'nai-diffusion-5-full',
+          'action': 'generate',
+          'parameters': {
+            'params_version': 3,
+            'sampler': 'ddim_v3',
+            'noise_schedule': 'exponential',
+            'sm': true,
+            'sm_dyn': true,
+            'dynamic_thresholding': true,
+            'skip_cfg_above_sigma': 19.0,
+            'legacy_uc': true,
+            'reference_image_multiple': ['legacy-vibe'],
+            'reference_strength_multiple': [0.5],
+            'reference_information_extracted_multiple': [1.0],
+            'v4_negative_prompt': {
+              'caption': {
+                'base_caption': 'bad anatomy',
+                'char_captions': [],
+              },
+              'legacy_uc': true,
+            },
+          },
+        },
+      );
+
+      final parameters = request['parameters'] as Map<String, dynamic>;
+      expect(parameters['params_version'], 4);
+      expect(parameters['sampler'], 'k_euler_ancestral');
+      expect(parameters['noise_schedule'], 'karras');
+      expect(parameters.containsKey('sm'), isFalse);
+      expect(parameters.containsKey('sm_dyn'), isFalse);
+      expect(parameters.containsKey('skip_cfg_above_sigma'), isFalse);
+      expect(parameters['dynamic_thresholding'], isFalse);
+      expect(parameters['legacy_uc'], isFalse);
+      expect(parameters.containsKey('reference_image_multiple'), isFalse);
+      expect(
+        (parameters['v4_negative_prompt'] as Map<String, dynamic>)['legacy_uc'],
+        isFalse,
+      );
+    });
   });
 }
 

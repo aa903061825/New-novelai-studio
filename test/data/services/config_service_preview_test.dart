@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/services/config_service.dart';
 
 void main() {
@@ -145,6 +146,37 @@ void main() {
       expect(
           configService.loadConfigIndex(), isNot(contains('deleted-config')));
       expect(configService.loadConfigByUuid('deleted-config'), isNull);
+    });
+
+    test('migrates the active model to Novel 5 only once', () async {
+      final config = <String, dynamic>{
+        'param_config': <String, dynamic>{
+          'model': 'nai-diffusion-4-curated-preview',
+        },
+      };
+
+      expect(
+        await configService.migrateCurrentConfigToNovel5DefaultIfNeeded(config),
+        isTrue,
+      );
+      expect(
+        (config['param_config'] as Map)['model'],
+        defaultGenerationModel,
+      );
+      expect(
+        configService.loadConfigByUuid('active')?['param_config']['model'],
+        defaultGenerationModel,
+      );
+
+      (config['param_config'] as Map)['model'] = 'nai-diffusion-4-5-full';
+      expect(
+        await configService.migrateCurrentConfigToNovel5DefaultIfNeeded(config),
+        isFalse,
+      );
+      expect(
+        (config['param_config'] as Map)['model'],
+        'nai-diffusion-4-5-full',
+      );
     });
   });
 }

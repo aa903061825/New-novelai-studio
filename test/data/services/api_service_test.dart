@@ -65,4 +65,36 @@ void main() {
       await server.close(force: true);
     }
   });
+
+  test('fetchGetData performs a GET request', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    String? method;
+    final subscription = server.listen((request) {
+      method = request.method;
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'usage': true}))
+        ..close();
+    });
+
+    try {
+      final response = await ApiService().fetchGetData(
+        ApiRequest(
+          endpoint: 'http://127.0.0.1:${server.port}/user/data',
+          proxy: '',
+          headers: const {'Authorization': 'Bearer simulated'},
+          payload: const {},
+          timeout: const Duration(seconds: 1),
+        ),
+      );
+
+      expect(method, 'GET');
+      expect(response.status, '200');
+      expect(utf8.decode(response.data), '{"usage":true}');
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
 }

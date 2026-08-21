@@ -11,6 +11,7 @@ import 'package:novel_studio/data/models/generation_runtime_state.dart';
 import 'package:novel_studio/data/models/global_generation_params.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/services/nai_account_usage_service.dart';
 import 'package:novel_studio/data/studio/services/production_executor_service.dart';
 import 'package:novel_studio/data/studio/services/production_nai_adapter_service.dart';
 import 'package:novel_studio/data/studio/services/production_queue_service.dart';
@@ -139,6 +140,7 @@ void main(List<String> args) async {
       GenerationRuntimeState.fromJson(loadedRuntimeState.toJson());
   final workbenchCommandStatus = CommandStatus();
   final batchCommandStatus = CommandStatus();
+  final naiAccountUsageService = NaiAccountUsageService();
 
   GetIt.instance.registerLazySingleton(() => payloadConfig);
   GetIt.instance.registerLazySingleton(
@@ -175,6 +177,7 @@ void main(List<String> args) async {
       commandStatus: workbenchCommandStatus,
       configService: configService,
       galleryService: GetIt.I<StudioGalleryService>(),
+      naiAccountUsageService: naiAccountUsageService,
     ),
   );
   GetIt.instance.registerLazySingleton<GenerationPageViewmodel>(
@@ -183,6 +186,7 @@ void main(List<String> args) async {
       commandStatus: batchCommandStatus,
       configService: configService,
       galleryService: GetIt.I<StudioGalleryService>(),
+      naiAccountUsageService: naiAccountUsageService,
     ),
     instanceName: 'batch',
   );

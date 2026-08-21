@@ -9,11 +9,13 @@ import 'package:flutter_command/flutter_command.dart';
 import 'package:get_it/get_it.dart';
 import 'package:novel_studio/data/models/api_request.dart';
 import 'package:novel_studio/data/models/command_status.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/i2i_config.dart';
 import 'package:novel_studio/data/models/info_card_content.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/services/config_service.dart';
+import 'package:novel_studio/data/services/nai_account_usage_service.dart';
 import 'package:novel_studio/data/services/vibe_encoding_service.dart';
 import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
 import 'package:novel_studio/data/studio/models/studio_director_tool.dart';
@@ -61,16 +63,19 @@ class GenerationPageViewmodel extends ChangeNotifier {
   final CommandStatus? _commandStatus;
   final ConfigService? _configService;
   final StudioGalleryService? _galleryService;
+  final NaiAccountUsageService? _naiAccountUsageService;
 
   GenerationPageViewmodel({
     PayloadConfig? payloadConfig,
     CommandStatus? commandStatus,
     ConfigService? configService,
     StudioGalleryService? galleryService,
+    NaiAccountUsageService? naiAccountUsageService,
   })  : _payloadConfig = payloadConfig,
         _commandStatus = commandStatus,
         _configService = configService,
-        _galleryService = galleryService;
+        _galleryService = galleryService,
+        _naiAccountUsageService = naiAccountUsageService;
 
   PayloadConfig get payloadConfig => _payloadConfig ?? GetIt.I<PayloadConfig>();
   CommandStatus get commandStatus => _commandStatus ?? GetIt.I<CommandStatus>();
@@ -82,9 +87,31 @@ class GenerationPageViewmodel extends ChangeNotifier {
       (GetIt.I.isRegistered<StudioGalleryService>()
           ? GetIt.I<StudioGalleryService>()
           : null);
+  NaiAccountUsageService? get naiAccountUsageService => _naiAccountUsageService;
   List<Command<void, InfoCardContent>> get commandList =>
       commandStatus.commandList;
   int get colNum => payloadConfig.settings.generationPageColumnCount;
+
+  bool get isV5OpusUsageExhausted {
+    final capabilities =
+        GenerationModelCapabilities.fromModel(payloadConfig.paramConfig.model);
+    final snapshot = naiAccountUsageService?.snapshot;
+    return capabilities.isV5 &&
+        snapshot?.isOpus == true &&
+        snapshot?.opusUsage?.isNegative == true;
+  }
+
+  Future<void> refreshNaiAccountUsage() async {
+    if (!GenerationModelCapabilities.fromModel(payloadConfig.paramConfig.model)
+        .isV5) {
+      return;
+    }
+    await naiAccountUsageService?.refresh(
+      generationEndpoint: payloadConfig.settings.imageGenerationEndpoint,
+      proxy: payloadConfig.settings.proxy,
+      headers: payloadConfig.getHeaders(),
+    );
+  }
 
   Command<void, InfoCardContent>? currentCommand;
   int _cooldownGeneration = 0;
@@ -181,12 +208,14 @@ class GenerationPageViewmodel extends ChangeNotifier {
 
   bool get _shouldPrepareVibes {
     final model = payloadConfig.paramConfig.model;
+    final capabilities = GenerationModelCapabilities.fromModel(model);
     if (!payloadConfig.generationRuntimeState.vibeEnabled ||
-        !model.contains('-4-')) {
+        !capabilities.isV4 ||
+        !capabilities.supportsVibeTransfer) {
       return false;
     }
     final preciseReferenceActive = payloadConfig.usePreciseReference &&
-        model.contains('-4-5-') &&
+        capabilities.supportsPreciseReference &&
         payloadConfig.preciseReferenceList.isNotEmpty;
     return !preciseReferenceActive;
   }
@@ -734,6 +763,7 @@ class GenerationPageViewmodel extends ChangeNotifier {
         // Only increment total count after successful generation
         commandStatus.currentTotalCount++;
         await _persistResumeStateAfterSuccessfulGeneration();
+        unawaited(refreshNaiAccountUsage());
         return InfoCardContent(
           title: fileName,
           info: payloadResult.comment,

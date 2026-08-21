@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:novel_studio/data/models/character_config.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/services/vibe_encoding_service.dart';
@@ -8,7 +11,6 @@ import 'package:novel_studio/data/studio/services/studio_workbench_asset_service
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
-  static const maxCharacterCount = 6;
   static const minGenerationCount = 1;
   static const maxGenerationCount = 20;
 
@@ -27,7 +29,25 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   int get generationCount => _generationCount;
 
-  bool get isV4 => config.model.contains('-4-');
+  GenerationModelCapabilities get capabilities =>
+      GenerationModelCapabilities.fromModel(config.model);
+
+  bool get isV4 => capabilities.isV4;
+  bool get usesStructuredPrompts => capabilities.usesStructuredPrompts;
+  bool get supportsNoiseSchedule => capabilities.supportsNoiseSchedule;
+  bool get supportsSmeaControls => capabilities.supportsSmeaControls;
+  bool get supportsVarietyPlus => capabilities.supportsVarietyPlus;
+  bool get supportsDynamicThresholding =>
+      capabilities.supportsDynamicThresholding;
+  bool get supportsLegacyUc => capabilities.supportsLegacyUc;
+  bool get supportsAutoPosition => capabilities.supportsAutoPosition;
+  bool get supportsFreeformCharacterPosition =>
+      capabilities.supportsFreeformCharacterPosition;
+  bool get supportsTransparency => capabilities.supportsTransparency;
+  bool get supportsQualityPresets => capabilities.supportsQualityPresets;
+  bool get supportsUcPresets => capabilities.supportsUcPresets;
+  bool get supportsVibeTransfer => capabilities.supportsVibeTransfer;
+  int get maxCharacterCount => capabilities.maxCharacters;
 
   GenerationSize get selectedSize =>
       config.sizes.isEmpty ? ParamConfig().sizes.first : config.sizes.first;
@@ -46,14 +66,20 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
       payloadConfig.vibeConfigList.length +
       payloadConfig.vibeConfigListV4.length;
 
-  bool get vibeEnabled => payloadConfig.generationRuntimeState.vibeEnabled;
+  bool get vibeEnabled =>
+      supportsVibeTransfer && payloadConfig.generationRuntimeState.vibeEnabled;
 
   bool get hasVibeReferences => vibeReferenceCount > 0;
 
   bool get hasI2iImage => payloadConfig.i2iConfig.imageB64 != null;
 
   int get pendingVibeEncodingCount {
-    if (!vibeEnabled || !isV4 || preciseReferenceActive) return 0;
+    if (!vibeEnabled ||
+        !capabilities.supportsVibeTransfer ||
+        !isV4 ||
+        preciseReferenceActive) {
+      return 0;
+    }
     return VibeEncodingService.pendingEncodingCount(
       payloadConfig.vibeConfigListV4,
       config.model,
@@ -63,7 +89,12 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   int get vibeEncodingAnlas => pendingVibeEncodingCount * 2;
 
   int get multivibeExtraAnlas {
-    if (!vibeEnabled || !isV4 || preciseReferenceActive) return 0;
+    if (!vibeEnabled ||
+        !capabilities.supportsVibeTransfer ||
+        !isV4 ||
+        preciseReferenceActive) {
+      return 0;
+    }
     final activeVibeCount = payloadConfig.vibeConfigListV4
         .where(
           (vibe) =>
@@ -77,7 +108,7 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   bool get preciseReferenceActive =>
       payloadConfig.usePreciseReference &&
-      config.model.contains('-4-5-') &&
+      capabilities.supportsPreciseReference &&
       payloadConfig.preciseReferenceList.isNotEmpty;
 
   int get preciseReferenceExtraAnlas {
@@ -112,6 +143,7 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   }
 
   void setVibeEnabled(bool value) {
+    if (value && !supportsVibeTransfer) return;
     payloadConfig.generationRuntimeState.vibeEnabled = value;
     if (value) {
       payloadConfig.usePreciseReference = false;
@@ -142,6 +174,24 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   void setModel(String value) {
     config.model = value;
+    final nextCapabilities = GenerationModelCapabilities.fromModel(value);
+    for (final (index, character)
+        in payloadConfig.characterConfigList.indexed) {
+      final fallback = defaultCharacterCenter(index);
+      if (nextCapabilities.supportsFreeformCharacterPosition) {
+        character.freeformPosition ??= character.positions.isEmpty
+            ? fallback
+            : _centerFromGridPoint(character.positions.first) ?? fallback;
+      } else if (character.positions.isEmpty) {
+        character.positions = [
+          _gridPointFromCenter(character.freeformPosition ?? fallback),
+        ];
+      }
+    }
+    if (!nextCapabilities.supportsNoiseSchedule) {
+      config.noiseSchedule = 'karras';
+    }
+    if (!nextCapabilities.supportsLegacyUc) config.legacyUc = false;
     notifyListeners();
   }
 
@@ -226,6 +276,21 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setQualityPreset(String value) {
+    config.qualityPreset = value;
+    notifyListeners();
+  }
+
+  void setUcPresetMode(String value) {
+    config.ucPresetMode = value;
+    notifyListeners();
+  }
+
+  void setTransparentBackground(bool value) {
+    config.transparentBackground = value;
+    notifyListeners();
+  }
+
   void setLegacyUc(bool value) {
     config.legacyUc = value;
     notifyListeners();
@@ -264,11 +329,87 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
   void addCharacter() {
     if (payloadConfig.characterConfigList.length >= maxCharacterCount) return;
     final nextIndex = payloadConfig.characterConfigList.length + 1;
+    final character = CharacterConfig.fromEmpty(name: '角色 $nextIndex');
+    final center = defaultCharacterCenter(nextIndex - 1);
+    if (supportsFreeformCharacterPosition) {
+      character.freeformPosition = center;
+    } else {
+      character.positions = [_gridPointFromCenter(center)];
+    }
     payloadConfig.characterConfigList = [
       ...payloadConfig.characterConfigList,
-      CharacterConfig.fromEmpty(name: '角色 $nextIndex'),
+      character,
     ];
     notifyListeners();
+  }
+
+  Point<double> characterPosition(int index) {
+    if (!_hasCharacter(index)) return defaultCharacterCenter(index);
+    final character = payloadConfig.characterConfigList[index];
+    final position = character.freeformPosition;
+    if (supportsFreeformCharacterPosition && position != null) {
+      return Point(
+        position.x.clamp(0.0, 1.0).toDouble(),
+        position.y.clamp(0.0, 1.0).toDouble(),
+      );
+    }
+    if (character.positions.isNotEmpty) {
+      return _centerFromGridPoint(character.positions.first) ??
+          defaultCharacterCenter(index);
+    }
+    return character.freeformPosition ?? defaultCharacterCenter(index);
+  }
+
+  void setCharacterPosition(int index, Point<double> value) {
+    if (!_hasCharacter(index)) return;
+    final clamped = Point<double>(
+      _roundPosition(value.x),
+      _roundPosition(value.y),
+    );
+    final character = payloadConfig.characterConfigList[index];
+    if (supportsFreeformCharacterPosition) {
+      character.freeformPosition = clamped;
+    } else {
+      character.positions = [_gridPointFromCenter(clamped)];
+    }
+    notifyListeners();
+  }
+
+  Set<int> overlappingCharacterIndexes() {
+    final enabled = <(int, Point<double>)>[
+      for (final (index, character)
+          in payloadConfig.characterConfigList.indexed)
+        if (character.enabled) (index, characterPosition(index)),
+    ];
+    final overlapping = <int>{};
+    for (var left = 0; left < enabled.length; left++) {
+      for (var right = left + 1; right < enabled.length; right++) {
+        final (leftIndex, leftPosition) = enabled[left];
+        final (rightIndex, rightPosition) = enabled[right];
+        final distance = sqrt(
+          pow(leftPosition.x - rightPosition.x, 2) +
+              pow(leftPosition.y - rightPosition.y, 2),
+        );
+        final overlaps =
+            supportsFreeformCharacterPosition ? distance < 0.1 : distance == 0;
+        if (overlaps) {
+          overlapping
+            ..add(leftIndex)
+            ..add(rightIndex);
+        }
+      }
+    }
+    return overlapping;
+  }
+
+  String characterPositionLabel(int index) {
+    final position = characterPosition(index);
+    if (supportsFreeformCharacterPosition) {
+      return '${(position.x * 100).round()}%, ${(position.y * 100).round()}%';
+    }
+    final grid = _gridPointFromCenter(position);
+    const columns = <int, String>{1: 'A', 2: 'B', 3: 'C', 4: 'D', 5: 'E'};
+    return '${columns[grid.x]}${grid.y}';
   }
 
   void setCharacterName(int index, String value) {
@@ -430,6 +571,48 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
 
   bool _hasCharacter(int index) {
     return index >= 0 && index < payloadConfig.characterConfigList.length;
+  }
+
+  static Point<double>? _centerFromGridPoint(Point<int> point) {
+    const values = <int, double>{
+      1: 0.1,
+      2: 0.3,
+      3: 0.5,
+      4: 0.7,
+      5: 0.9,
+    };
+    final x = values[point.x];
+    final y = values[point.y];
+    return x == null || y == null ? null : Point(x, y);
+  }
+
+  static Point<int> _gridPointFromCenter(Point<double> center) {
+    const values = <int, double>{
+      1: 0.1,
+      2: 0.3,
+      3: 0.5,
+      4: 0.7,
+      5: 0.9,
+    };
+    int nearest(double value) {
+      var result = 3;
+      var distance = double.infinity;
+      for (final entry in values.entries) {
+        final candidate = (entry.value - value).abs();
+        if (candidate < distance) {
+          result = entry.key;
+          distance = candidate;
+        }
+      }
+      return result;
+    }
+
+    return Point(nearest(center.x), nearest(center.y));
+  }
+
+  static double _roundPosition(double value) {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    return (clamped * 1000).round() / 1000;
   }
 
   List<String> _characterPromptBlocks(int characterIndex) {

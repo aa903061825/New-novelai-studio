@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/models/generation_payload_document.dart';
 import 'package:novel_studio/data/studio/models/production_task.dart';
@@ -1041,7 +1042,8 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
     final samplerOptions = _samplerOptionsForModel(generationSettings.model);
     final noiseScheduleOptions =
         _noiseScheduleOptionsForModel(generationSettings.model);
-    final isV4 = generationSettings.model.contains('diffusion-4');
+    final capabilities =
+        GenerationModelCapabilities.fromModel(generationSettings.model);
     return LayoutBuilder(
       builder: (context, constraints) {
         final tileWidth = constraints.maxWidth >= 760
@@ -1275,7 +1277,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.sm
                       : viewModel.batchSm) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalSm && !isV4,
+              enabled: canEdit &&
+                  !viewModel.useOriginalSm &&
+                  capabilities.supportsSmeaControls,
               onChanged: viewModel.setBatchSm,
             ),
           ),
@@ -1294,7 +1298,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.smDyn
                       : viewModel.batchSmDyn) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalSmDyn && !isV4,
+              enabled: canEdit &&
+                  !viewModel.useOriginalSmDyn &&
+                  capabilities.supportsSmeaControls,
               onChanged: viewModel.setBatchSmDyn,
             ),
           ),
@@ -1317,7 +1323,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.dynamicThresholding
                       : viewModel.batchDynamicThresholding) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalDynamicThresholding,
+              enabled: canEdit &&
+                  !viewModel.useOriginalDynamicThresholding &&
+                  capabilities.supportsDynamicThresholding,
               onChanged: viewModel.setBatchDynamicThresholding,
             ),
           ),
@@ -1336,7 +1344,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.varietyPlus
                       : viewModel.batchVarietyPlus) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalVarietyPlus,
+              enabled: canEdit &&
+                  !viewModel.useOriginalVarietyPlus &&
+                  capabilities.supportsVarietyPlus,
               onChanged: viewModel.setBatchVarietyPlus,
             ),
           ),
@@ -1357,7 +1367,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.autoPosition
                       : viewModel.batchAutoPosition) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalAutoPosition && isV4,
+              enabled: canEdit &&
+                  !viewModel.useOriginalAutoPosition &&
+                  capabilities.supportsAutoPosition,
               onChanged: viewModel.setBatchAutoPosition,
             ),
           ),
@@ -1377,7 +1389,9 @@ class _BatchGenerationParameterEditor extends StatelessWidget {
                       ? generationSettings.legacyUc
                       : viewModel.batchLegacyUc) ??
                   false,
-              enabled: canEdit && !viewModel.useOriginalLegacyUc,
+              enabled: canEdit &&
+                  !viewModel.useOriginalLegacyUc &&
+                  capabilities.supportsLegacyUc,
               onChanged: viewModel.setBatchLegacyUc,
             ),
           ),
@@ -3996,13 +4010,15 @@ String _formatNullableDouble(double? value) {
 }
 
 List<String> _samplerOptionsForModel(String model) {
-  if (model.contains('diffusion-4')) return samplersV4;
-  return samplers;
+  return GenerationModelCapabilities.fromModel(model).supportsSmeaControls
+      ? samplers
+      : samplersV4;
 }
 
 List<String> _noiseScheduleOptionsForModel(String model) {
-  if (model.contains('diffusion-4')) return noiseSchedulesV4;
-  return noiseSchedules;
+  final capabilities = GenerationModelCapabilities.fromModel(model);
+  if (!capabilities.supportsNoiseSchedule) return const ['karras'];
+  return capabilities.isV4 ? noiseSchedulesV4 : noiseSchedules;
 }
 
 const _modelTooltip = '选择 NovelAI 的生成模型。不同模型支持的采样器和高级参数不同，切换模型会同步整理不兼容参数。';

@@ -79,7 +79,7 @@ void main() {
 
       final payload = requestedPayloads.single;
       expect(payload['input'], isA<String>());
-      expect(payload['model'], 'nai-diffusion-4-5-full');
+      expect(payload['model'], 'nai-diffusion-5-curated');
       expect(payload['action'], 'generate');
       final parameters = payload['parameters'] as Map<String, dynamic>;
       expect(parameters['width'], 832);
@@ -103,10 +103,10 @@ void main() {
       expect(prompt, isNot(contains('scenic background')));
       expect(prompt, isNot(contains('full composition')));
       expect(prompt, isNot(contains('pure white background')));
-      expect(
-          parameters['reference_image_multiple'], ['encoded-soft-style-vibe']);
-      expect(parameters['reference_strength_multiple'], [0.72]);
-      expect(parameters['reference_information_extracted_multiple'], [0.88]);
+      expect(parameters['params_version'], 4);
+      expect(parameters['reference_image_multiple'], isEmpty);
+      expect(parameters['reference_strength_multiple'], isEmpty);
+      expect(parameters['reference_information_extracted_multiple'], isEmpty);
       expect(_baseCaption(parameters, 'v4_negative_prompt'), defaultUC);
       expect(_charCaptions(parameters, 'v4_prompt'), isEmpty);
       expect(_v4Prompt(parameters, 'v4_prompt')['use_coords'], isFalse);
@@ -339,9 +339,9 @@ void main() {
       expect(prompt, contains('solid color background'));
       expect(prompt, contains('sparkling dust'));
       expect(prompt, isNot(contains('single character')));
-      expect(parameters['reference_image_multiple'], ['encoded-soft-vibe']);
-      expect(parameters['reference_strength_multiple'], [0.44]);
-      expect(parameters['reference_information_extracted_multiple'], [0.66]);
+      expect(parameters['reference_image_multiple'], isEmpty);
+      expect(parameters['reference_strength_multiple'], isEmpty);
+      expect(parameters['reference_information_extracted_multiple'], isEmpty);
       final characters = await workspaceService.loadCharacters();
       expect(characters.single.imageRefs,
           ['existing.png', 'generated/preview.png']);

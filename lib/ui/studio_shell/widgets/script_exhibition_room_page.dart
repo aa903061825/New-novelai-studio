@@ -495,6 +495,7 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
             focusedItemKey:
                 focusedItemId == null ? null : _focusedItemKey(focusedItemId),
             scrollController: _scrollController,
+            onSendToWorkbench: widget.onSendToWorkbench,
             onQuickRerunProductionTask: widget.onQuickRerunProductionTask,
             onOpenProductionTask: widget.onOpenProductionTask,
             loadGenerationParams: viewModel.loadGenerationParamsForItem,
@@ -3897,6 +3898,7 @@ class _SliverWaterfallBoard extends StatefulWidget {
   final String? focusedItemId;
   final GlobalKey? focusedItemKey;
   final ScrollController scrollController;
+  final ValueChanged<ScriptExhibitionFocus> onSendToWorkbench;
   final ScriptExhibitionQuickRerunHandler? onQuickRerunProductionTask;
   final ValueChanged<ScriptExhibitionFocus>? onOpenProductionTask;
   final ScriptExhibitionItemGenerationParamsLoader loadGenerationParams;
@@ -3909,6 +3911,7 @@ class _SliverWaterfallBoard extends StatefulWidget {
     required this.focusedItemId,
     required this.focusedItemKey,
     required this.scrollController,
+    required this.onSendToWorkbench,
     required this.onQuickRerunProductionTask,
     required this.onOpenProductionTask,
     required this.loadGenerationParams,
@@ -4001,6 +4004,7 @@ class _SliverWaterfallBoardState extends State<_SliverWaterfallBoard> {
           initialIndex: previewIndex < 0 ? 0 : previewIndex,
           wheelNavigationScopeIdsByItemId:
               _scriptFrameVariantScopeIdsByItemId(previewItems),
+          onSendToWorkbench: widget.onSendToWorkbench,
           onQuickRerunProductionTask: widget.onQuickRerunProductionTask,
           onOpenProductionTask: widget.onOpenProductionTask,
           loadGenerationParams: widget.loadGenerationParams,
@@ -4027,6 +4031,14 @@ class _SliverWaterfallBoardState extends State<_SliverWaterfallBoard> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              key: ValueKey('script-exhibition-send-workbench-${item.id}'),
+              tooltip: '发送单图到工作台',
+              onPressed: item.focus.canOpenSingleWorkbench
+                  ? () => widget.onSendToWorkbench(item.focus)
+                  : null,
+              icon: const Icon(Icons.send_outlined, size: 18),
+            ),
             if (widget.onSetCover != null)
               _ScriptSetCoverAction(
                 item: item,
@@ -4471,6 +4483,7 @@ Future<void> _showPreview({
   required List<ScriptExhibitionItem> items,
   required int initialIndex,
   required Map<String, List<String>> wheelNavigationScopeIdsByItemId,
+  required ValueChanged<ScriptExhibitionFocus> onSendToWorkbench,
   required ScriptExhibitionQuickRerunHandler? onQuickRerunProductionTask,
   required ValueChanged<ScriptExhibitionFocus>? onOpenProductionTask,
   required ScriptExhibitionItemGenerationParamsLoader loadGenerationParams,
@@ -4486,6 +4499,17 @@ Future<void> _showPreview({
     actionsBuilder: (context, generatedItem) {
       final item = generatedItem.source as ScriptExhibitionItem;
       return [
+        FilledButton.icon(
+          key: const ValueKey('script-exhibition-preview-send-workbench'),
+          onPressed: item.focus.canOpenSingleWorkbench
+              ? () {
+                  Navigator.of(context).pop();
+                  onSendToWorkbench(item.focus);
+                }
+              : null,
+          icon: const Icon(Icons.send_outlined),
+          label: const Text('发送到工作台'),
+        ),
         FilledButton.icon(
           key: const ValueKey('script-exhibition-preview-rerun'),
           onPressed: item.focus.canOpenProductionTask &&

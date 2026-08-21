@@ -393,12 +393,23 @@ void main() {
     await tester.tap(
       find.byKey(
         const ValueKey(
+          'script-exhibition-send-workbench-production-plan-1-task-1',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(sentWorkbenchFocuses, hasLength(1));
+    expect(sentWorkbenchFocuses.single.imagePath, r'C:\out\frame-01.png');
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey(
           'script-exhibition-rerun-production-plan-1-task-1',
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(sentWorkbenchFocuses, isEmpty);
+    expect(sentWorkbenchFocuses, hasLength(1));
     expect(rerunFocuses, hasLength(1));
     expect(rerunFocuses.single.imagePath, r'C:\out\frame-01.png');
     expect(sentScriptFocuses, hasLength(1));
@@ -419,19 +430,37 @@ void main() {
     );
     expect(find.text('library entrance'), findsWidgets);
     expect(find.text('generated heroine'), findsWidgets);
+    expect(
+      find.byKey(
+        const ValueKey('script-exhibition-preview-send-workbench'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey('script-exhibition-preview-rerun')),
     );
     await tester.pumpAndSettle();
 
-    expect(sentWorkbenchFocuses, isEmpty);
+    expect(sentWorkbenchFocuses, hasLength(1));
     expect(rerunFocuses, hasLength(2));
     expect(rerunFocuses.last.scriptId, 'script-1');
     expect(rerunFocuses.last.sourceFolder, r'C:\stories\rain');
     expect(rerunFocuses.last.frameIndex, 1);
     expect(rerunFocuses.last.productionPlanId, 'plan-1');
     expect(rerunFocuses.last.imagePath, r'C:\out\frame-01.png');
+
+    await tester.tap(generatedCard);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        const ValueKey('script-exhibition-preview-send-workbench'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(sentWorkbenchFocuses, hasLength(2));
+    expect(sentWorkbenchFocuses.last.imagePath, r'C:\out\frame-01.png');
   });
 
   testWidgets('generated detail cards preserve file image aspect ratio',

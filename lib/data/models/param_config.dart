@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import '../../core/constants/defaults.dart';
+import 'generation_capabilities.dart';
+import 'generation_presets.dart';
 import 'generation_size.dart';
 
 class ParamConfig {
@@ -25,12 +27,15 @@ class ParamConfig {
 
   bool qualityToggle;
   int ucPreset;
+  String qualityPreset;
+  String ucPresetMode;
+  bool transparentBackground;
   String negativePrompt;
 
   bool legacy;
   bool addOriginalImage;
 
-  String model = 'nai-diffusion-4-curated-preview';
+  String model = defaultGenerationModel;
 
   bool autoPosition;
   bool legacyUc;
@@ -42,7 +47,7 @@ class ParamConfig {
   int _batchResolutionIndex = 0;
 
   ParamConfig({
-    this.model = 'nai-diffusion-4-curated-preview',
+    this.model = defaultGenerationModel,
     this.sizes = const [GenerationSize(height: 1216, width: 832)],
     this.scale = 6.5,
     this.sampler = 'k_euler_ancestral',
@@ -52,6 +57,9 @@ class ParamConfig {
     this.nSamples = 1,
     this.ucPreset = 2,
     this.qualityToggle = false,
+    this.qualityPreset = 'none',
+    this.ucPresetMode = 'none',
+    this.transparentBackground = false,
     this.sm = true,
     this.smDyn = true,
     this.dynamicThresholding = false,
@@ -80,6 +88,9 @@ class ParamConfig {
       'n_samples': nSamples,
       'ucPreset': ucPreset,
       'qualityToggle': qualityToggle,
+      'quality_preset': qualityPreset,
+      'uc_preset_mode': ucPresetMode,
+      'transparent_background': transparentBackground,
       'sm': sm,
       'sm_dyn': smDyn,
       'random_seed': randomSeed,
@@ -158,9 +169,17 @@ class ParamConfig {
 
   /// Different from toJson(), some fields in payload need to be calculated from other params.
   Map<String, dynamic> getPayload() {
+    final capabilities = GenerationModelCapabilities.fromModel(model);
+    final effectiveSampler =
+        !capabilities.supportsSmeaControls && sampler == 'ddim_v3'
+            ? 'k_euler_ancestral'
+            : sampler;
+    final effectiveNoiseSchedule =
+        capabilities.supportsNoiseSchedule ? noiseSchedule : 'karras';
     bool? preferBrownian;
     bool? deliberateEulerAncestralBug;
-    if (sampler == 'k_euler_ancestral' && noiseSchedule != 'native') {
+    if (effectiveSampler == 'k_euler_ancestral' &&
+        effectiveNoiseSchedule != 'native') {
       preferBrownian = true;
       deliberateEulerAncestralBug = false;
     }
@@ -169,30 +188,32 @@ class ParamConfig {
         takeBatchResolution() ?? sizes[Random().nextInt(sizes.length)];
     final width = selectedSize.width;
     final height = selectedSize.height;
-    if (varietyPlus) {
+    if (varietyPlus && capabilities.supportsVarietyPlus) {
       final w = width / 8;
       final h = height / 8;
       final v = pow(4.0 * w * h / 63232, 0.5);
       skipCfgAboveSigma = 19.0 * v;
     }
     var payload = {
-      "params_version": 3,
+      "params_version": capabilities.paramsVersion,
       "width": width,
       "height": height,
       "scale": scale,
-      "sampler": sampler,
+      "sampler": effectiveSampler,
       "steps": steps,
       "n_samples": nSamples,
-      "ucPreset": 2,
-      "qualityToggle": false,
+      "ucPreset": capabilities.isV5 ? ucPresetHint(ucPresetMode) : 2,
+      "qualityToggle": capabilities.isV5 ? qualityPreset != 'none' : false,
       'sm': sm,
       'sm_dyn': smDyn,
-      "dynamic_thresholding": dynamicThresholding,
+      "dynamic_thresholding": capabilities.supportsDynamicThresholding
+          ? dynamicThresholding
+          : false,
       "controlnet_strength": controlNetStrength,
       "legacy": legacy,
       "add_original_image": true,
       "cfg_rescale": cfgRescale,
-      "noise_schedule": noiseSchedule,
+      "noise_schedule": effectiveNoiseSchedule,
       "skip_cfg_above_sigma": skipCfgAboveSigma,
       "use_coords": true,
       "seed": randomSeed ? Random().nextInt(1 << 32 - 1) : seed,
@@ -205,23 +226,29 @@ class ParamConfig {
       "reference_strength_multiple": [],
       "deliberate_euler_ancestral_bug": deliberateEulerAncestralBug,
       "prefer_brownian": preferBrownian,
-      "legacy_uc": legacyUc,
+      "legacy_uc": capabilities.supportsLegacyUc ? legacyUc : false,
     };
     payload['legacy_v3_extend'] = false;
     payload.removeWhere((k, v) => v == null);
-    if (model.contains('diffusion-4')) {
+    if (!capabilities.supportsSmeaControls) {
       payload.remove('sm');
       payload.remove('sm_dyn');
-      if (noiseSchedule.contains('native')) {
+      if (capabilities.isV4 && noiseSchedule.contains('native')) {
         payload['noise_schedule'] = 'karras';
       }
+    }
+    if (capabilities.isV5) {
+      payload['tag_hint_qt'] = qualityPresetHint(qualityPreset);
+      payload['tag_hint_uc_preset'] = ucPresetHint(ucPresetMode);
+      payload['tag_hint_transparent_background'] = transparentBackground;
+      payload['straight_alpha'] = transparentBackground;
     }
     return payload;
   }
 
   factory ParamConfig.fromJson(Map<String, dynamic> json) {
     return ParamConfig(
-      model: json['model'] ?? 'nai-diffusion-4-curated-preview',
+      model: json['model'] ?? defaultGenerationModel,
       sizes: (json['sizes'] as List<dynamic>?)
               ?.map((elem) => GenerationSize.fromJson(elem))
               .toList() ??
@@ -232,6 +259,14 @@ class ParamConfig {
       nSamples: json['n_samples'],
       ucPreset: json['ucPreset'] ?? 0,
       qualityToggle: json['qualityToggle'] ?? false,
+      qualityPreset:
+          json['quality_preset'] ?? qualityPresetFromHint(json['tag_hint_qt']),
+      ucPresetMode: json['uc_preset_mode'] ??
+          ucPresetFromHint(json['tag_hint_uc_preset']),
+      transparentBackground: json['transparent_background'] ??
+          json['tag_hint_transparent_background'] ??
+          json['straight_alpha'] ??
+          false,
       sm: json['sm'],
       smDyn: json['sm_dyn'],
       dynamicThresholding: json['dynamic_thresholding'],
@@ -275,6 +310,9 @@ class ParamConfig {
       nSamples: nSamples,
       ucPreset: ucPreset,
       qualityToggle: qualityToggle,
+      qualityPreset: qualityPreset,
+      ucPresetMode: ucPresetMode,
+      transparentBackground: transparentBackground,
       sm: sm,
       smDyn: smDyn,
       dynamicThresholding: dynamicThresholding,
@@ -320,10 +358,47 @@ class ParamConfig {
     }
     if (json.containsKey('ucPreset')) {
       ucPreset = json['ucPreset'];
+      if (GenerationModelCapabilities.fromModel(model).isV5) {
+        ucPresetMode = ucPresetFromHint(ucPreset);
+      }
       loadCount++;
     }
     if (json.containsKey('qualityToggle')) {
       qualityToggle = json['qualityToggle'];
+      if (GenerationModelCapabilities.fromModel(model).isV5 && qualityToggle) {
+        qualityPreset = 'standard';
+      }
+      loadCount++;
+    }
+    if (json.containsKey('quality_preset')) {
+      final value = json['quality_preset']?.toString();
+      if (value != null && generationQualityPresets.contains(value)) {
+        qualityPreset = value;
+        loadCount++;
+      }
+    } else if (json.containsKey('tag_hint_qt')) {
+      qualityPreset = qualityPresetFromHint(json['tag_hint_qt']);
+      loadCount++;
+    }
+    if (json.containsKey('uc_preset_mode')) {
+      final value = json['uc_preset_mode']?.toString();
+      if (value != null && generationUcPresets.contains(value)) {
+        ucPresetMode = value;
+        loadCount++;
+      }
+    } else if (json.containsKey('tag_hint_uc_preset')) {
+      ucPresetMode = ucPresetFromHint(json['tag_hint_uc_preset']);
+      loadCount++;
+    }
+    final transparencyKey = json.containsKey('transparent_background')
+        ? 'transparent_background'
+        : json.containsKey('tag_hint_transparent_background')
+            ? 'tag_hint_transparent_background'
+            : json.containsKey('straight_alpha')
+                ? 'straight_alpha'
+                : null;
+    if (transparencyKey != null && json[transparencyKey] is bool) {
+      transparentBackground = json[transparencyKey];
       loadCount++;
     }
     if (json.containsKey('sm')) {

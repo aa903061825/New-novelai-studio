@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
@@ -49,7 +50,7 @@ class StudioAssetPreviewGenerationOptions {
 }
 
 class StudioAssetPreviewGenerationService {
-  static const model = 'nai-diffusion-4-5-full';
+  static const model = defaultGenerationModel;
   static const _seedMaxExclusive = 1 << 32;
   static const _previewSizes = [
     GenerationSize(width: 832, height: 1216),
@@ -394,7 +395,8 @@ class StudioAssetPreviewGenerationService {
     final activeVibes = vibeRefs
         .where((vibe) => vibe.vibeB64.trim().isNotEmpty)
         .toList(growable: false);
-    if (activeVibes.isNotEmpty) {
+    final capabilities = GenerationModelCapabilities.fromModel(model);
+    if (activeVibes.isNotEmpty && capabilities.supportsVibeTransfer) {
       parameters['reference_image_multiple'] = [
         for (final vibe in activeVibes) vibe.vibeB64,
       ];

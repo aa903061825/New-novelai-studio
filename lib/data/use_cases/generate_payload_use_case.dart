@@ -1,5 +1,9 @@
+import 'dart:math';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:novel_studio/data/models/character_config.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
+import 'package:novel_studio/data/models/generation_presets.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/precise_reference_config.dart';
@@ -148,15 +152,33 @@ class GeneratePayloadUseCase {
     if (i2iResult?.overridePrompts case final overridePrompt?) {
       basePair.prompt = _applyPromptReplaceRules(overridePrompt);
     }
+    final capabilities =
+        GenerationModelCapabilities.fromModel(effectiveParamConfig.model);
+    var effectiveNegativePrompt = effectiveParamConfig.negativePrompt;
+    if (capabilities.isV5) {
+      basePair.prompt = applyV5PositivePreset(
+        basePair.prompt,
+        qualityPreset: effectiveParamConfig.qualityPreset,
+        transparentBackground: effectiveParamConfig.transparentBackground,
+      );
+      effectiveNegativePrompt = applyV5NegativePreset(
+        effectiveNegativePrompt,
+        effectiveParamConfig.ucPresetMode,
+      );
+      paramPayload['negative_prompt'] = effectiveNegativePrompt;
+    }
     String payloadComment = basePair.comment;
 
     // Get character prompt
     final List<CharacterPromptResult> characterPromptResultList = [];
     if (!payloadConfig.useOverridePrompt ||
         payloadConfig.useCharacterPromptWithOverride) {
-      for (final config in characterConfigList) {
+      for (final (index, config)
+          in characterConfigList.take(capabilities.maxCharacters).indexed) {
         if (!config.enabled) continue;
-        characterPromptResultList.add(config.getPrompt());
+        characterPromptResultList.add(
+          config.getPrompt(fallbackCenter: defaultCharacterCenter(index)),
+        );
       }
     }
 
@@ -165,10 +187,18 @@ class GeneratePayloadUseCase {
     final v4CharPosCaptions = [];
     final v4CharNegCaptions = [];
     for (final (index, result) in characterPromptResultList.indexed) {
-      final posAsString = '${xMapping[result.center.x]}${result.center.y}';
+      final gridX = doubleMapping[result.gridCenter.x];
+      final gridY = doubleMapping[result.gridCenter.y];
+      final resolvedCenter = capabilities.supportsFreeformCharacterPosition
+          ? result.freeformCenter
+          : Point<double>(gridX ?? 0.5, gridY ?? 0.5);
+      final posAsString = capabilities.supportsFreeformCharacterPosition
+          ? '(${resolvedCenter.x.toStringAsFixed(3)}, '
+              '${resolvedCenter.y.toStringAsFixed(3)})'
+          : '${xMapping[result.gridCenter.x] ?? 'X'}${result.gridCenter.y}';
       final posAsDouble = {
-        'x': doubleMapping[result.center.x]!,
-        'y': doubleMapping[result.center.y]!,
+        'x': resolvedCenter.x,
+        'y': resolvedCenter.y,
       };
       result.prompt = result.prompt.replaceVariables(pattern, savedConfigList);
       final rawCharacterPrompt = result.prompt.toPrompt();
@@ -207,18 +237,18 @@ class GeneratePayloadUseCase {
     };
     final v4NegPrompt = {
       'caption': {
-        'base_caption': effectiveParamConfig.negativePrompt,
+        'base_caption': effectiveNegativePrompt,
         'char_captions': v4CharNegCaptions,
       },
-      'legacy_uc': effectiveParamConfig.legacyUc,
+      'legacy_uc':
+          capabilities.supportsLegacyUc ? effectiveParamConfig.legacyUc : false,
     };
     paramPayload['v4_prompt'] = v4Prompt;
     paramPayload['v4_negative_prompt'] = v4NegPrompt;
     paramPayload['characterPrompts'] = characterPrompts;
 
-    final isV45Model = effectiveParamConfig.model.contains('-4-5-');
     final usePreciseReference = payloadConfig.usePreciseReference &&
-        isV45Model &&
+        capabilities.supportsPreciseReference &&
         preciseReferenceList.isNotEmpty;
 
     if (usePreciseReference) {
@@ -270,7 +300,7 @@ class GeneratePayloadUseCase {
         paramPayload.remove('reference_strength_multiple');
         paramPayload.remove('reference_information_extracted_multiple');
       }
-    } else if (vibeEnabled && effectiveParamConfig.model.contains('-3')) {
+    } else if (vibeEnabled && capabilities.isV3) {
       // Vibe config for NAI3 models
       final imageB64List = [];
       final referenceStrengthList = [];
@@ -291,7 +321,9 @@ class GeneratePayloadUseCase {
             imformationExtractedList;
         _removeDirectorReferencePayload(paramPayload);
       }
-    } else if (vibeEnabled && effectiveParamConfig.model.contains('-4-')) {
+    } else if (vibeEnabled &&
+        capabilities.isV4 &&
+        capabilities.supportsVibeTransfer) {
       // Vibe config for NAI4 models
       final imageB64List = [];
       final infoExtractedList = [];

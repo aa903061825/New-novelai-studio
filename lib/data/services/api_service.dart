@@ -13,7 +13,7 @@ class ApiService {
     final url = Uri.parse(request.endpoint);
     final client = createHttpClient(request.proxy);
     final stopwatch = Stopwatch()..start();
-    _logRequestStart(request);
+    _logRequestStart(request, method: 'POST');
     try {
       final responseFuture = client == null
           ? http.post(
@@ -40,6 +40,29 @@ class ApiService {
     }
   }
 
+  Future<ApiResponse> fetchGetData(ApiRequest request) async {
+    final url = Uri.parse(request.endpoint);
+    final client = createHttpClient(request.proxy);
+    final stopwatch = Stopwatch()..start();
+    _logRequestStart(request, method: 'GET');
+    try {
+      final responseFuture = client == null
+          ? http.get(url, headers: request.headers)
+          : client.get(url, headers: request.headers);
+      final response = await _withTimeout(responseFuture, request);
+      _logRequestEnd(request, response.statusCode, stopwatch.elapsed);
+      return ApiResponse(
+        status: response.statusCode.toString(),
+        data: response.bodyBytes,
+      );
+    } catch (error) {
+      _logRequestError(request, error, stopwatch.elapsed);
+      rethrow;
+    } finally {
+      client?.close();
+    }
+  }
+
   Future<ApiResponse> streamData(
     ApiRequest request, {
     required void Function(String text) onTextChunk,
@@ -47,7 +70,7 @@ class ApiService {
     final url = Uri.parse(request.endpoint);
     final client = createHttpClient(request.proxy) ?? http.Client();
     final stopwatch = Stopwatch()..start();
-    _logRequestStart(request);
+    _logRequestStart(request, method: 'POST');
     try {
       final httpRequest = http.Request('POST', url)
         ..headers.addAll(request.headers)
@@ -105,13 +128,16 @@ class ApiService {
     return '$name timed out after ${timeout.inSeconds}s: ${request.endpoint}';
   }
 
-  void _logRequestStart(ApiRequest request) {
+  void _logRequestStart(
+    ApiRequest request, {
+    required String method,
+  }) {
     final label = request.logLabel.trim();
     if (label.isEmpty) {
       return;
     }
     developer.log(
-      'POST ${request.endpoint} timeout=${request.timeout ?? 'none'}',
+      '$method ${request.endpoint} timeout=${request.timeout ?? 'none'}',
       name: 'ApiService.$label',
     );
   }

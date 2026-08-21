@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:novel_studio/data/models/global_generation_params.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
@@ -144,6 +145,11 @@ class ParametersConfigViewmodel extends ChangeNotifier {
 
   void setModel(String value) {
     config.model = value;
+    final nextCapabilities = GenerationModelCapabilities.fromModel(value);
+    if (!nextCapabilities.supportsNoiseSchedule) {
+      config.noiseSchedule = 'karras';
+    }
+    if (!nextCapabilities.supportsLegacyUc) config.legacyUc = false;
     notifyListeners();
   }
 
@@ -167,7 +173,34 @@ class ParametersConfigViewmodel extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get isV4 => config.model.contains('-4-');
+  GenerationModelCapabilities get capabilities =>
+      GenerationModelCapabilities.fromModel(config.model);
+
+  bool get isV4 => capabilities.isV4;
+  bool get usesStructuredPrompts => capabilities.usesStructuredPrompts;
+  bool get supportsNoiseSchedule => capabilities.supportsNoiseSchedule;
+  bool get supportsSmeaControls => capabilities.supportsSmeaControls;
+  bool get supportsVarietyPlus => capabilities.supportsVarietyPlus;
+  bool get supportsAutoPosition => capabilities.supportsAutoPosition;
+  bool get supportsLegacyUc => capabilities.supportsLegacyUc;
+  bool get supportsTransparency => capabilities.supportsTransparency;
+  bool get supportsQualityPresets => capabilities.supportsQualityPresets;
+  bool get supportsUcPresets => capabilities.supportsUcPresets;
+
+  void setQualityPreset(String value) {
+    config.qualityPreset = value;
+    notifyListeners();
+  }
+
+  void setUcPresetMode(String value) {
+    config.ucPresetMode = value;
+    notifyListeners();
+  }
+
+  void setTransparentBackground(bool value) {
+    config.transparentBackground = value;
+    notifyListeners();
+  }
 
   void setAutoPosition(bool? value) {
     if (value == null) return;

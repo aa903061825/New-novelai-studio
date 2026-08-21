@@ -621,6 +621,62 @@ void main() {
     );
   });
 
+  test('batch model override produces a V5-safe request', () async {
+    final requestedPayloads = <Map<String, dynamic>>[];
+    final viewModel = ProductionQueueViewModel(
+      plans: [
+        _plan([
+          _scriptTask(id: 'task-v5').copyWith(
+            payload: const {
+              'input': 'frame v5',
+              'model': 'nai-diffusion-4-5-full',
+              'action': 'generate',
+              'parameters': {
+                'params_version': 3,
+                'sampler': 'k_euler_ancestral',
+                'noise_schedule': 'exponential',
+                'sm': true,
+                'sm_dyn': true,
+                'dynamic_thresholding': true,
+                'skip_cfg_above_sigma': 19.0,
+                'reference_image_multiple': ['legacy-vibe'],
+                'reference_strength_multiple': [0.5],
+                'reference_information_extracted_multiple': [1.0],
+                'seed': 1,
+              },
+            },
+          ),
+        ]),
+      ],
+      settings: const ProductionQueueExecutionSettings(
+        model: 'nai-diffusion-5-curated',
+      ),
+      executorService: _executor(
+        requestImage: (payload) async {
+          requestedPayloads.add(payload);
+          return _fakePngBytes;
+        },
+      ),
+    );
+
+    await viewModel.start();
+
+    final payload = requestedPayloads.single;
+    final parameters = payload['parameters'] as Map<String, dynamic>;
+    expect(payload['model'], 'nai-diffusion-5-curated');
+    expect(parameters['params_version'], 4);
+    expect(parameters['noise_schedule'], 'karras');
+    expect(parameters, isNot(contains('sm')));
+    expect(parameters, isNot(contains('sm_dyn')));
+    expect(parameters, isNot(contains('skip_cfg_above_sigma')));
+    expect(parameters['dynamic_thresholding'], isFalse);
+    expect(parameters, isNot(contains('reference_image_multiple')));
+    expect(parameters['tag_hint_qt'], 0);
+    expect(parameters['tag_hint_uc_preset'], 0);
+    expect(parameters['tag_hint_transparent_background'], isFalse);
+    expect(parameters['straight_alpha'], isFalse);
+  });
+
   test('empty batch defaults leave existing companion parameters untouched',
       () async {
     final requestedPayloads = <Map<String, dynamic>>[];

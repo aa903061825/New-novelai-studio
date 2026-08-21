@@ -1,5 +1,6 @@
 import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/core/constants/parameters.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/studio/tools/generation_prompt_sanitizer.dart';
 
 class ScriptRecastPayloadAdapter {
@@ -10,6 +11,8 @@ class ScriptRecastPayloadAdapter {
       return _normalizeDirectPayload(payload);
     }
 
+    final model = _modelFromSource(payload['Source']);
+    final capabilities = GenerationModelCapabilities.fromModel(model);
     final comment = _mapValue(payload['Comment']);
     final sourceParameters = _mapValue(payload['parameters']);
     final parameters = <String, dynamic>{
@@ -33,7 +36,7 @@ class ScriptRecastPayloadAdapter {
     parameters['v4_prompt'] = v4Prompt;
     parameters['v4_negative_prompt'] = v4NegativePrompt;
     _applyDefaultBatchNegativePrompt(parameters);
-    parameters.putIfAbsent('params_version', () => 3);
+    parameters.putIfAbsent('params_version', () => capabilities.paramsVersion);
     parameters.putIfAbsent('n_samples', () => 1);
     parameters.putIfAbsent('legacy_v3_extend', () => false);
     parameters.putIfAbsent('characterPrompts', () => const []);
@@ -44,14 +47,11 @@ class ScriptRecastPayloadAdapter {
       () => const [],
     );
     _normalizeReferenceParameters(parameters);
-    if (_modelFromSource(payload['Source']).contains('diffusion-4') &&
-        parameters['noise_schedule'] == 'native') {
-      parameters['noise_schedule'] = 'karras';
-    }
+    _applyModelCompatibility(parameters, capabilities);
 
     return {
       'input': baseCaption,
-      'model': _modelFromSource(payload['Source']),
+      'model': model,
       'action': 'generate',
       'parameters': _deepImmutableMap(parameters),
     };
@@ -62,21 +62,23 @@ class ScriptRecastPayloadAdapter {
   }
 
   Map<String, dynamic> _normalizeDirectPayload(Map<String, dynamic> payload) {
+    final model = _stringValue(payload['model']) ?? defaultGenerationModel;
+    final capabilities = GenerationModelCapabilities.fromModel(model);
     final parameters = _deepMutableMap(_mapValue(payload['parameters']));
     _removeDisallowedRequestParameters(parameters);
     _normalizePromptGenerationRequest(parameters);
     _sanitizePromptParameter(parameters, 'v4_prompt');
     _sanitizePromptParameter(parameters, 'v4_negative_prompt');
     _applyDefaultBatchNegativePrompt(parameters);
-    parameters.putIfAbsent('params_version', () => 3);
+    parameters.putIfAbsent('params_version', () => capabilities.paramsVersion);
     parameters.putIfAbsent('n_samples', () => 1);
     parameters.putIfAbsent('legacy_v3_extend', () => false);
     parameters.putIfAbsent('characterPrompts', () => const []);
     _normalizeReferenceParameters(parameters);
+    _applyModelCompatibility(parameters, capabilities);
     return {
       'input': sanitizeGenerationPrompt(_stringValue(payload['input']) ?? ''),
-      'model':
-          _stringValue(payload['model']) ?? 'nai-diffusion-4-curated-preview',
+      'model': model,
       'action': _stringValue(payload['action']) ?? 'generate',
       'parameters': _deepImmutableMap(parameters),
     };
@@ -171,13 +173,16 @@ class ScriptRecastPayloadAdapter {
   String _modelFromSource(Object? source) {
     final rawSource = _stringValue(source);
     if (rawSource == null) {
-      return 'nai-diffusion-4-curated-preview';
+      return defaultGenerationModel;
     }
-    final mapped = sourceToModel[rawSource];
+    final mapped = modelFromNovelAiSource(rawSource);
     if (mapped != null) {
       return mapped;
     }
     final normalized = rawSource.toLowerCase();
+    if (normalized.contains('v5')) {
+      return naiDiffusion5Curated;
+    }
     if (normalized.contains('v4.5') || normalized.contains('v4 5')) {
       return 'nai-diffusion-4-5-full';
     }
@@ -323,6 +328,57 @@ void _normalizePromptGenerationRequest(Map<String, dynamic> parameters) {
   parameters['request_type'] = _promptGenerateRequestType;
   for (final key in _editOnlyParameterKeys) {
     parameters.remove(key);
+  }
+}
+
+void _applyModelCompatibility(
+  Map<String, dynamic> parameters,
+  GenerationModelCapabilities capabilities,
+) {
+  parameters['params_version'] = capabilities.paramsVersion;
+  if (!capabilities.supportsSmeaControls) {
+    parameters.remove('sm');
+    parameters.remove('sm_dyn');
+    if (parameters['sampler'] == 'ddim_v3') {
+      parameters['sampler'] = 'k_euler_ancestral';
+    }
+  }
+  if (!capabilities.supportsNoiseSchedule) {
+    parameters['noise_schedule'] = 'karras';
+  } else if (capabilities.isV4 && parameters['noise_schedule'] == 'native') {
+    parameters['noise_schedule'] = 'karras';
+  }
+  if (!capabilities.supportsVarietyPlus) {
+    parameters.remove('skip_cfg_above_sigma');
+  }
+  if (!capabilities.supportsDynamicThresholding) {
+    parameters['dynamic_thresholding'] = false;
+  }
+  if (!capabilities.supportsLegacyUc) {
+    parameters['legacy_uc'] = false;
+    final negativePrompt = parameters['v4_negative_prompt'];
+    if (negativePrompt is Map) {
+      parameters['v4_negative_prompt'] = <String, dynamic>{
+        ..._mapValue(negativePrompt),
+        'legacy_uc': false,
+      };
+    }
+  }
+  if (capabilities.isKnownModel &&
+      !capabilities.supportsVibeTransfer &&
+      !capabilities.supportsPreciseReference) {
+    for (final key in const [
+      'reference_image_multiple',
+      'reference_strength_multiple',
+      'reference_information_extracted_multiple',
+      'director_reference_images',
+      'director_reference_strength_values',
+      'director_reference_secondary_strength_values',
+      'director_reference_information_extracted',
+      'director_reference_descriptions',
+    ]) {
+      parameters.remove(key);
+    }
   }
 }
 
