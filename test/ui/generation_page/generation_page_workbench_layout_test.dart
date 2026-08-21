@@ -948,6 +948,45 @@ void main() {
 
     expect(find.text('V5 Opus 剩余 42.5%'), findsOneWidget);
     expect(find.textContaining('约 735 张普通生成'), findsOneWidget);
+    expect(find.text('可用点数 1025 Anlas'), findsOneWidget);
+    expect(find.text('订阅点数 1000 · 已购点数 25'), findsOneWidget);
+  });
+
+  testWidgets('V4.5 workbench shows Anlas balance and free estimate',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final payload = GetIt.I<PayloadConfig>();
+    payload.settings.apiKey = 'pst-simulated';
+    payload.paramConfig.model = 'nai-diffusion-4-5-full';
+    final viewmodel = _WorkbenchLayoutViewmodel(
+      naiAccountUsageService: _simulatedUsageService(percent: 42.5),
+    );
+
+    await _pumpGenerationPage(tester, viewmodel);
+    await tester.pumpAndSettle();
+
+    expect(find.text('可用点数 1025 Anlas'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workbench-generation-cost-estimate')),
+      findsOneWidget,
+    );
+    expect(find.text('0 Anlas · 开始生成'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('workbench-v5-opus-usage-panel')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('workbench-start-generation-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(viewmodel.lastSingleImageGenerationCount, 1);
+    expect(find.byType(AlertDialog), findsNothing);
   });
 
   testWidgets('exhausted V5 allowance requires Anlas confirmation',
@@ -978,6 +1017,7 @@ void main() {
 
     expect(find.text('V5 Opus 免费额度已用尽'), findsWidgets);
     expect(find.textContaining('当前可用 Anlas：1025'), findsOneWidget);
+    expect(find.textContaining('点数消耗预估：约'), findsOneWidget);
     expect(viewmodel.lastSingleImageGenerationCount, isNull);
 
     await tester.tap(

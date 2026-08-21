@@ -1522,6 +1522,37 @@ void main() {
       },
     );
 
+    test('artist preview paths follow the target generation model', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-artist-model-preview-',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final v45Preview = File('${tempDir.path}${Platform.pathSeparator}v45.png')
+        ..writeAsBytesSync([1]);
+      final v5Preview = File('${tempDir.path}${Platform.pathSeparator}v5.png')
+        ..writeAsBytesSync([2]);
+      final viewModel = StudioScriptViewModel(
+        loadArtistChains: () async => [
+          ArtistChain(
+            id: 'artist-model-preview',
+            name: 'model preview artist',
+            prompt: 'artist:model_preview',
+            modelPreviewRefs: {
+              'v4_5': [v45Preview.path],
+              'v5': [v5Preview.path],
+            },
+          ),
+        ],
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+      final chain = viewModel.artistChainOptions.single;
+
+      expect(viewModel.artistChainPreviewPaths(chain), [v5Preview.path]);
+      viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
+      expect(viewModel.artistChainPreviewPaths(chain), [v45Preview.path]);
+    });
+
     test(
       'role mappings expose friendly labels without default outfit stages',
       () async {
@@ -7165,13 +7196,19 @@ void main() {
       );
 
       await viewModel.importScriptPath(_fixturePath);
+      viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
       viewModel.setManualVibe('manual-vibe', true);
       viewModel.setManualVibeStrength('manual-vibe', 0.72);
       await viewModel.sendToProduction();
 
       final plans = await workspaceService.loadProductionPlans();
-      final parameters = plans.single.tasks.first.payload['parameters']
-          as Map<String, dynamic>;
+      final plan = plans.single;
+      final payload = plan.requestPayloadForTask(plan.tasks.first);
+      expect(
+        payload['model'],
+        'nai-diffusion-4-5-full',
+      );
+      final parameters = payload['parameters'] as Map<String, dynamic>;
       expect(parameters['reference_image_multiple'], ['encoded-manual-vibe']);
       expect(parameters['reference_strength_multiple'], [0.72]);
       expect(viewModel.selectedManualVibes.single.name, 'Manual Vibe');
@@ -12384,6 +12421,7 @@ void main() {
       await tester.runAsync(() async {
         await viewModel.importScriptPath(_fixturePath);
       });
+      viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
 
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
       await tester.pumpAndSettle();
@@ -12425,7 +12463,7 @@ void main() {
         const ValueKey('artist-vibe-remove-bound-vibe'),
       );
       expect(boundRemove, findsOneWidget);
-      expect(tester.widget<IconButton>(boundRemove).tooltip, '绉婚櫎 Vibe');
+      expect(tester.widget<IconButton>(boundRemove).tooltip, '移除 Vibe');
       await tester.tap(boundRemove);
       await tester.pumpAndSettle();
       expect(viewModel.selectedManualVibes, isEmpty);
@@ -12480,6 +12518,7 @@ void main() {
         await tester.runAsync(() async {
           await viewModel.importScriptPath('script-with-source-vibe');
         });
+        viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
 
         await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
         await tester.pumpAndSettle();
@@ -12552,6 +12591,7 @@ void main() {
       await tester.runAsync(() async {
         await viewModel.importScriptPath(_fixturePath);
       });
+      viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
 
       await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
       await tester.pumpAndSettle();
@@ -12568,6 +12608,52 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Imported Vibe'), findsWidgets);
+    });
+
+    testWidgets('target V5 disables but preserves artist Vibe controls',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final viewModel = StudioScriptViewModel(
+        loadVibes: () async => const [
+          WorkspaceVibeReference(
+            id: 'preserved-vibe',
+            name: 'Preserved Vibe',
+            vibeB64: 'encoded-preserved-vibe',
+          ),
+        ],
+      );
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(_fixturePath);
+      });
+      viewModel.setManualVibe('preserved-vibe', true);
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('script-target-generation-model')),
+        findsOneWidget,
+      );
+      expect(viewModel.targetGenerationModel, 'nai-diffusion-5-full');
+      expect(find.text('NAI V5 Full'), findsOneWidget);
+      expect(viewModel.selectedManualVibes.single.id, 'preserved-vibe');
+      expect(
+        find.byKey(const ValueKey('artist-vibe-disabled-0')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('artist-vibe-add-0')), findsNothing);
+
+      viewModel.setTargetGenerationModel('nai-diffusion-4-5-full');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('artist-vibe-active-preserved-vibe')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('artist-vibe-add-0')), findsOneWidget);
     });
 
     testWidgets(

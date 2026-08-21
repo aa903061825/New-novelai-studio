@@ -442,15 +442,17 @@ Future<void> _deleteProductionPlan(
     if (result.failedImagePaths.isNotEmpty) {
       _showProductionSnack(
         context,
-        '队列已删除，${result.failedImagePaths.length} 个本地图片未能删除',
+        '${result.preservedForExhibition ? '队列已移出批量产线，剧本展览记录已保留' : '队列已删除'}，${result.failedImagePaths.length} 个本地图片未能删除',
       );
       return;
     }
+    final queueAction = result.preservedForExhibition ? '队列已移出批量产线' : '队列已删除';
+    final exhibitionNote = result.preservedForExhibition ? '，剧本展览记录已保留' : '';
     _showProductionSnack(
       context,
       deleteLocalImages
-          ? '队列已删除，本地图片已清理 ${result.deletedImageCount} 张'
-          : '队列已删除，本地图片已保留',
+          ? '$queueAction$exhibitionNote，本地图片已清理 ${result.deletedImageCount} 张'
+          : '$queueAction$exhibitionNote，本地图片已保留',
     );
   } catch (error) {
     if (!context.mounted) return;
@@ -463,6 +465,9 @@ Future<bool?> _showProductionDeleteDialog({
   required ProductionPlan plan,
 }) {
   var deleteLocalImages = false;
+  final preservesExhibition = plan.tasks.any(
+    (task) => task.taskType == ProductionTaskType.scriptRecastFrame,
+  );
   final outputCount = {
     for (final task in plan.tasks)
       if (task.outputImagePath?.trim().isNotEmpty == true)
@@ -474,12 +479,16 @@ Future<bool?> _showProductionDeleteDialog({
       return StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
-            title: const Text('删除队列标签'),
+            title: Text(preservesExhibition ? '移出批量产线' : '删除队列标签'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('将删除“${plan.name}”及其 ${plan.tasks.length} 条任务记录。'),
+                Text(
+                  preservesExhibition
+                      ? '将“${plan.name}”从批量产线移出；其 ${plan.tasks.length} 条剧本任务记录会保留在剧本展览室。'
+                      : '将删除“${plan.name}”及其 ${plan.tasks.length} 条任务记录。',
+                ),
                 const SizedBox(height: 12),
                 CheckboxListTile(
                   key: const ValueKey(
@@ -510,7 +519,7 @@ Future<bool?> _showProductionDeleteDialog({
                   'studio-production-confirm-delete-plan',
                 ),
                 onPressed: () => Navigator.of(context).pop(deleteLocalImages),
-                child: const Text('删除'),
+                child: Text(preservesExhibition ? '移出' : '删除'),
               ),
             ],
           );
@@ -3778,7 +3787,7 @@ class _PromptTagBlock extends StatelessWidget {
                 groups: visibleGroups,
                 groupKeyPrefix: '$tagKeyValue-group',
                 tagKeyPrefix: '$tagKeyValue-group-tags',
-                defaultTranslated: true,
+                defaultTranslated: false,
                 dense: true,
                 enableHoverShortcut: true,
                 enableTagActions: true,
@@ -3789,7 +3798,7 @@ class _PromptTagBlock extends StatelessWidget {
               PromptTagDisplay(
                 key: tagKey,
                 text: trimmed,
-                defaultTranslated: true,
+                defaultTranslated: false,
                 dense: true,
                 enableHoverShortcut: true,
                 enableTagActions: true,

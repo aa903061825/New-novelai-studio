@@ -1,3 +1,4 @@
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
@@ -1125,6 +1126,7 @@ class PromptBlockSwap {
 class RecastMapping {
   final String id;
   final String scriptId;
+  final String targetGenerationModel;
   final List<RoleSwap> roleSwaps;
   final List<RoleAssembly> roleAssemblies;
   final List<ScriptRolePromptReplacement> rolePromptReplacements;
@@ -1139,6 +1141,7 @@ class RecastMapping {
   const RecastMapping({
     required this.id,
     required this.scriptId,
+    this.targetGenerationModel = naiDiffusion5Full,
     this.roleSwaps = const [],
     this.roleAssemblies = const [],
     this.rolePromptReplacements = const [],
@@ -1162,6 +1165,9 @@ class RecastMapping {
     return RecastMapping(
       id: json['id'] as String,
       scriptId: json['scriptId'] as String,
+      targetGenerationModel: studioTargetGenerationModelFor(
+        json['targetGenerationModel'] as String?,
+      ),
       roleSwaps: _listOfMaps(json['roleSwaps'])
           .map(RoleSwap.fromJson)
           .toList(growable: false),
@@ -1197,6 +1203,7 @@ class RecastMapping {
   RecastMapping copyWith({
     String? id,
     String? scriptId,
+    String? targetGenerationModel,
     List<RoleSwap>? roleSwaps,
     List<RoleAssembly>? roleAssemblies,
     List<ScriptRolePromptReplacement>? rolePromptReplacements,
@@ -1214,6 +1221,8 @@ class RecastMapping {
     return RecastMapping(
       id: id ?? this.id,
       scriptId: scriptId ?? this.scriptId,
+      targetGenerationModel:
+          targetGenerationModel ?? this.targetGenerationModel,
       roleSwaps: roleSwaps ?? this.roleSwaps,
       roleAssemblies: roleAssemblies ?? this.roleAssemblies,
       rolePromptReplacements:
@@ -1237,6 +1246,7 @@ class RecastMapping {
     final json = <String, dynamic>{
       'id': id,
       'scriptId': scriptId,
+      'targetGenerationModel': targetGenerationModel,
       'roleSwaps': roleSwaps.map((swap) => swap.toJson()).toList(),
       'artistSwap': artistSwap?.toJson(),
     };

@@ -994,19 +994,40 @@ class ScriptRecastResult {
   final String mappingId;
   final List<ScriptRecastFramePayload> frames;
   final String configFingerprint;
+  final String? targetGenerationModel;
 
   const ScriptRecastResult({
     required this.scriptId,
     required this.mappingId,
     required this.frames,
     required this.configFingerprint,
+    this.targetGenerationModel,
   });
+
+  ScriptRecastResult copyWith({
+    String? scriptId,
+    String? mappingId,
+    List<ScriptRecastFramePayload>? frames,
+    String? configFingerprint,
+    String? targetGenerationModel,
+  }) {
+    return ScriptRecastResult(
+      scriptId: scriptId ?? this.scriptId,
+      mappingId: mappingId ?? this.mappingId,
+      frames: frames ?? this.frames,
+      configFingerprint: configFingerprint ?? this.configFingerprint,
+      targetGenerationModel:
+          targetGenerationModel ?? this.targetGenerationModel,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'scriptId': scriptId,
         'mappingId': mappingId,
         'frames': frames.map((frame) => frame.toJson()).toList(),
         'configFingerprint': configFingerprint,
+        if (targetGenerationModel != null)
+          'targetGenerationModel': targetGenerationModel,
       };
 }
 

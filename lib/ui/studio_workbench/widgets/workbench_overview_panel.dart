@@ -84,7 +84,7 @@ class WorkbenchOverviewPanel extends StatelessWidget {
                         groups: promptGroups,
                         groupKeyPrefix: 'workbench-overview-prompt-group',
                         tagKeyPrefix: 'workbench-overview-prompt-group-tags',
-                        defaultTranslated: true,
+                        defaultTranslated: false,
                         dense: true,
                         maxTags: 8,
                         enableHoverShortcut: true,

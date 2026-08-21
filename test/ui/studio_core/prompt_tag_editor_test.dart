@@ -105,7 +105,7 @@ void main() {
     await GetIt.I.reset();
   });
 
-  testWidgets('shows raw tags with translated secondary labels',
+  testWidgets('keeps raw tags by default and translates from the toolbar',
       (tester) async {
     String value = 'blue eyes, long hair';
     GetIt.I.registerSingleton<TranslationCache>(
@@ -129,9 +129,17 @@ void main() {
 
     expect(find.text('blue eyes'), findsOneWidget);
     expect(find.text('long hair'), findsOneWidget);
+    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('长发'), findsNothing);
+    expect(value, 'blue eyes, long hair');
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-translation-toggle')),
+    );
+    await tester.pumpAndSettle();
+
     expect(find.text('蓝眼睛'), findsOneWidget);
     expect(find.text('长发'), findsOneWidget);
-    expect(value, 'blue eyes, long hair');
 
     await tester.tap(find.byKey(const ValueKey('prompt-tag-editor-delete-0')));
     await tester.pumpAndSettle();
@@ -155,6 +163,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'blue eyes, long hair',
+          initialShowTranslations: true,
           onChanged: (_) {},
         ),
       ),
@@ -258,6 +267,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'animal_ears',
+          initialShowTranslations: true,
           onChanged: (_) {},
           showControls: false,
           preferTranslatedLabels: true,
@@ -489,6 +499,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'animal ears',
+          initialShowTranslations: true,
           onChanged: (_) {},
         ),
       ),
@@ -528,6 +539,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'public restrooms',
+          initialShowTranslations: true,
           onChanged: (_) {},
           dense: true,
           showControls: false,
@@ -560,10 +572,12 @@ void main() {
           children: [
             PromptTagEditor(
               value: 'queue duplicate alpha',
+              initialShowTranslations: true,
               onChanged: (_) {},
             ),
             PromptTagEditor(
               value: 'queue duplicate alpha',
+              initialShowTranslations: true,
               onChanged: (_) {},
             ),
           ],
@@ -604,6 +618,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'queue duplicate alpha',
+          initialShowTranslations: true,
           onChanged: (_) {},
         ),
       ),
@@ -655,6 +670,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'tag one, tag two, tag three',
+          initialShowTranslations: true,
           onChanged: (_) {},
         ),
       ),
@@ -721,6 +737,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'tag one, tag two, tag three',
+          initialShowTranslations: true,
           onChanged: (_) {},
           autoTranslateTagLimit: 2,
         ),
@@ -767,6 +784,7 @@ void main() {
       _host(
         PromptTagEditor(
           value: 'blue eyes',
+          initialShowTranslations: true,
           onChanged: (_) {},
         ),
       ),
@@ -782,6 +800,46 @@ void main() {
 
     expect(find.text('blue eyes'), findsOneWidget);
     expect(find.text('蓝眼睛'), findsNothing);
+  });
+
+  testWidgets('each editor tag can toggle its own translation', (tester) async {
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000)
+        ..setManual('blue eyes', '蓝眼睛')
+        ..setManual('long hair', '长发'),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: 'blue eyes, long hair',
+          initialShowTranslations: true,
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('蓝眼睛'), findsOneWidget);
+    expect(find.text('长发'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('prompt-tag-editor-translation-toggle-0'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('长发'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('prompt-tag-editor-translation-toggle-0'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('蓝眼睛'), findsOneWidget);
   });
 
   testWidgets('chips do not expose duplicate text as hover tooltips',

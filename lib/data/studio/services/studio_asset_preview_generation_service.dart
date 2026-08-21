@@ -7,6 +7,7 @@ import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_catalog_service.dart';
+import 'package:novel_studio/data/studio/tools/artist_chain_v5_prompt_policy.dart';
 import 'package:novel_studio/data/studio/tools/outfit_identity_prompt.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
@@ -35,12 +36,14 @@ enum StudioPreviewCustomPromptMode { append, replace }
 
 class StudioAssetPreviewGenerationOptions {
   final String? artistChainId;
+  final String model;
   final String customPrompt;
   final StudioPreviewCustomPromptMode customPromptMode;
   final GenerationSize? size;
 
   const StudioAssetPreviewGenerationOptions({
     this.artistChainId,
+    this.model = naiDiffusion5Full,
     this.customPrompt = '',
     this.customPromptMode = StudioPreviewCustomPromptMode.append,
     this.size,
@@ -50,7 +53,7 @@ class StudioAssetPreviewGenerationOptions {
 }
 
 class StudioAssetPreviewGenerationService {
-  static const model = defaultGenerationModel;
+  static const model = naiDiffusion5Full;
   static const _seedMaxExclusive = 1 << 32;
   static const _previewSizes = [
     GenerationSize(width: 832, height: 1216),
@@ -78,6 +81,13 @@ class StudioAssetPreviewGenerationService {
     StudioAssetPreviewGenerationOptions options =
         const StudioAssetPreviewGenerationOptions(),
   }) async {
+    final previewFamily = generationPreviewFamilyForModel(options.model);
+    if (previewFamily == null ||
+        !studioTargetGenerationModels.contains(options.model)) {
+      throw StudioAssetPreviewGenerationException(
+        'Artist-chain previews currently support only V4.5 Full and V5 Full.',
+      );
+    }
     final chains = await workspaceService.loadArtistChains();
     final chainIndex = _indexById(chains, id);
     if (chainIndex < 0) {
@@ -101,8 +111,9 @@ class StudioAssetPreviewGenerationService {
       size: size,
       negativePrompt: _artistChainNegativePrompt(chain),
       vibeRefs: chain.vibeRefs,
+      model: options.model,
       fileNamePrefix:
-          'asset-preview-artist-chain-${_safeFileSegment(chains[chainIndex].id)}',
+          'asset-preview-artist-chain-${_safeFileSegment(chains[chainIndex].id)}-$previewFamily',
     );
 
     final freshChains = await workspaceService.loadArtistChains();
@@ -112,11 +123,15 @@ class StudioAssetPreviewGenerationService {
         'Artist chain "$id" was not found after preview generation.',
       );
     }
+    final freshChain = freshChains[freshChainIndex];
     final updatedChain = freshChains[freshChainIndex].copyWith(
-      imageRefs: _appendUnique(
-        freshChains[freshChainIndex].imageRefs,
-        outputPath,
-      ),
+      modelPreviewRefs: {
+        ...freshChain.modelPreviewRefs,
+        previewFamily: _appendUnique(
+          freshChain.previewRefsForFamily(previewFamily),
+          outputPath,
+        ),
+      },
     );
     await workspaceService.saveArtistChains(
       [...freshChains]..[freshChainIndex] = updatedChain,
@@ -247,8 +262,14 @@ class StudioAssetPreviewGenerationService {
       );
     }
     final chain = chains[chainIndex];
+    final updatedModelPreviewRefs = <String, List<String>>{};
+    for (final entry in chain.modelPreviewRefs.entries) {
+      final refs = _removePreviewRef(entry.value, previewPath);
+      if (refs.isNotEmpty) updatedModelPreviewRefs[entry.key] = refs;
+    }
     final updatedChain = chain.copyWith(
       imageRefs: _removePreviewRef(chain.imageRefs, previewPath),
+      modelPreviewRefs: updatedModelPreviewRefs,
     );
     await workspaceService.saveArtistChains(
       [...chains]..[chainIndex] = updatedChain,
@@ -365,12 +386,14 @@ class StudioAssetPreviewGenerationService {
     required String fileNamePrefix,
     String negativePrompt = defaultUC,
     List<WorkspaceVibeReference> vibeRefs = const [],
+    String model = naiDiffusion5Full,
   }) async {
     final payload = _payload(
       prompt: prompt,
       size: size,
       negativePrompt: negativePrompt,
       vibeRefs: vibeRefs,
+      model: model,
     );
     final bytes = await requestImage(payload);
     return saveImage(bytes, '$fileNamePrefix-${_timestamp(now())}.png');
@@ -381,6 +404,7 @@ class StudioAssetPreviewGenerationService {
     required GenerationSize size,
     required String negativePrompt,
     List<WorkspaceVibeReference> vibeRefs = const [],
+    required String model,
   }) {
     final seed = _boundedRandomInt(_seedMaxExclusive);
     final parameters = ParamConfig(
@@ -444,10 +468,11 @@ class StudioAssetPreviewGenerationService {
       for (final artist in chain.artists) {
         yield _artistEntryTag(artist);
       }
+      yield* artistChainV5NonArtistPromptTerms(chain.prompt);
     } else {
       yield* chain.tags;
+      yield chain.prompt;
     }
-    yield chain.prompt;
     yield* chain.styleTags;
     for (final tag in chain.styleHintsWeighted) {
       yield _weightedTag(tag);
@@ -455,8 +480,13 @@ class StudioAssetPreviewGenerationService {
   }
 
   String _artistChainNegativePrompt(ArtistChain chain) {
+    final artistTerms = _artistChainTerms(chain).toList(growable: false);
+    final preservesRealisticMedium =
+        artistChainV5HasRealisticMediumTags(artistTerms);
     return _joinPromptParts([
       defaultUC,
+      ...artistChainV5NegativeTerms,
+      if (!preservesRealisticMedium) ...artistChainV5MediumNegativeTerms,
       for (final tag in chain.globalNegatives) _weightedTag(tag),
     ]);
   }
@@ -480,20 +510,22 @@ class StudioAssetPreviewGenerationService {
     required String scenePrompt,
     required StudioAssetPreviewGenerationOptions options,
   }) {
+    final artistTerms = _artistChainTerms(chain).toList(growable: false);
+    final preservesRealisticMedium =
+        artistChainV5HasRealisticMediumTags(artistTerms);
+    final controlledArtistTerms = preservesRealisticMedium
+        ? artistTerms
+        : filterArtistChainV5MediumTags(artistTerms);
     final template = _joinPromptParts([
-      ..._artistChainTerms(chain),
-      _qualityTerms,
+      ...controlledArtistTerms,
+      _qualityTermsForModel(options.model),
       if (character != null) character.name,
       if (character != null) ..._characterTerms(character),
       if (character == null) ..._fallbackArtistChainPreviewCharacterTerms,
-      '1girl',
-      'solo',
+      if (!preservesRealisticMedium) ...artistChainV5MediumGuardTerms,
+      ...artistChainV5CompositionTerms,
       scenePrompt.trim().isEmpty ? _fallbackScenePrompt : scenePrompt,
-      'character focus',
-      'clean readable pose',
       'appealing character preview',
-      'no text',
-      'no watermark',
     ]);
     return _applyCustomPrompt(template, options);
   }
@@ -503,11 +535,24 @@ class StudioAssetPreviewGenerationService {
     required ArtistChain? artistChain,
     required StudioAssetPreviewGenerationOptions options,
   }) {
+    final artistTerms = artistChain == null
+        ? const <String>[]
+        : _artistChainTerms(artistChain).toList(growable: false);
+    final preservesRealisticMedium =
+        artistChain != null && artistChainV5HasRealisticMediumTags(artistTerms);
+    final controlledArtistTerms = artistChain == null
+        ? const <String>[]
+        : preservesRealisticMedium
+            ? artistTerms
+            : filterArtistChainV5MediumTags(artistTerms)
+                .toList(growable: false);
     final template = _joinPromptParts([
-      if (artistChain != null) ..._artistChainTerms(artistChain),
-      _qualityTerms,
+      ...controlledArtistTerms,
+      _qualityTermsForModel(options.model),
       character.name,
       ..._characterTerms(character),
+      if (artistChain != null && !preservesRealisticMedium)
+        ...artistChainV5MediumGuardTerms,
       '1girl',
       'solo',
       'solid color background',
@@ -744,6 +789,12 @@ class StudioAssetPreviewGenerationService {
 }
 
 const _qualityTerms = 'masterpiece, best quality, very aesthetic, highres';
+
+String _qualityTermsForModel(String model) {
+  return GenerationModelCapabilities.fromModel(model).isV5
+      ? artistChainV5QualityTerms
+      : _qualityTerms;
+}
 
 const _fallbackScenePrompt =
     'simple soft background, plain light background, no props';

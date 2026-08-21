@@ -17,6 +17,8 @@ const defaultTargetIds = [
   'legacy-character-sheet-r29',
   'legacy-character-sheet-r15',
   'legacy-character-sheet-r26',
+  'roccia-wuthering-waves',
+  'rossi-arknights-endfield',
 ];
 const targetIds = args.targetIds.length > 0 ? args.targetIds : defaultTargetIds;
 
@@ -117,13 +119,14 @@ const builtProfiles = targetCards.map((target) => {
     });
   }
   blocks.sort((left, right) => left.id.localeCompare(right.id));
+  const uniqueBlocks = makeUniqueEntryIds(blocks);
   return {
     id: target.id,
     name: target.name,
     targetCharacterId: target.id,
     targetCharacterNameSnapshot: target.name,
     targetIdentityPrompt: target.identityPrompt,
-    blocks,
+    blocks: uniqueBlocks,
   };
 });
 
@@ -189,6 +192,14 @@ const reviewTerms = [
   'hair ornament',
   'white dress',
   'nude',
+  'small breasts',
+  'medium breasts',
+  'big breasts',
+  'huge breasts',
+  'flat chest',
+  'one-piece swimsuit',
+  'school swimsuit',
+  'bikini',
 ];
 
 const coverage = builtProfiles.map((profile) => {
@@ -298,7 +309,11 @@ function validateOutput(outputLibrary, coverageRows, cards) {
       continue;
     }
     if (profile.name !== card.name) errors.push(`wrong profile name ${card.id}`);
-    if (hasClothingLikeText(profile.targetIdentityPrompt)) {
+    if (splitPromptTags(profile.targetIdentityPrompt).some((term) =>
+      isCompositionTag(cleanTag(term)) ||
+      hasClothingLikeText(term) ||
+      isBodyState(spacedText(term)),
+    )) {
       errors.push(`clothing leaked into identity prompt ${card.id}`);
     }
     if (card.id === 'legacy-character-sheet-r14') {
@@ -337,16 +352,24 @@ function addSourceTerm(map, rawTerm) {
 function targetPromptForTerm(entry, target) {
   const terms = entry.terms;
   const source = terms.map((term) => spacedText(term.text)).join(' ');
+  const classificationSource = spacedText(entry.key);
   const category = preferredCategory(entry);
   if (!source.trim()) return '';
-  if (isCompositionSource(source)) return '';
+  if (isCompositionSource(classificationSource)) return '';
 
-  if (isGenericGirl(category, source)) return target.genericTags.join(', ');
-  if (isNegatedAppearanceTerm(source)) return DELETE_SENTINEL;
-  if (isHeadConflict(source) && !isBodyState(source) && target.id === 'legacy-character-sheet-r14') {
-    return pepeHeadAnchor();
+  if (isGenericGirl(category, classificationSource)) return target.genericTags.join(', ');
+  if (isNegatedAppearanceTerm(classificationSource)) return DELETE_SENTINEL;
+  if (isBreastSizeTerm(classificationSource)) return target.breastSizePrompt;
+  if (isSwimwearSuit(source, category)) return target.swimwearPrompt;
+  if (isHeadConflict(classificationSource) && !isBodyState(classificationSource)) {
+    if (target.id === 'legacy-character-sheet-r14') {
+      return pepeHeadAnchor();
+    }
+    if (target.id === 'rossi-arknights-endfield') {
+      return rossiHeadAnchor();
+    }
   }
-  if (isCharacterAnchor(category, source)) return target.anchorPrompt;
+  if (isCharacterAnchor(category, classificationSource)) return target.anchorPrompt;
   if (isClothingCategory(category, source)) {
     const recolor = recoloredUnderwearPrompt(terms.map((term) => term.text));
     const lowerTail = isLowerDecoration(category, source) ? targetTailTags(target) : '';
@@ -395,8 +418,6 @@ function targetPromptForTerm(entry, target) {
 function buildTargetCard(character) {
   if (!character) return null;
   const id = stringValue(character.id);
-  const anchor = stringValue(character.anchorTags?.[0]) ||
-    cleanTag(splitPromptTags(character.traits?.front_full || '')[0]);
   const identityTags = [
     ...(Array.isArray(character.identityTags) ? character.identityTags : []),
     ...splitPromptTags(character.traits?.front_full || ''),
@@ -404,7 +425,21 @@ function buildTargetCard(character) {
     ...splitPromptTags(character.traits?.front_lower || ''),
   ];
   const rawStable = uniqueTags(identityTags);
-  const stable = rawStable.filter((tag) => !isCompositionTag(tag));
+  const stable = rawStable.filter((tag) =>
+    !isCompositionTag(tag) &&
+    !isBodyState(spacedText(tag)) &&
+    !hasClothingLikeText(tag) &&
+    !isLowerDecoration('lowerbody', spacedText(tag)),
+  );
+  const anchor = uniqueTags([
+    ...(Array.isArray(character.anchorTags) ? character.anchorTags : []),
+    ...stable,
+  ]).find((tag) =>
+    !isCompositionTag(tag) &&
+    !isBodyState(spacedText(tag)) &&
+    !hasClothingLikeText(tag) &&
+    !isLowerDecoration('lowerbody', spacedText(tag)),
+  ) || '';
   const femaleEvidence = rawStable.some((tag) =>
     tag === 'girl' || tag === 'female' || /^\d+girls?$/.test(tag) || tag.endsWith('_girl'),
   );
@@ -446,7 +481,33 @@ function buildTargetCard(character) {
     upperClothing,
     lowerClothing,
     clothing: uniqueTags([...splitPromptTags(upperClothing), ...splitPromptTags(lowerClothing)]).join(', '),
+    swimwearPrompt: swimwearReplacement(id),
+    breastSizePrompt: breastSizeReplacement(id, rawStable),
   };
+}
+
+function swimwearReplacement(id) {
+  if (['legacy-character-sheet-r14', 'legacy-character-sheet-r13', 'legacy-character-sheet-r29', 'legacy-character-sheet-r15', 'legacy-character-sheet-r26'].includes(id)) {
+    return 'school_swimsuit';
+  }
+  if (id === 'roccia-wuthering-waves') return 'frilled_bikini';
+  if (id === 'rossi-arknights-endfield') return 'bikini';
+  return 'bikini';
+}
+
+function breastSizeReplacement(id, rawStable = []) {
+  if (['legacy-character-sheet-r14', 'legacy-character-sheet-r13', 'legacy-character-sheet-r29', 'legacy-character-sheet-r15', 'legacy-character-sheet-r26'].includes(id)) {
+    return 'small_breasts';
+  }
+  if (['roccia-wuthering-waves', 'rossi-arknights-endfield'].includes(id)) {
+    return 'medium_breasts';
+  }
+  const explicit = rawStable.find((tag) =>
+    /^(?:small|medium|large|huge|gigantic|big)_breasts?$/.test(cleanTag(tag)) ||
+    /^(?:flat|flet)_chest$/.test(cleanTag(tag)) ||
+    /^alternate_breast_size_(?:larger|smaller)$/.test(cleanTag(tag)),
+  );
+  return explicit ? cleanTag(explicit) : DELETE_SENTINEL;
 }
 
 function targetHairTags(target) {
@@ -580,6 +641,22 @@ function isHeadConflict(source) {
   return hasAnyWord(source, ['hood', 'hooded', 'animal hood', 'wearing hood', 'hat', 'bonnet', 'headwear']);
 }
 
+function isBreastSizeTerm(source) {
+  const normalized = normalizeProfileTerm(source).replace(/[.,!?]+$/g, '');
+  return /^(?:small|medium|large|huge|gigantic|big)_breasts?$/.test(normalized) ||
+    /^(?:flat|flet)_chest$/.test(normalized) ||
+    /^alternate_breast_size_(?:larger|smaller)$/.test(normalized);
+}
+
+function isSwimwearSuit(source, category) {
+  if (
+    category === 'identity' || category === 'character' ||
+    category === 'clothingstate' || category === 'clothing_state'
+  ) return false;
+  if (hasAnyWord(source, ['aside', 'only', 'pull', 'pulled', 'lift', 'unworn', 'under clothes', 'top only', 'bottom only', 'side'])) return false;
+  return hasAnyWord(source, ['swimsuit', 'swimwear', 'swim suit', 'one piece swimsuit']);
+}
+
 function isBodyState(source) {
   return hasAnyWord(source, ['ass', 'breast', 'breasts', 'cleavage', 'collarbone', 'pregnant', 'pussy', 'pubic', 'nipple', 'nipples', 'navel', 'belly', 'stomach', 'legs', 'leg', 'thighs', 'clitoris', 'clitoral', 'vulva', 'labia', 'anus', 'penis', 'testicles', 'genitals', 'cervix', 'areola']);
 }
@@ -613,7 +690,7 @@ function isUnderwearOrHosiery(spaced) {
 
 function hasClothingLikeText(value) {
   const text = ` ${String(value || '').toLowerCase().replaceAll('_', ' ')} `;
-  return hasAnyWord(text, ['dress', 'shirt', 'skirt', 'coat', 'jacket', 'shorts', 'pants', 'socks', 'sock', 'shoes', 'boots', 'sandals', 'kimono', 'swimsuit', 'bikini', 'underwear', 'panties', 'pantyhose', 'thighhighs', 'stockings', 'tights', 'leggings', 'gloves', 'bra', 'lingerie', 'bodysuit', 'leotard', 'bunnysuit', 'rabbitcostume', 'maid', 'nun', 'uniform']);
+  return hasAnyWord(text, ['dress', 'shirt', 'skirt', 'coat', 'jacket', 'shorts', 'pants', 'socks', 'sock', 'shoes', 'boots', 'sandals', 'kimono', 'swimsuit', 'bikini', 'underwear', 'panties', 'pantyhose', 'thighhighs', 'thigh highs', 'stockings', 'tights', 'leggings', 'gloves', 'bra', 'lingerie', 'bodysuit', 'leotard', 'bunnysuit', 'rabbitcostume', 'maid', 'nun', 'uniform', 'clothes', 'outfit', 'costume', 'sleeve', 'sleeves', 'sash', 'strap', 'straps', 'tassel', 'button', 'buttons', 'frill', 'frills', 'pleat', 'pleats']);
 }
 
 function isTargetableRole(role) {
@@ -650,6 +727,10 @@ function pepeHeadAnchor() {
   return 'pepe_(arknights), 1.5:: cat_ears ::, -3:: hood ::, -3:: wearing hood ::, -3:: animal hood ::, 2:: lotus_flower_headdress ::';
 }
 
+function rossiHeadAnchor() {
+  return 'rossi_(arknights), wolf_girl, wolf_ears, animal_ears, animal_ear_fluff, hood, hood_up, ears_through_hood';
+}
+
 function uniqueTags(values) {
   const result = [];
   const seen = new Set();
@@ -678,7 +759,14 @@ function splitPromptTags(value) {
 }
 
 function normalizeProfileTerm(value) {
-  return stringValue(value).trim().toLowerCase().replace(/[\s_]+/g, '_');
+  return stringValue(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '_')
+    .replace(/_+\(/g, '(')
+    .replace(/\(_+/g, '(')
+    .replace(/_+\)/g, ')')
+    .replace(/[.,!?]+$/g, '');
 }
 
 function spacedText(value) {
@@ -704,6 +792,48 @@ function normalizePath(value) {
 
 function stableId(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 180) || 'profile-entry';
+}
+
+function makeUniqueEntryIds(blocks) {
+  const blockIds = new Set();
+  const termIds = new Set();
+  return blocks.map((block) => {
+    const blockSignature = block.terms.map((term) => `${term.text}\u001f${term.normalizedKey}`).join('\u001e');
+    const blockId = makeUniqueId(block.id, blockSignature, blockIds);
+    const terms = block.terms.map((term) => ({
+      ...term,
+      id: makeUniqueId(
+        term.id,
+        `${term.text}\u001f${term.normalizedKey}`,
+        termIds,
+      ),
+    }));
+    return { ...block, id: blockId, terms };
+  });
+}
+
+function makeUniqueId(base, signature, used) {
+  let candidate = base;
+  if (used.has(candidate)) {
+    const suffix = shortHash(signature);
+    candidate = `${base}-${suffix}`;
+    let counter = 2;
+    while (used.has(candidate)) {
+      candidate = `${base}-${suffix}-${counter}`;
+      counter += 1;
+    }
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function shortHash(value) {
+  let hash = 2166136261;
+  for (const character of String(value)) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function validTimestamp(value) {

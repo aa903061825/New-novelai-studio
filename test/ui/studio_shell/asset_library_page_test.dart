@@ -962,6 +962,10 @@ void main() {
 
     expect(previewService.characterIds, ['char-1']);
     expect(previewService.artistChainIds, ['artist-1']);
+    expect(
+      previewService.artistChainOptions.single.model,
+      'nai-diffusion-5-full',
+    );
     expect(find.text('新增预览'), findsWidgets);
     expect(find.byTooltip('Generate preview'), findsNothing);
   });
@@ -1069,6 +1073,16 @@ void main() {
       find.byKey(const ValueKey('asset-preview-options-dialog')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('asset-preview-options-model')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('asset-preview-options-model')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('NAI V4.5 Full').last);
+    await tester.pumpAndSettle();
     final customPromptEditor =
         find.byKey(const ValueKey('asset-preview-options-custom-prompt-tags'));
     expect(
@@ -1090,6 +1104,10 @@ void main() {
     await _finishPreviewGenerationDialog(tester, keep: true);
 
     expect(previewService.artistChainIds, ['artist-1']);
+    expect(
+      previewService.artistChainOptions.single.model,
+      'nai-diffusion-4-5-full',
+    );
     expect(previewService.artistChainOptions.single.customPrompt, 'misty park');
     expect(
       previewService.artistChainOptions.single.customPromptMode,

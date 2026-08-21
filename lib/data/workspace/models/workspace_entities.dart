@@ -36,6 +36,25 @@ Map<String, String> _stringMap(dynamic value, String fieldName) {
   );
 }
 
+Map<String, List<String>> _stringListMap(dynamic value, String fieldName) {
+  return _asMap(value, fieldName).map(
+    (key, value) => MapEntry(
+      key,
+      _stringList(value, '$fieldName.$key'),
+    ),
+  );
+}
+
+Map<String, List<String>> _sanitizeWorkspaceStringListMap(
+  Map<String, List<String>> value,
+) {
+  return {
+    for (final entry in value.entries)
+      if (_sanitizeWorkspaceStringList(entry.value).isNotEmpty)
+        entry.key: _sanitizeWorkspaceStringList(entry.value),
+  };
+}
+
 String _stringValue(
   dynamic value,
   String fieldName, {
@@ -801,6 +820,7 @@ class ArtistChain {
   final String prompt;
   final List<String> styleTags;
   final List<String> imageRefs;
+  final Map<String, List<String>> modelPreviewRefs;
   final Map<String, String> sections;
   final Map<String, String> translations;
   final SourceRef source;
@@ -817,6 +837,7 @@ class ArtistChain {
     this.prompt = '',
     this.styleTags = const [],
     this.imageRefs = const [],
+    this.modelPreviewRefs = const {},
     this.sections = const {},
     this.translations = const {},
     this.source = const SourceRef(type: 'manual'),
@@ -836,6 +857,10 @@ class ArtistChain {
       prompt: _stringValue(map['prompt'], 'artistChain.prompt'),
       styleTags: _stringList(map['styleTags'], 'artistChain.styleTags'),
       imageRefs: _stringList(map['imageRefs'], 'artistChain.imageRefs'),
+      modelPreviewRefs: _stringListMap(
+        map['modelPreviewRefs'],
+        'artistChain.modelPreviewRefs',
+      ),
       sections: _stringMap(map['sections'], 'artistChain.sections'),
       translations: _stringMap(map['translations'], 'artistChain.translations'),
       source: map['source'] == null
@@ -866,6 +891,7 @@ class ArtistChain {
     String? prompt,
     List<String>? styleTags,
     List<String>? imageRefs,
+    Map<String, List<String>>? modelPreviewRefs,
     Map<String, String>? sections,
     Map<String, String>? translations,
     SourceRef? source,
@@ -882,6 +908,7 @@ class ArtistChain {
       prompt: prompt ?? this.prompt,
       styleTags: styleTags ?? this.styleTags,
       imageRefs: imageRefs ?? this.imageRefs,
+      modelPreviewRefs: modelPreviewRefs ?? this.modelPreviewRefs,
       sections: sections ?? this.sections,
       translations: translations ?? this.translations,
       source: source ?? this.source,
@@ -904,6 +931,8 @@ class ArtistChain {
           'styleTags': _sanitizeWorkspaceStringList(styleTags),
         if (_sanitizeWorkspaceStringList(imageRefs).isNotEmpty)
           'imageRefs': _sanitizeWorkspaceStringList(imageRefs),
+        if (_sanitizeWorkspaceStringListMap(modelPreviewRefs).isNotEmpty)
+          'modelPreviewRefs': _sanitizeWorkspaceStringListMap(modelPreviewRefs),
         if (_sanitizeWorkspaceStringMap(sections).isNotEmpty)
           'sections': _sanitizeWorkspaceStringMap(sections),
         if (_sanitizeWorkspaceStringMap(translations).isNotEmpty)
@@ -922,6 +951,23 @@ class ArtistChain {
         if (vibeRefs.isNotEmpty)
           'vibeRefs': vibeRefs.map((vibe) => vibe.toJson()).toList(),
       };
+
+  List<String> previewRefsForFamily(String family) =>
+      List.unmodifiable(modelPreviewRefs[family] ?? const []);
+
+  List<String> get allPreviewRefs {
+    final result = <String>[];
+    for (final ref in [
+      ...modelPreviewRefs.values.expand((refs) => refs),
+      ...imageRefs,
+    ]) {
+      final trimmed = ref.trim();
+      if (trimmed.isNotEmpty && !result.contains(trimmed)) {
+        result.add(trimmed);
+      }
+    }
+    return List.unmodifiable(result);
+  }
 }
 
 class InspirationEntry {

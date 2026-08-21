@@ -1881,6 +1881,49 @@ void main() {
     );
   });
 
+  testWidgets('display toolbar translates all tags and each tag can opt out',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair',
+          showLayoutControls: true,
+          translationCache: cache(),
+        ),
+      ),
+    );
+
+    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('长发'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-translation-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('蓝眼睛'), findsOneWidget);
+    expect(find.text('长发'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('prompt-tag-translation-toggle-blue eyes-0'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('长发'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('prompt-tag-translation-toggle-blue eyes-0'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('蓝眼睛'), findsOneWidget);
+  });
+
   test('v4 prompt groups keep role captions before base prompt', () {
     final groups = promptTagGroupsFromV4Prompt({
       'caption': {

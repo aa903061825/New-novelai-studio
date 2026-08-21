@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/studio/services/studio_cache_import_service.dart';
 import 'package:novel_studio/data/studio/studio_codex_source.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
@@ -69,12 +70,18 @@ class StudioDataService {
       await workspaceService.openWorkspace(root.path);
       await _seedLegacyArtistDataIfEmpty();
       await _backfillLegacyArtistImages();
+      if (await _backfillLegacyArtistPreviewFamilies()) {
+        await _deleteAssetCatalogCache(root);
+      }
       await _migrateCodexOutOfWorkspaceInspirations();
       return;
     }
     await workspaceService.createWorkspace(root.path);
     await _seedLegacyArtistDataIfEmpty();
     await _backfillLegacyArtistImages();
+    if (await _backfillLegacyArtistPreviewFamilies()) {
+      await _deleteAssetCatalogCache(root);
+    }
   }
 
   Future<bool> _hasWorkspaceData(Directory root) async {
@@ -332,7 +339,7 @@ class StudioDataService {
     var changed = false;
     final updated = [
       for (final artistChain in artistChains)
-        if (artistChain.imageRefs.isNotEmpty)
+        if (artistChain.allPreviewRefs.isNotEmpty)
           artistChain
         else
           _withSeedImages(
@@ -347,6 +354,49 @@ class StudioDataService {
     }
   }
 
+  Future<bool> _backfillLegacyArtistPreviewFamilies() async {
+    final artistChains = await workspaceService.loadArtistChains();
+    var changed = false;
+    final updated = [
+      for (final artistChain in artistChains)
+        _classifyLegacyArtistPreviewRefs(
+          artistChain,
+          onChanged: () => changed = true,
+        ),
+    ];
+    if (changed) {
+      await workspaceService.saveArtistChains(updated);
+    }
+    return changed;
+  }
+
+  ArtistChain _classifyLegacyArtistPreviewRefs(
+    ArtistChain artistChain, {
+    required void Function() onChanged,
+  }) {
+    if (artistChain.imageRefs.isEmpty) return artistChain;
+    final modelPreviewRefs = <String, List<String>>{
+      for (final entry in artistChain.modelPreviewRefs.entries)
+        entry.key: [...entry.value],
+    };
+    final v45Refs = modelPreviewRefs.putIfAbsent(
+      generationPreviewFamilyV45,
+      () => <String>[],
+    );
+    var chainChanged = false;
+    final classified = modelPreviewRefs.values.expand((refs) => refs).toSet();
+    for (final ref in artistChain.imageRefs) {
+      final trimmed = ref.trim();
+      if (trimmed.isEmpty || classified.contains(trimmed)) continue;
+      v45Refs.add(trimmed);
+      classified.add(trimmed);
+      chainChanged = true;
+    }
+    if (!chainChanged) return artistChain;
+    onChanged();
+    return artistChain.copyWith(modelPreviewRefs: modelPreviewRefs);
+  }
+
   ArtistChain _withSeedImages(
     ArtistChain artistChain,
     ArtistChain? seed, {
@@ -354,17 +404,7 @@ class StudioDataService {
   }) {
     if (seed == null || seed.imageRefs.isEmpty) return artistChain;
     onChanged();
-    return ArtistChain(
-      id: artistChain.id,
-      name: artistChain.name,
-      tags: artistChain.tags,
-      prompt: artistChain.prompt,
-      styleTags: artistChain.styleTags,
-      imageRefs: seed.imageRefs,
-      translations: artistChain.translations,
-      source: artistChain.source,
-      note: artistChain.note,
-    );
+    return artistChain.copyWith(imageRefs: seed.imageRefs);
   }
 
   Future<void> _migrateCodexOutOfWorkspaceInspirations() async {

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>提示词标签 · 中文原生模式原型</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
+
+    <main class="prototype-shell" id="mainContent">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 6.5h16M4 12h10M4 17.5h16" stroke-linecap="round" />
+              <path d="m17 10 3 3-3 3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <div>
+            <p class="eyebrow">Novel Studio / Prompt System</p>
+            <h1>标签工作台</h1>
+            <p class="topbar-subtitle">中文原生模式 · 原文直通，翻译按需开启</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="status-pill status-native">
+            <span class="status-dot" aria-hidden="true"></span>
+            NovelAI 5.0 · 中文可用
+          </span>
+          <button class="button button-ghost" id="resetButton" type="button">重置样本</button>
+        </div>
+      </header>
+
+      <section class="native-banner" aria-label="中文原生模式说明">
+        <div class="banner-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 3v18M3 12h18" stroke-linecap="round" />
+            <path d="M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8" stroke-linecap="round" opacity=".5" />
+          </svg>
+        </div>
+        <div class="banner-copy">
+          <strong>现在默认保留原始标签</strong>
+          <p>中文标签可直接发送给 NovelAI 5.0。译文只作为理解辅助，不会写回 Prompt，也不会改变实际生成内容。</p>
+        </div>
+        <span class="banner-note">新行为预览</span>
+      </section>
+
+      <section class="workspace-grid" aria-label="标签编辑区">
+        <section class="panel editor-panel" aria-labelledby="editorTitle">
+          <div class="panel-heading">
+            <div>
+              <div class="heading-line">
+                <h2 id="editorTitle">角色提示词</h2>
+                <span class="count-badge" id="tagCount">12 个标签</span>
+              </div>
+              <p class="panel-description">点击标签可加入批量操作；原始标签始终是主要内容。</p>
+            </div>
+            <div class="panel-heading-actions">
+              <button class="icon-button" id="helpButton" type="button" aria-label="查看标签行为说明" title="查看标签行为说明">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M9.8 9.1a2.4 2.4 0 1 1 4.1 1.7c-.9.9-1.9 1.3-1.9 2.6" stroke-linecap="round" />
+                  <path d="M12 16.8h.01" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button class="icon-button" id="moreButton" type="button" aria-label="更多标签操作" title="更多标签操作">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <circle cx="5" cy="12" r="1" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1" fill="currentColor" />
+                  <circle cx="19" cy="12" r="1" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="editor-controls">
+            <label class="search-field">
+              <span class="visually-hidden">搜索标签</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="10.8" cy="10.8" r="6.5" />
+                <path d="m16 16 4.3 4.3" stroke-linecap="round" />
+              </svg>
+              <input id="searchInput" type="search" autocomplete="off" placeholder="搜索原文、译文或分类" />
+              <kbd>/</kbd>
+            </label>
+            <div class="segmented-control" role="group" aria-label="标签布局">
+              <button class="segment-button is-active" data-layout="grouped" type="button">分组</button>
+              <button class="segment-button" data-layout="source" type="button">原顺序</button>
+            </div>
+          </div>
+
+          <div class="translation-toolbar" aria-live="polite">
+            <div class="translation-state">
+              <span class="state-icon state-icon-native" id="translationStateIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M5 12.5 9.2 17 19 7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <div>
+                <strong id="translationStateTitle">原文优先</strong>
+                <span id="translationStateText">译文未加载 · 不影响发送</span>
+              </div>
+            </div>
+            <div class="translation-actions">
+              <span class="helper-label">仅辅助显示</span>
+              <button class="button button-primary" id="translateAllButton" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M5 7h8M9 4v3M7 20l4.7-10 4.7 10M8.2 17h7" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M15.5 6.5h3.2M17.1 5v1.5c0 3.4-1.3 5.8-3.6 7.4M17.1 10.5c.7 1.1 1.6 2 2.9 2.7" stroke-linecap="round" />
+                </svg>
+                <span id="translateAllLabel">一键翻译</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="progress-track" id="translationProgress" hidden>
+            <span id="translationProgressBar"></span>
+          </div>
+
+          <div class="selection-toolbar" id="selectionToolbar" aria-live="polite" hidden>
+            <div class="selection-summary">
+              <span class="selection-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="m5 12.5 4.2 4.2L19 7" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <strong id="selectionSummary">已选 0 项</strong>
+              <button class="text-button" id="selectVisibleButton" type="button">全选当前结果</button>
+            </div>
+            <div class="selection-actions">
+              <button class="button button-soft" id="translateSelectedButton" type="button">翻译选中</button>
+              <button class="button button-quiet" id="clearSelectionButton" type="button">取消选择</button>
+            </div>
+          </div>
+
+          <div class="filter-row" role="group" aria-label="标签分类筛选">
+            <button class="filter-button is-active" data-filter="all" type="button">全部 <span>12</span></button>
+            <button class="filter-button" data-filter="character" type="button">角色 <span>4</span></button>
+            <button class="filter-button" data-filter="clothing" type="button">服装/身体 <span>3</span></button>
+            <button class="filter-button" data-filter="scene" type="button">画面 <span>3</span></button>
+            <button class="filter-button" data-filter="style" type="button">风格 <span>2</span></button>
+          </div>
+
+          <div class="tag-board" id="tagBoard" aria-live="polite"></div>
+
+          <form class="add-tag-row" id="addTagForm">
+            <div class="add-tag-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 5v14M5 12h14" stroke-linecap="round" />
+              </svg>
+            </div>
+            <div class="add-tag-input-wrap">
+              <label for="addTagInput">添加标签</label>
+              <input id="addTagInput" type="text" placeholder="例如：blue eyes，逗号可批量添加" autocomplete="off" />
+              <span>添加后仍保持原文；需要时再翻译</span>
+            </div>
+            <button class="button button-ghost" type="submit">添加</button>
+          </form>
+
+          <div class="editor-footnote">
+            <span class="footnote-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 10.5v5" stroke-linecap="round" />
+                <path d="M12 7.4h.01" stroke-linecap="round" />
+              </svg>
+            </span>
+            译文来自缓存或翻译服务，只改变界面辅助信息，不会覆盖标签原文。
+          </div>
+        </section>
+
+        <aside class="side-stack" aria-label="标签状态与 Prompt 预览">
+          <section class="panel prompt-panel" aria-labelledby="promptTitle">
+            <div class="side-heading">
+              <div>
+                <p class="eyebrow eyebrow-muted">Output Preview</p>
+                <h2 id="promptTitle">发送给 NovelAI 的 Prompt</h2>
+              </div>
+              <span class="status-pill status-ready"><span class="status-dot"></span>原文直通</span>
+            </div>
+            <div class="prompt-code" id="promptPreview" aria-label="Prompt 预览"></div>
+            <div class="prompt-footer">
+              <span><span id="promptTokenCount">0</span> 个标签</span>
+              <button class="text-button" id="copyPromptButton" type="button">复制 Prompt</button>
+            </div>
+          </section>
+
+          <section class="panel translation-panel" aria-labelledby="translationTitle">
+            <div class="side-heading">
+              <div>
+                <p class="eyebrow eyebrow-muted">Optional Layer</p>
+                <h2 id="translationTitle">翻译辅助层</h2>
+              </div>
+              <span class="progress-label" id="translationCount">0 / 12</span>
+            </div>
+            <div class="translation-meter" aria-hidden="true"><span id="translationMeterFill"></span></div>
+            <p class="side-copy" id="translationSummary">还没有请求翻译。需要查看中文含义时，再点击上方“一键翻译”。</p>
+            <div class="translation-rule-list">
+              <div class="rule-row">
+                <span class="rule-mark rule-mark-green" aria-hidden="true">✓</span>
+                <span>默认只显示原始标签</span>
+              </div>
+              <div class="rule-row">
+                <span class="rule-mark rule-mark-yellow" aria-hidden="true">→</span>
+                <span>翻译只作为第二行辅助</span>
+              </div>
+              <div class="rule-row">
+                <span class="rule-mark rule-mark-blue" aria-hidden="true">↺</span>
+                <span>失败可单项重试，不阻塞编辑</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel inspector-panel" aria-labelledby="inspectorTitle">
+            <div class="side-heading">
+              <div>
+                <p class="eyebrow eyebrow-muted">Selection</p>
+                <h2 id="inspectorTitle">标签详情</h2>
+              </div>
+              <span class="count-badge" id="inspectorSelectionCount">未选择</span>
+            </div>
+            <div id="inspectorContent" class="inspector-empty">
+              <div class="empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M6 5h12v14H6z" />
+                  <path d="M9 9h6M9 13h4" stroke-linecap="round" />
+                </svg>
+              </div>
+              <strong>选择一个标签查看详情</strong>
+              <span>也可以多选后批量翻译。</span>
+            </div>
+          </section>
+
+          <section class="panel legend-panel" aria-labelledby="legendTitle">
+            <div class="side-heading">
+              <div>
+                <p class="eyebrow eyebrow-muted">Legend</p>
+                <h2 id="legendTitle">分类颜色</h2>
+              </div>
+            </div>
+            <div class="legend-grid">
+              <span><i class="legend-dot dot-character"></i>角色</span>
+              <span><i class="legend-dot dot-clothing"></i>服装/身体</span>
+              <span><i class="legend-dot dot-scene"></i>画面</span>
+              <span><i class="legend-dot dot-style"></i>风格</span>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <footer class="prototype-footer">
+        <span>交互原型 · 翻译请求为本地模拟，不会调用项目 API</span>
+        <span>建议接入：<code>PromptTagEditor</code> 的显式翻译队列</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

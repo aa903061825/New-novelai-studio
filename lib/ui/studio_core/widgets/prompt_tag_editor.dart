@@ -9,6 +9,7 @@ import 'package:novel_studio/data/studio/services/prompt_translation_service.dar
 import 'package:novel_studio/data/studio/services/prompt_workshop_bridge.dart';
 import 'package:novel_studio/data/studio/tools/online_ai_tools.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 import 'package:novel_studio/data/studio/tools/translation_cache.dart';
 import 'package:novel_studio/ui/studio_core/services/prompt_tag_auto_translation_queue.dart';
 import 'package:novel_studio/ui/studio_core/services/prompt_tag_filter_rules.dart';
@@ -63,6 +64,7 @@ class PromptTagEditor extends StatefulWidget {
   final int? autoTranslateTagLimit;
   final bool initialGroupedLayout;
   final PromptTagLayoutMode? initialLayoutMode;
+  final bool initialShowTranslations;
   final bool preferTranslatedLabels;
   final bool copyDraggedTagsWithAlt;
   final bool enableKeyboardPaste;
@@ -96,6 +98,7 @@ class PromptTagEditor extends StatefulWidget {
     this.autoTranslateTagLimit,
     this.initialGroupedLayout = false,
     this.initialLayoutMode,
+    this.initialShowTranslations = false,
     this.preferTranslatedLabels = false,
     this.copyDraggedTagsWithAlt = false,
     this.enableKeyboardPaste = false,
@@ -120,6 +123,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   late String _value = widget.value;
   final Set<String> _autoTranslationPending = <String>{};
   final Set<String> _autoTranslationMisses = <String>{};
+  final Set<String> _translationSuppressedKeys = <String>{};
   final Map<String, String> _translationOverrides = <String, String>{};
   final Set<int> _selectedIndexes = <int>{};
   final Set<int> _selectionPreviewIndexes = <int>{};
@@ -135,7 +139,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
   bool _selectionAdditive = false;
   bool _selectionStartedOnDraggableTag = false;
   bool _tagDragInProgress = false;
-  bool _showTranslations = true;
+  late bool _showTranslations = widget.initialShowTranslations;
   late PromptTagLayoutMode _layoutMode = _initialLayoutMode();
   bool _submittingInput = false;
   PromptTagSelectionController? _registeredSelectionController;
@@ -164,7 +168,9 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     if (oldWidget.value != widget.value && widget.value != _value) {
       _replaceLocalValue(widget.value);
+      _showTranslations = widget.initialShowTranslations;
       _translationOverrides.clear();
+      _translationSuppressedKeys.clear();
       _autoTranslationPending.clear();
       _autoTranslationMisses.clear();
       _clearSelection();
@@ -172,6 +178,10 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     if (oldWidget.initialLayoutMode != widget.initialLayoutMode ||
         oldWidget.initialGroupedLayout != widget.initialGroupedLayout) {
       _layoutMode = _initialLayoutMode();
+    }
+    if (oldWidget.initialShowTranslations != widget.initialShowTranslations &&
+        oldWidget.value == widget.value) {
+      _showTranslations = widget.initialShowTranslations;
     }
   }
 
@@ -652,11 +662,21 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     required TranslationCache? translationCache,
   }) {
     final index = item.index;
-    final translation = _translationFor(item.displayLabel, translationCache);
+    final rawTranslation =
+        _translationValueFor(item.displayLabel, translationCache);
+    final translationSuppressed = _isTranslationSuppressed(item.displayLabel);
+    final translation =
+        _showTranslations && !translationSuppressed ? rawTranslation : '';
     final trimmedTranslation = translation.trim();
     final showTranslatedAsPrimary = widget.preferTranslatedLabels &&
+        _showTranslations &&
+        !translationSuppressed &&
         trimmedTranslation.isNotEmpty &&
         trimmedTranslation != item.displayLabel.trim();
+    final showTranslationToggle = _showTranslations &&
+        (rawTranslation.trim().isNotEmpty ||
+            _autoTranslationPending.contains(item.displayLabel) ||
+            translationSuppressed);
     return DragTarget<PromptTagDragData>(
       key: _chipKeyFor(index),
       hitTestBehavior: HitTestBehavior.translucent,
@@ -679,6 +699,8 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           weight: item.weight,
           translation: translation,
           translationFirst: showTranslatedAsPrimary,
+          translationVisible: !translationSuppressed,
+          showTranslationToggle: showTranslationToggle,
           category: category,
           dense: widget.dense,
           enabled: widget.enabled,
@@ -693,11 +715,16 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
           markerKey: ValueKey('prompt-tag-editor-chip-marker-$index'),
           weightKey: ValueKey('prompt-tag-editor-chip-weight-$index'),
           deleteKey: ValueKey('prompt-tag-editor-delete-$index'),
+          translationToggleKey: ValueKey(
+            'prompt-tag-editor-translation-toggle-$index',
+          ),
           checkKey: ValueKey('prompt-tag-editor-chip-check-$index'),
           highlightKey: ValueKey(
             'prompt-tag-editor-cache-hit-${item.displayLabel}',
           ),
           onDeleted: widget.enabled ? () => _deleteTag(index) : null,
+          onTranslationToggle: () =>
+              _toggleTranslationForTag(item.displayLabel),
           onDoubleTap:
               widget.enabled ? () => unawaited(_editTag(context, index)) : null,
           onSecondaryTapDown: widget.enabled && widget.enableTagActions
@@ -904,13 +931,30 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     return null;
   }
 
-  String _translationFor(String tag, TranslationCache? cache) {
+  String _translationValueFor(String tag, TranslationCache? cache) {
     return promptTagPresentationTranslation(
       tag,
       cache: cache,
       overrides: _translationOverrides,
-      enabled: _showTranslations,
+      enabled: true,
     );
+  }
+
+  bool _isTranslationSuppressed(String tag) {
+    final key = PromptTagProcessor.normalizeMatchKey(tag);
+    return key.isNotEmpty && _translationSuppressedKeys.contains(key);
+  }
+
+  void _toggleTranslationForTag(String tag) {
+    final key = PromptTagProcessor.normalizeMatchKey(tag);
+    if (key.isEmpty) {
+      return;
+    }
+    setState(() {
+      if (!_translationSuppressedKeys.add(key)) {
+        _translationSuppressedKeys.remove(key);
+      }
+    });
   }
 
   PromptTranslationService? _translationServiceOrNull() {
@@ -939,12 +983,18 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     TranslationCache cache,
     PromptTranslationService service,
   ) {
+    if (!_showTranslations) {
+      return;
+    }
     var added = false;
     for (final tag in tags) {
       if (tag.trim().isEmpty) {
         continue;
       }
-      if (_translationFor(tag, cache).trim().isNotEmpty) {
+      if (_isTranslationSuppressed(tag)) {
+        continue;
+      }
+      if (_translationValueFor(tag, cache).trim().isNotEmpty) {
         continue;
       }
       if (_autoTranslationPending.contains(tag)) {
@@ -1900,6 +1950,7 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
     }
     setState(() {
       _translationOverrides[tag] = translated;
+      _showTranslations = true;
     });
     _showSnack(
       context,
@@ -2350,8 +2401,8 @@ class _PromptTagEditorControls extends StatelessWidget {
           key: const ValueKey('prompt-tag-editor-translation-toggle'),
           icon:
               showTranslations ? Icons.translate_outlined : Icons.code_outlined,
-          label: showTranslations ? '译文' : '原文',
-          tooltip: showTranslations ? '显示原文标签' : '显示翻译标签',
+          label: showTranslations ? '译文' : '翻译',
+          tooltip: showTranslations ? '隐藏全部标签翻译' : '一键翻译全部标签',
           dense: dense,
           selected: showTranslations,
           onPressed: onToggleTranslations,

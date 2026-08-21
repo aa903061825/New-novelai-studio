@@ -5124,7 +5124,7 @@ class _PreviewPromptPanel extends StatelessWidget {
             groupKeyPrefix: 'script-exhibition-preview-prompt-group-${item.id}',
             tagKeyPrefix:
                 'script-exhibition-preview-prompt-group-tags-${item.id}',
-            defaultTranslated: true,
+            defaultTranslated: false,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,
@@ -5143,7 +5143,7 @@ class _PreviewPromptPanel extends StatelessWidget {
           PromptTagDisplay(
             key: ValueKey('script-exhibition-preview-prompt-tags-${item.id}'),
             text: prompt,
-            defaultTranslated: true,
+            defaultTranslated: false,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,

@@ -987,7 +987,7 @@ void main() {
     await startFuture;
   });
 
-  testWidgets('queue tab delete confirms and removes only that plan',
+  testWidgets('queue tab delete hides a script plan but keeps its record',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
     tester.view.devicePixelRatio = 1;
@@ -1061,7 +1061,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(viewModel.plans.map((plan) => plan.id), [secondPlan.id]);
+    expect(viewModel.plans.map((plan) => plan.id), [
+      _fakePlan().id,
+      secondPlan.id,
+    ]);
+    expect(viewModel.visiblePlans.map((plan) => plan.id), [secondPlan.id]);
     expect(
       find.byKey(const ValueKey('studio-production-plan-tab-plan-1')),
       findsNothing,

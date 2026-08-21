@@ -9,6 +9,7 @@ void main() {
       final mapping = RecastMapping(
         id: 'mapping-1',
         scriptId: 'script-1',
+        targetGenerationModel: 'nai-diffusion-4-5-full',
         roleSwaps: const [
           RoleSwap(sourceRoleId: 'slot-0', targetCharacterId: 'char-x'),
         ],
@@ -29,6 +30,7 @@ void main() {
       expect(restored.roleSwaps.single.targetCharacterId, 'char-x');
       expect(restored.artistSwap!.targetArtistChainId, 'artist-chain-x');
       expect(restored.manualVibeRefs.single.vibeB64, 'encoded-manual-vibe');
+      expect(restored.targetGenerationModel, 'nai-diffusion-4-5-full');
       expect(restored.toJson().keys, isNot(contains('segmentPolicies')));
       expect(restored.toJson().keys, isNot(contains('paramPolicies')));
       expect(restored.toJson().keys, isNot(contains('frameOverrides')));
@@ -78,11 +80,33 @@ void main() {
       final defaults = RecastMapping.defaults('script-1');
 
       expect(defaults.scriptId, 'script-1');
+      expect(defaults.targetGenerationModel, 'nai-diffusion-5-full');
+      expect(
+        defaults.toJson()['targetGenerationModel'],
+        'nai-diffusion-5-full',
+      );
       expect(defaults.toJson(),
           RecastMapping.fromJson(defaults.toJson()).toJson());
       expect(defaults.toJson().keys, containsAll(['id', 'scriptId']));
       expect(defaults.toJson().keys, isNot(contains('segmentPolicies')));
       expect(defaults.toJson().keys, isNot(contains('paramPolicies')));
+    });
+
+    test('normalizes legacy curated target models to the full preview pair',
+        () {
+      final v5 = RecastMapping.fromJson({
+        'id': 'mapping-v5',
+        'scriptId': 'script-1',
+        'targetGenerationModel': 'nai-diffusion-5-curated',
+      });
+      final v45 = RecastMapping.fromJson({
+        'id': 'mapping-v45',
+        'scriptId': 'script-1',
+        'targetGenerationModel': 'nai-diffusion-4-5-curated',
+      });
+
+      expect(v5.targetGenerationModel, 'nai-diffusion-5-full');
+      expect(v45.targetGenerationModel, 'nai-diffusion-4-5-full');
     });
 
     test('round trips suppressed prompt tag warning keys', () {

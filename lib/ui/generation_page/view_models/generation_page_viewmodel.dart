@@ -102,10 +102,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
   }
 
   Future<void> refreshNaiAccountUsage() async {
-    if (!GenerationModelCapabilities.fromModel(payloadConfig.paramConfig.model)
-        .isV5) {
-      return;
-    }
     await naiAccountUsageService?.refresh(
       generationEndpoint: payloadConfig.settings.imageGenerationEndpoint,
       proxy: payloadConfig.settings.proxy,

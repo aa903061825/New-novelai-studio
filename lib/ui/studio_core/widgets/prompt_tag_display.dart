@@ -689,9 +689,10 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
 
   late final String _hoverId = 'prompt-tag-display-${_nextHoverId++}';
   late final String _dragOriginId = 'prompt-tag-display-${_nextDragOrigin++}';
-  bool _shortcutTranslated = false;
+  late bool _showTranslations = widget.defaultTranslated;
   int? _hoveredIndex;
   final Set<String> _autoTranslationPending = <String>{};
+  final Set<String> _translationSuppressedKeys = <String>{};
   final Set<int> _selectedIndexes = <int>{};
   final Set<int> _selectionPreviewIndexes = <int>{};
   final Map<String, String> _translationOverrides = <String, String>{};
@@ -739,11 +740,16 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     if (oldWidget.initialLayoutMode != widget.initialLayoutMode) {
       _layoutMode = _normalizedLayoutMode(widget.initialLayoutMode);
     }
+    if (oldWidget.defaultTranslated != widget.defaultTranslated &&
+        oldWidget.text == widget.text) {
+      _showTranslations = widget.defaultTranslated;
+    }
     if (oldWidget.text != widget.text) {
       _clearParsedTagCache();
       _chipKeys.clear();
-      _shortcutTranslated = false;
+      _showTranslations = widget.defaultTranslated;
       _autoTranslationPending.clear();
+      _translationSuppressedKeys.clear();
       _hoveredIndex = null;
       _selectedIndexes.clear();
       _selectionPreviewIndexes.clear();
@@ -844,7 +850,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
   }
 
   Widget _buildTags(BuildContext context, String text) {
-    final translate = widget.defaultTranslated || _shortcutTranslated;
+    final translate = _showTranslations;
     final analyses = _analysesFor(text);
     final shown = widget.maxTags == null
         ? analyses
@@ -890,6 +896,12 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
           _PromptTagDisplayLayoutControls(
             dense: widget.dense,
             layoutMode: _effectiveLayoutMode,
+            showTranslations: _showTranslations,
+            onToggleTranslations: () {
+              setState(() {
+                _showTranslations = !_showTranslations;
+              });
+            },
             onChanged: (mode) {
               setState(() {
                 _layoutMode = _normalizedLayoutMode(mode);
@@ -1855,10 +1867,15 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
             final diffBadgeLabel = widget.diffBadgeLabelForTag?.call(item.text);
             final tagMaxWidth =
                 compactSourceOrder ? _sourceOrderTagMaxWidth(item.index) : null;
-            final translation = translate
-                ? _translationFor(cache, item.text)
-                : _translationOverrides[item.text] ?? '';
+            final rawTranslation = _translationFor(cache, item.text);
+            final translationSuppressed = _isTranslationSuppressed(item.text);
+            final translation =
+                translate && !translationSuppressed ? rawTranslation : '';
             final loading = _autoTranslationPending.contains(item.text);
+            final showTranslationToggle = translate &&
+                (rawTranslation.trim().isNotEmpty ||
+                    loading ||
+                    translationSuppressed);
             final category = item.classification.category;
             final chip = PromptTagChip(
               label: item.text,
@@ -1866,6 +1883,8 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               weight: item.weight,
               maxWidth: tagMaxWidth,
               translation: translation,
+              translationVisible: !translationSuppressed,
+              showTranslationToggle: showTranslationToggle,
               loading: loading,
               warning: item.warning,
               diffState: diffState,
@@ -1889,6 +1908,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               deleteKey: ValueKey(
                 'prompt-tag-chip-delete-${item.text}-${item.index}',
               ),
+              translationToggleKey: ValueKey(
+                'prompt-tag-translation-toggle-${item.text}-${item.index}',
+              ),
               checkKey: ValueKey(
                 'prompt-tag-chip-check-${item.text}-${item.index}',
               ),
@@ -1903,6 +1925,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
               onDeleted: widget.onChanged == null
                   ? null
                   : () => _removeIndexes({item.index}),
+              onTranslationToggle: () => _toggleTranslationForTag(item.text),
               onHoverChanged: canOpenTagMenu
                   ? (hovered) {
                       if (_hoveredIndex == item.index && !hovered) {
@@ -2081,8 +2104,11 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
         !AppDisplaySettings.isHoveredPromptTarget(_hoverId)) {
       return;
     }
+    if (_showTranslations) {
+      return;
+    }
     setState(() {
-      _shortcutTranslated = true;
+      _showTranslations = true;
     });
   }
 
@@ -2094,7 +2120,27 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     );
   }
 
+  bool _isTranslationSuppressed(String tag) {
+    final key = PromptTagProcessor.normalizeMatchKey(tag);
+    return key.isNotEmpty && _translationSuppressedKeys.contains(key);
+  }
+
+  void _toggleTranslationForTag(String tag) {
+    final key = PromptTagProcessor.normalizeMatchKey(tag);
+    if (key.isEmpty) {
+      return;
+    }
+    setState(() {
+      if (!_translationSuppressedKeys.add(key)) {
+        _translationSuppressedKeys.remove(key);
+      }
+    });
+  }
+
   void _enqueueAutoTranslations(Iterable<String> tags) {
+    if (!_showTranslations) {
+      return;
+    }
     final service = _promptTranslationService();
     if (service == null) {
       return;
@@ -2103,6 +2149,9 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     var added = false;
     for (final tag in tags) {
       if (tag.trim().isEmpty) {
+        continue;
+      }
+      if (_isTranslationSuppressed(tag)) {
         continue;
       }
       if (_translationFor(cache, tag).trim().isNotEmpty) {
@@ -2579,7 +2628,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     setState(() {
       _translationOverrides[tag] = translated;
-      _shortcutTranslated = true;
+      _showTranslations = true;
     });
     _showSnack(
       context,
@@ -2659,7 +2708,7 @@ class _PromptTagDisplayState extends State<PromptTagDisplay> {
     }
     setState(() {
       _translationOverrides[tag] = trimmed;
-      _shortcutTranslated = true;
+      _showTranslations = true;
     });
     _showSnack(context, '已保存翻译');
   }
@@ -2997,11 +3046,15 @@ class _PromptTagItem {
 class _PromptTagDisplayLayoutControls extends StatelessWidget {
   final bool dense;
   final PromptTagLayoutMode layoutMode;
+  final bool showTranslations;
+  final VoidCallback onToggleTranslations;
   final ValueChanged<PromptTagLayoutMode> onChanged;
 
   const _PromptTagDisplayLayoutControls({
     required this.dense,
     required this.layoutMode,
+    required this.showTranslations,
+    required this.onToggleTranslations,
     required this.onChanged,
   });
 
@@ -3011,6 +3064,16 @@ class _PromptTagDisplayLayoutControls extends StatelessWidget {
       spacing: 6,
       runSpacing: 6,
       children: [
+        _PromptTagDisplayControlButton(
+          key: const ValueKey('prompt-tag-translation-toggle'),
+          icon:
+              showTranslations ? Icons.translate_outlined : Icons.code_outlined,
+          label: showTranslations ? '译文' : '翻译',
+          tooltip: showTranslations ? '隐藏全部标签翻译' : '一键翻译全部标签',
+          dense: dense,
+          selected: showTranslations,
+          onPressed: onToggleTranslations,
+        ),
         _PromptTagDisplayControlButton(
           key: const ValueKey('prompt-tag-layout-sourceOrder'),
           icon: Icons.format_align_left_outlined,
@@ -3075,17 +3138,17 @@ class _PromptTagDisplayControlButton extends StatelessWidget {
             color: selected ? StudioTokens.primary : StudioTokens.borderStrong,
           ),
           padding: EdgeInsets.symmetric(
-            horizontal: dense ? 8 : 10,
-            vertical: dense ? 4 : 6,
+            horizontal: dense ? 6 : 7,
+            vertical: dense ? 4 : 5,
           ),
-          minimumSize: Size(0, dense ? 28 : 32),
+          minimumSize: Size(0, dense ? 28 : 30),
           textStyle: TextStyle(
             fontWeight: FontWeight.w800,
-            fontSize: dense ? 11 : 12,
+            fontSize: 11,
           ),
         ),
         onPressed: onPressed,
-        icon: Icon(icon, size: dense ? 14 : 16),
+        icon: Icon(icon, size: dense ? 13 : 14),
         label: Text(label),
       ),
     );
@@ -3276,8 +3339,6 @@ List<PromptTagCategory> _manualCategoryChoices(bool negative) {
     PromptTagCategory.accessory,
     PromptTagCategory.clothingState,
     PromptTagCategory.lowerClothing,
-    PromptTagCategory.accessory,
-    PromptTagCategory.clothingState,
     PromptTagCategory.clothing,
     PromptTagCategory.action,
     PromptTagCategory.scene,
@@ -3296,8 +3357,6 @@ String _categoryLabel(PromptTagCategory category) {
     PromptTagCategory.accessory => '饰品',
     PromptTagCategory.clothingState => '服装状态/动作',
     PromptTagCategory.lowerClothing => '下装',
-    PromptTagCategory.accessory => '饰品',
-    PromptTagCategory.clothingState => '服装状态',
     PromptTagCategory.clothing => '服装',
     PromptTagCategory.action => '动作',
     PromptTagCategory.scene => '场景',

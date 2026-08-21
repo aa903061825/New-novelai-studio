@@ -2711,7 +2711,7 @@ void main() {
     expect(saved.single.tasks.map((task) => task.id), ['dismissed-task']);
   });
 
-  test('deletePlan removes one queue and can delete its output images',
+  test('deletePlan removes a script queue while retaining its output record',
       () async {
     final output = File('${tempDir.path}${Platform.pathSeparator}frame.png');
     await output.writeAsBytes(_fakePngBytes);
@@ -2745,13 +2745,67 @@ void main() {
     );
 
     expect(result.deleted, isTrue);
+    expect(result.preservedForExhibition, isTrue);
     expect(result.deletedImageCount, 1);
     expect(result.failedImagePaths, isEmpty);
     expect(await output.exists(), isFalse);
-    expect(viewModel.plans.map((plan) => plan.id), [keptPlan.id]);
+    expect(viewModel.visiblePlans.map((plan) => plan.id), [keptPlan.id]);
+    expect(viewModel.plans.map((plan) => plan.id).toSet(), {
+      deletedPlan.id,
+      keptPlan.id,
+    });
     expect(viewModel.selectedPlan?.id, keptPlan.id);
     final saved = await queueService.loadPlansReadOnly();
-    expect(saved.map((plan) => plan.id), [keptPlan.id]);
+    final archivedPlan = saved.singleWhere((plan) => plan.id == deletedPlan.id);
+    expect(archivedPlan.tasks.single.isQueueDismissed, isTrue);
+    expect(saved.any((plan) => plan.id == keptPlan.id), isTrue);
+  });
+
+  test(
+      'deletePlan hides a script queue while retaining its tasks for Script Exhibition',
+      () async {
+    final deletedPlan = _plan([
+      _scriptTask(
+        id: 'archived-task',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: 'C:/out/archived-task.png',
+      ),
+    ]);
+    final keptPlan = _plan(
+      [
+        _scriptTask(
+          id: 'kept-task',
+          planId: 'kept-plan',
+        ),
+      ],
+      id: 'kept-plan',
+      name: 'Kept',
+    );
+    await queueService.savePlans([deletedPlan, keptPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlans(),
+      queueService: queueService,
+      now: () => DateTime.utc(2026, 6, 2, 12),
+    );
+    viewModel.selectPlan(deletedPlan.id);
+
+    final result = await viewModel.deletePlan(deletedPlan.id);
+
+    expect(result.deleted, isTrue);
+    expect(result.preservedForExhibition, isTrue);
+    expect(viewModel.visiblePlans.map((plan) => plan.id), [keptPlan.id]);
+    expect(viewModel.plans.map((plan) => plan.id).toSet(), {
+      deletedPlan.id,
+      keptPlan.id,
+    });
+    final saved = await queueService.loadPlansReadOnly();
+    final archivedPlan = saved.singleWhere((plan) => plan.id == deletedPlan.id);
+    expect(archivedPlan.tasks.single.id, 'archived-task');
+    expect(archivedPlan.tasks.single.isQueueDismissed, isTrue);
+    expect(
+      archivedPlan.tasks.single.outputImagePath,
+      'C:/out/archived-task.png',
+    );
   });
 
   test('deletePlan rejects the running queue', () async {
@@ -2802,8 +2856,12 @@ void main() {
     final result = await deleteFuture;
 
     expect(result.deleted, isTrue);
-    expect(viewModel.plans, isEmpty);
-    expect(await blockingQueueService.loadPlansReadOnly(), isEmpty);
+    expect(result.preservedForExhibition, isTrue);
+    expect(viewModel.plans.single.id, plan.id);
+    expect(viewModel.visiblePlans, isEmpty);
+    final saved = await blockingQueueService.loadPlansReadOnly();
+    expect(saved.single.id, plan.id);
+    expect(saved.single.tasks.single.isQueueDismissed, isTrue);
   });
 
   test('deletePlan removes an inactive queue while another queue is running',
@@ -2841,7 +2899,11 @@ void main() {
 
     expect(result.deleted, isTrue);
     expect(viewModel.activePlan?.id, activePlan.id);
-    expect(viewModel.plans.map((plan) => plan.id), [activePlan.id]);
+    expect(viewModel.visiblePlans.map((plan) => plan.id), [activePlan.id]);
+    expect(viewModel.plans.map((plan) => plan.id), [
+      activePlan.id,
+      waitingPlan.id,
+    ]);
 
     requestCompleter.complete(_fakePngBytes);
     await startFuture;

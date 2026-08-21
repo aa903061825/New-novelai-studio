@@ -437,6 +437,11 @@ void main() {
       const ArtistChain(
         id: 'artist-1',
         name: 'Painter Mix',
+        imageRefs: ['legacy-preview.png'],
+        modelPreviewRefs: {
+          'v4_5': ['preview-v45.png'],
+          'v5': ['preview-v5.png'],
+        },
         artists: [
           ArtistEntry(
             name: 'terasu_mc',
@@ -469,6 +474,13 @@ void main() {
     expect(artistChains.single.styleHintsWeighted.single.tag, 'year 2024');
     expect(artistChains.single.vibeRefs.single.name, 'QAQ 2');
     expect(artistChains.single.vibeRefs.single.vibeB64, 'encoded-vibe');
+    expect(artistChains.single.modelPreviewRefs['v4_5'], ['preview-v45.png']);
+    expect(artistChains.single.modelPreviewRefs['v5'], ['preview-v5.png']);
+    expect(artistChains.single.allPreviewRefs, [
+      'preview-v45.png',
+      'preview-v5.png',
+      'legacy-preview.png',
+    ]);
   });
 
   test('writes and reads script recast long-term knowledge', () async {

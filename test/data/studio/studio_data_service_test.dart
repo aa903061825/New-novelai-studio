@@ -436,6 +436,45 @@ void main() {
     expect(artistChains.last.imageRefs, isEmpty);
   });
 
+  test(
+      'initializeAt classifies legacy artist refs as V4.5 without merging V5 refs',
+      () async {
+    final workspaceService = WorkspaceService();
+    await workspaceService.createWorkspace(tempDir.path);
+    await workspaceService.saveArtistChains([
+      const ArtistChain(
+        id: 'artist-1',
+        name: 'Painter',
+        prompt: 'artist:painter',
+        imageRefs: ['assets/references/legacy-v45.png'],
+        modelPreviewRefs: {
+          'v5': ['assets/references/new-v5.png'],
+        },
+      ),
+    ]);
+    final catalogCache = File(
+      '${tempDir.path}${Platform.pathSeparator}'
+      '${WorkspacePaths.assetCatalogCache.replaceAll('/', Platform.pathSeparator)}',
+    );
+    await catalogCache.writeAsString('{}');
+
+    await StudioDataService(workspaceService: workspaceService).initializeAt(
+      tempDir,
+    );
+
+    final artistChain = (await workspaceService.loadArtistChains()).single;
+    expect(
+      artistChain.previewRefsForFamily('v4_5'),
+      ['assets/references/legacy-v45.png'],
+    );
+    expect(
+      artistChain.previewRefsForFamily('v5'),
+      ['assets/references/new-v5.png'],
+    );
+    expect(artistChain.imageRefs, ['assets/references/legacy-v45.png']);
+    expect(await catalogCache.exists(), isFalse);
+  });
+
   test('initializeAt leaves legacy codex out of workspace inspirations',
       () async {
     final workspaceService = WorkspaceService();

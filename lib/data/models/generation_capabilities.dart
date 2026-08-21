@@ -11,6 +11,22 @@ const naiDiffusion5Curated = 'nai-diffusion-5-curated';
 const naiDiffusion5Full = 'nai-diffusion-5-full';
 const defaultGenerationModel = naiDiffusion5Curated;
 
+const generationPreviewFamilyV45 = 'v4_5';
+const generationPreviewFamilyV5 = 'v5';
+
+const studioTargetGenerationModels = [
+  naiDiffusion5Full,
+  'nai-diffusion-4-5-full',
+];
+
+String studioTargetGenerationModelFor(String? model) {
+  final normalized = model?.trim() ?? '';
+  if (normalized == 'nai-diffusion-4-5-full') return normalized;
+  final capabilities = GenerationModelCapabilities.fromModel(normalized);
+  if (capabilities.isV45) return 'nai-diffusion-4-5-full';
+  return naiDiffusion5Full;
+}
+
 const generationModels = [
   naiDiffusion5Curated,
   naiDiffusion5Full,
@@ -21,6 +37,13 @@ const generationModels = [
   'nai-diffusion-3',
   'nai-diffusion-furry-3',
 ];
+
+String? generationPreviewFamilyForModel(String model) {
+  final capabilities = GenerationModelCapabilities.fromModel(model);
+  if (capabilities.isV5) return generationPreviewFamilyV5;
+  if (capabilities.isV45) return generationPreviewFamilyV45;
+  return null;
+}
 
 /// Central compatibility registry for NovelAI image models.
 ///

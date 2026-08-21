@@ -7,6 +7,9 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:novel_studio/data/models/api_request.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
+import 'package:novel_studio/data/models/generation_size.dart';
+import 'package:novel_studio/data/models/param_config.dart';
 
 const _defaultQueuePath = r'tool\asset-library-image-queue.json';
 const _defaultEndpoint = 'https://image.novelai.net/ai/generate-image';
@@ -35,9 +38,16 @@ Future<void> main(List<String> args) async {
   }
 
   final client = _createClient(options.proxy);
+  stdout.writeln(
+    'NAI generation mode: sequential; inter-image delay=${options.delayMs}ms; '
+    'retry delay=${options.retryDelayMs}ms.',
+  );
   try {
     for (var index = 0; index < pending.length; index++) {
       final item = pending[index];
+      final effectiveSeed = item.seed ??
+          (options.seed == null ? _randomSeed() : options.seed! + index);
+      final payload = _payloadForItem(item: item, seed: effectiveSeed);
       stdout.writeln(
         '[${index + 1}/${pending.length}] NAI generating ${item.id} -> ${item.outputPath}',
       );
@@ -45,13 +55,20 @@ Future<void> main(List<String> args) async {
         client: client,
         token: token!.trim(),
         endpoint: options.endpoint,
-        item: item,
-        seed: options.seed == null ? _randomSeed() : options.seed! + index,
+        payload: payload,
         maxAttempts: options.retryCount,
         retryDelayMs: options.retryDelayMs,
       );
       await _writeImage(item.outputPath, bytes);
       await _copyPreview(item.outputPath, options.previewRoot);
+      if (item.requestPayloadManifestPath != null) {
+        await _appendRequestPayload(
+          item.requestPayloadManifestPath!,
+          id: item.id,
+          seed: effectiveSeed,
+          payload: payload,
+        );
+      }
       if (options.delayMs > 0 && index < pending.length - 1) {
         await Future<void>.delayed(Duration(milliseconds: options.delayMs));
       }
@@ -170,8 +187,7 @@ Future<Uint8List> _requestNaiImage({
   required http.Client client,
   required String token,
   required String endpoint,
-  required _QueueItem item,
-  required int seed,
+  required Map<String, dynamic> payload,
   required int maxAttempts,
   required int retryDelayMs,
 }) async {
@@ -179,7 +195,7 @@ Future<Uint8List> _requestNaiImage({
     endpoint: endpoint,
     proxy: '',
     headers: _headersForToken(token),
-    payload: _payloadForItem(item: item, seed: seed),
+    payload: payload,
   );
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     late final http.Response response;
@@ -222,6 +238,34 @@ Future<Uint8List> _requestNaiImage({
   throw StateError('NovelAI request exhausted without a response.');
 }
 
+Future<void> _appendRequestPayload(
+  String manifestPath, {
+  required String id,
+  required int seed,
+  required Map<String, dynamic> payload,
+}) async {
+  final file = File(manifestPath);
+  List<dynamic> entries = const [];
+  if (await file.exists()) {
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is List) entries = decoded;
+    } catch (_) {
+      entries = const [];
+    }
+  }
+  final updated = [
+    ...entries.where((entry) => entry is! Map || entry['id'] != id),
+    {
+      'id': id,
+      'seed': seed,
+      'payload': payload,
+    },
+  ];
+  await file.parent.create(recursive: true);
+  await file.writeAsString(const JsonEncoder.withIndent('  ').convert(updated));
+}
+
 bool _shouldRetryStatus(int statusCode) {
   return statusCode == 408 || statusCode == 429 || statusCode >= 500;
 }
@@ -253,6 +297,15 @@ Map<String, dynamic> _payloadForItem({
   required int seed,
 }) {
   final prompt = item.prompt;
+  final model = item.model ?? 'nai-diffusion-4-5-full';
+  if (GenerationModelCapabilities.fromModel(model).isV5) {
+    return _v5PayloadForItem(
+      item: item,
+      model: model,
+      prompt: prompt,
+      seed: seed,
+    );
+  }
   final vibeReferences = _resolveVibeReferences(item);
   final negative = item.negativePrompt ??
       'lowres, bad anatomy, bad hands, missing fingers, extra fingers, '
@@ -310,9 +363,69 @@ Map<String, dynamic> _payloadForItem({
   parameters.removeWhere((_, value) => value == null);
   return {
     'input': prompt,
-    'model': item.model ?? 'nai-diffusion-4-5-full',
+    'model': model,
     'action': item.action ?? 'generate',
     'parameters': parameters,
+  };
+}
+
+Map<String, dynamic> _v5PayloadForItem({
+  required _QueueItem item,
+  required String model,
+  required String prompt,
+  required int seed,
+}) {
+  final negative = item.negativePrompt ??
+      'lowres, bad anatomy, bad hands, missing fingers, extra fingers, '
+          'worst quality, low quality, blurry, text, watermark, logo, signature, '
+          'nsfw, nude, explicit, multiple girls, 2girls, 3girls, group, crowd, '
+          'multiple views, character sheet, reference sheet, collage, grid, panel, '
+          'comic, manga panel, speech bubble, chibi, mascot, creature, monster, '
+          'censored, mosaic censoring, black bars, cropped, out of frame, '
+          'extra arms, extra legs, duplicate, clone, bad feet, malformed feet';
+  final parameters = ParamConfig(
+    model: model,
+    sizes: [
+      GenerationSize(
+        width: item.width ?? 832,
+        height: item.height ?? 1216,
+      ),
+    ],
+    scale: item.scale ?? 6.5,
+    sampler: item.sampler ?? 'k_euler_ancestral',
+    steps: item.steps ?? 28,
+    randomSeed: false,
+    seed: seed,
+    nSamples: 1,
+    qualityToggle: item.qualityToggle ?? false,
+    qualityPreset: item.qualityPreset ??
+        ((item.qualityToggle ?? false) ? 'standard' : 'none'),
+    ucPresetMode: item.ucPresetMode ?? 'none',
+    dynamicThresholding: item.dynamicThresholding ?? false,
+    legacy: item.legacy ?? false,
+    cfgRescale: item.cfgRescale ?? 0.1,
+    noiseSchedule: item.noiseSchedule ?? 'native',
+    negativePrompt: negative,
+    legacyUc: item.legacyUc ?? false,
+  ).getPayload();
+  parameters['v4_prompt'] = _structuredPrompt(prompt);
+  parameters['v4_negative_prompt'] = _structuredPrompt(negative);
+  return {
+    'input': prompt,
+    'model': model,
+    'action': item.action ?? 'generate',
+    'parameters': parameters,
+  };
+}
+
+Map<String, dynamic> _structuredPrompt(String baseCaption) {
+  return {
+    'caption': {
+      'base_caption': baseCaption,
+      'char_captions': <dynamic>[],
+    },
+    'use_coords': false,
+    'use_order': true,
   };
 }
 
@@ -472,6 +585,10 @@ class _QueueItem {
   final bool? legacyUc;
   final bool? useCoords;
   final bool? useOrder;
+  final String? qualityPreset;
+  final String? ucPresetMode;
+  final int? seed;
+  final String? requestPayloadManifestPath;
 
   const _QueueItem({
     required this.id,
@@ -495,6 +612,10 @@ class _QueueItem {
     this.legacyUc,
     this.useCoords,
     this.useOrder,
+    this.qualityPreset,
+    this.ucPresetMode,
+    this.seed,
+    this.requestPayloadManifestPath,
   });
 
   factory _QueueItem.fromJson(Map<String, dynamic> json) {
@@ -520,6 +641,10 @@ class _QueueItem {
       legacyUc: json['legacy_uc'] as bool?,
       useCoords: json['use_coords'] as bool?,
       useOrder: json['use_order'] as bool?,
+      qualityPreset: json['quality_preset'] as String?,
+      ucPresetMode: json['uc_preset_mode'] as String?,
+      seed: _optionalInt(json['seed']),
+      requestPayloadManifestPath: json['requestPayloadManifestPath'] as String?,
     );
   }
 }
@@ -638,6 +763,8 @@ class _Options {
         limit = int.tryParse(arg.substring('--limit='.length)) ?? limit;
       } else if (arg.startsWith('--delay-ms=')) {
         delayMs = int.tryParse(arg.substring('--delay-ms='.length)) ?? delayMs;
+      } else if (arg.startsWith('--delay=')) {
+        delayMs = int.tryParse(arg.substring('--delay='.length)) ?? delayMs;
       } else if (arg.startsWith('--retry-count=')) {
         retryCount =
             int.tryParse(arg.substring('--retry-count='.length)) ?? retryCount;
@@ -645,6 +772,9 @@ class _Options {
         retryDelayMs =
             int.tryParse(arg.substring('--retry-delay-ms='.length)) ??
                 retryDelayMs;
+      } else if (arg.startsWith('--retry-delay=')) {
+        retryDelayMs = int.tryParse(arg.substring('--retry-delay='.length)) ??
+            retryDelayMs;
       } else if (arg.startsWith('--seed=')) {
         seed = int.tryParse(arg.substring('--seed='.length));
       }

@@ -6,6 +6,8 @@ import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
+import 'package:novel_studio/data/services/nai_account_usage_service.dart';
+import 'package:novel_studio/data/services/nai_image_cost_estimator.dart';
 import 'package:novel_studio/data/services/vibe_encoding_service.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
@@ -131,6 +133,23 @@ class WorkbenchSingleImageParametersViewmodel extends ChangeNotifier {
       parts.add('精确参考 +$preciseReferenceExtraAnlas');
     }
     return '额外 $knownExtraAnlas Anlas · ${parts.join(' · ')}';
+  }
+
+  NaiImageCostEstimate estimateAnlas(NaiAccountUsageSnapshot? account) {
+    final size = selectedSize;
+    return NaiImageCostEstimator.estimate(
+      model: config.model,
+      width: size.width,
+      height: size.height,
+      steps: config.steps,
+      generationCount: generationCount,
+      hasBaseImage: hasI2iImage,
+      imageToImageStrength: payloadConfig.i2iConfig.strength,
+      smea: config.sm,
+      smeaDynamic: config.smDyn,
+      extraAnlas: knownExtraAnlas,
+      account: account,
+    );
   }
 
   void notifyReferenceInputsChanged() {

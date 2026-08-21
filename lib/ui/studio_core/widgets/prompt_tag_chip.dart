@@ -13,6 +13,8 @@ class PromptTagChip extends StatelessWidget {
   final String label;
   final String translation;
   final bool translationFirst;
+  final bool translationVisible;
+  final bool showTranslationToggle;
   final String? weightLabel;
   final double? weight;
   final bool loading;
@@ -33,12 +35,14 @@ class PromptTagChip extends StatelessWidget {
   final Key? markerKey;
   final Key? weightKey;
   final Key? deleteKey;
+  final Key? translationToggleKey;
   final Key? checkKey;
   final Key? highlightKey;
   final Key? diffKey;
   final String? diffTooltip;
   final String? diffBadgeLabel;
   final VoidCallback? onDeleted;
+  final VoidCallback? onTranslationToggle;
   final ValueChanged<bool>? onHoverChanged;
   final GestureTapDownCallback? onSecondaryTapDown;
   final VoidCallback? onTap;
@@ -51,6 +55,8 @@ class PromptTagChip extends StatelessWidget {
     required this.label,
     required this.translation,
     this.translationFirst = false,
+    this.translationVisible = true,
+    this.showTranslationToggle = false,
     this.weightLabel,
     this.weight,
     this.loading = false,
@@ -71,12 +77,14 @@ class PromptTagChip extends StatelessWidget {
     this.markerKey,
     this.weightKey,
     this.deleteKey,
+    this.translationToggleKey,
     this.checkKey,
     this.highlightKey,
     this.diffKey,
     this.diffTooltip,
     this.diffBadgeLabel,
     this.onDeleted,
+    this.onTranslationToggle,
     this.onHoverChanged,
     this.onSecondaryTapDown,
     this.onTap,
@@ -86,6 +94,9 @@ class PromptTagChip extends StatelessWidget {
   });
 
   bool get _isEditor => variant == PromptTagChipVariant.editor;
+
+  bool get _canToggleTranslation =>
+      showTranslationToggle && onTranslationToggle != null;
 
   bool get _hasDiff => diffState != PromptTagChipDiffState.unchanged;
 
@@ -210,11 +221,14 @@ class PromptTagChip extends StatelessWidget {
     final hasGesture = onTap != null ||
         onDoubleTap != null ||
         onSecondaryTapDown != null ||
-        onHoverChanged != null;
+        onHoverChanged != null ||
+        _canToggleTranslation;
     final interactiveChip = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: enabled ? onTap : null,
-      onDoubleTap: enabled ? onDoubleTap : null,
+      onDoubleTap: enabled && onDoubleTap != null && !_canToggleTranslation
+          ? onDoubleTap
+          : null,
       onSecondaryTapDown: enabled ? onSecondaryTapDown : null,
       child: Semantics(
         selected: selected,
@@ -287,20 +301,22 @@ class PromptTagChip extends StatelessWidget {
                 const SizedBox(width: 5),
               ],
               Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: (dense
-                          ? Theme.of(context).textTheme.labelSmall
-                          : Theme.of(context).textTheme.labelMedium)
-                      ?.copyWith(
-                    color: _hasDiff ? _diffColor : StudioTokens.textPrimary,
-                    fontWeight: FontWeight.w800,
-                    decoration: diffState == PromptTagChipDiffState.removed
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                    decorationColor: StudioTokens.danger,
+                child: _withTranslationToggleExcludedDoubleTap(
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: (dense
+                            ? Theme.of(context).textTheme.labelSmall
+                            : Theme.of(context).textTheme.labelMedium)
+                        ?.copyWith(
+                      color: _hasDiff ? _diffColor : StudioTokens.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      decoration: diffState == PromptTagChipDiffState.removed
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                      decorationColor: StudioTokens.danger,
+                    ),
                   ),
                 ),
               ),
@@ -322,6 +338,10 @@ class PromptTagChip extends StatelessWidget {
                   text: diffBadgeLabel,
                   color: StudioTokens.primary,
                 ),
+              ],
+              if (_canToggleTranslation) ...[
+                const SizedBox(width: 2),
+                _buildTranslationToggleButton(),
               ],
             ],
           ),
@@ -383,58 +403,61 @@ class PromptTagChip extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Flexible(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_hasDiff) ...[
-                      _buildDiffPrefix(),
-                      const SizedBox(width: 5),
-                    ],
-                    Flexible(
-                      child: Text(
-                        primaryText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: primaryStyle,
+            child: _withTranslationToggleExcludedDoubleTap(
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_hasDiff) ...[
+                        _buildDiffPrefix(),
+                        const SizedBox(width: 5),
+                      ],
+                      Flexible(
+                        child: Text(
+                          primaryText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: primaryStyle,
+                        ),
                       ),
-                    ),
-                    if (hasWeight) ...[
-                      const SizedBox(width: 6),
-                      _WeightBadge(
-                        badgeKey: weightKey,
-                        dense: dense,
-                        text: weightText!,
-                        color: weightColor,
-                        backgroundColor: weightBackgroundColor,
-                        borderColor: weightBorderColor,
-                      ),
+                      if (hasWeight) ...[
+                        const SizedBox(width: 6),
+                        _WeightBadge(
+                          badgeKey: weightKey,
+                          dense: dense,
+                          text: weightText!,
+                          color: weightColor,
+                          backgroundColor: weightBackgroundColor,
+                          borderColor: weightBorderColor,
+                        ),
+                      ],
+                      if (diffBadgeLabel != null) ...[
+                        const SizedBox(width: 6),
+                        _DiffBadge(
+                          dense: dense,
+                          text: diffBadgeLabel,
+                          color: StudioTokens.primary,
+                        ),
+                      ],
                     ],
-                    if (diffBadgeLabel != null) ...[
-                      const SizedBox(width: 6),
-                      _DiffBadge(
-                        dense: dense,
-                        text: diffBadgeLabel,
-                        color: StudioTokens.primary,
-                      ),
-                    ],
-                  ],
-                ),
-                if (secondaryText != null) ...[
-                  SizedBox(height: dense ? 1 : 2),
-                  Text(
-                    secondaryText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: secondaryStyle,
                   ),
+                  if (secondaryText != null) ...[
+                    SizedBox(height: dense ? 1 : 2),
+                    Text(
+                      secondaryText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: secondaryStyle,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
+          if (_canToggleTranslation) _buildTranslationToggleButton(),
           IconButton(
             key: deleteKey,
             tooltip: deleteTooltip,
@@ -451,6 +474,17 @@ class PromptTagChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _withTranslationToggleExcludedDoubleTap(Widget child) {
+    if (!_canToggleTranslation || onDoubleTap == null) {
+      return child;
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: enabled ? onDoubleTap : null,
+      child: child,
     );
   }
 
@@ -473,6 +507,27 @@ class PromptTagChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTranslationToggleButton() {
+    return IconButton(
+      key: translationToggleKey,
+      tooltip: translationVisible ? '取消此标签翻译' : '显示此标签翻译',
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      iconSize: dense ? 14 : 15,
+      constraints: BoxConstraints.tightFor(
+        width: dense ? 24 : 28,
+        height: dense ? 24 : 28,
+      ),
+      color: translationVisible ? StudioTokens.textMuted : StudioTokens.primary,
+      icon: Icon(
+        translationVisible
+            ? Icons.visibility_off_outlined
+            : Icons.translate_outlined,
+      ),
+      onPressed: enabled ? onTranslationToggle : null,
     );
   }
 

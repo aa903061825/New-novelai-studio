@@ -105,6 +105,30 @@ void main() {
     expect(encodedOccurrences, 1);
   });
 
+  test('target V5 model overrides source model and omits preserved Vibe',
+      () async {
+    final plan = await service.enqueueRecastResult(
+      result: _recastResultWithSharedReferences().copyWith(
+        targetGenerationModel: 'nai-diffusion-5-full',
+      ),
+      planId: 'plan-recast-v5',
+      planName: 'V5 Recast',
+      recastRunId: 'run-v5',
+    );
+
+    expect(
+      plan.tasks.map((task) => task.payload['model']).toSet(),
+      {'nai-diffusion-5-full'},
+    );
+    expect(plan.sharedPayloadParameters,
+        isNot(contains('reference_image_multiple')));
+    for (final task in plan.tasks) {
+      final parameters = task.payload['parameters'] as Map<String, dynamic>;
+      expect(parameters, isNot(contains('reference_image_multiple')));
+      expect(parameters['params_version'], 4);
+    }
+  });
+
   test('enqueuing many recast frames yields while building production tasks',
       () async {
     final probeAdapter = _YieldProbePayloadAdapter();
@@ -545,6 +569,7 @@ ScriptRecastResult _recastResultWithSharedReferences() {
         sourceFileName: 'nai_1.json',
         payload: {
           'input': 'city lights',
+          'model': 'nai-diffusion-4-5-full',
           'parameters': {
             'seed': 1,
             'reference_image_multiple': ['encoded-shared-vibe'],
@@ -559,6 +584,7 @@ ScriptRecastResult _recastResultWithSharedReferences() {
         sourceFileName: 'nai_2.json',
         payload: {
           'input': 'rain room',
+          'model': 'nai-diffusion-4-5-full',
           'parameters': {
             'seed': 2,
             'reference_image_multiple': ['encoded-shared-vibe'],

@@ -2553,7 +2553,7 @@ class _GalleryPreviewPromptPanel extends StatelessWidget {
             groups: promptGroups,
             groupKeyPrefix: 'gallery-preview-prompt-group-${item.record.id}',
             tagKeyPrefix: 'gallery-preview-prompt-group-tags-${item.record.id}',
-            defaultTranslated: true,
+            defaultTranslated: false,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,
@@ -2572,7 +2572,7 @@ class _GalleryPreviewPromptPanel extends StatelessWidget {
           PromptTagDisplay(
             key: ValueKey('gallery-preview-prompt-tags-${item.record.id}'),
             text: prompt,
-            defaultTranslated: true,
+            defaultTranslated: false,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,
@@ -3086,7 +3086,7 @@ class _DetailPromptBlock extends StatelessWidget {
               groupKeyPrefix: 'gallery-detail-prompt-group-${item.record.id}',
               tagKeyPrefix:
                   'gallery-detail-prompt-group-tags-${item.record.id}',
-              defaultTranslated: true,
+              defaultTranslated: false,
               dense: true,
               enableHoverShortcut: true,
               enableTagActions: true,
@@ -3097,7 +3097,7 @@ class _DetailPromptBlock extends StatelessWidget {
             PromptTagDisplay(
               key: ValueKey('gallery-detail-prompt-tags-${item.record.id}'),
               text: text,
-              defaultTranslated: true,
+              defaultTranslated: false,
               dense: true,
               enableHoverShortcut: true,
               enableTagActions: true,

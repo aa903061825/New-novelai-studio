@@ -10,6 +10,7 @@ import 'package:novel_studio/data/models/character_config.dart';
 import 'package:novel_studio/data/models/generation_presets.dart';
 import 'package:novel_studio/data/models/info_card_content.dart';
 import 'package:novel_studio/data/services/nai_account_usage_service.dart';
+import 'package:novel_studio/data/services/nai_image_cost_estimator.dart';
 import 'package:novel_studio/data/studio/services/studio_workbench_asset_service.dart';
 import 'package:novel_studio/ui/generation_page/view_models/generation_page_viewmodel.dart';
 import 'package:novel_studio/ui/generation_page/widgets/info_card.dart';
@@ -377,33 +378,26 @@ class _ExecutionSection extends StatelessWidget {
       ]),
       builder: (context, _) {
         final active = viewmodel.commandStatus.isBatchActive.value;
+        final estimate = parametersViewmodel.estimateAnlas(
+          usageService?.snapshot,
+        );
+        final estimatedAmount = estimate.isExact
+            ? '${estimate.maximumAnlas}'
+            : '${estimate.minimumAnlas}–${estimate.maximumAnlas}';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (parametersViewmodel.capabilities.isV5) ...[
-              _OpusUsagePanel(
-                service: usageService,
-                onRefresh: viewmodel.refreshNaiAccountUsage,
-              ),
-              const SizedBox(height: 10),
-            ],
-            Row(
-              children: [
-                Expanded(
-                  child: StudioButton(
-                    key: const ValueKey('workbench-start-generation-button'),
-                    label: active ? '停止生成' : '开始生成',
-                    icon: active ? Icons.stop : Icons.play_arrow,
-                    tone: active
-                        ? StudioButtonTone.danger
-                        : StudioButtonTone.primary,
-                    onPressed: active
-                        ? () => viewmodel.stopBatch()
-                        : () => _startGeneration(context),
-                  ),
-                ),
-                if (!active && parametersViewmodel.knownExtraAnlas > 0) ...[
-                  const SizedBox(width: 10),
+            _NaiAccountUsagePanel(
+              service: usageService,
+              showV5Allowance: parametersViewmodel.capabilities.isV5,
+              onRefresh: viewmodel.refreshNaiAccountUsage,
+            ),
+            const SizedBox(height: 10),
+            if (!active && parametersViewmodel.knownExtraAnlas > 0)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
                   StudioChip(
                     key: const ValueKey('workbench-known-extra-anlas'),
                     icon: Icons.bolt_outlined,
@@ -412,6 +406,27 @@ class _ExecutionSection extends StatelessWidget {
                     accentColor: StudioTokens.warning,
                   ),
                 ],
+              ),
+            if (!active && parametersViewmodel.knownExtraAnlas > 0)
+              const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: KeyedSubtree(
+                    key: const ValueKey('workbench-generation-cost-estimate'),
+                    child: StudioButton(
+                      key: const ValueKey('workbench-start-generation-button'),
+                      label: active ? '停止生成' : '$estimatedAmount Anlas · 开始生成',
+                      icon: active ? Icons.stop : Icons.toll_outlined,
+                      tone: active
+                          ? StudioButtonTone.danger
+                          : StudioButtonTone.primary,
+                      onPressed: active
+                          ? () => viewmodel.stopBatch()
+                          : () => _startGeneration(context),
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 10),
                 _GenerationCountField(
                   viewmodel: parametersViewmodel,
@@ -451,17 +466,28 @@ class _ExecutionSection extends StatelessWidget {
     parametersViewmodel.commitPendingInputs();
     await viewmodel.refreshNaiAccountUsage();
     if (!context.mounted) return;
-    if (viewmodel.isV5OpusUsageExhausted) {
-      final snapshot = viewmodel.naiAccountUsageService?.snapshot;
+    final snapshot = viewmodel.naiAccountUsageService?.snapshot;
+    final estimate = parametersViewmodel.estimateAnlas(snapshot);
+    if (estimate.requiresConfirmation) {
       final anlas = snapshot?.totalAnlas;
+      final balanceWarning = anlas != null && anlas < estimate.maximumAnlas
+          ? '\n注意：当前余额可能不足。'
+          : '';
       final continueGeneration = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('V5 Opus 免费额度已用尽'),
+          title: Text(
+            estimate.chargeState == NaiAnlasChargeState.uncertain
+                ? '暂时无法确认是否收费'
+                : '本次生成预计消耗点数',
+          ),
           content: Text(
-            '本次生成将开始消耗 Anlas。'
+            '点数消耗预估：${estimate.amountDescription}'
             '${anlas == null ? '' : '\n当前可用 Anlas：$anlas'}'
-            '\n计划生成：${parametersViewmodel.generationCount} 张。',
+            '\n计划生成：${parametersViewmodel.generationCount} 张。'
+            '\n${estimate.reason}'
+            '$balanceWarning'
+            '\n实际扣费以 NovelAI 返回结果为准。',
           ),
           actions: [
             TextButton(
@@ -471,7 +497,11 @@ class _ExecutionSection extends StatelessWidget {
             FilledButton(
               key: const ValueKey('workbench-confirm-v5-anlas-generation'),
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('继续并消耗 Anlas'),
+              child: Text(
+                estimate.isExact
+                    ? '继续（预计 ${estimate.maximumAnlas} Anlas）'
+                    : '继续生成',
+              ),
             ),
           ],
         ),
@@ -484,12 +514,14 @@ class _ExecutionSection extends StatelessWidget {
   }
 }
 
-class _OpusUsagePanel extends StatelessWidget {
+class _NaiAccountUsagePanel extends StatelessWidget {
   final NaiAccountUsageService? service;
+  final bool showV5Allowance;
   final Future<void> Function() onRefresh;
 
-  const _OpusUsagePanel({
+  const _NaiAccountUsagePanel({
     required this.service,
+    required this.showV5Allowance,
     required this.onRefresh,
   });
 
@@ -503,30 +535,44 @@ class _OpusUsagePanel extends StatelessWidget {
     final exhausted = usage?.isNegative == true;
     final color = exhausted ? StudioTokens.warning : StudioTokens.primary;
 
-    String label;
-    String detail;
+    String balanceLabel;
+    String balanceDetail;
     if (loading && snapshot == null) {
-      label = '正在同步 V5 Opus 额度';
-      detail = '从 NovelAI 获取真实剩余额度…';
-    } else if (snapshot != null && !snapshot.isOpus) {
-      label = '当前账号不是有效的 Opus 订阅';
-      detail = 'V5 生成将按 NovelAI 规则消耗 Anlas。';
-    } else if (usage != null) {
+      balanceLabel = '正在同步账户点数';
+      balanceDetail = '从 NovelAI 获取可用 Anlas…';
+    } else if (snapshot?.totalAnlas != null) {
+      balanceLabel = '可用点数 ${snapshot!.totalAnlas} Anlas';
+      balanceDetail = '订阅点数 ${snapshot.subscriptionAnlas ?? '--'}'
+          ' · 已购点数 ${snapshot.purchasedAnlas ?? '--'}';
+    } else {
+      balanceLabel = '账户点数暂不可用';
+      balanceDetail =
+          service?.errorMessage ?? '需要有效的 NovelAI Persistent API Token。';
+    }
+
+    String? opusLabel;
+    String? opusDetail;
+    if (showV5Allowance && snapshot != null && !snapshot.isOpus) {
+      opusLabel = '当前账号不是有效的 Opus 订阅';
+      opusDetail = 'V5 生成将按 NovelAI 规则消耗 Anlas。';
+    } else if (showV5Allowance && usage != null) {
       final refill = usage.refillPercentPerDay;
-      label = exhausted
+      opusLabel = exhausted
           ? 'V5 Opus 免费额度已用尽'
           : 'V5 Opus 剩余 ${usage.visiblePercent.toStringAsFixed(1)}%';
-      detail = exhausted
+      opusDetail = exhausted
           ? '继续生成将消耗 Anlas，额度会随时间恢复。'
           : '约 ${usage.estimatedNormalImages} 张普通生成'
               '${refill == null ? '' : ' · 每日恢复约 $refill%'}';
-    } else {
-      label = 'V5 Opus 额度暂不可用';
-      detail = service?.errorMessage ?? '需要有效的 NovelAI Persistent API Token。';
+    } else if (showV5Allowance) {
+      opusLabel = loading ? '正在同步 V5 Opus 额度' : 'V5 Opus 额度暂不可用';
+      opusDetail = loading
+          ? '等待账户数据返回…'
+          : service?.errorMessage ?? '需要有效的 NovelAI Persistent API Token。';
     }
 
     return Container(
-      key: const ValueKey('workbench-v5-opus-usage-panel'),
+      key: const ValueKey('workbench-nai-account-usage-panel'),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.07),
@@ -536,7 +582,7 @@ class _OpusUsagePanel extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            exhausted ? Icons.battery_alert_outlined : Icons.battery_5_bar,
+            Icons.account_balance_wallet_outlined,
             color: color,
             size: 20,
           ),
@@ -546,7 +592,8 @@ class _OpusUsagePanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  label,
+                  balanceLabel,
+                  key: const ValueKey('workbench-anlas-balance'),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: StudioTokens.textPrimary,
                         fontWeight: FontWeight.w800,
@@ -554,22 +601,59 @@ class _OpusUsagePanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  detail,
+                  balanceDetail,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: StudioTokens.textMuted,
                       ),
                 ),
-                if (usage != null) ...[
-                  const SizedBox(height: 7),
-                  LinearProgressIndicator(
-                    key: const ValueKey('workbench-v5-opus-usage-progress'),
-                    value: usage.visiblePercent / 100,
-                    minHeight: 5,
-                    color: color,
-                    backgroundColor: StudioTokens.surface3,
-                    borderRadius: BorderRadius.circular(99),
+                if (opusLabel != null && opusDetail != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    key: const ValueKey('workbench-v5-opus-usage-panel'),
+                    padding: const EdgeInsets.only(top: 8),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: StudioTokens.border),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          opusLabel,
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: StudioTokens.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          opusDetail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: StudioTokens.textMuted,
+                                  ),
+                        ),
+                        if (usage != null) ...[
+                          const SizedBox(height: 7),
+                          LinearProgressIndicator(
+                            key: const ValueKey(
+                              'workbench-v5-opus-usage-progress',
+                            ),
+                            value: usage.visiblePercent / 100,
+                            minHeight: 5,
+                            color: color,
+                            backgroundColor: StudioTokens.surface3,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -583,11 +667,14 @@ class _OpusUsagePanel extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            StudioIconButton(
-              key: const ValueKey('workbench-refresh-v5-opus-usage'),
-              tooltip: unavailable ? '重试同步额度' : '刷新额度',
-              icon: Icons.refresh,
-              onPressed: () => unawaited(onRefresh()),
+            KeyedSubtree(
+              key: const ValueKey('workbench-refresh-nai-account-usage'),
+              child: StudioIconButton(
+                key: const ValueKey('workbench-refresh-v5-opus-usage'),
+                tooltip: unavailable ? '重试同步账户' : '刷新账户',
+                icon: Icons.refresh,
+                onPressed: () => unawaited(onRefresh()),
+              ),
             ),
         ],
       ),
@@ -2058,7 +2145,7 @@ class _CharacterPromptStack extends StatelessWidget {
             ),
             child: PromptTagDisplay(
               text: blocks.join(', '),
-              defaultTranslated: true,
+              defaultTranslated: false,
               dense: true,
               enableTagActions: true,
               emptyText: '当前角色没有可标签化的角色词',

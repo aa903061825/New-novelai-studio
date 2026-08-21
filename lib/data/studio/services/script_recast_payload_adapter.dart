@@ -6,12 +6,25 @@ import 'package:novel_studio/data/studio/tools/generation_prompt_sanitizer.dart'
 class ScriptRecastPayloadAdapter {
   const ScriptRecastPayloadAdapter();
 
-  Map<String, dynamic> toNaiRequestPayload(Map<String, dynamic> payload) {
+  Map<String, dynamic> toNaiRequestPayload(Map<String, dynamic> payload) =>
+      _toNaiRequestPayload(payload);
+
+  Map<String, dynamic> toNaiRequestPayloadForTargetModel(
+    Map<String, dynamic> payload,
+    String targetModel,
+  ) =>
+      _toNaiRequestPayload(payload, targetModel: targetModel);
+
+  Map<String, dynamic> _toNaiRequestPayload(
+    Map<String, dynamic> payload, {
+    String? targetModel,
+  }) {
     if (_isDirectRequestPayload(payload)) {
-      return _normalizeDirectPayload(payload);
+      return _normalizeDirectPayload(payload, targetModel: targetModel);
     }
 
-    final model = _modelFromSource(payload['Source']);
+    final model = _resolvedTargetModel(targetModel) ??
+        _modelFromSource(payload['Source']);
     final capabilities = GenerationModelCapabilities.fromModel(model);
     final comment = _mapValue(payload['Comment']);
     final sourceParameters = _mapValue(payload['parameters']);
@@ -61,8 +74,13 @@ class ScriptRecastPayloadAdapter {
     return payload['input'] is String && payload['parameters'] is Map;
   }
 
-  Map<String, dynamic> _normalizeDirectPayload(Map<String, dynamic> payload) {
-    final model = _stringValue(payload['model']) ?? defaultGenerationModel;
+  Map<String, dynamic> _normalizeDirectPayload(
+    Map<String, dynamic> payload, {
+    String? targetModel,
+  }) {
+    final model = _resolvedTargetModel(targetModel) ??
+        _stringValue(payload['model']) ??
+        defaultGenerationModel;
     final capabilities = GenerationModelCapabilities.fromModel(model);
     final parameters = _deepMutableMap(_mapValue(payload['parameters']));
     _removeDisallowedRequestParameters(parameters);
@@ -193,6 +211,11 @@ class ScriptRecastPayloadAdapter {
       return 'nai-diffusion-furry-3';
     }
     return 'nai-diffusion-3';
+  }
+
+  String? _resolvedTargetModel(String? model) {
+    final normalized = model?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
   void _sanitizePromptParameter(Map<String, dynamic> parameters, String key) {

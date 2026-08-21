@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:novel_studio/core/constants/defaults.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
+import 'package:novel_studio/data/studio/tools/artist_chain_v5_prompt_policy.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_service.dart';
 
@@ -72,20 +73,23 @@ void main() {
 
       expect(path, 'generated/preview.png');
       expect(savedFileNames.single,
-          'asset-preview-artist-chain-chain-1-20260604-090807.png');
+          'asset-preview-artist-chain-chain-1-v5-20260604-090807.png');
       final chains = await workspaceService.loadArtistChains();
-      expect(
-          chains.single.imageRefs, ['existing.png', 'generated/preview.png']);
+      expect(chains.single.imageRefs, ['existing.png']);
+      expect(chains.single.modelPreviewRefs['v5'], ['generated/preview.png']);
 
       final payload = requestedPayloads.single;
       expect(payload['input'], isA<String>());
-      expect(payload['model'], 'nai-diffusion-5-curated');
+      expect(payload['model'], 'nai-diffusion-5-full');
       expect(payload['action'], 'generate');
       final parameters = payload['parameters'] as Map<String, dynamic>;
       expect(parameters['width'], 832);
       expect(parameters['height'], 1216);
       expect(parameters['seed'], 42);
-      expect(parameters['negative_prompt'], defaultUC);
+      expect(parameters['negative_prompt'], contains(defaultUC));
+      expect(parameters['negative_prompt'],
+          contains(artistChainV5CollaborationNegativeTerm));
+      expect(parameters['negative_prompt'], contains('3d'));
       final prompt = _baseCaption(parameters, 'v4_prompt');
       expect(prompt, contains('masterpiece'));
       expect(prompt, contains('artist:foo'));
@@ -107,11 +111,54 @@ void main() {
       expect(parameters['reference_image_multiple'], isEmpty);
       expect(parameters['reference_strength_multiple'], isEmpty);
       expect(parameters['reference_information_extracted_multiple'], isEmpty);
-      expect(_baseCaption(parameters, 'v4_negative_prompt'), defaultUC);
+      expect(
+          _baseCaption(parameters, 'v4_negative_prompt'), contains(defaultUC));
+      expect(_baseCaption(parameters, 'v4_negative_prompt'),
+          contains(artistChainV5CollaborationNegativeTerm));
       expect(_charCaptions(parameters, 'v4_prompt'), isEmpty);
       expect(_v4Prompt(parameters, 'v4_prompt')['use_coords'], isFalse);
       expect(_v4Prompt(parameters, 'v4_prompt')['use_order'], isTrue);
       expect(prompt, payload['input']);
+    });
+
+    test('stores V4.5 artist preview separately and enables bound Vibe',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-v45',
+          name: 'V4.5 Painter Chain',
+          prompt: 'artist:v45_painter',
+          vibeRefs: const [
+            WorkspaceVibeReference(
+              id: 'v45-vibe',
+              name: 'V4.5 Vibe',
+              vibeB64: 'encoded-v45-vibe',
+            ),
+          ],
+        ),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 7],
+      );
+
+      await service.generateArtistChainPreview(
+        'chain-v45',
+        options: const StudioAssetPreviewGenerationOptions(
+          model: 'nai-diffusion-4-5-full',
+        ),
+      );
+
+      final chain = (await workspaceService.loadArtistChains()).single;
+      expect(chain.modelPreviewRefs['v4_5'], ['generated/preview.png']);
+      expect(chain.modelPreviewRefs['v5'], isNull);
+      expect(requestedPayloads.single['model'], 'nai-diffusion-4-5-full');
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      expect(parameters['params_version'], 3);
+      expect(parameters['reference_image_multiple'], ['encoded-v45-vibe']);
     });
 
     test('artist-chain preview uses random character and scene codex prompt',
@@ -234,7 +281,77 @@ void main() {
       expect(prompt, isNot(contains('artist:legacy_plain')));
       final negativePrompt = _baseCaption(parameters, 'v4_negative_prompt');
       expect(negativePrompt, contains(defaultUC));
+      expect(negativePrompt, contains(artistChainV5CollaborationNegativeTerm));
       expect(negativePrompt, contains('-6:: flat color ::'));
+    });
+
+    test(
+        'V5 artist preview removes duplicated raw artist tags and adds 2D guard',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-structured',
+          name: 'Structured Chain',
+          prompt: 'artist:foo_artist, artist:legacy_raw, glossy skin',
+          artists: const [ArtistEntry(name: 'foo_artist')],
+        ),
+      ]);
+      await workspaceService.saveCharacters([
+        _character(id: 'char-1', name: 'Mira', traits: 'silver hair'),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 123],
+      );
+
+      await service.generateArtistChainPreview('chain-structured');
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('artist:foo_artist'));
+      expect(prompt.split('artist:foo_artist').length - 1, 1);
+      expect(prompt, isNot(contains('artist:legacy_raw')));
+      expect(prompt, contains('glossy skin'));
+      expect(prompt, contains(artistChainV5QualityTerms));
+      expect(prompt, contains('2d'));
+      final negativePrompt = _baseCaption(parameters, 'v4_negative_prompt');
+      expect(negativePrompt, contains(artistChainV5CollaborationNegativeTerm));
+      expect(negativePrompt, contains('photorealistic'));
+    });
+
+    test('artist preview preserves an explicit 3D medium without 2D guard',
+        () async {
+      await workspaceService.saveArtistChains([
+        _artistChain(
+          id: 'chain-3d',
+          name: '3D Chain',
+          prompt: 'artist:foo, 3d, photorealistic',
+        ),
+      ]);
+      await workspaceService.saveCharacters([
+        _character(id: 'char-1', name: 'Mira', traits: 'pink hair'),
+      ]);
+      final service = _service(
+        workspaceService,
+        requestedPayloads: requestedPayloads,
+        savedFileNames: savedFileNames,
+        randomInts: [0, 456],
+      );
+
+      await service.generateArtistChainPreview('chain-3d');
+
+      final parameters =
+          requestedPayloads.single['parameters'] as Map<String, dynamic>;
+      final prompt = _baseCaption(parameters, 'v4_prompt');
+      expect(prompt, contains('3d'));
+      expect(prompt, contains('photorealistic'));
+      expect(prompt, isNot(contains('anime illustration')));
+      final negativePrompt = _baseCaption(parameters, 'v4_negative_prompt');
+      expect(negativePrompt, contains(artistChainV5CollaborationNegativeTerm));
+      expect(negativePrompt, isNot(contains('photorealistic')));
     });
 
     test('generates a character preview on pure white without scene terms',
@@ -730,8 +847,8 @@ void main() {
 
       final chain = (await workspaceService.loadArtistChains()).single;
       expect(chain.name, 'Edited During Save');
-      expect(chain.imageRefs,
-          ['existing.png', 'concurrent.png', 'generated/preview.png']);
+      expect(chain.imageRefs, ['existing.png', 'concurrent.png']);
+      expect(chain.modelPreviewRefs['v5'], ['generated/preview.png']);
     });
 
     test('preserves character edits saved while image is being written',
@@ -863,6 +980,7 @@ void main() {
       final chains = await workspaceService.loadArtistChains();
       expect(
           chains.single.imageRefs, ['existing.png', 'generated/preview.png']);
+      expect(chains.single.modelPreviewRefs['v5'], ['generated/preview.png']);
     });
 
     test('does not append a duplicate returned character image path', () async {
@@ -926,9 +1044,11 @@ void main() {
           name: 'Painter Chain',
           imageRefs: [
             'existing.png',
-            generatedFile.path,
             'concurrent.png',
           ],
+          modelPreviewRefs: {
+            'v5': [generatedFile.path],
+          },
         ),
       ]);
       final service = _service(
@@ -941,6 +1061,7 @@ void main() {
 
       final chains = await workspaceService.loadArtistChains();
       expect(chains.single.imageRefs, ['existing.png', 'concurrent.png']);
+      expect(chains.single.modelPreviewRefs, isEmpty);
       expect(generatedFile.existsSync(), isFalse);
     });
 
@@ -1041,6 +1162,7 @@ ArtistChain _artistChain({
   String prompt = '',
   List<String> styleTags = const [],
   List<String> imageRefs = const [],
+  Map<String, List<String>> modelPreviewRefs = const {},
   List<WorkspaceVibeReference> vibeRefs = const [],
   List<ArtistEntry> artists = const [],
   List<WorkspaceWeightedTag> globalNegatives = const [],
@@ -1053,6 +1175,7 @@ ArtistChain _artistChain({
     prompt: prompt,
     styleTags: styleTags,
     imageRefs: imageRefs,
+    modelPreviewRefs: modelPreviewRefs,
     vibeRefs: vibeRefs,
     artists: artists,
     globalNegatives: globalNegatives,

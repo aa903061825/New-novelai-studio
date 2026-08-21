@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image/image.dart' as img;
 import 'package:novel_studio/core/constants/defaults.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/services/file_service.dart';
 import 'package:novel_studio/data/studio/services/studio_asset_preview_generation_service.dart';
@@ -22,6 +23,7 @@ import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/data/workspace/workspace_paths.dart';
 import 'package:novel_studio/ui/studio_shell/models/asset_library_query.dart'
     as asset_query;
+import 'package:novel_studio/ui/studio_shell/models/artist_chain_preview_filter.dart';
 import 'package:novel_studio/ui/studio_shell/services/asset_library_edit_document.dart';
 import 'package:novel_studio/ui/studio_script/models/studio_script_asset_focus.dart';
 import 'package:novel_studio/ui/studio_core/motion/studio_interactive_surface.dart';
@@ -282,6 +284,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
   late Future<StudioAssetCatalogSnapshot> _snapshotFuture;
   String _query = '';
   _AssetFilter _filter = _AssetFilter.all;
+  ArtistChainPreviewFamilyFilter _artistChainPreviewFilter =
+      ArtistChainPreviewFamilyFilter.all;
   _AssetDisplayItem? _selectedAsset;
   StudioAssetCatalogSnapshot? _localCatalog;
   Future<void> _characterMutationTail = Future<void>.value();
@@ -383,6 +387,7 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                 const SizedBox(height: 14),
                 _AssetLibraryControls(
                   selectedFilter: _filter,
+                  selectedArtistChainPreviewFilter: _artistChainPreviewFilter,
                   availableFilters: _availableFilters(catalog),
                   selectedCodexSourceScopeKey: _legacyCodexSourceScopeKey,
                   selectedCodexCategoryKey: _legacyCodexCategoryKey,
@@ -392,6 +397,8 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
                   resultCount: displaySlice.totalCount,
                   onQueryChanged: _setQuery,
                   onFilterChanged: _selectAssetFilter,
+                  onArtistChainPreviewFilterChanged:
+                      _selectArtistChainPreviewFilter,
                   onCodexSourceScopeChanged: _selectLegacyCodexSourceScope,
                   onCodexCategoryChanged: _selectLegacyCodexCategory,
                   onReload: _reload,
@@ -990,10 +997,17 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         'ID ${artistChain.id}',
         _sourceLabel(artistChain.source),
       ]),
-      referencePaths: artistChain.imageRefs,
+      referencePaths: _artistChainPreviewRefs(artistChain),
       scriptFocus: StudioScriptAssetFocus.artistChain(
         artistChainId: artistChain.id,
       ),
+    );
+  }
+
+  List<String> _artistChainPreviewRefs(ArtistChain artistChain) {
+    return artistChainPreviewRefsForFilter(
+      artistChain,
+      _artistChainPreviewFilter,
     );
   }
 
@@ -1338,13 +1352,21 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
             'ID ${artistChain.id}',
             _sourceLabel(artistChain.source),
           ]),
-          referencePaths: artistChain.imageRefs,
+          referencePaths: _artistChainPreviewRefs(artistChain),
           scriptFocus: StudioScriptAssetFocus.artistChain(
             artistChainId: artistChain.id,
           ),
           detailsBuilder: () => _details([
             const _AssetDetailLine('类型', '画师串'),
             _AssetDetailLine('ID', artistChain.id),
+            _AssetDetailLine(
+              'V4.5 预览',
+              '${artistChain.previewRefsForFamily(generationPreviewFamilyV45).length} 张',
+            ),
+            _AssetDetailLine(
+              'V5 预览',
+              '${artistChain.previewRefsForFamily(generationPreviewFamilyV5).length} 张',
+            ),
             _AssetDetailLine('Prompt', _artistChainPrompt(artistChain)),
             if (_shouldShowArtistChainTags(artistChain))
               _AssetDetailLine('Tags', artistChain.tags.join(', ')),
@@ -1807,9 +1829,14 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       builder: (context) => _PreviewGenerationOptionsDialog(
         assetTitle: item.title,
         showArtistSelector: item.kind == _AssetKind.character,
+        showGenerationModel: item.kind == _AssetKind.artistChain,
         showCustomPrompt: item.kind == _AssetKind.character ||
             item.kind == _AssetKind.artistChain,
         artistChains: _previewOptionArtistChains(),
+        initialModel: item.kind == _AssetKind.artistChain &&
+                _artistChainPreviewFilter == ArtistChainPreviewFamilyFilter.v45
+            ? 'nai-diffusion-4-5-full'
+            : null,
       ),
     );
   }
@@ -3562,15 +3589,18 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
     StudioAssetCatalogSnapshot catalog,
     ArtistChain artistChain,
   ) async {
-    final resolvedPath = _resolvePreviewPath(
+    final resolvedPaths = _resolvePreviewPaths(
       _AssetKind.artistChain,
       'artist-${artistChain.id}',
-      artistChain.imageRefs,
+      artistChain.allPreviewRefs,
     );
     final updated = [
       for (final chain in catalog.artistChains)
         if (chain.id == artistChain.id)
-          chain.copyWith(imageRefs: const [])
+          chain.copyWith(
+            imageRefs: const [],
+            modelPreviewRefs: const {},
+          )
         else
           chain,
     ];
@@ -3581,7 +3611,9 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
       _localCatalog = _snapshotWith(catalog, artistChains: updated);
       _selectedAsset = null;
     });
-    _deleteLocalPreviewFile(resolvedPath);
+    for (final resolvedPath in resolvedPaths) {
+      _deleteLocalPreviewFile(resolvedPath);
+    }
   }
 
   void _deleteLocalPreviewFile(String? resolvedPath) {
@@ -3972,6 +4004,19 @@ class _AssetLibraryPageState extends State<AssetLibraryPage> {
         _localCatalog = null;
         _snapshotFuture = _loadSnapshot();
       }
+    });
+  }
+
+  void _selectArtistChainPreviewFilter(
+    ArtistChainPreviewFamilyFilter value,
+  ) {
+    if (_artistChainPreviewFilter == value) return;
+    setState(() {
+      _artistChainPreviewFilter = value;
+      _selectedAsset = null;
+      _clearDisplayItemsCache();
+      _clearPreviewResolutionState();
+      _resetVisibleAssetLimit();
     });
   }
 
@@ -4410,6 +4455,7 @@ class _StatePanel extends StatelessWidget {
 
 class _AssetLibraryControls extends StatelessWidget {
   final _AssetFilter selectedFilter;
+  final ArtistChainPreviewFamilyFilter selectedArtistChainPreviewFilter;
   final Set<_AssetFilter> availableFilters;
   final String selectedCodexSourceScopeKey;
   final String selectedCodexCategoryKey;
@@ -4419,6 +4465,8 @@ class _AssetLibraryControls extends StatelessWidget {
   final int resultCount;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<_AssetFilter> onFilterChanged;
+  final ValueChanged<ArtistChainPreviewFamilyFilter>
+      onArtistChainPreviewFilterChanged;
   final ValueChanged<String> onCodexSourceScopeChanged;
   final ValueChanged<String> onCodexCategoryChanged;
   final VoidCallback onReload;
@@ -4428,6 +4476,7 @@ class _AssetLibraryControls extends StatelessWidget {
 
   const _AssetLibraryControls({
     required this.selectedFilter,
+    required this.selectedArtistChainPreviewFilter,
     required this.availableFilters,
     required this.selectedCodexSourceScopeKey,
     required this.selectedCodexCategoryKey,
@@ -4437,6 +4486,7 @@ class _AssetLibraryControls extends StatelessWidget {
     required this.resultCount,
     required this.onQueryChanged,
     required this.onFilterChanged,
+    required this.onArtistChainPreviewFilterChanged,
     required this.onCodexSourceScopeChanged,
     required this.onCodexCategoryChanged,
     required this.onReload,
@@ -4525,6 +4575,28 @@ class _AssetLibraryControls extends StatelessWidget {
         if (!primaryFilterValues.contains(filter.$1) &&
             availableFilters.contains(filter.$1))
           filter,
+    ];
+    final artistPreviewFilters = [
+      (
+        ArtistChainPreviewFamilyFilter.all,
+        '全部预览',
+        'asset-artist-preview-family-all',
+      ),
+      (
+        ArtistChainPreviewFamilyFilter.v45,
+        'V4.5',
+        'asset-artist-preview-family-v45',
+      ),
+      (
+        ArtistChainPreviewFamilyFilter.v5,
+        'V5',
+        'asset-artist-preview-family-v5',
+      ),
+      (
+        ArtistChainPreviewFamilyFilter.unclassified,
+        '未归类',
+        'asset-artist-preview-family-unclassified',
+      ),
     ];
 
     return StudioPanel(
@@ -4632,6 +4704,30 @@ class _AssetLibraryControls extends StatelessWidget {
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: StudioTokens.textMuted,
                   ),
+            ),
+          ],
+          if (selectedFilter == _AssetFilter.artistChain) ...[
+            const SizedBox(height: 10),
+            Text(
+              '画师串预览版本',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              key: const ValueKey('asset-artist-preview-family-row'),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final filter in artistPreviewFilters)
+                  KeyedSubtree(
+                    key: ValueKey(filter.$3),
+                    child: StudioChip(
+                      label: filter.$2,
+                      selected: selectedArtistChainPreviewFilter == filter.$1,
+                      onTap: () => onArtistChainPreviewFilterChanged(filter.$1),
+                    ),
+                  ),
+              ],
             ),
           ],
           if (selectedFilter == _AssetFilter.codex) ...[
@@ -5263,14 +5359,18 @@ class _PreviewGenerationDecision {
 class _PreviewGenerationOptionsDialog extends StatefulWidget {
   final String assetTitle;
   final bool showArtistSelector;
+  final bool showGenerationModel;
   final bool showCustomPrompt;
   final List<ArtistChain> artistChains;
+  final String? initialModel;
 
   const _PreviewGenerationOptionsDialog({
     required this.assetTitle,
     required this.showArtistSelector,
+    required this.showGenerationModel,
     required this.showCustomPrompt,
     required this.artistChains,
+    this.initialModel,
   });
 
   @override
@@ -5281,9 +5381,16 @@ class _PreviewGenerationOptionsDialog extends StatefulWidget {
 class _PreviewGenerationOptionsDialogState
     extends State<_PreviewGenerationOptionsDialog> {
   String _artistChainId = '';
+  late String _model;
   String _customPrompt = '';
   StudioPreviewCustomPromptMode _mode = StudioPreviewCustomPromptMode.append;
   GenerationSize? _selectedSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _model = widget.initialModel ?? naiDiffusion5Full;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5305,6 +5412,32 @@ class _PreviewGenerationOptionsDialogState
                       color: StudioTokens.textMuted,
                     ),
               ),
+              if (widget.showGenerationModel) ...[
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  key: const ValueKey('asset-preview-options-model'),
+                  initialValue: _model,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: '预览模型',
+                    helperText: '同一画师串分别保存 V4.5 与 V5 预览',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem<String>(
+                      value: naiDiffusion5Full,
+                      child: Text('NAI V5 Full'),
+                    ),
+                    DropdownMenuItem<String>(
+                      value: 'nai-diffusion-4-5-full',
+                      child: Text('NAI V4.5 Full'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _model = value);
+                  },
+                ),
+              ],
               if (widget.showArtistSelector) ...[
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
@@ -5419,6 +5552,7 @@ class _PreviewGenerationOptionsDialogState
             StudioAssetPreviewGenerationOptions(
               artistChainId:
                   _artistChainId.trim().isEmpty ? null : _artistChainId,
+              model: _model,
               customPrompt: _customPrompt,
               customPromptMode: _mode,
               size: _selectedSize,

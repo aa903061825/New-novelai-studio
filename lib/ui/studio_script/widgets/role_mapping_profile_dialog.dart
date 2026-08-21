@@ -2085,7 +2085,7 @@ PromptTagDisplay _profilePromptDisplay(
     text: text,
     emptyText: emptyText,
     dense: true,
-    defaultTranslated: true,
+    defaultTranslated: false,
     enableTagActions: enableTagActions,
     initialLayoutMode: PromptTagLayoutMode.sourceOrder,
     respectInitialLayoutMode: true,

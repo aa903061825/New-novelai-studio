@@ -3,6 +3,7 @@ import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
 import 'package:novel_studio/data/studio/services/script_role_mapping_profile_service.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 void main() {
   const service = ScriptRoleMappingProfileService();
@@ -52,6 +53,136 @@ void main() {
 
     expect(preview.entries.single.selectedTermIds, ['weighted-girl']);
     expect(preview.entries.single.selectedByDefault, isTrue);
+  });
+
+  test('reconciles stale target terms after a profile is retargeted', () {
+    const pepe = CharacterEntry(
+      id: 'pepe',
+      name: '佩佩',
+      traits: ViewVariantTexts(
+        frontFull: 'pepe_(arknights), cat ears, Lotus flower headdress, hood, '
+            'wearing hood, animal hood',
+      ),
+    );
+    const guobao = CharacterEntry(
+      id: 'guobao',
+      name: '果宝',
+      traits: ViewVariantTexts(
+        frontFull: '1girl, guobao, white hair, green bonnet',
+      ),
+    );
+    final profile = RoleMappingProfile(
+      id: 'retargeted-profile',
+      name: '果宝',
+      targetCharacterId: guobao.id,
+      targetIdentityPrompt: 'pepe_(arknights), white hair, -3:: hood ::',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'head-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'bonnet',
+              text: 'bonnet',
+              normalizedKey: 'bonnet',
+            ),
+          ],
+          targetPrompt:
+              '1.5:: cat ears ::, -3:: hood ::, -3:: wearing hood ::, '
+              '-3:: animal hood ::, white hair, custom target',
+          action: ScriptPromptReplacementAction.replace,
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 21),
+      updatedAt: DateTime.utc(2026, 8, 21),
+    );
+
+    final repaired = service.reconcileTargetCharacter(
+      profile: profile,
+      targetCharacter: guobao,
+      characterCatalog: const [pepe, guobao],
+      fallbackIdentityPrompt: 'guobao, white hair, green bonnet',
+    );
+
+    expect(
+      repaired.targetIdentityPrompt,
+      'guobao, white hair, green bonnet',
+    );
+    expect(
+      repaired.blocks.single.targetPrompt,
+      'white hair, custom target',
+    );
+  });
+
+  test('clears old target outputs when applying a different linked character',
+      () {
+    final profile = RoleMappingProfile(
+      id: 'target-switch-profile',
+      name: '果宝',
+      targetCharacterId: 'guobao',
+      targetIdentityPrompt: 'guobao',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'bonnet-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'bonnet',
+              text: 'bonnet',
+              normalizedKey: 'bonnet',
+            ),
+          ],
+          targetPrompt: 'white hair',
+          action: ScriptPromptReplacementAction.replace,
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 21),
+      updatedAt: DateTime.utc(2026, 8, 21),
+    );
+    final replacement = ScriptRolePromptReplacement(
+      sourceRoleId: 'role-1',
+      displayLabel: '角色 1',
+      targetCharacterId: 'pepe',
+      targetIdentityPrompt: 'pepe_(arknights)',
+      rules: [
+        _rule(
+          id: 'bonnet-current',
+          terms: const [('bonnet', 'current-bonnet')],
+          target: 'cat ears',
+        ),
+        _rule(
+          id: 'ribbon-current',
+          terms: const [('ribbon', 'current-ribbon')],
+          target: 'Lotus flower headdress',
+        ),
+      ],
+    );
+
+    final applied = service.applySelections(
+      profile: profile,
+      replacement: replacement,
+      selections: const [
+        RoleMappingProfileApplySelection(
+          blockId: 'bonnet-block',
+          termIds: ['current-bonnet'],
+        ),
+      ],
+    );
+
+    expect(applied.targetCharacterId, 'guobao');
+    expect(applied.targetIdentityPrompt, 'guobao');
+    expect(
+      applied.rules
+          .singleWhere((rule) => rule.id.startsWith('profile-'))
+          .targetPrompt,
+      'white hair',
+    );
+    expect(
+      applied.rules
+          .singleWhere(
+            (rule) => rule.sourceTerms.any((term) => term.text == 'ribbon'),
+          )
+          .targetPrompt,
+      isEmpty,
+    );
   });
 
   test('active profile binding survives script cache JSON round-trip', () {

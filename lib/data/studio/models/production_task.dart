@@ -75,7 +75,7 @@ class ProductionTask {
   final int? rating;
   final DateTime? ratedAt;
 
-  /// Timestamp marking a completed task as hidden from the production queue.
+  /// Timestamp marking a task as hidden from the production queue.
   /// The task remains persisted for Script Exhibition and gallery indexing.
   final DateTime? queueDismissedAt;
 

@@ -27,11 +27,13 @@ class ProductionPlanDeletionResult {
   final bool deleted;
   final int deletedImageCount;
   final List<String> failedImagePaths;
+  final bool preservedForExhibition;
 
   const ProductionPlanDeletionResult({
     required this.deleted,
     this.deletedImageCount = 0,
     this.failedImagePaths = const [],
+    this.preservedForExhibition = false,
   });
 }
 
@@ -1327,22 +1329,51 @@ class ProductionQueueViewModel extends ChangeNotifier {
       }
     }
 
+    final preservesExhibition = plan.tasks.any(
+      (task) => task.taskType == ProductionTaskType.scriptRecastFrame,
+    );
+    final dismissalAt = now().toUtc();
+    final archivedPlan = preservesExhibition
+        ? plan.copyWith(
+            tasks: [
+              for (final task in plan.tasks)
+                task.isQueueDismissed
+                    ? task
+                    : task.copyWith(queueDismissedAt: dismissalAt),
+            ],
+            planFingerprint: plan.planFingerprint,
+            updatedAt: plan.updatedAt,
+          )
+        : null;
+    final nextPlans = archivedPlan == null
+        ? remainingPlans
+        : [
+            for (final candidate in plans)
+              candidate.id == plan.id ? archivedPlan : candidate,
+          ];
+    if (_selectedPlanId == plan.id) {
+      fallbackPlanId = _firstVisiblePlanId(nextPlans);
+    }
+
     final service = queueService;
     if (service != null) {
       await service.savePlanChanges(
-        updatedPlans: const [],
-        deletedPlanIds: [plan.id],
+        updatedPlans: archivedPlan == null ? const [] : [archivedPlan],
+        deletedPlanIds: archivedPlan == null ? [plan.id] : const [],
       );
     }
     _selectedTaskIdsByPlanId.remove(plan.id);
     _setPlans(
-      remainingPlans,
+      nextPlans,
       selectedPlanId: fallbackPlanId,
     );
     notifyListeners();
 
     if (!deleteLocalImages) {
-      return const ProductionPlanDeletionResult(deleted: true);
+      return ProductionPlanDeletionResult(
+        deleted: true,
+        preservedForExhibition: preservesExhibition,
+      );
     }
     final pathsUsedByRemainingPlans = {
       for (final candidate in remainingPlans)
@@ -1375,6 +1406,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
       deleted: true,
       deletedImageCount: deletedImageCount,
       failedImagePaths: List.unmodifiable(failedImagePaths),
+      preservedForExhibition: preservesExhibition,
     );
   }
 

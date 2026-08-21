@@ -3,8 +3,22 @@ import 'dart:math' as math;
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
 import 'package:novel_studio/data/studio/services/script_role_replacement_layer_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
 class ScriptRoleMappingProfileService {
+  static const Set<String> _genericTargetTagKeys = {
+    '1boy',
+    '1girl',
+    'boy',
+    'female',
+    'girl',
+    'male',
+    'one person only',
+    'single character',
+    'solo',
+  };
+
   final ScriptRoleReplacementLayerService layerService;
 
   const ScriptRoleMappingProfileService({
@@ -32,6 +46,76 @@ class ScriptRoleMappingProfileService {
       ),
       createdAt: timestamp,
       updatedAt: timestamp,
+    );
+  }
+
+  /// Removes target terms that belong to another character when a profile was
+  /// retargeted without rebuilding its old target rules.
+  ///
+  /// Profile blocks intentionally may contain terms that are not present in
+  /// the current source prompt, so source matching alone cannot protect the
+  /// output. The character library is the authoritative boundary for
+  /// character/outfit terms; unknown custom terms remain untouched.
+  RoleMappingProfile reconcileTargetCharacter({
+    required RoleMappingProfile profile,
+    required CharacterEntry targetCharacter,
+    required Iterable<CharacterEntry> characterCatalog,
+    String fallbackIdentityPrompt = '',
+  }) {
+    final catalog = [
+      for (final character in characterCatalog)
+        if (character.id.trim().isNotEmpty) character,
+    ];
+    if (!catalog.any((character) => character.id == targetCharacter.id)) {
+      catalog.add(targetCharacter);
+    }
+    final targetKeys = _characterTargetTagKeys(targetCharacter);
+    final knownKeys = <String>{
+      for (final character in catalog) ..._characterTargetTagKeys(character),
+    };
+    final foreignKeys = knownKeys.difference(targetKeys)
+      ..removeAll(_genericTargetTagKeys);
+
+    String filterPrompt(String prompt) {
+      final filtered = [
+        for (final tag in _splitTargetPromptTags(prompt))
+          if (!_isForeignTargetTag(
+            PromptTagProcessor.normalizeMatchKey(tag),
+            targetKeys,
+            foreignKeys,
+          ))
+            tag,
+      ];
+      return _joinTargetPromptTags(filtered);
+    }
+
+    final identityPrompt = filterPrompt(profile.targetIdentityPrompt);
+    final identityChanged =
+        identityPrompt != profile.targetIdentityPrompt.trim();
+    final fallback = fallbackIdentityPrompt.trim();
+    final repairedIdentity =
+        (identityChanged || identityPrompt.isEmpty) && fallback.isNotEmpty
+            ? _joinTargetPromptTags([fallback, identityPrompt])
+            : identityPrompt;
+    final layers = [
+      for (final layer in profile.effectiveLayers)
+        layer.copyWith(
+          blocks: List.unmodifiable([
+            for (final block in layer.blocks)
+              block.copyWith(
+                targetPrompt: filterPrompt(block.targetPrompt),
+                targetWeightMultiplier:
+                    filterPrompt(block.targetPrompt).trim().isEmpty
+                        ? null
+                        : block.targetWeightMultiplier,
+              ),
+          ]),
+        ),
+    ];
+
+    return profile.copyWith(
+      targetIdentityPrompt: repairedIdentity,
+      layers: List.unmodifiable(layers),
     );
   }
 
@@ -130,7 +214,11 @@ class ScriptRoleMappingProfileService {
       ))
         preview.layer.id: preview,
     };
-    var rules = replacement.rules;
+    final targetChanged = applyIdentity &&
+        profile.targetCharacterId != replacement.targetCharacterId;
+    var rules = targetChanged
+        ? _rulesWithoutTargetOutputs(replacement.rules)
+        : replacement.rules;
     final appliedLayerByRuleId =
         <String, ScriptRoleReplacementRuleLayerOverride>{};
     for (final selection in selected) {
@@ -871,6 +959,22 @@ class ScriptRoleMappingProfileService {
     return List.unmodifiable(next);
   }
 
+  List<ScriptPromptReplacementRule> _rulesWithoutTargetOutputs(
+    Iterable<ScriptPromptReplacementRule> rules,
+  ) {
+    return List.unmodifiable([
+      for (final rule in rules)
+        rule.copyWith(
+          action: rule.action == ScriptPromptReplacementAction.delete
+              ? ScriptPromptReplacementAction.delete
+              : ScriptPromptReplacementAction.none,
+          targetPrompt: '',
+          targetWeightMultiplier: null,
+          manualPhrase: '',
+        ),
+    ]);
+  }
+
   RoleMappingProfileBlock _blockWithAppliedCompanionTerms(
     RoleMappingProfileBlock block,
     Iterable<RoleMappingProfileApplySelection> selections,
@@ -990,6 +1094,81 @@ class ScriptRoleMappingProfileService {
     return blocks.indexWhere(
       (block) => _sameSignature(block.normalizedTermKeys, signature),
     );
+  }
+
+  Set<String> _characterTargetTagKeys(CharacterEntry character) {
+    final tags = <String>[
+      ...character.anchorTags,
+      ...character.identityTags,
+      ..._viewVariantTexts(character.traits),
+      for (final outfit in character.outfits) ...[
+        ..._viewVariantTexts(outfit.tags),
+        ...outfit.partTags.upperBodyTags,
+        ...outfit.partTags.upperClothingTags,
+        ...outfit.partTags.lowerBodyTags,
+        ...outfit.partTags.lowerClothingTags,
+        ...outfit.partTags.weaponTags,
+        outfit.negativePrompt,
+      ],
+    ];
+    return {
+      for (final tag in tags)
+        for (final fragment in _splitTargetPromptTags(tag))
+          PromptTagProcessor.normalizeMatchKey(fragment),
+    }..remove('');
+  }
+
+  Iterable<String> _viewVariantTexts(ViewVariantTexts texts) sync* {
+    yield texts.frontFull;
+    if (texts.frontCowboy != null) yield texts.frontCowboy!;
+    if (texts.frontUpper != null) yield texts.frontUpper!;
+    if (texts.frontLower != null) yield texts.frontLower!;
+    if (texts.backFull != null) yield texts.backFull!;
+    if (texts.backCowboy != null) yield texts.backCowboy!;
+    if (texts.backUpper != null) yield texts.backUpper!;
+    if (texts.backLower != null) yield texts.backLower!;
+  }
+
+  bool _isForeignTargetTag(
+    String key,
+    Set<String> targetKeys,
+    Set<String> foreignKeys,
+  ) {
+    if (key.isEmpty) return false;
+    if (targetKeys.contains(key)) return false;
+    if (key.contains('hood') &&
+        targetKeys.any((targetKey) => targetKey.contains('hood'))) {
+      return false;
+    }
+    if (foreignKeys.contains(key)) return true;
+    // Some old mapping profiles used a shortened display alias such as
+    // "animal hood" while the character card stored "animal ear hood".
+    return key.contains('hood') &&
+        foreignKeys.any((foreignKey) => foreignKey.contains('hood'));
+  }
+
+  List<String> _splitTargetPromptTags(String text) {
+    return PromptTagProcessor.splitWorkshopTags(text)
+        .map(
+          (tag) => PromptTagProcessor.cleanTagDisplay(
+            tag,
+            removeWeights: false,
+          ).trim(),
+        )
+        .where((tag) => tag.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _joinTargetPromptTags(Iterable<String> prompts) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final prompt in prompts) {
+      for (final tag in _splitTargetPromptTags(prompt)) {
+        final key = PromptTagProcessor.normalizeMatchKey(tag);
+        if (key.isNotEmpty && seen.add(key)) result.add(tag);
+      }
+    }
+    return result.join(', ');
   }
 }
 

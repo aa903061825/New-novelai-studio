@@ -11,6 +11,7 @@ import 'package:novel_studio/data/studio/services/role_mapping_profile_repositor
 import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_chip.dart';
 import 'package:novel_studio/ui/studio_core/widgets/prompt_tag_display.dart';
@@ -72,6 +73,96 @@ void main() {
         caches.single.mapping.rolePromptReplacements.single
             .activeMappingProfileId,
         profile.id);
+  });
+
+  test('one-click mapping repairs a profile carrying another character target',
+      () async {
+    const pepe = CharacterEntry(
+      id: 'pepe',
+      name: '佩佩',
+      traits: ViewVariantTexts(
+        frontFull: 'pepe_(arknights), cat ears, Lotus flower headdress, hood, '
+            'wearing hood, animal hood',
+      ),
+    );
+    const guobao = CharacterEntry(
+      id: 'guobao',
+      name: '果宝',
+      traits: ViewVariantTexts(frontFull: '1girl, guobao, white hair'),
+    );
+    final profile = RoleMappingProfile(
+      id: 'stale-guobao-profile',
+      name: '果宝',
+      targetCharacterId: guobao.id,
+      targetCharacterNameSnapshot: guobao.name,
+      targetIdentityPrompt: 'pepe_(arknights)',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'head-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'bonnet',
+              text: 'bonnet',
+              normalizedKey: 'bonnet',
+            ),
+          ],
+          targetPrompt:
+              '1.5:: cat ears ::, -3:: hood ::, -3:: wearing hood ::, '
+              '-3:: animal hood ::, 2:: lotus flower headdress ::, white hair',
+          action: ScriptPromptReplacementAction.replace,
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 21),
+      updatedAt: DateTime.utc(2026, 8, 21),
+    );
+    await repository.save(
+      RoleMappingProfileLibrary(profiles: [profile]),
+    );
+    var caches = [
+      _cache(
+        parsedScript,
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: '角色 1',
+          targetCharacterId: pepe.id,
+          targetIdentityPrompt: pepe.name,
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'current-head',
+              sourceTerms: const [
+                ScriptPromptReplacementTerm(
+                  id: 'current-bonnet',
+                  text: 'bonnet',
+                  category: PromptTagCategory.character,
+                ),
+              ],
+              action: ScriptPromptReplacementAction.replace,
+              targetPrompt: 'cat ears',
+            ),
+          ],
+        ),
+      ),
+    ];
+    final viewModel = StudioScriptViewModel(
+      roleMappingProfileRepository: repository,
+      loadCharacters: () async => const [pepe, guobao],
+      loadRecastCaches: () async => caches,
+      saveRecastCaches: (next) async => caches = next,
+    );
+
+    await viewModel.importScriptPath(_fixturePath);
+    await viewModel.quickApplyRoleMappingProfile(
+      profileId: profile.id,
+      sourceRoleId: 'slot-0',
+    );
+
+    final applied = viewModel.roleReplacementMappings.single;
+    expect(applied.targetCharacterId, guobao.id);
+    expect(applied.targetIdentityPrompt, '1girl, guobao, white hair');
+    expect(applied.rules.single.targetPrompt, 'white hair');
+    final repaired = (await repository.load()).profiles.single;
+    expect(repaired.blocks.single.targetPrompt, 'white hair');
+    expect(repaired.targetIdentityPrompt, '1girl, guobao, white hair');
   });
 
   test('previews and automatically consolidates matching source terms',
@@ -976,6 +1067,122 @@ void main() {
   });
 
   testWidgets(
+      'role replacement source tags show category drop feedback and move category',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    const assembly = RoleAssembly(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      stages: [
+        RoleAssemblyStage(
+          id: 'casual',
+          label: '便服',
+          frameIndexes: [0],
+        ),
+        RoleAssemblyStage(
+          id: 'evening',
+          label: '礼服',
+          frameIndexes: [1],
+        ),
+      ],
+    );
+    const replacement = ScriptRolePromptReplacement(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      rules: [
+        ScriptPromptReplacementRule(
+          id: 'hoodie',
+          sourceTerms: [
+            ScriptPromptReplacementTerm(
+              id: 'hoodie-term',
+              text: 'hoodie',
+              category: PromptTagCategory.upperClothing,
+              frameIndexes: [0],
+            ),
+          ],
+        ),
+        ScriptPromptReplacementRule(
+          id: 'other-role-word',
+          sourceTerms: [
+            ScriptPromptReplacementTerm(
+              id: 'other-role-word-term',
+              text: 'blue archive',
+              category: PromptTagCategory.other,
+              frameIndexes: [0],
+            ),
+          ],
+        ),
+      ],
+    );
+    var caches = [
+      _cacheWithReplacements(
+        parsedScript,
+        const [replacement],
+        roleAssemblies: const [assembly],
+      ),
+    ];
+    final viewModel = _viewModel(repository, caches, (next) => caches = next);
+    await tester.runAsync(() => viewModel.importScriptPath(_fixturePath));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioScriptPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+
+    final casualTab = find.byKey(
+      const ValueKey('role-replacement-layer-tab-slot-0-stage:casual'),
+    );
+    await tester.ensureVisible(casualTab);
+    await tester.pumpAndSettle();
+    await tester.tap(casualTab);
+    await tester.pumpAndSettle();
+
+    final sourceDisplay = find.byKey(
+      const ValueKey('replacement-rule-source-role-slot-0-hoodie'),
+    );
+    final sourceChip = find.descendant(
+      of: sourceDisplay,
+      matching: find.byKey(
+        const ValueKey('prompt-tag-chip-hoodie-0-idle'),
+      ),
+    );
+    final otherGroup = find.byKey(
+      const ValueKey('replacement-rule-group-drop-role-slot-0-other'),
+    );
+    expect(sourceChip, findsOneWidget);
+    expect(otherGroup, findsOneWidget);
+
+    final start = tester.getCenter(sourceChip);
+    final end = tester.getCenter(otherGroup);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: start);
+    await tester.pump();
+    await mouse.down(start);
+    await mouse.moveTo(end);
+    await tester.pump();
+
+    expect(find.text('松开以移动到此分组'), findsOneWidget);
+
+    await mouse.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
+    final rule = viewModel.roleReplacementMappings.single.rules
+        .singleWhere((entry) => entry.id == 'hoodie');
+    expect(
+      rule.sourceTerms.map((term) => term.category).toSet(),
+      {PromptTagCategory.other},
+    );
+  });
+
+  testWidgets(
       'compact role layer tabs expose pending state and stage editor without overflow',
       (tester) async {
     tester.view.physicalSize = const Size(900, 1000);
@@ -1139,7 +1346,7 @@ void main() {
         ),
       ),
     );
-    expect(selectedSourceDisplay.defaultTranslated, isTrue);
+    expect(selectedSourceDisplay.defaultTranslated, isFalse);
     expect(
       selectedSourceDisplay.classificationOverrides['loli'],
       PromptTagCategory.character,

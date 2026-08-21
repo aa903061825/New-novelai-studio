@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
+import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
@@ -1199,6 +1200,8 @@ class _HeaderActionsState extends State<_HeaderActions> {
       alignment: WrapAlignment.end,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        if (viewModel.hasOpenScript)
+          _TargetGenerationModelSelector(viewModel: viewModel),
         StudioButton(
           label: '导入剧本',
           icon: viewModel.isImportingScript
@@ -1260,6 +1263,61 @@ class _HeaderActionsState extends State<_HeaderActions> {
       ],
     );
   }
+}
+
+class _TargetGenerationModelSelector extends StatelessWidget {
+  final StudioScriptViewModel viewModel;
+
+  const _TargetGenerationModelSelector({required this.viewModel});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const ValueKey('script-target-generation-model'),
+      width: 220,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: '目标出图模型',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: viewModel.targetGenerationModel,
+            isExpanded: true,
+            isDense: true,
+            items: [
+              for (final model in studioTargetGenerationModels)
+                DropdownMenuItem<String>(
+                  value: model,
+                  child: Text(
+                    _generationModelLabel(model),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (model) {
+              if (model != null) viewModel.setTargetGenerationModel(model);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _generationModelLabel(String model) {
+  return switch (model) {
+    naiDiffusion5Curated => 'NAI V5 Curated',
+    naiDiffusion5Full => 'NAI V5 Full',
+    'nai-diffusion-4-5-full' => 'NAI V4.5 Full',
+    'nai-diffusion-4-5-curated' => 'NAI V4.5 Curated',
+    'nai-diffusion-4-full' => 'NAI V4 Full',
+    'nai-diffusion-4-curated-preview' => 'NAI V4 Curated',
+    'nai-diffusion-3' => 'NAI V3',
+    'nai-diffusion-furry-3' => 'NAI Furry V3',
+    _ => model,
+  };
 }
 
 class _ScriptMappingVersionsButton extends StatelessWidget {
@@ -1890,7 +1948,9 @@ class _ScriptAssetDrawerState extends State<_ScriptAssetDrawer> {
               previewKey: ValueKey('script-asset-preview-artist-${chain.id}'),
               icon: Icons.palette_outlined,
               title: chain.name,
-              subtitle: _artistChainLabel(chain),
+              subtitle: widget.viewModel.artistChainHasTargetModelPreview(chain)
+                  ? _artistChainLabel(chain)
+                  : '${_artistChainLabel(chain)} · 暂无当前模型专属预览',
               previewPaths: widget.viewModel.artistChainPreviewPaths(chain),
               searchableText: '${chain.name} ${_artistChainLabel(chain)}',
               data: _ScriptAssetDragData.artistChain(
@@ -2953,7 +3013,7 @@ class _SelectedFrameReplacedPromptState
               ],
               groupKeyPrefix: 'script-replaced-prompt-group',
               tagKeyPrefix: 'script-replaced-prompt-tags',
-              defaultTranslated: true,
+              defaultTranslated: false,
               enableTagActions: true,
               onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
               filterRuleTargets: _scriptPromptFilterRuleTargets,
@@ -2981,7 +3041,7 @@ class _SelectedFrameReplacedPromptState
               ],
               groupKeyPrefix: 'script-replaced-prompt-group',
               tagKeyPrefix: 'script-replaced-prompt-tags',
-              defaultTranslated: true,
+              defaultTranslated: false,
               enableTagActions: true,
               onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
               filterRuleTargets: _scriptPromptFilterRuleTargets,
@@ -3756,7 +3816,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                 ],
                 groupKeyPrefix: widget.groupKeyPrefix,
                 tagKeyPrefix: widget.tagKeyPrefix,
-                defaultTranslated: true,
+                defaultTranslated: false,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
                 contextMenuActionBuilder: widget.contextMenuActionBuilder,
@@ -3788,7 +3848,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
             else
               PromptTagDisplay(
                 text: widget.tokens.map((token) => token.source).join(', '),
-                defaultTranslated: true,
+                defaultTranslated: false,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
                 contextMenuActionBuilder: widget.contextMenuActionBuilder,
@@ -5320,7 +5380,7 @@ class _FrameTagCard extends StatelessWidget {
           const SizedBox(height: 8),
           PromptTagDisplay(
             text: group.tags.join(', '),
-            defaultTranslated: true,
+            defaultTranslated: false,
             enableTagActions: true,
             onAddToFilterRules: onAddToFilterRules,
             contextMenuActionBuilder: contextMenuActionBuilder == null
@@ -6187,7 +6247,7 @@ class _AiRoleExtractionTermGroup extends StatelessWidget {
           const SizedBox(height: 8),
           PromptTagDisplay(
             text: visibleTerms.join(', '),
-            defaultTranslated: true,
+            defaultTranslated: false,
             dense: true,
             enableTagActions: true,
             initialLayoutMode: PromptTagLayoutMode.sourceOrder,
@@ -7591,6 +7651,16 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                             category: category,
                           );
                           onClearRuleSelection();
+                        },
+                        onSourceTagsCategoryChanged:
+                            (sourceRuleIds, tags, category) {
+                          widget.viewModel
+                              .assignRoleReplacementSourceTermsToCategory(
+                            sourceRoleId: item.sourceRoleId,
+                            sourceRuleIds: sourceRuleIds,
+                            tags: tags,
+                            category: category,
+                          );
                         },
                         translationCache: translationCache,
                         classificationCache: classificationCache,
@@ -9359,6 +9429,8 @@ class _ReplacementRuleGrid extends StatelessWidget {
   final List<StudioScriptReplacementRuleItem> rules;
   final void Function(Set<String> ruleIds, PromptTagCategory category)
       onRulesCategoryChanged;
+  final void Function(Set<String> sourceRuleIds, List<String> tags,
+      PromptTagCategory category)? onSourceTagsCategoryChanged;
   final TranslationCache translationCache;
   final PromptTagClassificationCache? classificationCache;
   final PromptTagClassificationCacheSaver? saveClassificationCache;
@@ -9396,6 +9468,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
     required this.selectionGroupId,
     required this.rules,
     required this.onRulesCategoryChanged,
+    this.onSourceTagsCategoryChanged,
     required this.translationCache,
     this.classificationCache,
     this.saveClassificationCache,
@@ -9434,6 +9507,13 @@ class _ReplacementRuleGrid extends StatelessWidget {
             mappedCount: group.rules.where(_replacementRuleHasResult).length,
             onRulesDropped: (ruleIds) =>
                 onRulesCategoryChanged(ruleIds, group.category),
+            onSourceTagsDropped: onSourceTagsCategoryChanged == null
+                ? null
+                : (sourceRuleIds, tags) => onSourceTagsCategoryChanged!(
+                      sourceRuleIds,
+                      tags,
+                      group.category,
+                    ),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -9529,6 +9609,8 @@ class _ReplacementRuleGroupHeader extends StatelessWidget {
   final int totalCount;
   final int mappedCount;
   final ValueChanged<Set<String>> onRulesDropped;
+  final void Function(Set<String> sourceRuleIds, List<String> tags)?
+      onSourceTagsDropped;
 
   const _ReplacementRuleGroupHeader({
     required this.scope,
@@ -9538,25 +9620,53 @@ class _ReplacementRuleGroupHeader extends StatelessWidget {
     required this.totalCount,
     required this.mappedCount,
     required this.onRulesDropped,
+    this.onSourceTagsDropped,
   });
 
   @override
   Widget build(BuildContext context) {
-    return DragTarget<_ReplacementRuleDragData>(
+    bool canAccept(Object data) {
+      if (data is _ReplacementRuleDragData) {
+        return data.scope == scope &&
+            data.ownerId == ownerId &&
+            (data.ruleIds.isNotEmpty || data.ruleId.trim().isNotEmpty);
+      }
+      if (data is PromptTagDragData) {
+        if (onSourceTagsDropped == null) {
+          return false;
+        }
+        return _replacementRuleIdsForDraggedSourceTags(
+          data,
+          scope: scope,
+          ownerId: ownerId,
+        ).isNotEmpty;
+      }
+      return false;
+    }
+
+    return DragTarget<Object>(
       key: ValueKey(
         'replacement-rule-group-drop-$scope-$ownerId-${category.name}',
       ),
       hitTestBehavior: HitTestBehavior.translucent,
-      onWillAcceptWithDetails: (details) =>
-          details.data.scope == scope &&
-          details.data.ownerId == ownerId &&
-          (details.data.ruleIds.isNotEmpty ||
-              details.data.ruleId.trim().isNotEmpty),
+      onWillAcceptWithDetails: (details) => canAccept(details.data),
       onAcceptWithDetails: (details) {
-        final ruleIds = details.data.ruleIds.isEmpty
-            ? {details.data.ruleId}
-            : details.data.ruleIds;
-        onRulesDropped(ruleIds);
+        final data = details.data;
+        if (data is _ReplacementRuleDragData) {
+          final ruleIds = data.ruleIds.isEmpty ? {data.ruleId} : data.ruleIds;
+          onRulesDropped(ruleIds);
+          return;
+        }
+        if (data is PromptTagDragData) {
+          final sourceRuleIds = _replacementRuleIdsForDraggedSourceTags(
+            data,
+            scope: scope,
+            ownerId: ownerId,
+          );
+          if (sourceRuleIds.isNotEmpty) {
+            onSourceTagsDropped?.call(sourceRuleIds, data.tags);
+          }
+        }
       },
       builder: (context, candidateData, rejectedData) {
         final active = candidateData.isNotEmpty;
@@ -9943,7 +10053,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                     'replacement-rule-source-$ruleKey',
                   ),
                   text: sourcePrompt,
-                  defaultTranslated: true,
+                  defaultTranslated: false,
                   dense: true,
                   initialLayoutMode: PromptTagLayoutMode.sourceOrder,
                   respectInitialLayoutMode: true,
@@ -10071,7 +10181,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                       'replacement-rule-target-$ruleKey',
                     ),
                     text: rule.targetPrompt,
-                    defaultTranslated: true,
+                    defaultTranslated: false,
                     dense: true,
                     initialLayoutMode: PromptTagLayoutMode.sourceOrder,
                     respectInitialLayoutMode: true,
@@ -11216,6 +11326,9 @@ class _ArtistMapping extends StatelessWidget {
                 sourceVibes: viewModel.sourceVibeOptions,
                 vibeOptions: viewModel.vibeOptions,
                 selectedManualVibes: viewModel.selectedManualVibes,
+                vibeEnabled: viewModel.targetSupportsVibeTransfer,
+                vibeDisabledMessage:
+                    '${_generationModelLabel(viewModel.targetGenerationModel)} 暂不支持 Vibe；已保留的配置不会发送，切回 V4 / V4.5 后可继续使用。',
                 translationCache: viewModel.translationCache,
                 onAssetDropped: (data) {
                   if (data.kind == _ScriptAssetDragKind.artistChain) {
@@ -13084,6 +13197,8 @@ class _ArtistMappingRow extends StatelessWidget {
   final List<WorkspaceVibeReference> sourceVibes;
   final List<WorkspaceVibeReference> vibeOptions;
   final List<WorkspaceVibeReference> selectedManualVibes;
+  final bool vibeEnabled;
+  final String vibeDisabledMessage;
   final TranslationCache translationCache;
   final ValueChanged<_ScriptAssetDragData> onAssetDropped;
   final ValueChanged<String> onSourceChanged;
@@ -13102,6 +13217,8 @@ class _ArtistMappingRow extends StatelessWidget {
     required this.sourceVibes,
     required this.vibeOptions,
     required this.selectedManualVibes,
+    required this.vibeEnabled,
+    required this.vibeDisabledMessage,
     required this.translationCache,
     required this.onAssetDropped,
     required this.onSourceChanged,
@@ -13195,6 +13312,8 @@ class _ArtistMappingRow extends StatelessWidget {
             index: index,
             vibeOptions: vibeOptions,
             selectedManualVibes: selectedManualVibes,
+            enabled: vibeEnabled,
+            disabledMessage: vibeDisabledMessage,
             onManualVibeChanged: onManualVibeChanged,
             onManualVibeStrengthChanged: onManualVibeStrengthChanged,
             onImportVibes: onImportVibes,
@@ -13447,6 +13566,8 @@ class _ArtistVibeSlot extends StatefulWidget {
   final int index;
   final List<WorkspaceVibeReference> vibeOptions;
   final List<WorkspaceVibeReference> selectedManualVibes;
+  final bool enabled;
+  final String disabledMessage;
   final void Function(String vibeId, bool selected) onManualVibeChanged;
   final void Function(String vibeId, double strength)
       onManualVibeStrengthChanged;
@@ -13456,6 +13577,8 @@ class _ArtistVibeSlot extends StatefulWidget {
     required this.index,
     required this.vibeOptions,
     required this.selectedManualVibes,
+    required this.enabled,
+    required this.disabledMessage,
     required this.onManualVibeChanged,
     required this.onManualVibeStrengthChanged,
     required this.onImportVibes,
@@ -13488,74 +13611,97 @@ class _ArtistVibeSlotState extends State<_ArtistVibeSlot> {
       for (final vibe in widget.selectedManualVibes) vibe.id: vibe,
     };
     final sourceVibes = _mergeArtistVibeSources(widget.vibeOptions);
-    return Container(
-      key: ValueKey('artist-vibe-slot-${widget.index}'),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: StudioTokens.surface2,
-        borderRadius: StudioTokens.radiusSlot,
-        border: Border.all(color: StudioTokens.cardOutline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.image_search_outlined,
-                size: 16,
-                color: StudioTokens.info,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
+    return Opacity(
+      opacity: widget.enabled ? 1 : 0.68,
+      child: Container(
+        key: ValueKey('artist-vibe-slot-${widget.index}'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: StudioTokens.surface2,
+          borderRadius: StudioTokens.radiusSlot,
+          border: Border.all(color: StudioTokens.cardOutline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.image_search_outlined,
+                  size: 16,
+                  color: StudioTokens.info,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    widget.enabled
+                        ? '已启用 Vibe'
+                        : 'Vibe 已保留 (${widget.selectedManualVibes.length})',
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: StudioTokens.info,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+                if (widget.enabled && widget.onImportVibes != null) ...[
+                  const SizedBox(width: 6),
+                  TextButton.icon(
+                    key: ValueKey('artist-vibe-add-${widget.index}'),
+                    onPressed: () async {
+                      try {
+                        final imported = await widget.onImportVibes!.call();
+                        if (!context.mounted || imported.isEmpty) {
+                          return;
+                        }
+                        setState(() {
+                          _selectedIds.addAll(imported.map((vibe) => vibe.id));
+                        });
+                        if (Scaffold.maybeOf(context) != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('已添加 ${imported.length} 个 Vibe'),
+                            ),
+                          );
+                        }
+                      } catch (error) {
+                        if (!context.mounted) return;
+                        if (Scaffold.maybeOf(context) != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('导入 Vibe 失败：$error')),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.add_photo_alternate_outlined,
+                        size: 16),
+                    label: const Text('添加 Vibe'),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (widget.enabled)
+              _buildActiveDropZone(context, selectedById, sourceVibes)
+            else
+              Container(
+                key: ValueKey('artist-vibe-disabled-${widget.index}'),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: StudioTokens.surface1.withAlpha(180),
+                  borderRadius: StudioTokens.radiusSlot,
+                  border: Border.all(color: StudioTokens.border),
+                ),
                 child: Text(
-                  '已启用 Vibe',
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: StudioTokens.info,
-                        fontWeight: FontWeight.w900,
+                  widget.disabledMessage,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: StudioTokens.textMuted,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
-              if (widget.onImportVibes != null) ...[
-                const SizedBox(width: 6),
-                TextButton.icon(
-                  key: ValueKey('artist-vibe-add-${widget.index}'),
-                  onPressed: () async {
-                    try {
-                      final imported = await widget.onImportVibes!.call();
-                      if (!context.mounted || imported.isEmpty) {
-                        return;
-                      }
-                      setState(() {
-                        _selectedIds.addAll(imported.map((vibe) => vibe.id));
-                      });
-                      if (Scaffold.maybeOf(context) != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('已添加 ${imported.length} 个 Vibe'),
-                          ),
-                        );
-                      }
-                    } catch (error) {
-                      if (!context.mounted) return;
-                      if (Scaffold.maybeOf(context) != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('导入 Vibe 失败：$error')),
-                        );
-                      }
-                    }
-                  },
-                  icon:
-                      const Icon(Icons.add_photo_alternate_outlined, size: 16),
-                  label: const Text('添加 Vibe'),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          _buildActiveDropZone(context, selectedById, sourceVibes),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -13902,7 +14048,7 @@ class _ArtistPromptCell extends StatelessWidget {
           if (!editable || normalized.isNotEmpty)
             PromptTagDisplay(
               text: normalized,
-              defaultTranslated: true,
+              defaultTranslated: false,
               dense: true,
               enableTagActions: true,
               translationCache: translationCache,

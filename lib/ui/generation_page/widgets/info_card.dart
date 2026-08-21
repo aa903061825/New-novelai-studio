@@ -369,7 +369,7 @@ class _PromptInfoDisplay extends StatelessWidget {
         groups: visibleGroups,
         groupKeyPrefix: 'info-card-prompt-group',
         tagKeyPrefix: 'info-card-prompt-group-tags',
-        defaultTranslated: true,
+        defaultTranslated: false,
         dense: dense,
         maxTags: maxTags,
         enableHoverShortcut: text.trim().isNotEmpty,
@@ -379,7 +379,7 @@ class _PromptInfoDisplay extends StatelessWidget {
     }
     return PromptTagDisplay(
       text: text,
-      defaultTranslated: true,
+      defaultTranslated: false,
       dense: dense,
       maxTags: maxTags,
     );

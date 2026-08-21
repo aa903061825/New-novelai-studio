@@ -64,7 +64,12 @@ class ScriptRecastProductionService {
           mappingConfigFingerprint: result.configFingerprint,
           frameIndex: frame.frameIndex,
           sourceFileName: frame.sourceFileName,
-          payload: payloadAdapter.toNaiRequestPayload(frame.payload),
+          payload: result.targetGenerationModel?.trim().isNotEmpty == true
+              ? payloadAdapter.toNaiRequestPayloadForTargetModel(
+                  frame.payload,
+                  result.targetGenerationModel!.trim(),
+                )
+              : payloadAdapter.toNaiRequestPayload(frame.payload),
           payloadFingerprint: frame.payloadFingerprint,
           suggestedFileName: _suggestedPngName(
             planId: resolvedPlanId,

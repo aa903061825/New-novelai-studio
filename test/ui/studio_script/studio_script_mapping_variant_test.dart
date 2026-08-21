@@ -164,7 +164,7 @@ void main() {
     });
 
     test(
-        'auto creates five complete global-profile snapshots without changing the working mapping',
+        'auto creates seven complete global-profile snapshots without changing the working mapping',
         () async {
       final fixture = await _variantFixture(includeProfileReference: true);
       final tempDirectory = await Directory.systemTemp.createTemp(
@@ -204,7 +204,7 @@ void main() {
 
       await viewModel.importScriptPath(_fixturePath);
 
-      expect(viewModel.mappingVariants, hasLength(5));
+      expect(viewModel.mappingVariants, hasLength(7));
       expect(
         viewModel.mappingVariants.map((variant) => variant.name).toSet(),
         _requiredVariantTargets.toSet(),
@@ -263,13 +263,13 @@ void main() {
       }
 
       expect(saved, isNotNull);
-      expect(saved!.mappingVariants, hasLength(5));
+      expect(saved!.mappingVariants, hasLength(7));
       expect(
         saved!.mapping.rolePromptReplacements.single.activeMappingProfileId,
         'manual-r15',
       );
       expect(await viewModel.ensureRequiredScriptMappingVariants(), 0);
-      expect(viewModel.mappingVariants, hasLength(5));
+      expect(viewModel.mappingVariants, hasLength(7));
     });
 
     test('does not save a partial auto set when a required profile is missing',
@@ -494,6 +494,8 @@ const _requiredVariantTargets = [
   '巫恋',
   '迷迭香',
   '薄绿',
+  '洛可可',
+  '洛茜',
 ];
 
 const _requiredVariantSourceReplacement = ScriptRolePromptReplacement(
