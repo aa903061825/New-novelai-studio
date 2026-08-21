@@ -76,37 +76,17 @@ void main() {
     expect(
         systemPrompt, contains('Only suggest translations or classifications'));
     expect(systemPrompt, contains('replace, merge, delete, or leave empty'));
-    expect(
-      systemPrompt,
-      contains(
-        'character, upperBody, lowerBody, upperClothing, lowerClothing, accessory, clothingState, other, and scene',
-      ),
-    );
-    expect(
-      systemPrompt,
-      contains(
-        'Pure action, pose, expression, camera, composition, sex-act, and story-beat terms must be excluded from prompt_terms',
-      ),
-    );
-    expect(
-      systemPrompt,
-      contains(
-        'Use other only for rare role-scoped replacement terms that affect replaceable role appearance',
-      ),
-    );
-    expect(
-      systemPrompt,
-      isNot(contains('Do not drop them just because they do not belong')),
-    );
-    expect(
-      systemPrompt,
-      isNot(contains('Do not hard-filter role-scoped source')),
-    );
-    expect(systemPrompt, contains('replacement-relevant clothingState'));
+    expect(systemPrompt, contains('Do not hard-filter role-scoped source'));
+    expect(systemPrompt, contains('User filter/block rules'));
     expect(systemPrompt, contains('inverted nipples'));
     expect(systemPrompt, contains('large breasts'));
-    expect(systemPrompt, contains('strap slip'));
+    expect(systemPrompt, contains('upperBody'));
+    expect(systemPrompt, contains('accessory'));
+    expect(systemPrompt, contains('clothingState'));
+    expect(systemPrompt, contains('Use other for role-scoped source terms'));
+    expect(systemPrompt, contains('replacement-relevant clothingState'));
     expect(systemPrompt, contains('no panties'));
+    expect(systemPrompt, contains('strap slip'));
     expect(systemPrompt, contains('bottomless'));
     expect(systemPrompt, contains('bikini aside'));
     expect(systemPrompt, contains('1girl, 2girls, 1boy, solo'));
@@ -127,6 +107,12 @@ void main() {
     expect(
       systemPrompt,
       isNot(contains('combine their terms into the same five fields')),
+    );
+    expect(
+      systemPrompt,
+      isNot(
+        contains('identity, body, clothing, clothing_state, accessory'),
+      ),
     );
     expect(systemPrompt, isNot(contains('"non_role"')));
     expect(systemPrompt, contains('appearance_group_id'));

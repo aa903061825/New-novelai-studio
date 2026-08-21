@@ -8,6 +8,7 @@ import 'package:novel_studio/data/studio/models/script_ai_role_extraction.dart';
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_recast_knowledge.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import '../../tool/normalize_script_recast_ai_cache.dart' as normalizer;
 
 void main() {
   test('normalizes AI cache and is idempotent on second dry-run', () async {
@@ -1048,11 +1049,730 @@ void main() {
     expect(replacement.rules.first.sourceTerms.single.id, 'term-double-bun');
     expect(replacement.rules.last.sourceTerms.single.text, 'gyaru');
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('preserves legacy clothing rule across refined AI category', () {
+    final replacements = normalizer.rolePromptReplacementsWithAiTermsForTesting(
+      existingReplacements: const [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Role',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'legacy-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+              targetPrompt: 'secure straps',
+            ),
+          ],
+        ),
+      ],
+      roles: const [
+        ScriptAiExtractedRole(
+          sourceRoleId: 'slot-0',
+          displayName: 'Role',
+          appearances: [
+            ScriptAiRoleAppearance(
+              sourceId: 'slot-0',
+              sourceKind: 'slot',
+              frameIndexes: [1],
+            ),
+          ],
+          promptTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'legacy-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothing,
+              frameIndexes: [1],
+            ),
+            ScriptAiExtractedPromptTerm(
+              id: 'term-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothingState,
+              frameIndexes: [1],
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final rule = replacements.single.rules.single;
+    expect(rule.id, 'legacy-strap-slip-rule');
+    expect(rule.targetPrompt, 'secure straps');
+    expect(rule.sourceTerms.single.id, 'term-strap-slip');
+    expect(
+      rule.sourceTerms.single.category,
+      PromptTagCategory.clothingState,
+    );
+  });
+
+  test('drops automatic legacy clothing duplicate covered by refined AI term',
+      () {
+    final replacements = normalizer.rolePromptReplacementsWithAiTermsForTesting(
+      existingReplacements: const [
+        ScriptRolePromptReplacement(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Role',
+          rules: [
+            ScriptPromptReplacementRule(
+              id: 'refined-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'existing-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                ),
+              ],
+            ),
+            ScriptPromptReplacementRule(
+              id: 'legacy-strap-slip-rule',
+              sourceTerms: [
+                ScriptPromptReplacementTerm(
+                  id: 'legacy-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+      roles: const [
+        ScriptAiExtractedRole(
+          sourceRoleId: 'slot-0',
+          displayName: 'Role',
+          appearances: [
+            ScriptAiRoleAppearance(
+              sourceId: 'slot-0',
+              sourceKind: 'slot',
+              frameIndexes: [1],
+            ),
+          ],
+          promptTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'term-strap-slip',
+              text: 'strap slip',
+              category: PromptTagCategory.clothingState,
+              frameIndexes: [1],
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final rules = replacements.single.rules;
+    expect(rules, hasLength(1));
+    expect(rules.single.id, 'refined-strap-slip-rule');
+    expect(rules.single.sourceTerms.single.id, 'term-strap-slip');
+    expect(
+      rules.single.sourceTerms.single.category,
+      PromptTagCategory.clothingState,
+    );
+  });
+
+  test(
+    'keeps covered legacy duplicate when target weight user state differs',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'refined-strap-slip-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'existing-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothingState,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'legacy-strap-slip-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.25,
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-strap-slip',
+                text: 'strap slip',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'refined-strap-slip-rule');
+      expect(rules.last.id, 'legacy-strap-slip-rule');
+      expect(rules.last.targetWeightMultiplier, 1.25);
+      expect(
+          rules.last.sourceTerms.single.category, PromptTagCategory.clothing);
+    },
+  );
+
+  test(
+    'keeps refined accessory and clothing state prompt terms distinct when text matches',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-accessory-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-state-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
+    'keeps refined accessory and clothing state prompt terms distinct when id and text match',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.id),
+        [
+          'role-slot-0-accessory-term-collar',
+          'role-slot-0-clothingstate-term-collar',
+        ],
+      );
+    },
+  );
+
+  test(
+    'normalizes polluted prompt terms to refined categories in cache and mapping',
+    () {
+      final normalized = RecastScriptCache.fromJson(
+        normalizer.normalizedCacheJsonForTesting({
+          'scriptId': 'script-polluted-prompt-terms',
+          'scriptName': 'Script Polluted Prompt Terms',
+          'sourceFingerprint': 'fingerprint',
+          'updatedAt': DateTime.utc(2026, 1).toIso8601String(),
+          'detectedSchema': 'v4Slotted',
+          'parseWarnings': [],
+          'scriptSnapshot': {
+            'frames': [
+              {
+                'index': 1,
+                'fileName': 'nai_1.json',
+                'parsed': {
+                  'baseCaption': '',
+                  'charCaptions': [''],
+                },
+              },
+            ],
+          },
+          'mapping': {
+            'id': 'mapping-script-polluted-prompt-terms',
+            'scriptId': 'script-polluted-prompt-terms',
+            'roleSwaps': [],
+            'artistSwap': null,
+            'rolePromptReplacements': [],
+          },
+          'aiRoleExtraction': const ScriptAiRoleExtraction(
+            status: ScriptAiRoleExtractionStatus.ready,
+            roles: [
+              ScriptAiExtractedRole(
+                sourceRoleId: 'slot-0',
+                displayName: 'Role',
+                promptTerms: [
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-strap-slip',
+                    text: 'strap slip',
+                    category: PromptTagCategory.clothingState,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-black-collar',
+                    text: 'black collar',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-black-collar',
+                    text: 'black collar',
+                    category: PromptTagCategory.accessory,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.upperClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'legacy-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.clothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.lowerClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-upper-wrap',
+                    text: 'wrap',
+                    category: PromptTagCategory.upperClothing,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-lower-wrap',
+                    text: 'wrap',
+                    category: PromptTagCategory.lowerClothing,
+                    frameIndexes: [2],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-collar-accessory',
+                    text: 'collar',
+                    category: PromptTagCategory.accessory,
+                    frameIndexes: [1],
+                  ),
+                  ScriptAiExtractedPromptTerm(
+                    id: 'term-collar-state',
+                    text: 'collar',
+                    category: PromptTagCategory.clothingState,
+                    frameIndexes: [2],
+                  ),
+                ],
+              ),
+            ],
+          ).toJson(),
+        }),
+      );
+      final promptTerms = normalized.aiRoleExtraction.roles.single.promptTerms;
+      expect(
+        promptTerms.map((term) => '${term.text}|${term.category.name}'),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+          'white shirt|upperClothing',
+          'black skirt|lowerClothing',
+          'wrap|upperClothing',
+          'wrap|lowerClothing',
+          'collar|accessory',
+          'collar|clothingState',
+        ],
+      );
+      expect(promptTerms.first.frameIndexes, [1, 2]);
+      expect(promptTerms[1].frameIndexes, [1, 2]);
+      expect(promptTerms[2].frameIndexes, [1, 2]);
+      expect(promptTerms[3].frameIndexes, [1, 2]);
+
+      final sourceTerms = normalized.mapping.rolePromptReplacements.single.rules
+          .map((rule) => rule.sourceTerms.single)
+          .toList();
+      expect(
+        sourceTerms.map((term) => '${term.text}|${term.category.name}'),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+          'white shirt|upperClothing',
+          'black skirt|lowerClothing',
+          'wrap|upperClothing',
+          'wrap|lowerClothing',
+          'collar|accessory',
+          'collar|clothingState',
+        ],
+      );
+    },
+  );
+
+  test(
+    'does not merge refined clothing-compatible rules through legacy alias',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'existing-accessory-collar-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'existing-accessory-collar',
+                    text: 'collar',
+                    category: PromptTagCategory.accessory,
+                  ),
+                ],
+                targetPrompt: 'silver collar',
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1, 2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-accessory-collar',
+                text: 'collar',
+                category: PromptTagCategory.accessory,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-state-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'existing-accessory-collar-rule');
+      expect(rules.first.targetPrompt, 'silver collar');
+      expect(rules.first.sourceTerms.single.id, 'term-accessory-collar');
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
+    'rewrites replacement anchors and exclusions when normalizer refreshes source term ids',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'legacy-shirt-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-white-shirt',
+                    text: 'white shirt',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                excludedTermIds: ['legacy-black-skirt', 'unmapped-term'],
+                action: ScriptPromptReplacementAction.replace,
+                matchMode: ScriptPromptReplacementMatchMode.anchor,
+                targetPrompt: 'black blouse',
+                anchorTermId: 'legacy-white-shirt',
+              ),
+              ScriptPromptReplacementRule(
+                id: 'legacy-skirt-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-black-skirt',
+                    text: 'black skirt',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                action: ScriptPromptReplacementAction.delete,
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-white-shirt',
+                text: 'white shirt',
+                category: PromptTagCategory.upperClothing,
+                frameIndexes: [1],
+              ),
+              ScriptAiExtractedPromptTerm(
+                id: 'term-black-skirt',
+                text: 'black skirt',
+                category: PromptTagCategory.lowerClothing,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      final shirtRule = rules.singleWhere(
+        (rule) => rule.id == 'legacy-shirt-rule',
+      );
+      expect(shirtRule.sourceTerms.single.id, 'term-white-shirt');
+      expect(shirtRule.anchorTermId, 'term-white-shirt');
+      expect(shirtRule.excludedTermIds, ['term-black-skirt', 'unmapped-term']);
+      expect(shirtRule.action, ScriptPromptReplacementAction.replace);
+      expect(shirtRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(shirtRule.targetPrompt, 'black blouse');
+    },
+  );
+
+  test(
+    'does not reuse existing refined rule when incoming term has same id and text but different refined category',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'existing-accessory-collar-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'term-collar',
+                    text: 'collar',
+                    category: PromptTagCategory.accessory,
+                  ),
+                ],
+                targetPrompt: 'silver collar',
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [2],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-collar',
+                text: 'collar',
+                category: PromptTagCategory.clothingState,
+                frameIndexes: [2],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'role-slot-0-clothingstate-term-collar');
+      expect(rules.first.sourceTerms.single.category,
+          PromptTagCategory.clothingState);
+      expect(rules.last.id, 'existing-accessory-collar-rule');
+      expect(rules.last.targetPrompt, 'silver collar');
+      expect(
+          rules.last.sourceTerms.single.category, PromptTagCategory.accessory);
+    },
+  );
+
+  test(
+    'does not reuse legacy rule when non-migration categories only share text',
+    () {
+      final replacements =
+          normalizer.rolePromptReplacementsWithAiTermsForTesting(
+        existingReplacements: const [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Role',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'legacy-standing-rule',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'legacy-standing',
+                    text: 'standing',
+                    category: PromptTagCategory.character,
+                  ),
+                ],
+                targetPrompt: 'hero pose',
+              ),
+            ],
+          ),
+        ],
+        roles: const [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            displayName: 'Role',
+            appearances: [
+              ScriptAiRoleAppearance(
+                sourceId: 'slot-0',
+                sourceKind: 'slot',
+                frameIndexes: [1],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'term-standing',
+                text: 'standing',
+                category: PromptTagCategory.action,
+                frameIndexes: [1],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final rules = replacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, isNot('legacy-standing-rule'));
+      expect(rules.first.sourceTerms.single.id, 'term-standing');
+      expect(rules.first.sourceTerms.single.category, PromptTagCategory.action);
+      expect(rules.first.targetPrompt, isEmpty);
+      expect(rules.last.id, 'legacy-standing-rule');
+      expect(rules.last.targetPrompt, 'hero pose');
+    },
+  );
 }
 
 Future<ProcessResult> _runNormalizer(List<String> args) {
   return Process.run(
-    _dartExecutableForSubprocess(),
+    _dartExecutableForToolTests(),
     [
       '--packages=.dart_tool/package_config.json',
       'tool/normalize_script_recast_ai_cache.dart',
@@ -1062,35 +1782,24 @@ Future<ProcessResult> _runNormalizer(List<String> args) {
   );
 }
 
-String _dartExecutableForSubprocess() {
-  final resolvedExecutable = File(Platform.resolvedExecutable);
-  final executableName = resolvedExecutable.uri.pathSegments.last.toLowerCase();
-  if (executableName == 'dart' || executableName == 'dart.exe') {
-    return resolvedExecutable.path;
-  }
-
-  var directory = resolvedExecutable.parent;
-  while (true) {
-    final separator = Platform.pathSeparator;
-    final dartName = Platform.isWindows ? 'dart.exe' : 'dart';
-    final candidate = File(
-      '${directory.path}${separator}dart-sdk${separator}bin$separator$dartName',
+String _dartExecutableForToolTests() {
+  final executable = File(Platform.resolvedExecutable);
+  final executableName =
+      executable.path.split(Platform.pathSeparator).last.toLowerCase();
+  if (executableName == 'flutter_tester' ||
+      executableName == 'flutter_tester.exe') {
+    final cacheDir = executable.parent.parent.parent.parent;
+    final dartExecutable = File(
+      '${cacheDir.path}${Platform.pathSeparator}dart-sdk'
+      '${Platform.pathSeparator}bin${Platform.pathSeparator}'
+      'dart${Platform.isWindows ? '.exe' : ''}',
     );
-    if (candidate.existsSync()) {
-      return candidate.path;
+    if (dartExecutable.existsSync()) {
+      return dartExecutable.path;
     }
-
-    final parent = directory.parent;
-    if (parent.path == directory.path) {
-      break;
-    }
-    directory = parent;
+    return 'dart';
   }
-
-  throw StateError(
-    'Could not locate a Dart SDK executable from '
-    '${resolvedExecutable.path}.',
-  );
+  return Platform.resolvedExecutable;
 }
 
 Map<String, dynamic> _frameSnapshot(int index, String charCaption) {

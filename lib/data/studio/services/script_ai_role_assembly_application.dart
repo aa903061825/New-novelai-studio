@@ -467,9 +467,10 @@ class ScriptAiRoleAssemblyApplication {
         id: ruleId,
         sourceTerms: List.unmodifiable([replacementTerm]),
       );
-      for (final key in _promptReplacementTermKeys(
+      for (final key in _promptReplacementIncomingTermKeys(
         id: replacementTerm.id,
         text: replacementTerm.text,
+        category: replacementTerm.category,
       )) {
         aiRuleIdsByTermKey.putIfAbsent(key, () => ruleId);
         aiTermsByKey.putIfAbsent(key, () => replacementTerm);
@@ -509,6 +510,10 @@ class ScriptAiRoleAssemblyApplication {
         }
       }
     }
+    final sourceTermIdRemap = _promptReplacementSourceTermIdRemap(
+      existingRules,
+      aiTermsByKey,
+    );
 
     final next = <ScriptPromptReplacementRule>[];
     final appliedRuleIds = <String>{};
@@ -527,6 +532,7 @@ class ScriptAiRoleAssemblyApplication {
             _promptReplacementRuleWithRefreshedSourceTerms(
               groupedRule,
               aiTermsByKey,
+              sourceTermIdRemap,
             ),
           );
           for (final groupedTerm in groupedRule.sourceTerms) {
@@ -556,7 +562,11 @@ class ScriptAiRoleAssemblyApplication {
       next.add(
         existing == null
             ? aiRule
-            : existing.copyWith(sourceTerms: aiRule.sourceTerms),
+            : _promptReplacementRuleWithSourceTerms(
+                existing,
+                aiRule.sourceTerms,
+                sourceTermIdRemap,
+              ),
       );
     }
 
@@ -576,22 +586,76 @@ class ScriptAiRoleAssemblyApplication {
   ScriptPromptReplacementRule _promptReplacementRuleWithRefreshedSourceTerms(
     ScriptPromptReplacementRule rule,
     Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
+    Map<String, String> sourceTermIdRemap,
   ) {
-    return rule.copyWith(
-      sourceTerms: List.unmodifiable([
+    return _promptReplacementRuleWithSourceTerms(
+      rule,
+      List.unmodifiable([
         for (final term in rule.sourceTerms)
           _promptReplacementTermWithRefreshedAiMetadata(term, aiTermsByKey),
       ]),
+      sourceTermIdRemap,
     );
+  }
+
+  ScriptPromptReplacementRule _promptReplacementRuleWithSourceTerms(
+    ScriptPromptReplacementRule rule,
+    List<ScriptPromptReplacementTerm> sourceTerms,
+    Map<String, String> sourceTermIdRemap,
+  ) {
+    return _promptReplacementRuleWithRemappedTermIds(
+      rule.copyWith(sourceTerms: sourceTerms),
+      sourceTermIdRemap,
+    );
+  }
+
+  ScriptPromptReplacementRule _promptReplacementRuleWithRemappedTermIds(
+    ScriptPromptReplacementRule rule,
+    Map<String, String> sourceTermIdRemap,
+  ) {
+    if (sourceTermIdRemap.isEmpty) {
+      return rule;
+    }
+    return rule.copyWith(
+      excludedTermIds: List.unmodifiable([
+        for (final id in rule.excludedTermIds)
+          sourceTermIdRemap[id.trim()] ?? id,
+      ]),
+      anchorTermId:
+          sourceTermIdRemap[rule.anchorTermId.trim()] ?? rule.anchorTermId,
+    );
+  }
+
+  Map<String, String> _promptReplacementSourceTermIdRemap(
+    List<ScriptPromptReplacementRule> existingRules,
+    Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
+  ) {
+    final remap = <String, String>{};
+    for (final rule in existingRules) {
+      for (final term in rule.sourceTerms) {
+        final refreshed = _promptReplacementTermWithRefreshedAiMetadata(
+          term,
+          aiTermsByKey,
+        );
+        final oldId = term.id.trim();
+        final newId = refreshed.id.trim();
+        if (oldId.isEmpty || newId.isEmpty || oldId == newId) {
+          continue;
+        }
+        remap.putIfAbsent(oldId, () => newId);
+      }
+    }
+    return Map.unmodifiable(remap);
   }
 
   ScriptPromptReplacementTerm _promptReplacementTermWithRefreshedAiMetadata(
     ScriptPromptReplacementTerm term,
     Map<String, ScriptPromptReplacementTerm> aiTermsByKey,
   ) {
-    for (final key in _promptReplacementTermKeys(
+    for (final key in _promptReplacementExistingTermKeys(
       id: term.id,
       text: term.text,
+      category: term.category,
     )) {
       final aiTerm = aiTermsByKey[key];
       if (aiTerm != null) {
@@ -605,9 +669,10 @@ class ScriptAiRoleAssemblyApplication {
     ScriptPromptReplacementTerm term,
     Map<String, String> aiRuleIdsByTermKey,
   ) {
-    for (final key in _promptReplacementTermKeys(
+    for (final key in _promptReplacementExistingTermKeys(
       id: term.id,
       text: term.text,
+      category: term.category,
     )) {
       final ruleId = aiRuleIdsByTermKey[key];
       if (ruleId != null) {
@@ -617,20 +682,169 @@ class ScriptAiRoleAssemblyApplication {
     return null;
   }
 
+  List<String> _promptReplacementIncomingTermKeys({
+    required String id,
+    required String text,
+    required PromptTagCategory category,
+  }) {
+    return _promptReplacementTermKeys(
+      id: id,
+      text: text,
+      category: category,
+      includeLegacyClothingCompatibility:
+          _isRefinedLegacyClothingCategory(category),
+    );
+  }
+
+  List<String> _promptReplacementExistingTermKeys({
+    required String id,
+    required String text,
+    required PromptTagCategory category,
+  }) {
+    return _promptReplacementTermKeys(
+      id: id,
+      text: text,
+      category: category,
+      includeLegacyClothingCompatibility:
+          category == PromptTagCategory.clothing,
+    );
+  }
+
   List<String> _promptReplacementTermKeys({
     required String id,
     required String text,
+    required PromptTagCategory category,
+    required bool includeLegacyClothingCompatibility,
   }) {
     final keys = <String>[];
     final idKey = id.trim();
     if (idKey.isNotEmpty) {
-      keys.add('id:$idKey');
+      keys.add('id:${category.name}:$idKey');
     }
-    final textKey = PromptTagProcessor.normalizeMatchKey(text);
-    if (textKey.isNotEmpty) {
-      keys.add('text:$textKey');
+    final strictKey = _promptReplacementStrictTermKey(text, category);
+    if (strictKey.isNotEmpty) {
+      keys.add('text:$strictKey');
+    }
+    final compatibleKey = includeLegacyClothingCompatibility
+        ? _promptReplacementLegacyClothingKey(text)
+        : '';
+    if (compatibleKey.isNotEmpty && compatibleKey != strictKey) {
+      keys.add('compat:$compatibleKey');
     }
     return keys;
+  }
+
+  String _promptReplacementStrictTermKey(
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    return '${category.name}\u001f$normalized';
+  }
+
+  String _promptReplacementLegacyClothingKey(String text) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    return 'legacy-clothing-compatible\u001f$normalized';
+  }
+
+  bool _isRefinedLegacyClothingCategory(PromptTagCategory category) {
+    return category == PromptTagCategory.accessory ||
+        category == PromptTagCategory.clothingState ||
+        category == PromptTagCategory.upperClothing ||
+        category == PromptTagCategory.lowerClothing;
+  }
+
+  String _promptTermStrictKey(
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    return '${category.name}\u001f$normalized';
+  }
+
+  String _promptTermMergeKey(
+    Map<String, ScriptAiExtractedPromptTerm> byKey,
+    String text,
+    PromptTagCategory category,
+  ) {
+    final normalized = PromptTagProcessor.normalizeMatchKey(text);
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final strictKey = '${category.name}\u001f$normalized';
+    if (byKey.containsKey(strictKey)) {
+      return strictKey;
+    }
+    if (_isRefinedClothingCategory(category)) {
+      final legacyKey = '${PromptTagCategory.clothing.name}\u001f$normalized';
+      return byKey.containsKey(legacyKey) ? legacyKey : '';
+    }
+    if (category == PromptTagCategory.clothing) {
+      final refinedKeys = [
+        PromptTagCategory.upperClothing,
+        PromptTagCategory.lowerClothing,
+        PromptTagCategory.accessory,
+        PromptTagCategory.clothingState,
+      ]
+          .map((refined) => '${refined.name}\u001f$normalized')
+          .where(byKey.containsKey)
+          .toList();
+      return refinedKeys.length == 1 ? refinedKeys.single : '';
+    }
+    return '';
+  }
+
+  ScriptAiExtractedPromptTerm _preferredPromptTerm(
+    ScriptAiExtractedPromptTerm left,
+    ScriptAiExtractedPromptTerm right,
+  ) {
+    final preferred = _promptTermCategoryPreference(right.category) >=
+            _promptTermCategoryPreference(left.category)
+        ? right
+        : left;
+    final fallback = identical(preferred, right) ? left : right;
+    return ScriptAiExtractedPromptTerm(
+      id: preferred.id.trim().isNotEmpty ? preferred.id : fallback.id,
+      text: preferred.text.trim().isNotEmpty ? preferred.text : fallback.text,
+      category: preferred.category,
+      sourcePhrase: preferred.sourcePhrase.trim().isNotEmpty
+          ? preferred.sourcePhrase
+          : fallback.sourcePhrase,
+      sourceLocation: preferred.sourceLocation.trim().isNotEmpty
+          ? preferred.sourceLocation
+          : fallback.sourceLocation,
+      frameIndexes: List.unmodifiable(
+        ({...left.frameIndexes, ...right.frameIndexes}.toList()..sort()),
+      ),
+    );
+  }
+
+  int _promptTermCategoryPreference(PromptTagCategory category) {
+    return switch (category) {
+      PromptTagCategory.upperClothing ||
+      PromptTagCategory.lowerClothing ||
+      PromptTagCategory.accessory ||
+      PromptTagCategory.clothingState =>
+        1,
+      PromptTagCategory.clothing => 0,
+      _ => 0,
+    };
+  }
+
+  bool _isRefinedClothingCategory(PromptTagCategory category) {
+    return category == PromptTagCategory.upperClothing ||
+        category == PromptTagCategory.lowerClothing ||
+        category == PromptTagCategory.accessory ||
+        category == PromptTagCategory.clothingState;
   }
 
   ScriptPromptReplacementTerm _promptReplacementTermFromAi(
@@ -685,6 +899,7 @@ class ScriptAiRoleAssemblyApplication {
   ) {
     return rule.sourceTerms.length > 1 ||
         rule.targetPrompt.trim().isNotEmpty ||
+        rule.targetWeightMultiplier != null ||
         rule.manualPhrase.trim().isNotEmpty ||
         rule.action != ScriptPromptReplacementAction.none ||
         rule.matchMode != ScriptPromptReplacementMatchMode.any ||
@@ -695,9 +910,41 @@ class ScriptAiRoleAssemblyApplication {
   List<ScriptAiExtractedPromptTerm> _nonEmptyPromptTerms(
     List<ScriptAiExtractedPromptTerm> terms,
   ) {
+    final byKey = <String, ScriptAiExtractedPromptTerm>{};
+    final order = <String>[];
+    for (final term in terms) {
+      if (term.text.trim().isEmpty) {
+        continue;
+      }
+      final strictKey = _promptTermStrictKey(term.text, term.category);
+      if (strictKey.isEmpty) {
+        continue;
+      }
+      final existingKey = _promptTermMergeKey(
+        byKey,
+        term.text,
+        term.category,
+      );
+      if (existingKey.isEmpty) {
+        byKey[strictKey] = term;
+        order.add(strictKey);
+        continue;
+      }
+      final merged = _preferredPromptTerm(byKey[existingKey]!, term);
+      final mergedKey = _promptTermStrictKey(merged.text, merged.category);
+      if (mergedKey.isNotEmpty && mergedKey != existingKey) {
+        byKey.remove(existingKey);
+        final index = order.indexOf(existingKey);
+        if (index >= 0) {
+          order[index] = mergedKey;
+        } else if (!order.contains(mergedKey)) {
+          order.add(mergedKey);
+        }
+      }
+      byKey[mergedKey.isEmpty ? existingKey : mergedKey] = merged;
+    }
     return List.unmodifiable([
-      for (final term in terms)
-        if (term.text.trim().isNotEmpty) term,
+      for (final key in order) byKey[key]!,
     ]);
   }
 
@@ -705,11 +952,12 @@ class ScriptAiRoleAssemblyApplication {
     String sourceRoleId,
     ScriptAiExtractedPromptTerm term,
   ) {
+    final categoryId = _safePromptTermTextId(term.category.name);
     final termId = term.id.trim();
     if (termId.isNotEmpty) {
-      return 'role-$sourceRoleId-$termId';
+      return 'role-$sourceRoleId-$categoryId-$termId';
     }
-    return 'role-$sourceRoleId-term-${_safePromptTermTextId(term.text)}';
+    return 'role-$sourceRoleId-$categoryId-term-${_safePromptTermTextId(term.text)}';
   }
 
   String _scenePromptReplacementRuleId(ScriptAiExtractedPromptTerm term) {
@@ -1246,6 +1494,7 @@ class ScriptAiRoleAssemblyApplication {
           leftRule.action != rightRule.action ||
           leftRule.matchMode != rightRule.matchMode ||
           leftRule.targetPrompt != rightRule.targetPrompt ||
+          leftRule.targetWeightMultiplier != rightRule.targetWeightMultiplier ||
           leftRule.manualPhrase != rightRule.manualPhrase ||
           leftRule.anchorTermId != rightRule.anchorTermId) {
         return false;

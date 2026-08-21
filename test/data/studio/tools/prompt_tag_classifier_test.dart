@@ -98,6 +98,22 @@ void main() {
       expect(restored.entries, isEmpty);
     });
 
+    test('cache entry fromJson parses legacy category aliases', () {
+      final clothingState = PromptTagClassificationCacheEntry.fromJson({
+        'category': 'clothing_state',
+        'source': 'manual',
+        'updatedAt': 1710000000,
+      });
+      final accessory = PromptTagClassificationCacheEntry.fromJson({
+        'category': 'accessory',
+        'source': 'legacy',
+        'updatedAt': 1710000001,
+      });
+
+      expect(clothingState.category, PromptTagCategory.clothingState);
+      expect(accessory.category, PromptTagCategory.accessory);
+    });
+
     test('merges missing classifications without replacing existing entries',
         () {
       final cache = PromptTagClassificationCache(clock: () => 1710000000)
@@ -351,6 +367,53 @@ void main() {
       expect(
         PromptTagClassifier.classify('completely nude').category,
         PromptTagCategory.clothingState,
+      );
+    });
+
+    test('keeps overlapping accessory terms out of upperBody', () {
+      expect(
+        PromptTagClassifier.classify('choker').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('necklace').category,
+        PromptTagCategory.accessory,
+      );
+      expect(
+        PromptTagClassifier.classify('headband').category,
+        PromptTagCategory.accessory,
+      );
+    });
+
+    test('keeps chinese prompt syntax markers classified as promptSyntax', () {
+      expect(
+        PromptTagClassifier.classify('示例角色').category,
+        PromptTagCategory.promptSyntax,
+      );
+      expect(
+        PromptTagClassifier.classify('内容: 夜晚街道').category,
+        PromptTagCategory.promptSyntax,
+      );
+    });
+
+    test('keeps key chinese group labels readable', () {
+      expect(
+        PromptTagClassifier.groupFor(PromptTagCategory.character).label,
+        '角色区',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(PromptTagCategory.upperBody).label,
+        '上身',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(PromptTagCategory.accessory).label,
+        '饰品',
+      );
+      expect(
+        PromptTagClassifier.layeredGroupFor(
+          PromptTagCategory.clothingState,
+        ).label,
+        '服装状态/动作',
       );
     });
   });

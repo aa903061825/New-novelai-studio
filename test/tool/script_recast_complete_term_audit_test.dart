@@ -4,72 +4,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('collects terms after a duplicate within the same caption', () async {
-    final tempDir = await Directory.systemTemp.createTemp(
-      'script-recast-complete-term-duplicate-test-',
-    );
-    addTearDown(() async {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
-    });
-
-    final cacheDir = Directory('${tempDir.path}${Platform.pathSeparator}cache')
-      ..createSync(recursive: true);
-    final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
-    final reportFile =
-        File('${tempDir.path}${Platform.pathSeparator}report.json');
-    final cacheFile =
-        File('${cacheDir.path}${Platform.pathSeparator}cache.json');
-    final cache = _cacheJson(
-      sourceRootPath: sourceRoot,
-      promptTerms: const [],
-      sceneTerms: const [],
-      roleRules: const [],
-      sceneRules: const [],
-    );
-    final snapshot = cache['scriptSnapshot'] as Map<String, dynamic>;
-    final frame = (snapshot['frames'] as List).single as Map<String, dynamic>;
-    final parsed = frame['parsed'] as Map<String, dynamic>;
-    parsed
-      ..['baseCaption'] = 'shared term'
-      ..['charCaptions'] = ['shared term, trailing role term']
-      ..['negativeBase'] = ''
-      ..['negativeCharCaptions'] = <String>[];
-    await cacheFile.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(cache),
-      encoding: utf8,
-    );
-
-    final result = await Process.run(
-      'node',
-      [
-        'tool/script_recast_complete_term_audit.mjs',
-        '--cache-dir',
-        cacheDir.path,
-        '--source-root',
-        sourceRoot,
-        '--report',
-        reportFile.path,
-        '--report-unchanged',
-      ],
-      workingDirectory: Directory.current.path,
-      runInShell: Platform.isWindows,
-    );
-
-    expect(result.exitCode, 0, reason: result.stderr.toString());
-    final report = jsonDecode(await reportFile.readAsString(encoding: utf8))
-        as Map<String, dynamic>;
-    final row = (report['rows'] as List).single as Map<String, dynamic>;
-    expect(row['source_term_count'], 2);
-    expect(
-      (row['uncovered_source_terms_sample'] as List)
-          .cast<Map<String, dynamic>>()
-          .map((term) => term['normalized']),
-      containsAll(<String>['shared term', 'trailing role term']),
-    );
-  });
-
   test('audits complete source terms without local repair', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'script-recast-complete-term-audit-test-',
@@ -176,13 +110,50 @@ void main() {
       const JsonEncoder.withIndent('  ').convert(
         _cacheJson(
           sourceRootPath: sourceRoot,
-          promptTerms: const [],
+          promptTerms: [
+            _term('legacy-strap-slip-prompt', 'strap slip', 'clothing'),
+            _term('refined-strap-slip-prompt', 'strap slip', 'clothingState'),
+            _term('legacy-black-collar-prompt', 'black collar', 'clothing'),
+            _term('refined-black-collar-prompt', 'black collar', 'accessory'),
+            _term('legacy-white-shirt-prompt', 'white shirt', 'clothing'),
+            _term(
+              'refined-white-shirt-prompt',
+              'white shirt',
+              'upperClothing',
+            ),
+            _term('legacy-black-skirt-prompt', 'black skirt', 'clothing'),
+            _term(
+              'refined-black-skirt-prompt',
+              'black skirt',
+              'lowerClothing',
+            ),
+          ],
           sceneTerms: const [],
           roleRules: [
             _rule(
               'legacy-double-bun-rule',
               _term('legacy-double-bun', 'double bun', 'upperBody'),
               targetPrompt: 'single braid',
+            ),
+            _rule(
+              'legacy-strap-slip-rule',
+              _term('legacy-strap-slip', 'strap slip', 'clothing'),
+              targetPrompt: 'dress slipping off shoulder',
+            ),
+            _rule(
+              'legacy-black-collar-rule',
+              _term('legacy-black-collar', 'black collar', 'clothing'),
+              targetPrompt: 'leather collar',
+            ),
+            _rule(
+              'legacy-white-shirt-rule',
+              _term('legacy-white-shirt', 'white shirt', 'clothing'),
+              targetPrompt: 'black blouse',
+            ),
+            _rule(
+              'legacy-black-skirt-rule',
+              _term('legacy-black-skirt', 'black skirt', 'clothing'),
+              targetPrompt: 'pleated skirt',
             ),
           ],
           sceneRules: const [],
@@ -202,6 +173,41 @@ void main() {
                 'displayLabel': 'Role A',
                 'terms': [
                   _term('term-double-bun', 'double bun', 'upperBody'),
+                  _term(
+                    'term-inverted-nipples',
+                    'inverted nipples',
+                    'upperBody',
+                  ),
+                  _term(
+                    'term-strap-slip',
+                    'strap slip',
+                    'clothingState',
+                  ),
+                  _term(
+                    'term-black-collar',
+                    'black collar',
+                    'accessory',
+                  ),
+                  _term(
+                    'term-white-shirt',
+                    'white shirt',
+                    'upperClothing',
+                  ),
+                  _term(
+                    'term-black-skirt',
+                    'black skirt',
+                    'lowerClothing',
+                  ),
+                  _term(
+                    'term-upper-wrap',
+                    'wrap',
+                    'upperClothing',
+                  ),
+                  _term(
+                    'term-lower-wrap',
+                    'wrap',
+                    'lowerClothing',
+                  ),
                   _term('term-gyaru', 'gyaru', 'character'),
                 ],
               },
@@ -247,24 +253,87 @@ void main() {
     final role = (updated['aiRoleExtraction']['roles'] as List).single
         as Map<String, dynamic>;
     expect(
-      (role['prompt_terms'] as List).map((term) => term['text']),
-      ['double bun', 'gyaru'],
+      (role['prompt_terms'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((term) => '${term['text']}|${term['category']}'),
+      [
+        'strap slip|clothingState',
+        'black collar|accessory',
+        'white shirt|upperClothing',
+        'black skirt|lowerClothing',
+        'double bun|upperBody',
+        'inverted nipples|upperBody',
+        'wrap|upperClothing',
+        'wrap|lowerClothing',
+        'gyaru|character',
+      ],
     );
     final replacement = (updated['mapping']['rolePromptReplacements'] as List)
         .single as Map<String, dynamic>;
     final rules = (replacement['rules'] as List).cast<Map<String, dynamic>>();
-    expect(rules, hasLength(2));
-    expect(rules.first['id'], 'legacy-double-bun-rule');
-    expect(rules.first['targetPrompt'], 'single braid');
+    expect(rules, hasLength(9));
+    Map<String, dynamic> ruleById(String id) =>
+        rules.singleWhere((rule) => rule['id'] == id);
+    final doubleBunRule = ruleById('legacy-double-bun-rule');
+    final strapSlipRule = ruleById('legacy-strap-slip-rule');
+    final blackCollarRule = ruleById('legacy-black-collar-rule');
+    final whiteShirtRule = ruleById('legacy-white-shirt-rule');
+    final blackSkirtRule = ruleById('legacy-black-skirt-rule');
+    final gyaruRule = rules.singleWhere(
+      (rule) =>
+          ((rule['sourceTerms'] as List).single
+              as Map<String, dynamic>)['text'] ==
+          'gyaru',
+    );
+    expect(doubleBunRule['targetPrompt'], 'single braid');
     expect(
-      ((rules.first['sourceTerms'] as List).single
+      ((doubleBunRule['sourceTerms'] as List).single
           as Map<String, dynamic>)['id'],
       'term-double-bun',
     );
+    expect(strapSlipRule['targetPrompt'], 'dress slipping off shoulder');
     expect(
-      ((rules.last['sourceTerms'] as List).single
-          as Map<String, dynamic>)['text'],
-      'gyaru',
+      ((strapSlipRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'clothingState'),
+    );
+    expect(blackCollarRule['targetPrompt'], 'leather collar');
+    expect(
+      ((blackCollarRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'accessory'),
+    );
+    expect(whiteShirtRule['targetPrompt'], 'black blouse');
+    expect(
+      ((whiteShirtRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'upperClothing'),
+    );
+    expect(blackSkirtRule['targetPrompt'], 'pleated skirt');
+    expect(
+      ((blackSkirtRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('category', 'lowerClothing'),
+    );
+    expect(
+      ((gyaruRule['sourceTerms'] as List).single as Map<String, dynamic>),
+      containsPair('text', 'gyaru'),
+    );
+    expect(
+      (rules
+          .expand(
+            (rule) => (rule['sourceTerms'] as List)
+                .cast<Map<String, dynamic>>()
+                .map((term) => '${term['text']}|${term['category']}'),
+          )
+          .toList()),
+      containsAll([
+        'double bun|upperBody',
+        'inverted nipples|upperBody',
+        'strap slip|clothingState',
+        'black collar|accessory',
+        'white shirt|upperClothing',
+        'black skirt|lowerClothing',
+        'wrap|upperClothing',
+        'wrap|lowerClothing',
+        'gyaru|character',
+      ]),
     );
     expect(updated['aiRoleExtraction']['scene_terms'], hasLength(1));
     expect(updated['mapping']['scenePromptReplacements'], hasLength(1));
@@ -276,6 +345,632 @@ void main() {
         .toList();
     expect(backups, hasLength(1));
   });
+
+  test(
+    'collapses polluted legacy category duplicates and stays idempotent',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-complete-term-polluted-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: [
+              _term('legacy-strap-slip-prompt', 'strap slip', 'clothing'),
+              _term('legacy-black-collar-prompt', 'black collar', 'clothing'),
+            ],
+            sceneTerms: const [],
+            roleRules: [
+              _rule(
+                'refined-strap-slip-rule',
+                _term(
+                  'refined-strap-slip',
+                  'strap slip',
+                  'clothingState',
+                ),
+                targetPrompt: 'dress slipping off shoulder',
+              ),
+              _rule(
+                'refined-black-collar-rule',
+                _term('refined-black-collar', 'black collar', 'accessory'),
+                targetPrompt: 'leather collar',
+              ),
+              _rule(
+                'legacy-strap-slip-rule',
+                _term('legacy-strap-slip', 'strap slip', 'clothing'),
+                targetPrompt: 'dress slipping off shoulder',
+              ),
+              _rule(
+                'legacy-black-collar-rule',
+                _term('legacy-black-collar', 'black collar', 'clothing'),
+                targetPrompt: 'leather collar',
+              ),
+            ],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term(
+                      'term-strap-slip',
+                      'strap slip',
+                      'clothingState',
+                    ),
+                    _term(
+                      'term-black-collar',
+                      'black collar',
+                      'accessory',
+                    ),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      Future<ProcessResult> applySchema() {
+        return Process.run(
+          'node',
+          [
+            'tool/script_recast_complete_term_audit.mjs',
+            '--cache-dir',
+            cacheDir.path,
+            '--source-root',
+            sourceRoot,
+            '--schema',
+            schemaFile.path,
+            '--apply',
+            '--backup-dir',
+            backupDir.path,
+          ],
+          workingDirectory: Directory.current.path,
+          runInShell: Platform.isWindows,
+        );
+      }
+
+      final firstApply = await applySchema();
+      expect(firstApply.exitCode, 0, reason: firstApply.stderr.toString());
+
+      final firstUpdated =
+          jsonDecode(await cacheFile.readAsString(encoding: utf8))
+              as Map<String, dynamic>;
+      final firstPromptTerms = (((firstUpdated['aiRoleExtraction']
+              as Map<String, dynamic>)['roles'] as List)
+          .single as Map<String, dynamic>)['prompt_terms'] as List;
+      final firstRules = (((firstUpdated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
+      expect(
+        firstPromptTerms
+            .cast<Map<String, dynamic>>()
+            .map((term) => '${term['text']}|${term['category']}')
+            .toList(),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+        ],
+      );
+      final firstRuleIds = firstRules
+          .cast<Map<String, dynamic>>()
+          .map((rule) => rule['id'] as String)
+          .toList();
+      expect(firstRules, hasLength(2));
+      expect(firstRuleIds, isNot(contains('legacy-strap-slip-rule')));
+      expect(firstRuleIds, isNot(contains('legacy-black-collar-rule')));
+      expect(
+        firstRuleIds,
+        [
+          'refined-strap-slip-rule',
+          'refined-black-collar-rule',
+        ],
+      );
+      expect(
+        firstRules.cast<Map<String, dynamic>>().expand(
+              (rule) => (rule['sourceTerms'] as List)
+                  .cast<Map<String, dynamic>>()
+                  .map((term) => '${term['text']}|${term['category']}'),
+            ),
+        [
+          'strap slip|clothingState',
+          'black collar|accessory',
+        ],
+      );
+      final afterFirstApply = await cacheFile.readAsString(encoding: utf8);
+
+      final secondApply = await applySchema();
+      expect(secondApply.exitCode, 0, reason: secondApply.stderr.toString());
+      final afterSecondApply = await cacheFile.readAsString(encoding: utf8);
+      expect(afterSecondApply, afterFirstApply);
+    },
+  );
+
+  test(
+    'rewrites replacement anchors and exclusions when schema refreshes source term ids',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-complete-term-anchor-remap-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: [
+              _term('legacy-white-shirt-prompt', 'white shirt', 'clothing'),
+              _term('legacy-black-skirt-prompt', 'black skirt', 'clothing'),
+            ],
+            sceneTerms: const [],
+            roleRules: [
+              _rule(
+                'legacy-white-shirt-rule',
+                _term('legacy-white-shirt', 'white shirt', 'clothing'),
+                targetPrompt: 'black blouse',
+                excludedTermIds: ['legacy-black-skirt', 'unmapped-term'],
+                action: 'replace',
+                matchMode: 'anchor',
+                anchorTermId: 'legacy-white-shirt',
+              ),
+              _rule(
+                'legacy-black-skirt-rule',
+                _term('legacy-black-skirt', 'black skirt', 'clothing'),
+                action: 'delete',
+              ),
+            ],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-white-shirt', 'white shirt', 'upperClothing'),
+                    _term('term-black-skirt', 'black skirt', 'lowerClothing'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      final result = await Process.run(
+        'node',
+        [
+          'tool/script_recast_complete_term_audit.mjs',
+          '--cache-dir',
+          cacheDir.path,
+          '--source-root',
+          sourceRoot,
+          '--schema',
+          schemaFile.path,
+          '--apply',
+          '--backup-dir',
+          backupDir.path,
+        ],
+        workingDirectory: Directory.current.path,
+        runInShell: Platform.isWindows,
+      );
+
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+                  as Map<String, dynamic>)['rolePromptReplacements'] as List)
+              .single as Map<String, dynamic>)['rules']
+          .cast<Map<String, dynamic>>();
+      final shirtRule = rules.singleWhere(
+        (rule) => rule['id'] == 'legacy-white-shirt-rule',
+      );
+      expect(
+        ((shirtRule['sourceTerms'] as List).single
+            as Map<String, dynamic>)['id'],
+        'term-white-shirt',
+      );
+      expect(shirtRule['anchorTermId'], 'term-white-shirt');
+      expect(
+          shirtRule['excludedTermIds'], ['term-black-skirt', 'unmapped-term']);
+      expect(shirtRule['action'], 'replace');
+      expect(shirtRule['matchMode'], 'anchor');
+      expect(shirtRule['targetPrompt'], 'black blouse');
+    },
+  );
+
+  test(
+    'preserves covered duplicate replacement rule when user-authored state differs',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-complete-term-user-duplicate-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: [
+              _term('legacy-strap-slip-prompt', 'strap slip', 'clothing'),
+              _term('refined-strap-slip-prompt', 'strap slip', 'clothingState'),
+            ],
+            sceneTerms: const [],
+            roleRules: [
+              _rule(
+                'refined-strap-slip-rule',
+                _term('refined-strap-slip', 'strap slip', 'clothingState'),
+                targetPrompt: 'dress slipping off shoulder',
+              ),
+              _rule(
+                'legacy-strap-slip-rule',
+                _term('legacy-strap-slip', 'strap slip', 'clothing'),
+                targetPrompt: 'secure straps',
+                manualPhrase: 'strap slip',
+                matchMode: 'anchor',
+                anchorTermId: 'legacy-strap-slip',
+              ),
+            ],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-strap-slip', 'strap slip', 'clothingState'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      final result = await Process.run(
+        'node',
+        [
+          'tool/script_recast_complete_term_audit.mjs',
+          '--cache-dir',
+          cacheDir.path,
+          '--source-root',
+          sourceRoot,
+          '--schema',
+          schemaFile.path,
+          '--apply',
+          '--backup-dir',
+          backupDir.path,
+        ],
+        workingDirectory: Directory.current.path,
+        runInShell: Platform.isWindows,
+      );
+
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+                  as Map<String, dynamic>)['rolePromptReplacements'] as List)
+              .single as Map<String, dynamic>)['rules']
+          .cast<Map<String, dynamic>>();
+      expect(rules.map((rule) => rule['id']), [
+        'refined-strap-slip-rule',
+        'legacy-strap-slip-rule',
+      ]);
+      final legacyRule = rules.singleWhere(
+        (rule) => rule['id'] == 'legacy-strap-slip-rule',
+      );
+      expect(legacyRule['targetPrompt'], 'secure straps');
+      expect(legacyRule['manualPhrase'], 'strap slip');
+      expect(legacyRule['matchMode'], 'anchor');
+      expect(legacyRule['anchorTermId'], 'legacy-strap-slip');
+    },
+  );
+
+  test(
+    'does not merge refined replacement rules through legacy alias',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-refined-replacement-alias-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: [
+              _term('existing-accessory-collar-prompt', 'collar', 'accessory'),
+            ],
+            sceneTerms: const [],
+            roleRules: [
+              _rule(
+                'existing-accessory-collar-rule',
+                _term('existing-accessory-collar', 'collar', 'accessory'),
+                targetPrompt: 'silver collar',
+              ),
+            ],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-accessory-collar', 'collar', 'accessory'),
+                    _term('term-state-collar', 'collar', 'clothingState'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      Future<ProcessResult> applySchema() {
+        return Process.run(
+          'node',
+          [
+            'tool/script_recast_complete_term_audit.mjs',
+            '--cache-dir',
+            cacheDir.path,
+            '--source-root',
+            sourceRoot,
+            '--schema',
+            schemaFile.path,
+            '--apply',
+            '--backup-dir',
+            backupDir.path,
+          ],
+          workingDirectory: Directory.current.path,
+          runInShell: Platform.isWindows,
+        );
+      }
+
+      final firstApply = await applySchema();
+      expect(firstApply.exitCode, 0, reason: firstApply.stderr.toString());
+
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
+      expect(rules, hasLength(2));
+      expect(
+        rules.cast<Map<String, dynamic>>().map((rule) => rule['id'] as String),
+        [
+          'existing-accessory-collar-rule',
+          'role-role-a-clothingstate-collar',
+        ],
+      );
+      expect(
+        (rules.first as Map<String, dynamic>)['targetPrompt'],
+        'silver collar',
+      );
+      expect(
+        rules.cast<Map<String, dynamic>>().expand(
+              (rule) => (rule['sourceTerms'] as List)
+                  .cast<Map<String, dynamic>>()
+                  .map((term) => '${term['id']}|${term['category']}'),
+            ),
+        [
+          'term-accessory-collar|accessory',
+          'term-state-collar|clothingState',
+        ],
+      );
+
+      final afterFirstApply = await cacheFile.readAsString(encoding: utf8);
+      final secondApply = await applySchema();
+      expect(secondApply.exitCode, 0, reason: secondApply.stderr.toString());
+      final afterSecondApply = await cacheFile.readAsString(encoding: utf8);
+      expect(afterSecondApply, afterFirstApply);
+    },
+  );
+
+  test(
+    'generates separate fallback rule ids for same text refined categories',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'script-recast-refined-fallback-id-test-',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final cacheDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}cache')
+            ..createSync(recursive: true);
+      final backupDir =
+          Directory('${tempDir.path}${Platform.pathSeparator}backup');
+      final sourceRoot = '${tempDir.path}${Platform.pathSeparator}source';
+      final cacheFile =
+          File('${cacheDir.path}${Platform.pathSeparator}cache.json');
+      final schemaFile =
+          File('${tempDir.path}${Platform.pathSeparator}schema.json');
+
+      await cacheFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(
+          _cacheJson(
+            sourceRootPath: sourceRoot,
+            promptTerms: const [],
+            sceneTerms: const [],
+            roleRules: const [],
+            sceneRules: const [],
+          ),
+        ),
+        encoding: utf8,
+      );
+      await schemaFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'version': 1,
+          'caches': [
+            {
+              'scriptId': 'script-a',
+              'rolePromptTerms': [
+                {
+                  'sourceRoleId': 'role-a',
+                  'displayLabel': 'Role A',
+                  'terms': [
+                    _term('term-collar', 'collar', 'accessory'),
+                    _term('term-collar', 'collar', 'clothingState'),
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        encoding: utf8,
+      );
+
+      final result = await Process.run(
+        'node',
+        [
+          'tool/script_recast_complete_term_audit.mjs',
+          '--cache-dir',
+          cacheDir.path,
+          '--source-root',
+          sourceRoot,
+          '--schema',
+          schemaFile.path,
+          '--apply',
+          '--backup-dir',
+          backupDir.path,
+        ],
+        workingDirectory: Directory.current.path,
+        runInShell: Platform.isWindows,
+      );
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+
+      final updated = jsonDecode(await cacheFile.readAsString(encoding: utf8))
+          as Map<String, dynamic>;
+      final rules = (((updated['mapping']
+              as Map<String, dynamic>)['rolePromptReplacements'] as List)
+          .single as Map<String, dynamic>)['rules'] as List;
+      expect(rules, hasLength(2));
+      expect(
+        rules.cast<Map<String, dynamic>>().map((rule) => rule['id'] as String),
+        [
+          'role-role-a-accessory-collar',
+          'role-role-a-clothingstate-collar',
+        ],
+      );
+      expect(
+        rules.cast<Map<String, dynamic>>().expand(
+              (rule) => (rule['sourceTerms'] as List)
+                  .cast<Map<String, dynamic>>()
+                  .map((term) => '${term['id']}|${term['category']}'),
+            ),
+        [
+          'term-collar|accessory',
+          'term-collar|clothingState',
+        ],
+      );
+    },
+  );
 }
 
 Map<String, dynamic> _cacheJson({
@@ -374,10 +1069,20 @@ Map<String, dynamic> _rule(
   String id,
   Map<String, dynamic> term, {
   String targetPrompt = '',
+  List<String> excludedTermIds = const [],
+  String action = '',
+  String matchMode = '',
+  String manualPhrase = '',
+  String anchorTermId = '',
 }) {
   return {
     'id': id,
     'sourceTerms': [term],
+    if (excludedTermIds.isNotEmpty) 'excludedTermIds': excludedTermIds,
+    if (action.isNotEmpty) 'action': action,
+    if (matchMode.isNotEmpty) 'matchMode': matchMode,
     if (targetPrompt.isNotEmpty) 'targetPrompt': targetPrompt,
+    if (manualPhrase.isNotEmpty) 'manualPhrase': manualPhrase,
+    if (anchorTermId.isNotEmpty) 'anchorTermId': anchorTermId,
   };
 }

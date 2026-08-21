@@ -98,7 +98,7 @@ void main() {
     expect(roleReplacement.sourceRoleId, 'slot-0');
     expect(roleReplacement.displayLabel, 'Heroine');
     expect(roleReplacement.sourcePreview, 'red jacket');
-    expect(roleReplacement.rules.single.id, 'role-slot-0-red-jacket');
+    expect(roleReplacement.rules.single.id, 'role-slot-0-clothing-red-jacket');
     expect(
       roleReplacement.rules.single.sourceTerms.single.text,
       'red jacket',
@@ -481,6 +481,708 @@ void main() {
       isNot(contains('bedroom')),
     );
   });
+
+  test(
+    'reuses confirmed replacement rule when AI refines legacy clothing category',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-state-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-no-panties',
+                      text: 'no panties',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'black panties',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-no-panties',
+                  text: 'no panties',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rule = result.mapping.rolePromptReplacements.single.rules.single;
+      expect(rule.id, 'legacy-state-rule');
+      expect(rule.targetPrompt, 'black panties');
+      expect(rule.sourceTerms.single.id, 'term-no-panties');
+      expect(
+        rule.sourceTerms.single.category,
+        PromptTagCategory.clothingState,
+      );
+    },
+  );
+
+  test(
+    'does not reuse legacy rule when non-migration categories only share text',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-standing-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-standing',
+                      text: 'standing',
+                      category: PromptTagCategory.character,
+                    ),
+                  ],
+                  targetPrompt: 'hero pose',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-standing',
+                  text: 'standing',
+                  category: PromptTagCategory.action,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, isNot('legacy-standing-rule'));
+      expect(rules.first.sourceTerms.single.id, 'term-standing');
+      expect(rules.first.targetPrompt, isEmpty);
+      expect(rules.last.id, 'legacy-standing-rule');
+      expect(rules.last.targetPrompt, 'hero pose');
+    },
+  );
+
+  test(
+    'prefers refined clothing-compatible prompt term when polluted legacy duplicate comes first',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-state-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-strap-slip',
+                      text: 'strap slip',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  targetPrompt: 'secure straps',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-strap-slip',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(1));
+      final rule = rules.single;
+      expect(rule.id, 'legacy-state-rule');
+      expect(rule.targetPrompt, 'secure straps');
+      expect(rule.sourceTerms.single.id, 'term-strap-slip');
+      expect(
+        rule.sourceTerms.single.category,
+        PromptTagCategory.clothingState,
+      );
+    },
+  );
+
+  test(
+    'prefers refined upper and lower clothing prompt terms over polluted legacy duplicates',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-shirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-white-shirt',
+                      text: 'white shirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.replace,
+                  matchMode: ScriptPromptReplacementMatchMode.anchor,
+                  targetPrompt: 'black blouse',
+                  anchorTermId: 'legacy-white-shirt',
+                ),
+                ScriptPromptReplacementRule(
+                  id: 'legacy-skirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-black-skirt',
+                      text: 'black skirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.delete,
+                  matchMode: ScriptPromptReplacementMatchMode.all,
+                  targetPrompt: 'pleated skirt',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [2],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'legacy-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.clothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.map((rule) => rule.id), [
+        'legacy-shirt-rule',
+        'legacy-skirt-rule',
+      ]);
+      expect(rules.first.targetPrompt, 'black blouse');
+      expect(rules.first.action, ScriptPromptReplacementAction.replace);
+      expect(rules.first.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(rules.first.anchorTermId, 'term-white-shirt');
+      expect(rules.first.sourceTerms.single.id, 'term-white-shirt');
+      expect(
+        rules.first.sourceTerms.single.category,
+        PromptTagCategory.upperClothing,
+      );
+      expect(rules.last.targetPrompt, 'pleated skirt');
+      expect(rules.last.action, ScriptPromptReplacementAction.delete);
+      expect(rules.last.matchMode, ScriptPromptReplacementMatchMode.all);
+      expect(rules.last.sourceTerms.single.id, 'term-black-skirt');
+      expect(
+        rules.last.sourceTerms.single.category,
+        PromptTagCategory.lowerClothing,
+      );
+    },
+  );
+
+  test(
+    'rewrites replacement anchors and exclusions when source term ids refresh',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'legacy-shirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-white-shirt',
+                      text: 'white shirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  excludedTermIds: ['legacy-black-skirt', 'unmapped-term'],
+                  action: ScriptPromptReplacementAction.replace,
+                  matchMode: ScriptPromptReplacementMatchMode.anchor,
+                  targetPrompt: 'black blouse',
+                  anchorTermId: 'legacy-white-shirt',
+                ),
+                ScriptPromptReplacementRule(
+                  id: 'legacy-skirt-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'legacy-black-skirt',
+                      text: 'black skirt',
+                      category: PromptTagCategory.clothing,
+                    ),
+                  ],
+                  action: ScriptPromptReplacementAction.delete,
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-white-shirt',
+                  text: 'white shirt',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-skirt',
+                  text: 'black skirt',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [1],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      final shirtRule = rules.singleWhere(
+        (rule) => rule.id == 'legacy-shirt-rule',
+      );
+      expect(shirtRule.sourceTerms.single.id, 'term-white-shirt');
+      expect(shirtRule.anchorTermId, 'term-white-shirt');
+      expect(shirtRule.excludedTermIds, ['term-black-skirt', 'unmapped-term']);
+      expect(shirtRule.action, ScriptPromptReplacementAction.replace);
+      expect(shirtRule.matchMode, ScriptPromptReplacementMatchMode.anchor);
+      expect(shirtRule.targetPrompt, 'black blouse');
+    },
+  );
+
+  test(
+    'keeps refined upper and lower clothing prompt terms distinct when text matches',
+    () {
+      final result = application.apply(
+        mapping: RecastMapping.defaults('script-a'),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-upper-wrap',
+                  text: 'wrap',
+                  category: PromptTagCategory.upperClothing,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-lower-wrap',
+                  text: 'wrap',
+                  category: PromptTagCategory.lowerClothing,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.upperClothing,
+          PromptTagCategory.lowerClothing,
+        ],
+      );
+    },
+  );
+
+  test(
+    'keeps refined accessory and clothing state prompt terms distinct when text matches',
+    () {
+      final result = application.apply(
+        mapping: RecastMapping.defaults('script-a'),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-accessory-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.accessory,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
+    'keeps refined accessory and clothing state prompt terms distinct when id and text match',
+    () {
+      final result = application.apply(
+        mapping: RecastMapping.defaults('script-a'),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.accessory,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.id),
+        [
+          'role-slot-0-accessory-term-collar',
+          'role-slot-0-clothingstate-term-collar',
+        ],
+      );
+    },
+  );
+
+  test(
+    'does not merge refined clothing-compatible rules through legacy alias',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'existing-accessory-collar-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'existing-accessory-collar',
+                      text: 'collar',
+                      category: PromptTagCategory.accessory,
+                    ),
+                  ],
+                  targetPrompt: 'silver collar',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-accessory-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.accessory,
+                  frameIndexes: [1],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'existing-accessory-collar-rule');
+      expect(rules.first.targetPrompt, 'silver collar');
+      expect(rules.first.sourceTerms.single.id, 'term-accessory-collar');
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.accessory,
+          PromptTagCategory.clothingState,
+        ],
+      );
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.id),
+        ['term-accessory-collar', 'term-state-collar'],
+      );
+    },
+  );
+
+  test(
+    'does not reuse existing refined rule when incoming term has same id and text but different refined category',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'existing-accessory-collar-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'term-collar',
+                      text: 'collar',
+                      category: PromptTagCategory.accessory,
+                    ),
+                  ],
+                  targetPrompt: 'silver collar',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.id, 'role-slot-0-clothingstate-term-collar');
+      expect(rules.first.sourceTerms.single.category,
+          PromptTagCategory.clothingState);
+      expect(rules.last.id, 'existing-accessory-collar-rule');
+      expect(rules.last.targetPrompt, 'silver collar');
+      expect(
+          rules.last.sourceTerms.single.category, PromptTagCategory.accessory);
+    },
+  );
+
+  test(
+    'does not reuse refined clothing-compatible rule for different refined category',
+    () {
+      final result = application.apply(
+        mapping: const RecastMapping(
+          id: 'mapping-a',
+          scriptId: 'script-a',
+          rolePromptReplacements: [
+            ScriptRolePromptReplacement(
+              sourceRoleId: 'slot-0',
+              displayLabel: 'Role',
+              rules: [
+                ScriptPromptReplacementRule(
+                  id: 'existing-accessory-collar-rule',
+                  sourceTerms: [
+                    ScriptPromptReplacementTerm(
+                      id: 'existing-accessory-collar',
+                      text: 'collar',
+                      category: PromptTagCategory.accessory,
+                    ),
+                  ],
+                  targetPrompt: 'silver collar',
+                ),
+              ],
+            ),
+          ],
+        ),
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Role',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-state-collar',
+                  text: 'collar',
+                  category: PromptTagCategory.clothingState,
+                  frameIndexes: [2],
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules, hasLength(2));
+      expect(rules.first.sourceTerms.single.id, 'term-state-collar');
+      expect(rules.last.id, 'existing-accessory-collar-rule');
+      expect(rules.last.targetPrompt, 'silver collar');
+      expect(
+        rules.map((rule) => rule.sourceTerms.single.category),
+        [
+          PromptTagCategory.clothingState,
+          PromptTagCategory.accessory,
+        ],
+      );
+    },
+  );
 
   test('preserves user-merged replacement source terms when refreshing from AI',
       () {
@@ -927,6 +1629,203 @@ void main() {
   );
 
   test(
+    'keeps stale role replacement rule that only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Heroine',
+            sourcePreview: 'red jacket',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-clothing-red-jacket',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'role-slot-0-clothing-old-hat',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-hat',
+                    text: 'old hat',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.35,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isFalse);
+      expect(identical(result.mapping, mapping), isTrue);
+      final rules = result.mapping.rolePromptReplacements.single.rules;
+      expect(rules.map((rule) => rule.id), [
+        'role-slot-0-clothing-red-jacket',
+        'role-slot-0-clothing-old-hat',
+      ]);
+      expect(rules.last.targetPrompt, isEmpty);
+      expect(rules.last.targetWeightMultiplier, 1.35);
+      expect(rules.last.effectiveAction, ScriptPromptReplacementAction.replace);
+    },
+  );
+
+  test(
+    'keeps stale scene replacement rule that only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        scenePromptReplacements: [
+          ScriptScenePromptReplacement(
+            id: 'scene-ai',
+            label: 'Scene',
+            rules: [
+              ScriptPromptReplacementRule(
+                id: 'scene-night',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'night',
+                    text: 'night',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+              ),
+              ScriptPromptReplacementRule(
+                id: 'scene-old-rain',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'old-rain',
+                    text: 'old rain',
+                    category: PromptTagCategory.scene,
+                  ),
+                ],
+                targetWeightMultiplier: 0.8,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          sceneTerms: [
+            ScriptAiExtractedPromptTerm(
+              id: 'night',
+              text: 'night',
+              category: PromptTagCategory.scene,
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isFalse);
+      expect(identical(result.mapping, mapping), isTrue);
+      final rules = result.mapping.scenePromptReplacements.single.rules;
+      expect(rules.map((rule) => rule.id), [
+        'scene-night',
+        'scene-old-rain',
+      ]);
+      expect(rules.last.targetPrompt, isEmpty);
+      expect(rules.last.targetWeightMultiplier, 0.8);
+      expect(rules.last.effectiveAction, ScriptPromptReplacementAction.replace);
+    },
+  );
+
+  test(
+    'reports mapping changed when refreshed rule only changes target weight',
+    () {
+      const mapping = RecastMapping(
+        id: 'mapping-script-1',
+        scriptId: 'script-1',
+        rolePromptReplacements: [
+          ScriptRolePromptReplacement(
+            sourceRoleId: 'slot-0',
+            displayLabel: 'Heroine',
+            sourcePreview: 'red jacket',
+            rules: [
+              _WeightRefreshingPromptReplacementRule(
+                id: 'role-slot-0-clothing-red-jacket',
+                sourceTerms: [
+                  ScriptPromptReplacementTerm(
+                    id: 'red-jacket',
+                    text: 'red jacket',
+                    category: PromptTagCategory.clothing,
+                  ),
+                ],
+                targetWeightMultiplier: 1.2,
+                refreshedWeightMultiplier: 1.8,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final result = application.apply(
+        mapping: mapping,
+        extraction: const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'Heroine',
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'red-jacket',
+                  text: 'red jacket',
+                  category: PromptTagCategory.clothing,
+                ),
+              ],
+            ),
+          ],
+        ),
+        stageLabelFor: labelFor,
+      );
+
+      expect(result.changed, isTrue);
+      expect(identical(result.mapping, mapping), isFalse);
+      expect(
+        result.mapping.rolePromptReplacements.single.rules.single
+            .targetWeightMultiplier,
+        1.8,
+      );
+    },
+  );
+
+  test(
     'keeps AI stages whose ids look like local default stage ids',
     () {
       const mapping = RecastMapping(
@@ -1325,4 +2224,58 @@ void main() {
       );
     },
   );
+}
+
+class _WeightRefreshingPromptReplacementRule
+    extends ScriptPromptReplacementRule {
+  final double refreshedWeightMultiplier;
+
+  const _WeightRefreshingPromptReplacementRule({
+    required String id,
+    List<ScriptPromptReplacementTerm> sourceTerms = const [],
+    List<String> excludedTermIds = const [],
+    ScriptPromptReplacementAction action = ScriptPromptReplacementAction.none,
+    ScriptPromptReplacementMatchMode matchMode =
+        ScriptPromptReplacementMatchMode.any,
+    String targetPrompt = '',
+    double? targetWeightMultiplier,
+    String manualPhrase = '',
+    String anchorTermId = '',
+    required this.refreshedWeightMultiplier,
+  }) : super(
+          id: id,
+          sourceTerms: sourceTerms,
+          excludedTermIds: excludedTermIds,
+          action: action,
+          matchMode: matchMode,
+          targetPrompt: targetPrompt,
+          targetWeightMultiplier: targetWeightMultiplier,
+          manualPhrase: manualPhrase,
+          anchorTermId: anchorTermId,
+        );
+
+  @override
+  ScriptPromptReplacementRule copyWith({
+    String? id,
+    List<ScriptPromptReplacementTerm>? sourceTerms,
+    List<String>? excludedTermIds,
+    ScriptPromptReplacementAction? action,
+    ScriptPromptReplacementMatchMode? matchMode,
+    String? targetPrompt,
+    Object? targetWeightMultiplier,
+    String? manualPhrase,
+    String? anchorTermId,
+  }) {
+    return ScriptPromptReplacementRule(
+      id: id ?? this.id,
+      sourceTerms: sourceTerms ?? this.sourceTerms,
+      excludedTermIds: excludedTermIds ?? this.excludedTermIds,
+      action: action ?? this.action,
+      matchMode: matchMode ?? this.matchMode,
+      targetPrompt: targetPrompt ?? this.targetPrompt,
+      targetWeightMultiplier: refreshedWeightMultiplier,
+      manualPhrase: manualPhrase ?? this.manualPhrase,
+      anchorTermId: anchorTermId ?? this.anchorTermId,
+    );
+  }
 }

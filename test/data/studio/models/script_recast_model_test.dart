@@ -486,6 +486,64 @@ void main() {
         throwsFormatException,
       );
     });
+
+    test('replacement term categories preserve accessory and clothingState',
+        () {
+      final mapping = RecastMapping.fromJson({
+        'id': 'mapping-a',
+        'scriptId': 'script-a',
+        'roleSwaps': [],
+        'artistSwap': null,
+        'rolePromptReplacements': [
+          {
+            'sourceRoleId': 'slot-0',
+            'displayLabel': 'Role',
+            'rules': [
+              {
+                'id': 'rule-accessory',
+                'sourceTerms': [
+                  {
+                    'id': 'term-collar',
+                    'text': 'black collar',
+                    'category': 'accessory',
+                  },
+                ],
+              },
+              {
+                'id': 'rule-state',
+                'sourceTerms': [
+                  {
+                    'id': 'term-strap-slip',
+                    'text': 'strap slip',
+                    'category': 'clothing_state',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      final terms = mapping.rolePromptReplacements.single.rules
+          .expand((rule) => rule.sourceTerms)
+          .toList();
+      final json = mapping.toJson();
+      final replacements =
+          (json['rolePromptReplacements'] as List).cast<Map<String, dynamic>>();
+      final rules =
+          (replacements.first['rules'] as List).cast<Map<String, dynamic>>();
+      final accessoryTerm = (rules.first['sourceTerms'] as List)
+          .cast<Map<String, dynamic>>()
+          .first;
+      final stateTerm = (rules.last['sourceTerms'] as List)
+          .cast<Map<String, dynamic>>()
+          .first;
+
+      expect(terms[0].category, PromptTagCategory.accessory);
+      expect(terms[1].category, PromptTagCategory.clothingState);
+      expect(accessoryTerm['category'], 'accessory');
+      expect(stateTerm['category'], 'clothingState');
+    });
   });
 
   group('RecastRun', () {

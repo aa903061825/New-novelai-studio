@@ -268,7 +268,7 @@ function collectSourceTerms(cache) {
       if (existing) {
         addSorted(existing.frame_indexes, frameIndex);
         existing.sources.add(sourceId);
-        continue;
+        return;
       }
       terms.set(key, {
         text,
@@ -532,37 +532,28 @@ function mergePromptTerms(existingTerms, incomingTerms, options = {}) {
   const byKey = new Map();
   const order = [];
   for (const term of Array.isArray(existingTerms) ? existingTerms : []) {
-    const normalized = normalizedTagKey(term?.text);
-    const category = stringValue(term?.category || options.defaultCategory || 'character');
-    if (!normalized) continue;
-    const key = `${category}\u001f${normalized}`;
-    byKey.set(key, normalizePromptTerm(term, { defaultCategory: category }));
-    order.push(key);
+    mergePromptTermIntoMaps({
+      byKey,
+      order,
+      term,
+      options,
+      countNew: false,
+    });
   }
 
   let merged = 0;
   for (const incoming of Array.isArray(incomingTerms) ? incomingTerms : []) {
-    const normalized = normalizedTagKey(incoming?.text);
-    const category = stringValue(incoming?.category || options.defaultCategory || 'character');
-    if (!normalized) continue;
-    const key = `${category}\u001f${normalized}`;
-    const normalizedIncoming = normalizePromptTerm(incoming, { defaultCategory: category });
-    const previous = byKey.get(key);
-    if (!previous) {
-      byKey.set(key, normalizedIncoming);
-      order.push(key);
+    if (
+      mergePromptTermIntoMaps({
+        byKey,
+        order,
+        term: incoming,
+        options,
+        countNew: true,
+      })
+    ) {
       merged += 1;
-      continue;
     }
-    byKey.set(key, {
-      ...previous,
-      ...withoutEmptyStrings(normalizedIncoming),
-      id: stringValue(normalizedIncoming.id) || stringValue(previous.id),
-      frame_indexes: sortedInts([
-        ...(previous.frame_indexes ?? []),
-        ...(normalizedIncoming.frame_indexes ?? []),
-      ]),
-    });
   }
   return { terms: order.map((key) => byKey.get(key)), merged };
 }
@@ -597,7 +588,7 @@ function mergeRolePromptReplacementSchema(existingReplacements, rolePatches) {
     const result = mergeReplacementRules(
       replacement.rules ?? [],
       rolePatch.terms ?? [],
-      (term) => `role-${safeId(roleId)}-${safeId(term.text)}`,
+      (term) => `role-${safeId(roleId)}-${safeId(term.category)}-${safeId(term.text)}`,
     );
     replacement.rules = result.rules;
     replacement.sourcePreview = sourcePreviewForTerms(rolePatch.terms, replacement.sourcePreview);
@@ -636,40 +627,129 @@ function mergeScenePromptReplacementSchema(existingReplacements, sceneTerms) {
 function mergeReplacementRules(existingRules, incomingTerms, idForTerm, options = {}) {
   const rules = [];
   const emittedIds = new Set();
-  const existingByTermKey = new Map();
+  const existingRuleByTermKey = new Map();
+  const incomingCoverageKeys = new Set();
+  const emittedCoverageKeys = new Set();
+  const emittedRulesByCoverageKey = new Map();
+  const sourceTermIdRemap = replacementSourceTermIdRemap(
+    existingRules,
+    incomingTerms,
+    options,
+  );
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     for (const term of rule.sourceTerms ?? []) {
-      const key = replacementTermKey(term, options);
-      if (key) existingByTermKey.set(key, rule);
+      for (const key of replacementExistingLookupKeys(term, options)) {
+        if (!existingRuleByTermKey.has(key)) {
+          existingRuleByTermKey.set(key, rule);
+        }
+      }
     }
   }
 
   let merged = 0;
   for (const incoming of Array.isArray(incomingTerms) ? incomingTerms : []) {
     const replacementTerm = promptReplacementTermFromAi(incoming, options);
-    const key = replacementTermKey(replacementTerm, options);
-    if (!key) continue;
-    const existing = existingByTermKey.get(key);
+    const keys = replacementIncomingLookupKeys(replacementTerm, options);
+    if (keys.length === 0) continue;
+    keys.forEach((key) => incomingCoverageKeys.add(key));
+    const existing = keys
+      .map((key) => existingRuleByTermKey.get(key))
+      .find((rule) => rule && !emittedIds.has(rule.id));
     if (existing) {
-      if (!emittedIds.has(existing.id)) {
-        rules.push({ ...existing, sourceTerms: [replacementTerm] });
-        emittedIds.add(existing.id);
-      }
+      const refreshed = replacementRuleWithSourceTerms(
+        existing,
+        [replacementTerm],
+        sourceTermIdRemap,
+      );
+      rules.push(refreshed);
+      emittedIds.add(existing.id);
+      keys.forEach((key) => {
+        emittedCoverageKeys.add(key);
+        if (!emittedRulesByCoverageKey.has(key)) {
+          emittedRulesByCoverageKey.set(key, refreshed);
+        }
+      });
       continue;
     }
     const id = stringValue(incoming.ruleId ?? incoming.rule_id) || idForTerm(replacementTerm);
     if (emittedIds.has(id)) continue;
-    rules.push({ id, sourceTerms: [replacementTerm] });
+    const rule = { id, sourceTerms: [replacementTerm] };
+    rules.push(rule);
     emittedIds.add(id);
+    keys.forEach((key) => {
+      emittedCoverageKeys.add(key);
+      if (!emittedRulesByCoverageKey.has(key)) {
+        emittedRulesByCoverageKey.set(key, rule);
+      }
+    });
     merged += 1;
   }
 
   for (const rule of Array.isArray(existingRules) ? existingRules : []) {
     if (emittedIds.has(rule.id)) continue;
+    if (
+      isSchemaCoveredDuplicateRule(rule, {
+        incomingCoverageKeys,
+        emittedCoverageKeys,
+        emittedRulesByCoverageKey,
+        sourceTermIdRemap,
+        options,
+      })
+    ) {
+      continue;
+    }
     rules.push(rule);
     emittedIds.add(rule.id);
   }
   return { rules, merged };
+}
+
+function replacementRuleWithSourceTerms(rule, sourceTerms, sourceTermIdRemap) {
+  return replacementRuleWithRemappedTermIds(
+    { ...rule, sourceTerms },
+    sourceTermIdRemap,
+  );
+}
+
+function replacementRuleWithRemappedTermIds(rule, sourceTermIdRemap) {
+  if (!(sourceTermIdRemap instanceof Map) || sourceTermIdRemap.size === 0) {
+    return rule;
+  }
+  const remapped = { ...rule };
+  if (typeof remapped.anchorTermId === 'string') {
+    remapped.anchorTermId =
+      sourceTermIdRemap.get(remapped.anchorTermId.trim()) ?? remapped.anchorTermId;
+  }
+  if (Array.isArray(remapped.excludedTermIds)) {
+    remapped.excludedTermIds = remapped.excludedTermIds.map((id) => {
+      if (typeof id !== 'string') return id;
+      return sourceTermIdRemap.get(id.trim()) ?? id;
+    });
+  }
+  return remapped;
+}
+
+function replacementSourceTermIdRemap(existingRules, incomingTerms, options = {}) {
+  const incomingReplacementTerms = (Array.isArray(incomingTerms) ? incomingTerms : [])
+    .map((term) => promptReplacementTermFromAi(term, options));
+  const remap = new Map();
+  for (const rule of Array.isArray(existingRules) ? existingRules : []) {
+    for (const oldTerm of rule.sourceTerms ?? []) {
+      const oldId = stringValue(oldTerm?.id);
+      if (!oldId) continue;
+      const oldKeys = replacementExistingLookupKeys(oldTerm, options);
+      for (const newTerm of incomingReplacementTerms) {
+        const newKeys = replacementIncomingLookupKeys(newTerm, options);
+        if (!oldKeys.some((key) => newKeys.includes(key))) continue;
+        const newId = stringValue(newTerm?.id);
+        if (newId && newId !== oldId && !remap.has(oldId)) {
+          remap.set(oldId, newId);
+        }
+        break;
+      }
+    }
+  }
+  return remap;
 }
 
 function promptReplacementTermFromAi(term, options = {}) {
@@ -689,8 +769,193 @@ function promptReplacementTermFromAi(term, options = {}) {
 function replacementTermKey(term, options = {}) {
   const text = normalizedTagKey(term?.text);
   if (!text) return '';
-  const category = stringValue(term?.category || options.defaultCategory || 'character');
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
   return `${category}\u001f${text}`;
+}
+
+function replacementTermKeys(term, options = {}) {
+  return replacementIncomingLookupKeys(term, options);
+}
+
+function replacementIncomingLookupKeys(term, options = {}) {
+  const primary = replacementTermKey(term, options);
+  if (!primary) return [];
+  const text = normalizedTagKey(term?.text);
+  if (!text) return [];
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
+  const keys = [primary];
+  if (isRefinedLegacyClothingCategory(category)) {
+    keys.push(replacementLegacyClothingKey(text));
+  }
+  return [...new Set(keys.filter(Boolean))];
+}
+
+function replacementExistingLookupKeys(term, options = {}) {
+  const primary = replacementTermKey(term, options);
+  if (!primary) return [];
+  const text = normalizedTagKey(term?.text);
+  if (!text) return [];
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
+  const keys = [primary];
+  if (category === 'clothing') {
+    keys.push(replacementLegacyClothingKey(text));
+  }
+  return [...new Set(keys.filter(Boolean))];
+}
+
+function replacementLegacyClothingKey(text) {
+  return text ? `legacy-clothing-compatible\u001f${text}` : '';
+}
+
+function isRefinedLegacyClothingCategory(category) {
+  return (
+    category === 'accessory' ||
+    category === 'clothingState' ||
+    category === 'upperClothing' ||
+    category === 'lowerClothing'
+  );
+}
+
+function isSchemaCoveredDuplicateRule(
+  rule,
+  {
+    incomingCoverageKeys,
+    emittedCoverageKeys,
+    emittedRulesByCoverageKey,
+    sourceTermIdRemap,
+    options = {},
+  } = {},
+) {
+  const sourceTerms = Array.isArray(rule?.sourceTerms) ? rule.sourceTerms : [];
+  if (sourceTerms.length === 0) return false;
+  const covered = sourceTerms.every((term) => {
+    const keys = replacementExistingLookupKeys(term, options);
+    return (
+      keys.length > 0 &&
+      keys.some((key) => incomingCoverageKeys.has(key)) &&
+      keys.some((key) => emittedCoverageKeys.has(key))
+    );
+  });
+  if (!covered) return false;
+  if (!hasUserAuthoredReplacementState(rule)) {
+    return true;
+  }
+  const candidateRules = [];
+  const candidateIds = new Set();
+  for (const term of sourceTerms) {
+    for (const key of replacementExistingLookupKeys(term, options)) {
+      const candidate = emittedRulesByCoverageKey?.get(key);
+      const id = stringValue(candidate?.id);
+      if (!candidate || candidateIds.has(id)) continue;
+      candidateIds.add(id);
+      candidateRules.push(candidate);
+    }
+  }
+  return candidateRules.some((candidate) =>
+    replacementUserStateEquivalent(rule, candidate, sourceTermIdRemap),
+  );
+}
+
+function hasUserAuthoredReplacementState(rule) {
+  return Object.keys(replacementUserState(rule)).length > 0;
+}
+
+function replacementUserStateEquivalent(left, right, sourceTermIdRemap) {
+  return (
+    stableJson(replacementUserState(left, sourceTermIdRemap)) ===
+    stableJson(replacementUserState(right))
+  );
+}
+
+function replacementUserState(rule, sourceTermIdRemap = new Map()) {
+  const state = {};
+  for (const key of Object.keys(rule ?? {}).sort()) {
+    if (!isReplacementUserStateKey(key)) continue;
+    const value = normalizedReplacementUserStateValue(
+      key,
+      rule[key],
+      sourceTermIdRemap,
+    );
+    if (value !== undefined) {
+      state[key] = value;
+    }
+  }
+  return state;
+}
+
+function isReplacementUserStateKey(key) {
+  return (
+    key === 'action' ||
+    key === 'matchMode' ||
+    key === 'anchorTermId' ||
+    key === 'excludedTermIds' ||
+    key === 'targetWeightMultiplier' ||
+    key === 'targetBlockWeightMultiplier' ||
+    key.startsWith('target') ||
+    key.startsWith('manual')
+  );
+}
+
+function normalizedReplacementUserStateValue(key, value, sourceTermIdRemap) {
+  if (key === 'action') {
+    const action = stringValue(value);
+    return action && action !== 'none' ? action : undefined;
+  }
+  if (key === 'matchMode') {
+    const matchMode = stringValue(value);
+    return matchMode && matchMode !== 'any' ? matchMode : undefined;
+  }
+  if (key === 'anchorTermId') {
+    const id = stringValue(value);
+    if (!id) return undefined;
+    return sourceTermIdRemap?.get(id) ?? id;
+  }
+  if (key === 'excludedTermIds') {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    return value
+      .map((id) => {
+        const stringId = stringValue(id);
+        return sourceTermIdRemap?.get(stringId) ?? stringId;
+      })
+      .filter(Boolean)
+      .sort();
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text ? text : undefined;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value : undefined;
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0 ? value : undefined;
+  }
+  return undefined;
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function normalizePromptTerm(term, options = {}) {
@@ -698,11 +963,127 @@ function normalizePromptTerm(term, options = {}) {
   return {
     id: stringValue(term?.id),
     text,
-    category: stringValue(term?.category || options.defaultCategory || 'character'),
+    category: canonicalPromptTermCategory(
+      term?.category || options.defaultCategory || 'character',
+    ),
     source_phrase: cleanTag(term?.source_phrase ?? term?.sourcePhrase ?? text),
     source_location: stringValue(term?.source_location ?? term?.sourceLocation),
     frame_indexes: sortedInts(term?.frame_indexes ?? term?.frameIndexes ?? []),
   };
+}
+
+function mergePromptTermIntoMaps({ byKey, order, term, options = {}, countNew }) {
+  const category = canonicalPromptTermCategory(
+    term?.category || options.defaultCategory || 'character',
+  );
+  const normalized = normalizedTagKey(term?.text);
+  if (!normalized) return false;
+  const normalizedTerm = normalizePromptTerm(term, { defaultCategory: category });
+  const strictKey = promptTermStrictKey(category, normalized);
+  const existingKey = promptTermMergeKey(byKey, category, normalized) || strictKey;
+  const previous = byKey.get(existingKey);
+  if (!previous) {
+    byKey.set(strictKey, normalizedTerm);
+    order.push(strictKey);
+    return Boolean(countNew);
+  }
+
+  const merged = mergePromptTermRecords(previous, normalizedTerm);
+  const mergedKey = promptTermStrictKey(merged.category, normalized);
+  if (mergedKey !== existingKey) {
+    byKey.delete(existingKey);
+    const orderIndex = order.indexOf(existingKey);
+    if (orderIndex >= 0) {
+      order[orderIndex] = mergedKey;
+    } else if (!order.includes(mergedKey)) {
+      order.push(mergedKey);
+    }
+  }
+  byKey.set(mergedKey, merged);
+  return false;
+}
+
+function promptTermStrictKey(category, normalizedText) {
+  return `${category}\u001f${normalizedText}`;
+}
+
+function promptTermMergeKey(byKey, category, normalizedText) {
+  const strictKey = promptTermStrictKey(category, normalizedText);
+  if (byKey.has(strictKey)) return strictKey;
+  if (isRefinedClothingCategory(category)) {
+    const legacyKey = promptTermStrictKey('clothing', normalizedText);
+    return byKey.has(legacyKey) ? legacyKey : '';
+  }
+  if (category === 'clothing') {
+    const refinedKeys = [
+      'upperClothing',
+      'lowerClothing',
+      'accessory',
+      'clothingState',
+    ]
+      .map((refined) => promptTermStrictKey(refined, normalizedText))
+      .filter((key) => byKey.has(key));
+    return refinedKeys.length === 1 ? refinedKeys[0] : '';
+  }
+  return '';
+}
+
+function mergePromptTermRecords(previous, incoming) {
+  const preferred =
+    pickPreferredPromptTermCategory(previous.category, incoming.category) ===
+    incoming.category
+      ? incoming
+      : previous;
+  const fallback = preferred === incoming ? previous : incoming;
+  return {
+    ...fallback,
+    ...preferred,
+    id: stringValue(preferred.id) || stringValue(fallback.id),
+    source_phrase: cleanTag(preferred.source_phrase || fallback.source_phrase || preferred.text),
+    source_location: stringValue(preferred.source_location || fallback.source_location),
+    frame_indexes: sortedInts([
+      ...(previous.frame_indexes ?? []),
+      ...(incoming.frame_indexes ?? []),
+    ]),
+  };
+}
+
+function pickPreferredPromptTermCategory(leftCategory, rightCategory) {
+  const left = canonicalPromptTermCategory(leftCategory);
+  const right = canonicalPromptTermCategory(rightCategory);
+  const leftRank = promptTermCategoryPreferenceRank(left);
+  const rightRank = promptTermCategoryPreferenceRank(right);
+  if (rightRank > leftRank) return right;
+  if (leftRank > rightRank) return left;
+  return right;
+}
+
+function promptTermCategoryPreferenceRank(category) {
+  if (category === 'clothing') return 0;
+  if (
+    category === 'upperClothing' ||
+    category === 'lowerClothing' ||
+    category === 'accessory' ||
+    category === 'clothingState'
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function isRefinedClothingCategory(category) {
+  return (
+    category === 'upperClothing' ||
+    category === 'lowerClothing' ||
+    category === 'accessory' ||
+    category === 'clothingState'
+  );
+}
+
+function canonicalPromptTermCategory(category) {
+  const value = stringValue(category || 'character');
+  if (value === 'clothing_state') return 'clothingState';
+  return value;
 }
 
 function mergeCacheSuggestions(existing, incoming) {

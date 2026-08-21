@@ -1963,6 +1963,10 @@ ScriptAiExtractedPromptTerm _mergePromptTerm(
 }
 
 String _promptTermMergeKey(ScriptAiExtractedPromptTerm term) {
+  final id = term.id.trim();
+  if (id.isNotEmpty) {
+    return 'id\u001f${term.category.name}\u001f$id';
+  }
   final text = term.text.trim();
   if (text.isEmpty) {
     return '';

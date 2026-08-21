@@ -2045,6 +2045,75 @@ void main() {
     },
   );
 
+  testWidgets(
+    'grouped clothing block keeps legacy clothing drop category precedence',
+    (tester) async {
+      var value = 'masterpiece, blue eyes, dress, standing';
+      var classificationChangeCount = 0;
+      var saveCount = 0;
+      final classificationCache = PromptTagClassificationCache(
+        clock: () => 1710000000,
+      );
+
+      await tester.pumpWidget(
+        host(
+          StatefulBuilder(
+            builder: (context, setState) {
+              return PromptTagDisplay(
+                text: value,
+                initialLayoutMode: PromptTagLayoutMode.grouped,
+                showLayoutControls: true,
+                enableTagActions: true,
+                translationCache: cache(),
+                classificationCache: classificationCache,
+                onChanged: (next) => setState(() => value = next),
+                onClassificationChanged: () {
+                  classificationChangeCount += 1;
+                },
+                saveClassificationCache: (_) async {
+                  saveCount += 1;
+                },
+              );
+            },
+          ),
+        ),
+      );
+
+      await dragSelectionAround(
+        tester,
+        chipKey('standing', 3, selected: false),
+        chipKey('standing', 3, selected: false),
+      );
+
+      final selectedStanding = chipKey('standing', 3, selected: true);
+      final clothingGroup = find.byKey(
+        const ValueKey('prompt-tag-group-clothing'),
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      final start = tester.getCenter(selectedStanding);
+      final end = tester.getTopRight(clothingGroup) + const Offset(-14, 14);
+      await mouse.addPointer(location: start);
+      await tester.pump();
+      await mouse.down(start);
+      await mouse.moveTo(end);
+      await tester.pump();
+      await mouse.up();
+      await tester.pumpAndSettle();
+      await mouse.removePointer();
+
+      expect(
+        classificationCache.entryFor('standing')?.category,
+        PromptTagCategory.clothing,
+      );
+      expect(classificationChangeCount, 1);
+      expect(saveCount, 1);
+      expect(
+        find.descendant(of: clothingGroup, matching: find.text('standing')),
+        findsOneWidget,
+      );
+      expect(value, 'masterpiece, blue eyes, dress, standing');
+    },
+  );
   testWidgets('grouped layout renders group header actions', (tester) async {
     PromptTagGroupActionContext? capturedContext;
     await tester.pumpWidget(

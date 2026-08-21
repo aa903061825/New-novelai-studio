@@ -492,7 +492,7 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'character',
-      label: '身份',
+      label: '角色',
       categories: [
         PromptTagCategory.character,
       ],
@@ -541,7 +541,7 @@ class PromptTagClassifier {
     ),
     PromptTagGroup(
       id: 'clothing',
-      label: '饰品/状态',
+      label: '其它服装',
       categories: [
         PromptTagCategory.clothing,
         PromptTagCategory.negativeBody,
@@ -843,14 +843,16 @@ const _artistChainStyleWords = [
 
 const _upperBodyWords = [
   'breast',
+  'breasts',
   'nipple',
+  'nipples',
   'areola',
+  'inverted nipples',
   'arm',
   'hand',
   'wrist',
   'torso',
   'shoulder',
-  'inverted nipples',
   'large breasts',
   'small breasts',
   'flat chest',

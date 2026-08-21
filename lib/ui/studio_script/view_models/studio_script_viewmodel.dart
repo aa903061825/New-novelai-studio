@@ -3062,6 +3062,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
       roles: List.unmodifiable([
         for (final role in extraction.roles)
@@ -9114,6 +9115,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     ).collapseEquivalentStages();
     aiRoleExtraction = _extractionWithVisibleRolePromptTerms(aiRoleExtraction);
@@ -9154,6 +9156,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -9167,31 +9170,57 @@ class StudioScriptViewModel extends ChangeNotifier {
       return role;
     }
 
-    final seenKeys = <String>{
-      for (final term in visibleTerms)
-        _promptTermIdentityKey(term.category, term.text),
-    };
+    final existingTermsByTextKey =
+        <String, List<ScriptAiExtractedPromptTerm>>{};
+    for (final term in role.promptTerms) {
+      final textKey = _promptTermTextKey(term.text);
+      if (textKey.isNotEmpty) {
+        (existingTermsByTextKey[textKey] ??= []).add(term);
+      }
+    }
+
     final visibleTextKeys = <String>{};
+    final seenKeys = <String>{};
+    final nextTerms = <ScriptAiExtractedPromptTerm>[];
+
+    bool addPromptTerm(ScriptAiExtractedPromptTerm term) {
+      final key = _promptTermIdentityKey(term.category, term.text);
+      if (key.isEmpty || !seenKeys.add(key)) {
+        return false;
+      }
+      nextTerms.add(term);
+      return true;
+    }
+
     for (final term in visibleTerms) {
       final textKey = _promptTermTextKey(term.text);
       if (textKey.isNotEmpty) {
         visibleTextKeys.add(textKey);
       }
+      final preferredExistingTerms = [
+        for (final existing in existingTermsByTextKey[textKey] ?? const [])
+          if (_shouldPreferExistingPromptTermForVisibleTerm(existing, term))
+            existing,
+      ];
+      if (preferredExistingTerms.isNotEmpty) {
+        for (final existing in preferredExistingTerms) {
+          addPromptTerm(existing);
+        }
+      } else {
+        addPromptTerm(term);
+      }
     }
 
-    bool shouldKeepExistingPromptTerm(ScriptAiExtractedPromptTerm term) {
+    for (final term in role.promptTerms) {
       final textKey = _promptTermTextKey(term.text);
       if (textKey.isNotEmpty && visibleTextKeys.contains(textKey)) {
-        return false;
+        continue;
       }
-      return seenKeys.add(_promptTermIdentityKey(term.category, term.text));
+      if (_isVisibleRoleStagePromptCategory(term.category)) {
+        continue;
+      }
+      addPromptTerm(term);
     }
-
-    final nextTerms = <ScriptAiExtractedPromptTerm>[
-      ...visibleTerms,
-      for (final term in role.promptTerms)
-        if (shouldKeepExistingPromptTerm(term)) term,
-    ];
     if (_promptTermsEqual(role.promptTerms, nextTerms)) {
       return role;
     }
@@ -9356,6 +9385,30 @@ class StudioScriptViewModel extends ChangeNotifier {
     return '${category.name}|$key';
   }
 
+  bool _shouldPreferExistingPromptTermForVisibleTerm(
+    ScriptAiExtractedPromptTerm existing,
+    ScriptAiExtractedPromptTerm visible,
+  ) {
+    if (existing.category == visible.category) {
+      return false;
+    }
+    if (_isVisibleRoleStagePromptCategory(existing.category)) {
+      return false;
+    }
+    if (existing.category == PromptTagCategory.clothing) {
+      return false;
+    }
+    return true;
+  }
+
+  bool _isVisibleRoleStagePromptCategory(PromptTagCategory category) {
+    return category == PromptTagCategory.character ||
+        category == PromptTagCategory.upperBody ||
+        category == PromptTagCategory.lowerBody ||
+        category == PromptTagCategory.upperClothing ||
+        category == PromptTagCategory.lowerClothing;
+  }
+
   List<int> _mergedFrameIndexes(
     List<int> left,
     List<int> right,
@@ -9503,6 +9556,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       unassignedTerms: extraction.unassignedTerms,
       evidenceRequests: extraction.evidenceRequests,
       sceneTerms: List.unmodifiable(nextSceneTerms),
+      termCacheSuggestions: extraction.termCacheSuggestions,
       rawResponse: extraction.rawResponse,
     );
   }
@@ -9565,6 +9619,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         unassignedTerms: recoveredExtraction.unassignedTerms,
         evidenceRequests: recoveredExtraction.evidenceRequests,
         sceneTerms: recoveredExtraction.sceneTerms,
+        termCacheSuggestions: recoveredExtraction.termCacheSuggestions,
         rawResponse: recoveredExtraction.rawResponse,
       ).collapseEquivalentStages(),
     );
@@ -11009,6 +11064,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         unassignedTerms: extraction.unassignedTerms,
         evidenceRequests: extraction.evidenceRequests,
         sceneTerms: sceneTerms.terms,
+        termCacheSuggestions: extraction.termCacheSuggestions,
         rawResponse: extraction.rawResponse,
       ),
       changed: true,

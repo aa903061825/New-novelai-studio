@@ -47,6 +47,24 @@ final _fixtureScriptId = ScriptRecastParserService.scriptIdForDirectory(
   Directory(_fixturePath),
 );
 
+const _termCacheSuggestionsForTest = [
+  ScriptAiTermCacheSuggestion(
+    text: 'double bun',
+    translation: 'double bun translated',
+    category: PromptTagCategory.upperBody,
+    source: 'ai_extraction',
+  ),
+];
+
+void _expectTermCacheSuggestionsPreserved(ScriptAiRoleExtraction extraction) {
+  expect(extraction.termCacheSuggestions, hasLength(1));
+  final suggestion = extraction.termCacheSuggestions.single;
+  expect(suggestion.text, 'double bun');
+  expect(suggestion.translation, 'double bun translated');
+  expect(suggestion.category, PromptTagCategory.upperBody);
+  expect(suggestion.source, 'ai_extraction');
+}
+
 Widget buildScriptPage({
   StudioScriptViewModel? viewModel,
   StudioScriptAssetFocus? assetFocus,
@@ -3556,6 +3574,105 @@ void main() {
     );
 
     test(
+      'AI role extraction preserves refined prompt categories when applying visible stage terms',
+      () async {
+        const extraction = ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          confidence: 0.92,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'AI Hero',
+              confidence: 0.9,
+              promptTerms: [
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-black-collar-accessory',
+                  text: 'black collar',
+                  category: PromptTagCategory.accessory,
+                  sourcePhrase: 'black collar, strap slip',
+                  sourceLocation: 'slot-0 prompt',
+                  frameIndexes: [1, 2],
+                ),
+                ScriptAiExtractedPromptTerm(
+                  id: 'term-strap-slip-state',
+                  text: 'strap slip',
+                  category: PromptTagCategory.clothingState,
+                  sourcePhrase: 'black collar, strap slip',
+                  sourceLocation: 'slot-0 prompt',
+                  frameIndexes: [1, 2],
+                ),
+              ],
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'main-outfit',
+                  label: 'main outfit',
+                  frameIndexes: [1, 2],
+                  identity: 'ai hero',
+                  upperBody: 'black collar',
+                  upperClothing: 'strap slip',
+                  lowerClothing: 'white skirt',
+                  confidence: 0.9,
+                ),
+              ],
+            ),
+          ],
+        );
+        final viewModel = StudioScriptViewModel(
+          scriptAiRoleExtractionService: const _FakeRoleExtractionService(
+            extraction,
+          ),
+          scriptAiBaseUrlProvider: () => 'https://script.example/v1',
+          scriptAiTokenProvider: () => 'token',
+          scriptAiModelProvider: () => 'gpt-4.1-mini',
+        );
+
+        await viewModel.importScriptPath(_fixturePath);
+        await viewModel.generateAiRoleExtraction();
+        await viewModel.applyAiRoleExtraction();
+
+        final promptTerms = viewModel.aiRoleExtraction.roles.single.promptTerms;
+        final collarTerms = promptTerms
+            .where((term) => term.text == 'black collar')
+            .toList(growable: false);
+        expect(collarTerms, hasLength(1));
+        expect(collarTerms.single.category, PromptTagCategory.accessory);
+
+        final strapSlipTerms = promptTerms
+            .where((term) => term.text == 'strap slip')
+            .toList(growable: false);
+        expect(strapSlipTerms, hasLength(1));
+        expect(
+          strapSlipTerms.single.category,
+          PromptTagCategory.clothingState,
+        );
+
+        final skirtTerms = promptTerms
+            .where((term) => term.text == 'white skirt')
+            .toList(growable: false);
+        expect(skirtTerms, hasLength(1));
+        expect(skirtTerms.single.category, PromptTagCategory.lowerClothing);
+
+        final sourceTerms = viewModel.roleReplacementMappings.single.rules
+            .expand((rule) => rule.sourceTerms)
+            .toList(growable: false);
+        final collarSourceTerms = sourceTerms
+            .where((term) => term.text == 'black collar')
+            .toList(growable: false);
+        expect(collarSourceTerms, hasLength(1));
+        expect(collarSourceTerms.single.category, PromptTagCategory.accessory);
+
+        final strapSlipSourceTerms = sourceTerms
+            .where((term) => term.text == 'strap slip')
+            .toList(growable: false);
+        expect(strapSlipSourceTerms, hasLength(1));
+        expect(
+          strapSlipSourceTerms.single.category,
+          PromptTagCategory.clothingState,
+        );
+      },
+    );
+
+    test(
       'AI role extraction applies scene replacement rules even without roles',
       () async {
         final viewModel = StudioScriptViewModel(
@@ -5395,7 +5512,7 @@ void main() {
         source: 'manual-role-field',
       );
       classificationCache.setCategory(
-        'large breasts',
+        'city street',
         PromptTagCategory.other,
         source: 'manual-role-omit',
       );
@@ -5406,7 +5523,7 @@ void main() {
             (
               index: 1,
               base: 'city street',
-              chars: ['ai hero, braids, large breasts, blue jacket'],
+              chars: ['ai hero, braids, city street, blue jacket'],
             ),
           ]),
         ]),
@@ -5425,7 +5542,7 @@ void main() {
                     label: 'main outfit',
                     frameIndexes: [1],
                     identity: 'ai hero',
-                    upperBody: 'braids, large breasts',
+                    upperBody: 'braids, city street',
                     upperClothing: 'blue jacket',
                     confidence: 0.9,
                   ),
@@ -5443,7 +5560,7 @@ void main() {
       await viewModel.generateAiRoleExtraction();
 
       var stage = viewModel.aiRoleExtraction.roles.single.stages.single;
-      expect(stage.upperBody, 'braids, large breasts');
+      expect(stage.upperBody, 'braids, city street');
       expect(stage.lowerBody, isEmpty);
       expect(stage.nonRole, isEmpty);
 
@@ -5452,8 +5569,48 @@ void main() {
       stage = viewModel.aiRoleExtraction.roles.single.stages.single;
       expect(stage.upperBody, isEmpty);
       expect(stage.lowerBody, 'braids');
-      expect(stage.nonRole, 'large breasts');
+      expect(stage.nonRole, isEmpty);
       expect(viewModel.isAiRoleExtractionDraftCollapsed, isFalse);
+    });
+
+    test('term cache suggestions survive AI role cache adjustment', () async {
+      final classificationCache = PromptTagClassificationCache(
+        clock: () => 1780000000,
+      );
+      classificationCache.setCategory(
+        'braids',
+        PromptTagCategory.lowerBody,
+        source: 'manual-role-field',
+      );
+      final viewModel =
+          StudioScriptViewModel(classificationCache: classificationCache)
+            ..aiRoleExtraction = const ScriptAiRoleExtraction(
+              status: ScriptAiRoleExtractionStatus.ready,
+              confidence: 0.9,
+              termCacheSuggestions: _termCacheSuggestionsForTest,
+              roles: [
+                ScriptAiExtractedRole(
+                  sourceRoleId: 'slot-0',
+                  displayName: 'AI Hero',
+                  confidence: 0.9,
+                  stages: [
+                    ScriptAiExtractedStage(
+                      stageId: 'main-outfit',
+                      label: 'main outfit',
+                      upperBody: 'braids',
+                      confidence: 0.9,
+                    ),
+                  ],
+                ),
+              ],
+            );
+
+      await viewModel.applyAiRoleExtractionCacheAdjustment();
+
+      final stage = viewModel.aiRoleExtraction.roles.single.stages.single;
+      expect(stage.upperBody, isEmpty);
+      expect(stage.lowerBody, 'braids');
+      _expectTermCacheSuggestionsPreserved(viewModel.aiRoleExtraction);
     });
 
     test(
@@ -5594,6 +5751,41 @@ void main() {
       final entry = classificationCache.entryFor('city street');
       expect(entry?.category, PromptTagCategory.other);
       expect(entry?.source, 'manual-role-omit');
+    });
+
+    test('term cache suggestions survive AI role stage field edits', () {
+      final viewModel = StudioScriptViewModel()
+        ..aiRoleExtraction = const ScriptAiRoleExtraction(
+          status: ScriptAiRoleExtractionStatus.ready,
+          confidence: 0.9,
+          termCacheSuggestions: _termCacheSuggestionsForTest,
+          roles: [
+            ScriptAiExtractedRole(
+              sourceRoleId: 'slot-0',
+              displayName: 'AI Hero',
+              confidence: 0.9,
+              stages: [
+                ScriptAiExtractedStage(
+                  stageId: 'main-outfit',
+                  label: 'main outfit',
+                  upperClothing: 'blue jacket',
+                  confidence: 0.9,
+                ),
+              ],
+            ),
+          ],
+        );
+
+      viewModel.setAiRoleExtractionStageField(
+        sourceRoleId: 'slot-0',
+        stageId: 'main-outfit',
+        part: StudioScriptRolePart.upperClothing,
+        value: 'white dress',
+      );
+
+      final stage = viewModel.aiRoleExtraction.roles.single.stages.single;
+      expect(stage.upperClothing, 'white dress');
+      _expectTermCacheSuggestionsPreserved(viewModel.aiRoleExtraction);
     });
 
     test('editing AI role stage fields syncs visible prompt terms', () {
@@ -6397,6 +6589,102 @@ void main() {
         expect(stage.sourceParts.upperClothing, 'blue jacket');
         expect(stage.sourceParts.lowerClothing, 'white skirt');
         expect(stage.parts.upperClothing, isEmpty);
+      },
+    );
+
+    test(
+      'term cache suggestions survive recovered replacement terms',
+      () async {
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        const rawResponse = '''
+{
+  "status": "ready",
+  "confidence": 0.93,
+  "roles": [
+    {
+      "source_role_id": "slot-0",
+      "display_name": "AI Hero",
+      "prompt_terms": [
+        {
+          "id": "blue-jacket",
+          "text": "blue jacket",
+          "category": "upper_clothing",
+          "source_phrase": "ai hero, blue jacket",
+          "source_location": "slot-0 prompt",
+          "frame_indexes": [1, 2]
+        }
+      ],
+      "stages": [
+        {
+          "stage_id": "main-outfit",
+          "label": "main outfit",
+          "frame_indexes": [1, 2],
+          "identity": "ai hero",
+          "upper_clothing": "blue jacket"
+        }
+      ]
+    }
+  ],
+  "scene_terms": [
+    {
+      "id": "rainy-street",
+      "text": "rainy city street",
+      "category": "scene",
+      "source_phrase": "in a rainy city street",
+      "source_location": "base prompt",
+      "frame_indexes": [1, 2]
+    }
+  ]
+}
+''';
+        final caches = [
+          RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: _fixturePath,
+            sourceFingerprint: _sourceFingerprintForTest(parsedScript),
+            updatedAt: DateTime.utc(2026, 6, 15, 13),
+            mapping: RecastMapping.defaults(parsedScript.id),
+            aiRoleExtraction: const ScriptAiRoleExtraction(
+              status: ScriptAiRoleExtractionStatus.ready,
+              termCacheSuggestions: _termCacheSuggestionsForTest,
+              roles: [
+                ScriptAiExtractedRole(
+                  sourceRoleId: 'slot-0',
+                  displayName: 'AI Hero',
+                  stages: [
+                    ScriptAiExtractedStage(
+                      stageId: 'main-outfit',
+                      label: 'main outfit',
+                      frameIndexes: [1, 2],
+                      identity: 'ai hero',
+                      upperClothing: 'blue jacket',
+                    ),
+                  ],
+                ),
+              ],
+              rawResponse: rawResponse,
+            ),
+            scriptSnapshot: parsedScript.toJson(),
+          ),
+        ];
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => caches,
+        );
+
+        await viewModel.importScriptPath(_fixturePath);
+
+        expect(
+          viewModel.aiRoleExtraction.roles.single.promptTerms
+              .map((term) => term.text),
+          orderedEquals(['ai hero', 'blue jacket']),
+        );
+        expect(
+          viewModel.aiRoleExtraction.sceneTerms.single.text,
+          'rainy city street',
+        );
+        _expectTermCacheSuggestionsPreserved(viewModel.aiRoleExtraction);
       },
     );
 
@@ -9954,12 +10242,12 @@ void main() {
           PromptTagChipDiffState.highlighted,
         );
         expect(sourceChip('fox ears').diffBadgeLabel, 'Role 1');
-        expect(sourceChip('fox ears').diffTooltip, isNull);
+        expect(sourceChip('fox ears').diffTooltip, '已在待替换区：Role 1');
         expect(
           sourceChip('blue jacket').diffState,
           PromptTagChipDiffState.unchanged,
         );
-        expect(sourceChip('blue jacket').diffTooltip, isNull);
+        expect(sourceChip('blue jacket').diffTooltip, '未加入待替换区');
       },
     );
 
@@ -14084,6 +14372,87 @@ void main() {
         );
       },
     );
+
+    testWidgets('role prompt replacement terms are grouped by precise category',
+        (tester) async {
+      late final RecastScriptCache cache;
+      await tester.runAsync(() async {
+        final parsedScript = await const ScriptRecastParserService()
+            .parseDirectory(Directory(_fixturePath));
+        cache = RecastScriptCache(
+          scriptId: parsedScript.id,
+          scriptName: parsedScript.name,
+          sourceRootPath: parsedScript.rootPath,
+          sourceFingerprint: _normalizedSourceFingerprintForTest(parsedScript),
+          updatedAt: DateTime.utc(2026, 6, 27),
+          mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+            rolePromptReplacements: const [
+              ScriptRolePromptReplacement(
+                sourceRoleId: 'slot-0',
+                displayLabel: 'Role A',
+                rules: [
+                  ScriptPromptReplacementRule(
+                    id: 'rule-identity',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-gyaru',
+                        text: 'gyaru',
+                        category: PromptTagCategory.character,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-upper',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-inverted-nipples',
+                        text: 'inverted nipples',
+                        category: PromptTagCategory.upperBody,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-accessory',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-collar',
+                        text: 'black collar',
+                        category: PromptTagCategory.accessory,
+                      ),
+                    ],
+                  ),
+                  ScriptPromptReplacementRule(
+                    id: 'rule-state',
+                    sourceTerms: [
+                      ScriptPromptReplacementTerm(
+                        id: 'term-no-panties',
+                        text: 'no panties',
+                        category: PromptTagCategory.clothingState,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      });
+      final viewModel = StudioScriptViewModel(
+        loadRecastCaches: () async => [cache],
+      );
+      await tester.runAsync(() async {
+        await viewModel.importScriptPath(_fixturePath);
+      });
+
+      await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+      await tester.pumpAndSettle();
+
+      expect(find.text('角色身份'), findsOneWidget);
+      expect(find.text('上身'), findsOneWidget);
+      expect(find.text('饰品'), findsOneWidget);
+      expect(find.text('服装状态/动作'), findsOneWidget);
+      expect(find.text('服装状态/饰品'), findsNothing);
+    });
 
     testWidgets(
       'role replacement source tag drag can split a merged term out',

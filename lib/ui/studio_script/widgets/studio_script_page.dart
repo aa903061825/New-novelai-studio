@@ -3287,6 +3287,18 @@ class _ReplacementAreaSourceTagIndex {
     }
     return '$firstLabel +${labels.length - 1}';
   }
+
+  String? diffTooltipForTag(String tag) {
+    final key = _replacementAreaSourceTagKey(tag);
+    if (key.isEmpty) {
+      return null;
+    }
+    final labels = labelsByKey[key];
+    if (labels == null || labels.isEmpty) {
+      return '未加入待替换区';
+    }
+    return '已在待替换区：${labels.join('、')}';
+  }
 }
 
 String? debugReplacementAreaSourceTagBadgeLabel(
@@ -3438,6 +3450,8 @@ class _SelectedFrameCards extends StatelessWidget {
                             replacementSourceTags.diffStateForTag,
                         replacementDiffBadgeLabelForTag:
                             replacementSourceTags.diffBadgeLabelForTag,
+                        replacementDiffTooltipForTag:
+                            replacementSourceTags.diffTooltipForTag,
                         contextMenuActionBuilder: preview.id == 'before'
                             ? _selectedFramePreviewReplacementActions(
                                 viewModel: viewModel,
@@ -3464,6 +3478,8 @@ class _SelectedFrameCards extends StatelessWidget {
                             replacementSourceTags.diffStateForTag,
                         replacementDiffBadgeLabelForTag:
                             replacementSourceTags.diffBadgeLabelForTag,
+                        replacementDiffTooltipForTag:
+                            replacementSourceTags.diffTooltipForTag,
                         contextMenuActionBuilder: preview.id == 'before'
                             ? _selectedFramePreviewReplacementActions(
                                 viewModel: viewModel,
@@ -3531,6 +3547,8 @@ class _KeyframeReviewPanel extends StatelessWidget {
                       replacementSourceTags.diffStateForTag,
                   replacementDiffBadgeLabelForTag:
                       replacementSourceTags.diffBadgeLabelForTag,
+                  replacementDiffTooltipForTag:
+                      replacementSourceTags.diffTooltipForTag,
                   classificationCache: viewModel.classificationCache,
                   saveClassificationCache: viewModel.saveClassificationCache,
                   classificationOverrides:
@@ -3601,6 +3619,7 @@ class _KeyframeTokenColumn extends StatefulWidget {
   final bool allowReplacementComparison;
   final PromptTagDisplayDiffResolver? replacementDiffStateForTag;
   final PromptTagDisplayDiffBadgeResolver? replacementDiffBadgeLabelForTag;
+  final PromptTagDisplayDiffTooltipResolver? replacementDiffTooltipForTag;
   final PromptTagClassificationCache? classificationCache;
   final PromptTagClassificationCacheSaver? saveClassificationCache;
   final Map<String, PromptTagCategory> classificationOverrides;
@@ -3622,6 +3641,7 @@ class _KeyframeTokenColumn extends StatefulWidget {
     this.allowReplacementComparison = false,
     this.replacementDiffStateForTag,
     this.replacementDiffBadgeLabelForTag,
+    this.replacementDiffTooltipForTag,
     this.classificationCache,
     this.saveClassificationCache,
     this.classificationOverrides = const {},
@@ -3749,6 +3769,10 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                         widget.replacementDiffBadgeLabelForTag != null
                     ? (_, tag) => widget.replacementDiffBadgeLabelForTag!(tag)
                     : null,
+                diffTooltipForTag: _showReplacementComparison &&
+                        widget.replacementDiffTooltipForTag != null
+                    ? (_, tag) => widget.replacementDiffTooltipForTag!(tag)
+                    : null,
                 classificationCache: widget.classificationCache,
                 saveClassificationCache: widget.saveClassificationCache,
                 classificationOverrides: widget.classificationOverrides,
@@ -3774,6 +3798,9 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                     : null,
                 diffBadgeLabelForTag: _showReplacementComparison
                     ? widget.replacementDiffBadgeLabelForTag
+                    : null,
+                diffTooltipForTag: _showReplacementComparison
+                    ? widget.replacementDiffTooltipForTag
                     : null,
                 classificationCache: widget.classificationCache,
                 saveClassificationCache: widget.saveClassificationCache,
@@ -5158,6 +5185,7 @@ class _FramePreviewColumn extends StatefulWidget {
   final bool allowReplacementComparison;
   final PromptTagDisplayDiffResolver? replacementDiffStateForTag;
   final PromptTagDisplayDiffBadgeResolver? replacementDiffBadgeLabelForTag;
+  final PromptTagDisplayDiffTooltipResolver? replacementDiffTooltipForTag;
 
   const _FramePreviewColumn({
     required this.preview,
@@ -5166,6 +5194,7 @@ class _FramePreviewColumn extends StatefulWidget {
     this.allowReplacementComparison = false,
     this.replacementDiffStateForTag,
     this.replacementDiffBadgeLabelForTag,
+    this.replacementDiffTooltipForTag,
   });
 
   @override
@@ -5242,6 +5271,9 @@ class _FramePreviewColumnState extends State<_FramePreviewColumn> {
                         diffBadgeLabelForTag: _showReplacementComparison
                             ? widget.replacementDiffBadgeLabelForTag
                             : null,
+                        diffTooltipForTag: _showReplacementComparison
+                            ? widget.replacementDiffTooltipForTag
+                            : null,
                       ),
                     ),
                 ],
@@ -5260,6 +5292,7 @@ class _FrameTagCard extends StatelessWidget {
   final PromptTagContextMenuActionBuilder? contextMenuActionBuilder;
   final PromptTagDisplayDiffResolver? diffStateForTag;
   final PromptTagDisplayDiffBadgeResolver? diffBadgeLabelForTag;
+  final PromptTagDisplayDiffTooltipResolver? diffTooltipForTag;
 
   const _FrameTagCard({
     required this.group,
@@ -5267,6 +5300,7 @@ class _FrameTagCard extends StatelessWidget {
     this.contextMenuActionBuilder,
     this.diffStateForTag,
     this.diffBadgeLabelForTag,
+    this.diffTooltipForTag,
   });
 
   @override
@@ -5310,6 +5344,7 @@ class _FrameTagCard extends StatelessWidget {
             filterRuleTargets: _scriptPromptFilterRuleTargets,
             diffStateForTag: diffStateForTag,
             diffBadgeLabelForTag: diffBadgeLabelForTag,
+            diffTooltipForTag: diffTooltipForTag,
             dense: true,
             emptyText: '未检测',
           ),
@@ -10771,7 +10806,7 @@ String _replacementRuleCategoryLabel(
     };
   }
   return switch (category) {
-    PromptTagCategory.character => '身份',
+    PromptTagCategory.character => '角色身份',
     PromptTagCategory.upperBody => '上身',
     PromptTagCategory.lowerBody => '下身',
     PromptTagCategory.upperClothing => '上装',
