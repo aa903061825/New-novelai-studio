@@ -367,6 +367,30 @@ class WorkspaceService {
     return _readProductionPlanDirectory();
   }
 
+  /// Loads the resident production queue without materializing plans whose
+  /// tasks have all been dismissed from Queue.
+  ///
+  /// Those plans remain in the deterministic plan directory and are available
+  /// to Script Exhibition through the full production-plan readers.
+  Future<List<ProductionPlan>> loadProductionPlansForQueue() {
+    return _readProductionPlanDirectory(queueResidentOnly: true);
+  }
+
+  /// Loads production results for the Script Exhibition Room without changing
+  /// the production queue's active-plan view.
+  ///
+  /// Older completed plans can live in the explicit deterministic-plan backup
+  /// directories. They are intentionally read here only as completed image
+  /// results; queued and running tasks from an old backup must not reappear in
+  /// the production queue or as current exhibition work.
+  Future<List<ProductionPlan>> loadProductionPlansForScriptExhibition() async {
+    final directoryPaths =
+        await _productionPlanDirectoryPathsForScriptExhibition();
+    return Isolate.run(
+      () => _readProductionPlansForScriptExhibition(directoryPaths),
+    );
+  }
+
   Future<ProductionPlan?> loadProductionPlan(String planId) async {
     final normalizedPlanId = planId.trim();
     if (normalizedPlanId.isEmpty) return null;
@@ -393,6 +417,10 @@ class WorkspaceService {
       (entry) => entry.id,
       (entry) => entry.toJson(),
     );
+  }
+
+  Future<void> saveGalleryRecordData(List<Map<String, dynamic>> records) {
+    return _writeJsonFile(WorkspacePaths.galleryRecords, records);
   }
 
   Future<void> saveProductionPlanUpdates({
@@ -1380,10 +1408,15 @@ class WorkspaceService {
     return values;
   }
 
-  Future<List<ProductionPlan>> _readProductionPlanDirectory() async {
+  Future<List<ProductionPlan>> _readProductionPlanDirectory({
+    bool queueResidentOnly = false,
+  }) async {
     final directory = _directory(WorkspacePaths.deterministicPlansDir);
     final decoded = await Isolate.run(
-      () => _readProductionPlansFromDirectoryPath(directory.path),
+      () => _readProductionPlansFromDirectoryPath(
+        directory.path,
+        queueResidentOnly: queueResidentOnly,
+      ),
     );
     for (final invalidPath in decoded.invalidPaths) {
       await _quarantineInvalidEntityFile(
@@ -1392,6 +1425,40 @@ class WorkspaceService {
       );
     }
     return decoded.plans;
+  }
+
+  Future<List<String>>
+      _productionPlanDirectoryPathsForScriptExhibition() async {
+    final activeDirectory = _directory(WorkspacePaths.deterministicPlansDir);
+    final productionDirectory = activeDirectory.parent;
+    final paths = <String>[activeDirectory.path];
+    final seenPaths = <String>{_normalizedWorkspacePath(activeDirectory.path)};
+
+    Future<void> addBackupDirectories(
+      Directory directory,
+      bool Function(String name) isBackup,
+    ) async {
+      if (!await directory.exists()) return;
+      await for (final entry in directory.list(followLinks: false)) {
+        if (entry is! Directory) continue;
+        final name = _fileNameFromWorkspacePath(entry.path);
+        if (!isBackup(name)) continue;
+        final normalizedPath = _normalizedWorkspacePath(entry.path);
+        if (seenPaths.add(normalizedPath)) {
+          paths.add(entry.path);
+        }
+      }
+    }
+
+    await addBackupDirectories(
+      activeDirectory,
+      (name) => name.toLowerCase().startsWith('backup-'),
+    );
+    await addBackupDirectories(
+      productionDirectory,
+      (name) => name.toLowerCase().startsWith('deterministic_plans_backup_'),
+    );
+    return List.unmodifiable(paths);
   }
 
   Future<void> _quarantineInvalidEntityFile(
@@ -2846,6 +2913,20 @@ class _DecodedProductionPlanDirectory {
   });
 }
 
+List<ProductionPlan> _readProductionPlansForScriptExhibition(
+  List<String> directoryPaths,
+) {
+  final plans = <ProductionPlan>[];
+  for (var index = 0; index < directoryPaths.length; index += 1) {
+    final decoded = _readProductionPlansFromDirectoryPath(
+      directoryPaths[index],
+      completedResultsOnly: index > 0,
+    );
+    plans.addAll(decoded.plans);
+  }
+  return List.unmodifiable(plans);
+}
+
 dynamic _decodeJsonFileFromPath(String path) {
   return jsonDecode(File(path).readAsStringSync());
 }
@@ -2949,8 +3030,10 @@ _DecodedJsonEntityDirectory _decodeJsonEntityDirectory(
 }
 
 _DecodedProductionPlanDirectory _readProductionPlansFromDirectoryPath(
-  String directoryPath,
-) {
+  String directoryPath, {
+  bool completedResultsOnly = false,
+  bool queueResidentOnly = false,
+}) {
   final directory = Directory(directoryPath);
   if (!directory.existsSync()) {
     return const _DecodedProductionPlanDirectory(plans: [], invalidPaths: []);
@@ -2972,7 +3055,25 @@ _DecodedProductionPlanDirectory _readProductionPlansFromDirectoryPath(
       continue;
     }
     try {
-      plans.add(ProductionPlan.fromJson(jsonDecode(source)));
+      final json = jsonDecode(source);
+      if (queueResidentOnly && !_isQueueResidentProductionPlanJson(json)) {
+        continue;
+      }
+      final plan = ProductionPlan.fromJson(json);
+      if (!completedResultsOnly) {
+        plans.add(plan);
+        continue;
+      }
+      final completedTasks = plan.tasks
+          .where(
+            (task) =>
+                task.status == ProductionTaskStatus.completed &&
+                task.outputImagePath?.trim().isNotEmpty == true,
+          )
+          .toList(growable: false);
+      if (completedTasks.isNotEmpty) {
+        plans.add(plan.copyWith(tasks: completedTasks));
+      }
     } on FormatException {
       invalidPaths.add(file.path);
     }
@@ -2981,6 +3082,24 @@ _DecodedProductionPlanDirectory _readProductionPlansFromDirectoryPath(
     plans: List.unmodifiable(plans),
     invalidPaths: List.unmodifiable(invalidPaths),
   );
+}
+
+bool _isQueueResidentProductionPlanJson(dynamic json) {
+  if (json is! Map) return true;
+  final tasks = json['tasks'];
+  if (tasks is! List || tasks.isEmpty) return true;
+  for (final task in tasks) {
+    if (!_isValidDismissedProductionTaskJson(task)) return true;
+  }
+  return false;
+}
+
+bool _isValidDismissedProductionTaskJson(dynamic json) {
+  if (json is! Map) return false;
+  final dismissedAt = json['queueDismissedAt'];
+  return dismissedAt is String &&
+      dismissedAt.isNotEmpty &&
+      DateTime.tryParse(dismissedAt) != null;
 }
 
 ProductionPlan? _readProductionPlanFromFilePath(String filePath) {

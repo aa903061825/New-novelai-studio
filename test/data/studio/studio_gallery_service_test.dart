@@ -49,6 +49,83 @@ void main() {
     }
   });
 
+  test('image path updates preserve unrelated records and latest metadata',
+      () async {
+    final service = StudioGalleryService(workspaceService: workspaceService);
+    final stale = await service.saveSnapshot(
+      config: _payload(prompt: 'old prompt', apiKey: '', proxy: ''),
+      id: 'updated',
+      title: 'old title',
+      imagePath: r'C:\old.png',
+    );
+    await service.saveSnapshot(
+      config: _payload(prompt: 'new prompt', apiKey: '', proxy: ''),
+      id: 'updated',
+      title: 'new title',
+      imagePath: r'C:\old.png',
+    );
+    await service.saveSnapshot(
+      config: _payload(prompt: 'unrelated', apiKey: '', proxy: ''),
+      id: 'unrelated',
+      imagePath: r'C:\unrelated.png',
+    );
+    final update = StudioGalleryRecord.fromJson(
+      stale.toJson()..['imagePath'] = r'C:\organized.png',
+    );
+    await service.mergeImagePaths([update]);
+    final records = await service.loadRecords();
+    expect(records.map((record) => record.id),
+        containsAll(['updated', 'unrelated']));
+    final updated = records.singleWhere((record) => record.id == 'updated');
+    expect(updated.title, 'new title');
+    expect(updated.imagePath, r'C:\organized.png');
+    await service.removeRecord('updated');
+    await service.mergeImagePaths([update]);
+    expect((await service.loadRecords()).map((record) => record.id),
+        ['unrelated']);
+  });
+
+  test('concurrent saves across service instances preserve both snapshots',
+      () async {
+    final first = StudioGalleryService(workspaceService: workspaceService);
+    final second = StudioGalleryService(workspaceService: workspaceService);
+    await Future.wait([
+      first.saveSnapshot(
+        config: _payload(prompt: 'first', apiKey: '', proxy: ''),
+        id: 'first',
+      ),
+      second.saveSnapshot(
+        config: _payload(prompt: 'second', apiKey: '', proxy: ''),
+        id: 'second',
+      ),
+    ]);
+    expect((await first.loadRecords()).map((record) => record.id),
+        containsAll(['first', 'second']));
+  });
+
+  test('failed gallery commit preserves the previous valid records file',
+      () async {
+    final isolated =
+        await Directory.systemTemp.createTemp('gallery-commit-test-');
+    addTearDown(() => isolated.delete(recursive: true));
+    var failCommit = false;
+    final failingWorkspace =
+        WorkspaceService(atomicFileCommitter: (source, path) async {
+      if (failCommit) throw FileSystemException('Simulated save failure', path);
+      await source.rename(path);
+    });
+    await failingWorkspace.createWorkspace(isolated.path);
+    final service = StudioGalleryService(workspaceService: failingWorkspace);
+    await service.saveSnapshot(
+      config: _payload(prompt: 'first', apiKey: '', proxy: ''),
+      id: 'first',
+    );
+    failCommit = true;
+    await expectLater(
+        service.saveRecords(const []), throwsA(isA<FileSystemException>()));
+    expect((await service.loadRecords()).map((record) => record.id), ['first']);
+  });
+
   test('saveSnapshot persists a creative record without local settings',
       () async {
     final service = StudioGalleryService(workspaceService: workspaceService);

@@ -80,28 +80,69 @@ class ProductionTask {
   final DateTime? queueDismissedAt;
 
   ProductionTask({
+    required String id,
+    required String planId,
+    required ProductionTaskType taskType,
+    required String title,
+    required Map<String, dynamic> payload,
+    String? payloadFingerprint,
+    ProductionTaskSource source = const ProductionTaskSource(),
+    String? suggestedFileName,
+    ProductionTaskStatus status = ProductionTaskStatus.queued,
+    int attempts = 0,
+    String? outputImagePath,
+    String? error,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    DateTime? startedAt,
+    DateTime? completedAt,
+    int? rating,
+    DateTime? ratedAt,
+    DateTime? queueDismissedAt,
+  }) : this._trusted(
+          id: id,
+          planId: planId,
+          taskType: taskType,
+          title: title,
+          source: source,
+          payload: _immutableMap(payload),
+          payloadFingerprint:
+              payloadFingerprint ?? fingerprintJson(_canonicalJson(payload)),
+          suggestedFileName: suggestedFileName,
+          status: status,
+          attempts: attempts,
+          outputImagePath: outputImagePath,
+          error: error,
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+          startedAt: startedAt,
+          completedAt: completedAt,
+          rating: rating,
+          ratedAt: ratedAt,
+          queueDismissedAt: queueDismissedAt,
+        );
+
+  ProductionTask._trusted({
     required this.id,
     required this.planId,
     required this.taskType,
     required this.title,
-    required Map<String, dynamic> payload,
-    String? payloadFingerprint,
-    this.source = const ProductionTaskSource(),
-    this.suggestedFileName,
-    this.status = ProductionTaskStatus.queued,
-    this.attempts = 0,
-    this.outputImagePath,
-    this.error,
+    required this.source,
+    required this.payload,
+    required this.payloadFingerprint,
+    required this.suggestedFileName,
+    required this.status,
+    required this.attempts,
+    required this.outputImagePath,
+    required this.error,
     required this.createdAt,
     required this.updatedAt,
-    this.startedAt,
-    this.completedAt,
-    this.rating,
-    this.ratedAt,
-    this.queueDismissedAt,
-  })  : payload = _immutableMap(payload),
-        payloadFingerprint =
-            payloadFingerprint ?? fingerprintJson(_canonicalJson(payload));
+    required this.startedAt,
+    required this.completedAt,
+    required this.rating,
+    required this.ratedAt,
+    required this.queueDismissedAt,
+  });
 
   factory ProductionTask.scriptRecastFrame({
     required String id,
@@ -227,13 +268,13 @@ class ProductionTask {
     bool clearRatedAt = false,
     bool clearQueueDismissedAt = false,
   }) {
-    return ProductionTask(
+    return ProductionTask._trusted(
       id: id ?? this.id,
       planId: planId ?? this.planId,
       taskType: taskType ?? this.taskType,
       title: title ?? this.title,
       source: source ?? this.source,
-      payload: payload ?? this.payload,
+      payload: payload == null ? this.payload : _immutableMap(payload),
       payloadFingerprint: payloadFingerprint ?? this.payloadFingerprint,
       suggestedFileName: suggestedFileName ?? this.suggestedFileName,
       status: status ?? this.status,
@@ -626,17 +667,35 @@ class ProductionPlan {
   final DateTime updatedAt;
 
   ProductionPlan({
-    required this.id,
-    required this.name,
+    required String id,
+    required String name,
     required List<ProductionTask> tasks,
     Map<String, dynamic> sharedPayloadParameters = const {},
     String? planFingerprint,
-    this.executionSettings,
+    ProductionPlanExecutionSettings? executionSettings,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) : this._trusted(
+          id: id,
+          name: name,
+          tasks: List.unmodifiable(tasks),
+          sharedPayloadParameters: _immutableMap(sharedPayloadParameters),
+          planFingerprint: planFingerprint ?? _fingerprintTaskSequence(tasks),
+          executionSettings: executionSettings,
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+        );
+
+  ProductionPlan._trusted({
+    required this.id,
+    required this.name,
+    required this.tasks,
+    required this.sharedPayloadParameters,
+    required this.planFingerprint,
+    required this.executionSettings,
     required this.createdAt,
     required this.updatedAt,
-  })  : tasks = List.unmodifiable(tasks),
-        sharedPayloadParameters = _immutableMap(sharedPayloadParameters),
-        planFingerprint = planFingerprint ?? _fingerprintTaskSequence(tasks);
+  });
 
   factory ProductionPlan.fromJson(dynamic json) {
     final map = _asMap(json, 'production plan');
@@ -675,13 +734,19 @@ class ProductionPlan {
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
-    return ProductionPlan(
+    final List<ProductionTask> nextTasks =
+        tasks == null ? this.tasks : List<ProductionTask>.unmodifiable(tasks);
+    return ProductionPlan._trusted(
       id: id ?? this.id,
       name: name ?? this.name,
-      tasks: tasks ?? this.tasks,
-      sharedPayloadParameters:
-          sharedPayloadParameters ?? this.sharedPayloadParameters,
-      planFingerprint: planFingerprint,
+      tasks: nextTasks,
+      sharedPayloadParameters: sharedPayloadParameters == null
+          ? this.sharedPayloadParameters
+          : _immutableMap(sharedPayloadParameters),
+      planFingerprint: planFingerprint ??
+          (tasks == null
+              ? this.planFingerprint
+              : _fingerprintTaskSequence(nextTasks)),
       executionSettings: executionSettings ?? this.executionSettings,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -868,7 +933,7 @@ Map<String, dynamic> _payloadWithoutSharedParameters(
   final next = _deepMutableMap(payload);
   _removeSharedParameters(next['parameters'], sharedKeys);
   _removeSharedParameters(next['Comment'], sharedKeys);
-  return _immutableMap(next);
+  return next;
 }
 
 void _removeSharedParameters(Object? value, Set<String> sharedKeys) {
@@ -992,7 +1057,7 @@ Map<String, dynamic> _dynamicMap(dynamic value, String field) {
   if (value is! Map) {
     throw FormatException('$field must be a JSON object.');
   }
-  return _immutableMap(_asMap(value, field));
+  return _asMap(value, field);
 }
 
 Map<String, dynamic> _optionalDynamicMap(dynamic value, String field) {

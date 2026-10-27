@@ -1,4 +1,5 @@
 import 'package:novel_studio/data/studio/models/script_recast.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 
 const int roleMappingProfileLibrarySchemaVersion = 2;
@@ -86,6 +87,15 @@ class RoleMappingProfileBlock {
   final String targetPrompt;
   final double? targetWeightMultiplier;
 
+  /// Semantic categories emitted by the target block.
+  ///
+  /// Global profiles used to store only a flat source-term list.  That made a
+  /// block containing (for example) a tail and legwear reusable for either
+  /// source field.  Keeping the target-side categories in the block lets the
+  /// application prefer same-part mappings and only use an untyped block when
+  /// no same-part candidate exists.
+  final List<PromptTagCategory> targetCategories;
+
   const RoleMappingProfileBlock({
     required this.id,
     this.terms = const [],
@@ -94,6 +104,7 @@ class RoleMappingProfileBlock {
     this.action = ScriptPromptReplacementAction.none,
     this.targetPrompt = '',
     this.targetWeightMultiplier,
+    this.targetCategories = const [],
   });
 
   factory RoleMappingProfileBlock.fromRule(
@@ -171,6 +182,13 @@ class RoleMappingProfileBlock {
       targetPrompt: json['targetPrompt'] as String? ?? '',
       targetWeightMultiplier:
           _positiveFiniteDoubleOrNull(json['targetWeightMultiplier']),
+      targetCategories: List.unmodifiable([
+        for (final value in json['targetCategories'] as List? ?? const [])
+          promptTagCategoryFromReplacementValue(
+            value,
+            fallback: PromptTagCategory.other,
+          ),
+      ]),
     );
   }
 
@@ -204,6 +222,7 @@ class RoleMappingProfileBlock {
     ScriptPromptReplacementAction? action,
     String? targetPrompt,
     Object? targetWeightMultiplier = _profileUnset,
+    List<PromptTagCategory>? targetCategories,
   }) {
     return RoleMappingProfileBlock(
       id: id ?? this.id,
@@ -215,6 +234,7 @@ class RoleMappingProfileBlock {
       targetWeightMultiplier: identical(targetWeightMultiplier, _profileUnset)
           ? this.targetWeightMultiplier
           : targetWeightMultiplier as double?,
+      targetCategories: targetCategories ?? this.targetCategories,
     );
   }
 
@@ -227,6 +247,9 @@ class RoleMappingProfileBlock {
         if (targetPrompt.trim().isNotEmpty) 'targetPrompt': targetPrompt,
         if (targetWeightMultiplier != null)
           'targetWeightMultiplier': targetWeightMultiplier,
+        if (targetCategories.isNotEmpty)
+          'targetCategories':
+              targetCategories.map((category) => category.name).toList(),
       };
 }
 
@@ -327,6 +350,14 @@ class RoleMappingProfile {
   final String name;
   final String? targetCharacterId;
   final String targetCharacterNameSnapshot;
+
+  /// Optional exact prompt token used for character-identity replacement.
+  ///
+  /// This is intentionally separate from the display name. Most profiles keep
+  /// it empty because their canonical prompt identity is already represented
+  /// by source-faithful tags. A profile may set it when the user explicitly
+  /// wants a custom prompt token, such as the Chinese token "果宝".
+  final String targetIdentityPromptToken;
   final String targetIdentityPrompt;
   final List<RoleMappingProfileLayer> layers;
   final List<RoleMappingProfileBlock> _legacyBlocks;
@@ -338,6 +369,7 @@ class RoleMappingProfile {
     required this.name,
     this.targetCharacterId,
     this.targetCharacterNameSnapshot = '',
+    this.targetIdentityPromptToken = '',
     this.targetIdentityPrompt = '',
     this.layers = const [],
     List<RoleMappingProfileBlock> blocks = const [],
@@ -400,6 +432,8 @@ class RoleMappingProfile {
       targetCharacterId: _nullableTrimmedString(json['targetCharacterId']),
       targetCharacterNameSnapshot:
           (json['targetCharacterNameSnapshot'] as String? ?? '').trim(),
+      targetIdentityPromptToken:
+          (json['targetIdentityPromptToken'] as String? ?? '').trim(),
       targetIdentityPrompt: json['targetIdentityPrompt'] as String? ?? '',
       layers: List.unmodifiable(layers),
       createdAt: createdAt.toUtc(),
@@ -412,6 +446,7 @@ class RoleMappingProfile {
     String? name,
     Object? targetCharacterId = _profileUnset,
     String? targetCharacterNameSnapshot,
+    String? targetIdentityPromptToken,
     String? targetIdentityPrompt,
     List<RoleMappingProfileBlock>? blocks,
     List<RoleMappingProfileLayer>? layers,
@@ -434,6 +469,8 @@ class RoleMappingProfile {
           : targetCharacterId as String?,
       targetCharacterNameSnapshot:
           targetCharacterNameSnapshot ?? this.targetCharacterNameSnapshot,
+      targetIdentityPromptToken:
+          targetIdentityPromptToken ?? this.targetIdentityPromptToken,
       targetIdentityPrompt: targetIdentityPrompt ?? this.targetIdentityPrompt,
       layers: List.unmodifiable(nextLayers),
       blocks: nextLayers.isEmpty && blocks == null ? _legacyBlocks : const [],
@@ -448,6 +485,8 @@ class RoleMappingProfile {
         if (targetCharacterId != null) 'targetCharacterId': targetCharacterId,
         if (targetCharacterNameSnapshot.isNotEmpty)
           'targetCharacterNameSnapshot': targetCharacterNameSnapshot,
+        if (targetIdentityPromptToken.trim().isNotEmpty)
+          'targetIdentityPromptToken': targetIdentityPromptToken,
         if (targetIdentityPrompt.trim().isNotEmpty)
           'targetIdentityPrompt': targetIdentityPrompt,
         'layers': effectiveLayers.map((layer) => layer.toJson()).toList(),

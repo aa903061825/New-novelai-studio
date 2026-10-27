@@ -227,7 +227,7 @@ void main() {
       );
 
       expect(preview.moves, hasLength(1));
-      expect(preview.orphanImagePaths, [orphan.absolute.path]);
+      expect(preview.orphanImagePaths, isEmpty);
 
       final result = await service.apply(preview);
 
@@ -240,9 +240,9 @@ void main() {
         ),
       );
       expect(File(movedPath).existsSync(), isTrue);
-      expect(generated.existsSync(), isFalse);
+      expect(generated.existsSync(), isTrue);
       expect(original.existsSync(), isTrue);
-      expect(orphan.existsSync(), isFalse);
+      expect(orphan.existsSync(), isTrue);
       expect(result.updatedGalleryRecords.single.imagePath, movedPath);
       expect(
         result.updatedGalleryRecords.single.provenance!.outputImagePath,
@@ -351,8 +351,8 @@ void main() {
 
       expect(result.failedImagePaths, isEmpty);
       expect(result.movedImagePaths, hasLength(2));
-      expect(firstGenerated.existsSync(), isFalse);
-      expect(secondGenerated.existsSync(), isFalse);
+      expect(firstGenerated.existsSync(), isTrue);
+      expect(secondGenerated.existsSync(), isTrue);
       expect(ignoredGenerated.existsSync(), isTrue);
       expect(
         result.updatedProductionPlans.single.tasks
@@ -435,7 +435,7 @@ void main() {
       final updatedTasks = result.updatedProductionPlans.single.tasks;
       expect(updatedTasks[0].outputImagePath, result.movedImagePaths.single);
       expect(updatedTasks[1].outputImagePath, result.movedImagePaths.single);
-      expect(generated.existsSync(), isFalse);
+      expect(generated.existsSync(), isTrue);
     });
 
     test(
@@ -806,6 +806,45 @@ void main() {
       expect(generated.existsSync(), isTrue);
       expect(destination.readAsBytesSync(), [9, 9, 9]);
       expect(orphan.existsSync(), isTrue);
+    });
+
+    test('concurrent organization reserves a destination without overwriting',
+        () async {
+      final root = Directory.systemTemp.createTempSync('organizer-concurrent-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final first = File('${root.path}/first.png')..writeAsBytesSync([1, 2, 3]);
+      final second = File('${root.path}/second.png')
+        ..writeAsBytesSync([9, 8, 7, 6]);
+      final destination = '${root.path}/organized/frame.png';
+      final service = ScriptExhibitionImageOrganizerService(
+        defaultOutputRoot: () async => root.path,
+      );
+      ScriptExhibitionImageOrganizationPreview preview(File source) =>
+          ScriptExhibitionImageOrganizationPreview(
+            moves: [
+              ScriptExhibitionImageMovePlan(
+                sourcePath: source.path,
+                destinationPath: destination,
+                productionPlanId: 'plan',
+                taskId: 'task',
+              ),
+            ],
+            orphanImagePaths: const [],
+            productionPlans: const [],
+            galleryRecords: const [],
+          );
+      final results = await Future.wait([
+        service.apply(preview(first)),
+        service.apply(preview(second)),
+      ]);
+      expect(
+          results.expand((result) => result.organizedImagePaths), hasLength(1));
+      expect(results.expand((result) => result.failedImagePaths), hasLength(1));
+      final winner =
+          results.first.organizedImagePaths.isNotEmpty ? first : second;
+      expect(File(destination).readAsBytesSync(), winner.readAsBytesSync());
+      expect(first.readAsBytesSync(), [1, 2, 3]);
+      expect(second.readAsBytesSync(), [9, 8, 7, 6]);
     });
   });
 }

@@ -97,7 +97,7 @@ class InfoCard extends StatelessWidget {
   }
 
   Widget _buildCardContentBody(BuildContext context, InfoCardContent content) {
-    return content.imageBytes == null
+    return !_hasInfoCardImage(content)
         ? //Without image
         Column(
             mainAxisSize: MainAxisSize.min,
@@ -124,12 +124,15 @@ class InfoCard extends StatelessWidget {
                 leading: const Icon(Icons.photo_outlined),
                 title: _buildTitle(content),
               ),
-              _buildGeneratedImage(context, content.imageBytes!),
+              _buildGeneratedImage(context, content),
             ],
           );
   }
 
-  Widget _buildGeneratedImage(BuildContext context, Uint8List imageBytes) {
+  Widget _buildGeneratedImage(
+    BuildContext context,
+    InfoCardContent content,
+  ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth =
@@ -146,11 +149,12 @@ class InfoCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               child: ColoredBox(
                 color: Theme.of(context).colorScheme.surface,
-                child: Image.memory(
-                  imageBytes,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.medium,
-                ),
+                child: _infoCardImage(
+                      content,
+                      fit: BoxFit.contain,
+                      maxDecodeExtent: 1024,
+                    ) ??
+                    const SizedBox.shrink(),
               ),
             ),
           ),
@@ -259,6 +263,8 @@ class InfoCardDetailPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final detailImage =
+        includeImage ? _infoCardImage(content, fit: BoxFit.contain) : null;
     final body = Padding(
       padding: padding,
       child: Column(
@@ -266,8 +272,7 @@ class InfoCardDetailPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (includeImage && content.imageBytes != null)
-            Image.memory(content.imageBytes!, fit: BoxFit.contain),
+          if (detailImage != null) detailImage,
           buildInfoTile(tr('title'), content.title, context),
           buildInfoTile(
             tr('info'),
@@ -369,7 +374,7 @@ class _PromptInfoDisplay extends StatelessWidget {
         groups: visibleGroups,
         groupKeyPrefix: 'info-card-prompt-group',
         tagKeyPrefix: 'info-card-prompt-group-tags',
-        defaultTranslated: false,
+        defaultTranslated: true,
         dense: dense,
         maxTags: maxTags,
         enableHoverShortcut: text.trim().isNotEmpty,
@@ -379,7 +384,7 @@ class _PromptInfoDisplay extends StatelessWidget {
     }
     return PromptTagDisplay(
       text: text,
-      defaultTranslated: false,
+      defaultTranslated: true,
       dense: dense,
       maxTags: maxTags,
     );
@@ -421,6 +426,42 @@ List<PromptTagDisplayGroup> _promptGroupsForInfoEntry(
     }
   }
   return const [];
+}
+
+bool _hasInfoCardImage(InfoCardContent content) {
+  return content.imageBytes?.isNotEmpty == true ||
+      _existingInfoCardImageFile(content.imagePath) != null;
+}
+
+Widget? _infoCardImage(
+  InfoCardContent content, {
+  required BoxFit fit,
+  int? maxDecodeExtent,
+}) {
+  ImageProvider? provider;
+  final bytes = content.imageBytes;
+  if (bytes != null && bytes.isNotEmpty) {
+    provider = MemoryImage(bytes);
+  } else {
+    final file = _existingInfoCardImageFile(content.imagePath);
+    if (file != null) {
+      provider = FileImage(file);
+    }
+  }
+  if (provider == null) return null;
+  if (maxDecodeExtent != null) {
+    provider = ResizeImage(
+      provider,
+      width: maxDecodeExtent,
+      height: maxDecodeExtent,
+      policy: ResizeImagePolicy.fit,
+    );
+  }
+  return Image(
+    image: provider,
+    fit: fit,
+    filterQuality: FilterQuality.medium,
+  );
 }
 
 File? _existingInfoCardImageFile(String? path) {

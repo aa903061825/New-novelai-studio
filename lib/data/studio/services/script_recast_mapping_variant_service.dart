@@ -90,39 +90,15 @@ class ScriptRecastMappingVariantService {
     required String expectedSourceContentFingerprint,
     required DateTime activatedAt,
   }) {
-    final normalizedVariantId = variantId.trim();
     final normalizedScriptId = expectedScriptId.trim();
     final normalizedSourceFingerprint = expectedSourceFingerprint.trim();
-    final normalizedSourceContentFingerprint =
-        expectedSourceContentFingerprint.trim();
-    if (normalizedVariantId.isEmpty) {
-      throw const FormatException('映射版本 ID 不能为空。');
-    }
-    if (normalizedScriptId.isEmpty || normalizedSourceFingerprint.isEmpty) {
-      throw const FormatException('当前剧本缺少可校验的来源指纹。');
-    }
-    if (cache.scriptId.trim() != normalizedScriptId ||
-        cache.sourceFingerprint.trim() != normalizedSourceFingerprint) {
-      throw const FormatException('当前缓存与打开的剧本不匹配，已拒绝切换。');
-    }
-
-    final variant = cache.mappingVariants
-        .where((entry) => entry.id == normalizedVariantId)
-        .firstOrNull;
-    if (variant == null) {
-      throw const FormatException('找不到要切换的映射版本。');
-    }
-    if (variant.scriptId.trim() != normalizedScriptId ||
-        variant.mapping.scriptId.trim() != normalizedScriptId ||
-        variant.sourceFingerprint.trim() != normalizedSourceFingerprint) {
-      throw const FormatException('该版本属于其他剧本或来源，已拒绝切换。');
-    }
-    final variantContentFingerprint = variant.sourceContentFingerprint.trim();
-    if (variantContentFingerprint.isNotEmpty &&
-        normalizedSourceContentFingerprint.isNotEmpty &&
-        variantContentFingerprint != normalizedSourceContentFingerprint) {
-      throw const FormatException('该版本的源内容指纹已变化，已拒绝切换。');
-    }
+    final variant = _validatedVariant(
+      cache: cache,
+      variantId: variantId,
+      expectedScriptId: normalizedScriptId,
+      expectedSourceFingerprint: normalizedSourceFingerprint,
+      expectedSourceContentFingerprint: expectedSourceContentFingerprint,
+    );
 
     final mapping = _mappingSnapshot(variant.mapping).copyWith(
       id: 'mapping-$normalizedScriptId',
@@ -130,7 +106,64 @@ class ScriptRecastMappingVariantService {
     );
     return cache.copyWith(
       mapping: mapping,
-      activeMappingVariantId: normalizedVariantId,
+      activeMappingVariantId: variant.id,
+      updatedAt: activatedAt.toUtc(),
+    );
+  }
+
+  /// Applies only the role-scoped parts of a saved version.
+  ///
+  /// The workbench role picker exposes script versions as a shortcut for the
+  /// current role. It must not call [activate], because that replaces scene,
+  /// artist, strategy, and every other role from the snapshot.
+  RecastScriptCache activateRole({
+    required RecastScriptCache cache,
+    required String variantId,
+    required String sourceRoleId,
+    required String expectedScriptId,
+    required String expectedSourceFingerprint,
+    required String expectedSourceContentFingerprint,
+    required DateTime activatedAt,
+  }) {
+    final normalizedRoleId = sourceRoleId.trim();
+    if (normalizedRoleId.isEmpty) {
+      throw const FormatException('角色 ID 不能为空。');
+    }
+    final normalizedScriptId = expectedScriptId.trim();
+    final normalizedSourceFingerprint = expectedSourceFingerprint.trim();
+    final variant = _validatedVariant(
+      cache: cache,
+      variantId: variantId,
+      expectedScriptId: normalizedScriptId,
+      expectedSourceFingerprint: normalizedSourceFingerprint,
+      expectedSourceContentFingerprint: expectedSourceContentFingerprint,
+    );
+    final currentMapping = _mappingSnapshot(cache.mapping);
+    final variantMapping = _mappingSnapshot(variant.mapping);
+    final mapping = currentMapping.copyWith(
+      id: 'mapping-$normalizedScriptId',
+      scriptId: normalizedScriptId,
+      roleSwaps: _replaceRoleScopedEntries(
+        currentMapping.roleSwaps,
+        variantMapping.roleSwaps,
+        (entry) => entry.sourceRoleId,
+        normalizedRoleId,
+      ),
+      roleAssemblies: _replaceRoleScopedEntries(
+        currentMapping.roleAssemblies,
+        variantMapping.roleAssemblies,
+        (entry) => entry.sourceRoleId,
+        normalizedRoleId,
+      ),
+      rolePromptReplacements: _replaceRoleScopedEntries(
+        currentMapping.rolePromptReplacements,
+        variantMapping.rolePromptReplacements,
+        (entry) => entry.sourceRoleId,
+        normalizedRoleId,
+      ),
+    );
+    return cache.copyWith(
+      mapping: mapping,
       updatedAt: activatedAt.toUtc(),
     );
   }
@@ -179,6 +212,77 @@ class ScriptRecastMappingVariantService {
   bool sameMapping(RecastMapping left, RecastMapping right) {
     return jsonEncode(stableJsonValue(left.toJson())) ==
         jsonEncode(stableJsonValue(right.toJson()));
+  }
+
+  RecastMappingVariant _validatedVariant({
+    required RecastScriptCache cache,
+    required String variantId,
+    required String expectedScriptId,
+    required String expectedSourceFingerprint,
+    required String expectedSourceContentFingerprint,
+  }) {
+    final normalizedVariantId = variantId.trim();
+    final normalizedScriptId = expectedScriptId.trim();
+    final normalizedSourceFingerprint = expectedSourceFingerprint.trim();
+    final normalizedSourceContentFingerprint =
+        expectedSourceContentFingerprint.trim();
+    if (normalizedVariantId.isEmpty) {
+      throw const FormatException('映射版本 ID 不能为空。');
+    }
+    if (normalizedScriptId.isEmpty || normalizedSourceFingerprint.isEmpty) {
+      throw const FormatException('当前剧本缺少可校验的来源指纹。');
+    }
+    if (cache.scriptId.trim() != normalizedScriptId ||
+        cache.sourceFingerprint.trim() != normalizedSourceFingerprint) {
+      throw const FormatException('当前缓存与打开的剧本不匹配，已拒绝切换。');
+    }
+
+    final variant = cache.mappingVariants
+        .where((entry) => entry.id == normalizedVariantId)
+        .firstOrNull;
+    if (variant == null) {
+      throw const FormatException('找不到要切换的映射版本。');
+    }
+    if (variant.scriptId.trim() != normalizedScriptId ||
+        variant.mapping.scriptId.trim() != normalizedScriptId ||
+        variant.sourceFingerprint.trim() != normalizedSourceFingerprint) {
+      throw const FormatException('该版本属于其他剧本或来源，已拒绝切换。');
+    }
+    final variantContentFingerprint = variant.sourceContentFingerprint.trim();
+    if (variantContentFingerprint.isNotEmpty &&
+        normalizedSourceContentFingerprint.isNotEmpty &&
+        variantContentFingerprint != normalizedSourceContentFingerprint) {
+      throw const FormatException('该版本的源内容指纹已变化，已拒绝切换。');
+    }
+    return variant;
+  }
+
+  List<T> _replaceRoleScopedEntries<T>(
+    List<T> current,
+    List<T> snapshot,
+    String Function(T entry) sourceRoleId,
+    String roleId,
+  ) {
+    final snapshotEntries = [
+      for (final entry in snapshot)
+        if (sourceRoleId(entry).trim() == roleId) entry,
+    ];
+    final result = <T>[];
+    var inserted = false;
+    for (final entry in current) {
+      if (sourceRoleId(entry).trim() == roleId) {
+        if (!inserted) {
+          result.addAll(snapshotEntries);
+          inserted = true;
+        }
+      } else {
+        result.add(entry);
+      }
+    }
+    if (!inserted) {
+      result.addAll(snapshotEntries);
+    }
+    return List.unmodifiable(result);
   }
 
   void _validateCacheIdentity(RecastScriptCache cache) {

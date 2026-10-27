@@ -364,7 +364,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
       info: payloadResult.comment,
       additionalInfo: additionalInfo,
       contentOrderText: payloadResult.contentOrderText,
-      imageBytes: imageBytes,
       imagePath: imagePath,
     );
     commandList.add(
@@ -465,7 +464,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
         title: fileName,
         info: info,
         additionalInfo: additionalInfo,
-        imageBytes: imageBytes,
         imagePath: imagePath,
       );
       commandList.add(
@@ -560,7 +558,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
       info: payloadResult.comment,
       additionalInfo: additionalInfo,
       contentOrderText: payloadResult.contentOrderText,
-      imageBytes: imageBytes,
       imagePath: imagePath,
     );
     commandList.add(
@@ -612,8 +609,9 @@ class GenerationPageViewmodel extends ChangeNotifier {
     );
   }
 
-  bool get hasCurrentConfigPreviewSourceImages =>
-      _latestGeneratedImageBytes().isNotEmpty;
+  bool get hasCurrentConfigPreviewSourceImages => commandList.reversed.any(
+        (command) => _hasGeneratedImageSource(command.value),
+      );
 
   int saveCurrentConfigPreview() {
     final service = configService;
@@ -634,11 +632,39 @@ class GenerationPageViewmodel extends ChangeNotifier {
   }
 
   List<Uint8List> _latestGeneratedImageBytes({int limit = 9}) {
-    return commandList.reversed
-        .map((command) => command.value.imageBytes)
-        .whereType<Uint8List>()
-        .take(limit)
-        .toList(growable: false);
+    final images = <Uint8List>[];
+    for (final command in commandList.reversed) {
+      if (images.length >= limit) break;
+      final content = command.value;
+      final retainedBytes = content.imageBytes;
+      if (retainedBytes != null && retainedBytes.isNotEmpty) {
+        images.add(retainedBytes);
+        continue;
+      }
+      final savedBytes = _readSavedImageBytes(content.imagePath);
+      if (savedBytes != null && savedBytes.isNotEmpty) {
+        images.add(savedBytes);
+      }
+    }
+    return images;
+  }
+
+  bool _hasGeneratedImageSource(InfoCardContent content) {
+    if (content.imageBytes?.isNotEmpty == true) return true;
+    final path = content.imagePath?.trim();
+    return path != null && path.isNotEmpty;
+  }
+
+  Uint8List? _readSavedImageBytes(String? imagePath) {
+    final path = imagePath?.trim();
+    if (path == null || path.isEmpty) return null;
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return null;
+      return file.readAsBytesSync();
+    } catch (_) {
+      return null;
+    }
   }
 
   void addAndRunCommand(Command<void, InfoCardContent> command) {
@@ -765,7 +791,6 @@ class GenerationPageViewmodel extends ChangeNotifier {
           info: payloadResult.comment,
           additionalInfo: additionalInfo,
           contentOrderText: payloadResult.contentOrderText,
-          imageBytes: imageBytes,
           imagePath: imagePath,
         );
       } catch (e) {

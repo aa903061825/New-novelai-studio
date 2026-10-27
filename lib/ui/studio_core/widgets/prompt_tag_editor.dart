@@ -65,6 +65,14 @@ class PromptTagEditor extends StatefulWidget {
   final bool initialGroupedLayout;
   final PromptTagLayoutMode? initialLayoutMode;
   final bool initialShowTranslations;
+
+  /// Whether newly entered or manually edited Chinese tags should be
+  /// normalized to English before they are stored.
+  ///
+  /// NovelAI 5.0 accepts Chinese prompt tags, so the normal input path keeps
+  /// the user's text unchanged. Translation remains available through the
+  /// display controls and explicit retranslation actions.
+  final bool translateChineseInput;
   final bool preferTranslatedLabels;
   final bool copyDraggedTagsWithAlt;
   final bool enableKeyboardPaste;
@@ -98,7 +106,8 @@ class PromptTagEditor extends StatefulWidget {
     this.autoTranslateTagLimit,
     this.initialGroupedLayout = false,
     this.initialLayoutMode,
-    this.initialShowTranslations = false,
+    this.initialShowTranslations = true,
+    this.translateChineseInput = false,
     this.preferTranslatedLabels = false,
     this.copyDraggedTagsWithAlt = false,
     this.enableKeyboardPaste = false,
@@ -342,26 +351,46 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
             )
           else ...[
             if (widget.label != null || widget.showControls) ...[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (widget.label != null)
-                    Expanded(
-                      child: Text(
-                        widget.label!,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: StudioTokens.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    )
-                  else
-                    const Spacer(),
-                  if (widget.showControls) ...[
-                    const SizedBox(width: 8),
-                    _controls(),
-                  ],
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final label = widget.label == null
+                      ? null
+                      : Text(
+                          widget.label!,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: StudioTokens.primary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        );
+                  if (constraints.maxWidth < 420) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (label != null) label,
+                        if (widget.showControls) ...[
+                          if (label != null) const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: _controls(),
+                          ),
+                        ],
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (label != null)
+                        Expanded(child: label)
+                      else
+                        const Spacer(),
+                      if (widget.showControls) ...[
+                        const SizedBox(width: 8),
+                        _controls(),
+                      ],
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 8),
             ],
@@ -991,6 +1020,12 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       if (tag.trim().isEmpty) {
         continue;
       }
+      // Chinese is a supported NovelAI prompt language. Keep a newly entered
+      // Chinese tag as the source text instead of sending it through the
+      // English-to-Chinese display translation queue.
+      if (_containsCjk(tag)) {
+        continue;
+      }
       if (_isTranslationSuppressed(tag)) {
         continue;
       }
@@ -1065,7 +1100,8 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       _submittingInput = true;
     });
 
-    final normalizedAdded = await _normalizeAddedTags(added);
+    final normalizedAdded =
+        widget.translateChineseInput ? await _normalizeAddedTags(added) : added;
     if (!mounted) {
       return;
     }
@@ -2072,7 +2108,9 @@ class _PromptTagEditorState extends State<PromptTagEditor> {
       }
       return;
     }
-    final normalized = await _normalizeAddedTags(parsed);
+    final normalized = widget.translateChineseInput
+        ? await _normalizeAddedTags(parsed)
+        : parsed;
     if (!mounted || normalized.isEmpty) {
       return;
     }

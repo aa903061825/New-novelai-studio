@@ -45,8 +45,7 @@ void main() {
     }
   });
 
-  test('creates a global grouped profile and persists active recording',
-      () async {
+  test('creates a global grouped profile without starting sync', () async {
     var caches = [_cache(parsedScript, _mappedSourceReplacement())];
     final viewModel = _viewModel(repository, caches, (next) => caches = next);
 
@@ -64,7 +63,7 @@ void main() {
     );
     expect(
       viewModel.roleReplacementMappings.single.activeMappingProfileId,
-      profile.id,
+      isNull,
     );
     await Future<void>.delayed(const Duration(milliseconds: 550));
     final stored = await repository.load();
@@ -72,7 +71,124 @@ void main() {
     expect(
         caches.single.mapping.rolePromptReplacements.single
             .activeMappingProfileId,
-        profile.id);
+        isNull);
+  });
+
+  test('migrates legacy implicit profile links to independent role mappings',
+      () async {
+    var caches = [
+      _cache(
+        parsedScript,
+        _mappedSourceReplacement().copyWith(
+          activeMappingProfileId: 'legacy-profile',
+        ),
+      ),
+    ];
+    final legacyJson = Map<String, dynamic>.from(caches.single.toJson())
+      ..remove('roleMappingProfileSyncVersion');
+    caches = [RecastScriptCache.fromJson(legacyJson)];
+    final viewModel = _viewModel(repository, caches, (next) => caches = next);
+
+    await viewModel.importScriptPath(_fixturePath);
+
+    expect(
+      viewModel.roleReplacementMappings.single.activeMappingProfileId,
+      isNull,
+    );
+    expect(
+      viewModel.roleReplacementMappings.single.targetIdentityPrompt,
+      'papyrus (arknights)',
+    );
+    expect(
+      viewModel.roleReplacementMappings.single.rules.single.targetPrompt,
+      'papyrus (arknights)',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 550));
+    expect(
+      caches
+          .single.mapping.rolePromptReplacements.single.activeMappingProfileId,
+      isNull,
+    );
+    expect(
+      caches.single.roleMappingProfileSyncVersion,
+      RecastScriptCache.currentRoleMappingProfileSyncVersion,
+    );
+  });
+
+  test('scopes a shared profile link to the current role only', () async {
+    final timestamp = DateTime.utc(2026, 8, 22);
+    const profileId = 'shared-profile';
+    final profile = RoleMappingProfile(
+      id: profileId,
+      name: '共享档案',
+      targetIdentityPrompt: 'shared target',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+    await repository.save(RoleMappingProfileLibrary(profiles: [profile]));
+
+    final roleA = _mappedSourceReplacement().copyWith(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 A',
+      targetIdentityPrompt: 'role A before',
+      activeMappingProfileId: profileId,
+    );
+    final roleB = _mappedSourceReplacement().copyWith(
+      sourceRoleId: 'slot-1',
+      displayLabel: '角色 B',
+      targetIdentityPrompt: 'role B before',
+      activeMappingProfileId: profileId,
+    );
+    var caches = [
+      _cacheWithReplacements(parsedScript, [roleA, roleB]),
+    ];
+    final viewModel = _viewModel(repository, caches, (next) => caches = next);
+
+    await viewModel.importScriptPath(_fixturePath);
+    expect(
+      viewModel.roleReplacementMappings
+          .singleWhere((role) => role.sourceRoleId == 'slot-0')
+          .activeMappingProfileId,
+      profileId,
+    );
+    expect(
+      viewModel.roleReplacementMappings
+          .singleWhere((role) => role.sourceRoleId == 'slot-1')
+          .activeMappingProfileId,
+      isNull,
+      reason: '同一剧本中同一档案只能绑定当前角色，不能共享写回入口',
+    );
+
+    await viewModel.applyRoleMappingProfile(
+      profileId: profileId,
+      sourceRoleId: 'slot-1',
+      selections: const [],
+      linkProfile: true,
+    );
+
+    final first = viewModel.roleReplacementMappings
+        .singleWhere((role) => role.sourceRoleId == 'slot-0');
+    final second = viewModel.roleReplacementMappings
+        .singleWhere((role) => role.sourceRoleId == 'slot-1');
+    expect(first.targetIdentityPrompt, 'role A before');
+    expect(first.activeMappingProfileId, isNull);
+    expect(second.targetIdentityPrompt, 'shared target');
+    expect(second.activeMappingProfileId, profileId);
+
+    viewModel.setRoleReplacementIdentityPrompt('slot-1', 'only role B');
+    await Future<void>.delayed(const Duration(milliseconds: 550));
+    expect(
+      viewModel.roleReplacementMappings
+          .singleWhere((role) => role.sourceRoleId == 'slot-0')
+          .targetIdentityPrompt,
+      'role A before',
+    );
+    expect(
+      viewModel.roleReplacementMappings
+          .singleWhere((role) => role.sourceRoleId == 'slot-1')
+          .targetIdentityPrompt,
+      'only role B',
+    );
   });
 
   test('one-click mapping repairs a profile carrying another character target',
@@ -231,6 +347,12 @@ void main() {
     final profile = await viewModel.createRoleMappingProfile(
       name: '百合花',
       sourceRoleId: 'slot-0',
+    );
+    await viewModel.applyRoleMappingProfile(
+      profileId: profile.id,
+      sourceRoleId: 'slot-0',
+      selections: const [],
+      linkProfile: true,
     );
 
     viewModel.setRoleReplacementRuleTarget(
@@ -735,9 +857,11 @@ void main() {
     );
     expect(
       viewModel.roleReplacementMappings.single.stageCount,
-      1,
-      reason: '最后一个服装阶段不能删除',
+      0,
+      reason: '最后一个服装阶段也应允许删除，避免留下无法清理的空分类',
     );
+    await Future<void>.delayed(const Duration(milliseconds: 550));
+    expect(caches.single.mapping.roleAssemblies, isEmpty);
   });
 
   test('restoring AI layers replaces stage structure and clears overrides',
@@ -878,9 +1002,16 @@ void main() {
     );
     expect(
       viewModel.roleReplacementMappings.single.stageCount,
-      1,
-      reason: '首次建立的唯一阶段不能被删除',
+      0,
+      reason: '首次建立的唯一阶段也应能快捷删除',
     );
+    expect(
+      viewModel.roleReplacementMappings.single.rules.single.layerKind,
+      ScriptRoleReplacementRuleLayerKind.pending,
+      reason: '删除最后阶段后，规则必须安全回到待确认而不是丢失',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 550));
+    expect(caches.single.mapping.roleAssemblies, isEmpty);
   });
 
   testWidgets('role layer tabs filter rules and accept rule-card drops',
@@ -1250,11 +1381,12 @@ void main() {
       const ValueKey('role-stage-menu-slot-0'),
     );
     await tester.ensureVisible(stageMenu);
-    await tester.tap(stageMenu);
-    await tester.pumpAndSettle();
-    expect(find.text('新增阶段'), findsOneWidget);
-
-    await tester.tap(find.text('新增阶段'));
+    expect(stageMenu, findsOneWidget);
+    final quickAdd = find.byKey(
+      const ValueKey('role-stage-add-slot-0'),
+    );
+    expect(quickAdd, findsOneWidget);
+    await tester.tap(quickAdd);
     await tester.pumpAndSettle();
     expect(
         find.byKey(const ValueKey('role-stage-editor-dialog')), findsOneWidget);
@@ -1274,7 +1406,123 @@ void main() {
     expect(viewModel.roleMappings.single.stageItems, hasLength(3));
     expect(find.text('战斗服'), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    final quickDelete = find.byKey(
+      ValueKey(
+          'role-stage-delete-slot-0-${viewModel.roleMappings.single.stageItems.last.id}'),
+    );
+    await tester.ensureVisible(quickDelete);
+    await tester.tap(quickDelete);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('role-stage-delete-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('role-stage-delete-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(viewModel.roleMappings.single.stageItems, hasLength(2));
+    expect(find.text('战斗服'), findsNothing);
     await tester.pump(const Duration(milliseconds: 500));
+  });
+
+  testWidgets('role layer tabs support mouse wheel and direct drag scrolling',
+      (tester) async {
+    tester.view.physicalSize = const Size(760, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final stages = List.generate(
+      10,
+      (index) => RoleAssemblyStage(
+        id: 'stage-$index',
+        label: '阶段 ${index + 1}',
+        frameIndexes: [index],
+      ),
+    );
+    final rules = List.generate(
+      10,
+      (index) => ScriptPromptReplacementRule(
+        id: 'rule-$index',
+        sourceTerms: [
+          ScriptPromptReplacementTerm(
+            id: 'term-$index',
+            text: 'outfit $index',
+            category: PromptTagCategory.upperClothing,
+            frameIndexes: [index],
+          ),
+        ],
+      ),
+    );
+    final assembly = RoleAssembly(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      stages: stages,
+    );
+    final replacement = ScriptRolePromptReplacement(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      rules: rules,
+    );
+    var caches = [
+      _cacheWithReplacements(
+        parsedScript,
+        [replacement],
+        roleAssemblies: [assembly],
+      ),
+    ];
+    final viewModel = _viewModel(repository, caches, (next) => caches = next);
+    await tester.runAsync(() => viewModel.importScriptPath(_fixturePath));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioScriptPage(viewModel: viewModel),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+
+    final strip = find.byKey(
+      const ValueKey('role-replacement-layer-scroll-slot-0'),
+    );
+    await tester.ensureVisible(strip);
+    final scrollable = find.descendant(
+      of: strip,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.maxScrollExtent, greaterThan(0));
+
+    final center = tester.getCenter(strip);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: center);
+    await mouse.moveTo(center);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: center,
+        scrollDelta: const Offset(0, 180),
+      ),
+    );
+    await tester.pump();
+    expect(position.pixels, greaterThan(0));
+
+    position.jumpTo(0);
+    await tester.pump();
+    await mouse.down(center);
+    await mouse.moveTo(center + const Offset(-240, 0));
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    expect(
+      find.byKey(
+        const ValueKey('role-replacement-layer-scrollbar-slot-0'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -1361,6 +1609,16 @@ void main() {
           .value,
       isTrue,
     );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(
+              const ValueKey('role-mapping-profile-link-sync'),
+            ),
+          )
+          .value,
+      isFalse,
+    );
     final blockTile = find.ancestor(
       of: find.byKey(
         const ValueKey(
@@ -1391,8 +1649,251 @@ void main() {
 
     final applied = target.roleReplacementMappings.single;
     expect(applied.targetIdentityPrompt, 'papyrus (arknights)');
-    expect(applied.activeMappingProfileId, profile.id);
+    expect(applied.activeMappingProfileId, isNull);
     expect(applied.rules.single.targetPrompt, 'papyrus (arknights)');
+    expect(find.byType(Dialog), findsNothing);
+  });
+
+  testWidgets(
+      'preview blocks a zero-effect copy while every unresolved layer is skipped',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final current = _mappedSourceReplacement();
+    final timestamp = DateTime.utc(2026, 8, 22);
+    final profile = RoleMappingProfile(
+      id: 'profile-zero-effect',
+      name: '分层未对应档案',
+      targetIdentityPrompt: current.targetIdentityPrompt,
+      layers: const [
+        RoleMappingProfileLayer(
+          id: 'unresolved-stage',
+          kind: RoleMappingProfileLayerKind.stage,
+          displayName: '未对应服装阶段',
+          recognitionSignature: ['hoodie'],
+          blocks: [
+            RoleMappingProfileBlock(
+              id: 'unresolved-block',
+              terms: [
+                RoleMappingProfileTerm(
+                  id: 'unresolved-term',
+                  text: 'hoodie',
+                  normalizedKey: 'hoodie',
+                ),
+              ],
+              targetPrompt: 'white hoodie',
+            ),
+          ],
+        ),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+    final inlineRepository = _InMemoryRoleMappingProfileRepository(
+      RoleMappingProfileLibrary(profiles: [profile]),
+    );
+    var caches = [_cache(parsedScript, current)];
+    final viewModel =
+        _viewModel(inlineRepository, caches, (next) => caches = next);
+    await tester.runAsync(() => viewModel.importScriptPath(_fixturePath));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              key: const ValueKey('open-zero-effect-preview'),
+              onPressed: () => showRoleMappingProfileApplyPreviewDialog(
+                context,
+                viewModel: viewModel,
+                profile: profile,
+                sourceRoleId: 'slot-0',
+              ),
+              child: const Text('打开预览'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-zero-effect-preview')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('role-mapping-profile-no-change-notice')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('1 个档案分层仍为“跳过”'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('role-mapping-profile-apply')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.byType(Dialog), findsOneWidget);
+  });
+
+  testWidgets(
+      'choosing a conflicted target layer enables its ambiguous mapping and writes it',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final timestamp = DateTime.utc(2026, 8, 22);
+    final profile = RoleMappingProfile(
+      id: 'profile-explicit-layer-confirmation',
+      name: '需手动选层的档案',
+      layers: const [
+        RoleMappingProfileLayer(
+          id: 'layer-a',
+          kind: RoleMappingProfileLayerKind.stage,
+          displayName: '白色上衣',
+          recognitionSignature: ['hoodie'],
+          blocks: [
+            RoleMappingProfileBlock(
+              id: 'block-a',
+              terms: [
+                RoleMappingProfileTerm(
+                  id: 'term-a',
+                  text: 'hoodie',
+                  normalizedKey: 'hoodie',
+                ),
+              ],
+              targetPrompt: 'white hoodie',
+            ),
+          ],
+        ),
+        RoleMappingProfileLayer(
+          id: 'layer-b',
+          kind: RoleMappingProfileLayerKind.stage,
+          displayName: '黑色上衣',
+          recognitionSignature: ['hoodie'],
+          blocks: [
+            RoleMappingProfileBlock(
+              id: 'block-b',
+              terms: [
+                RoleMappingProfileTerm(
+                  id: 'term-b',
+                  text: 'hoodie',
+                  normalizedKey: 'hoodie',
+                ),
+              ],
+              targetPrompt: 'black hoodie',
+            ),
+          ],
+        ),
+      ],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+    final inlineRepository = _InMemoryRoleMappingProfileRepository(
+      RoleMappingProfileLibrary(profiles: [profile]),
+    );
+    const assembly = RoleAssembly(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      stages: [
+        RoleAssemblyStage(id: 'casual', label: '便服', frameIndexes: [0]),
+      ],
+    );
+    const replacement = ScriptRolePromptReplacement(
+      sourceRoleId: 'slot-0',
+      displayLabel: '角色 1',
+      rules: [
+        ScriptPromptReplacementRule(
+          id: 'hoodie-rule',
+          sourceTerms: [
+            ScriptPromptReplacementTerm(
+              id: 'hoodie',
+              text: 'hoodie',
+              category: PromptTagCategory.upperClothing,
+              frameIndexes: [0],
+            ),
+          ],
+        ),
+      ],
+    );
+    var caches = [
+      _cacheWithReplacements(
+        parsedScript,
+        const [replacement],
+        roleAssemblies: const [assembly],
+      ),
+    ];
+    final viewModel =
+        _viewModel(inlineRepository, caches, (next) => caches = next);
+    await tester.runAsync(() => viewModel.importScriptPath(_fixturePath));
+    final preview = viewModel.previewRoleMappingProfile(
+      profileId: profile.id,
+      sourceRoleId: 'slot-0',
+    );
+    expect(
+      preview.entries.map((entry) => entry.status).toSet(),
+      {RoleMappingApplyPreviewStatus.ambiguous},
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              key: const ValueKey('open-explicit-layer-preview'),
+              onPressed: () => showRoleMappingProfileApplyPreviewDialog(
+                context,
+                viewModel: viewModel,
+                profile: profile,
+                sourceRoleId: 'slot-0',
+              ),
+              child: const Text('打开预览'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('open-explicit-layer-preview')),
+    );
+    await tester.pumpAndSettle();
+
+    final layerTarget = find.byKey(
+      const ValueKey('role-mapping-profile-layer-target-layer-a'),
+    );
+    await tester.tap(layerTarget);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('共享层').last);
+    await tester.pumpAndSettle();
+
+    final selectedBlockTile = find.ancestor(
+      of: find.byKey(
+        const ValueKey('role-mapping-profile-preview-source-block-a'),
+      ),
+      matching: find.byType(CheckboxListTile),
+    );
+    expect(tester.widget<CheckboxListTile>(selectedBlockTile).value, isTrue);
+    expect(find.text('复制 1 个映射组到当前角色'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('role-mapping-profile-apply')),
+    );
+    await tester.pumpAndSettle();
+
+    final applied = viewModel.roleReplacementMappings.single;
+    expect(applied.rules.single.targetPrompt, 'white hoodie');
+    expect(applied.rules.single.layerKind,
+        ScriptRoleReplacementRuleLayerKind.shared);
+    expect(viewModel.roleMappingProfileStatus, contains('映射规则已更新'));
     expect(find.byType(Dialog), findsNothing);
   });
 
@@ -1634,10 +2135,10 @@ void main() {
     final picker = find.byKey(
       const ValueKey('role-mapping-profile-picker-slot-0'),
     );
-    expect(find.text('映射库（专属 0 · 全局 1）'), findsOneWidget);
-    expect(find.text('剧本专属角色映射'), findsOneWidget);
+    expect(find.text('映射库（剧本版本 0 · 全局档案 1）'), findsOneWidget);
+    expect(find.text('本剧本独立映射'), findsOneWidget);
     expect(
-      find.textContaining('已连接全局角色档案“百合花”'),
+      find.textContaining('已复制的内容仅保存于当前剧本'),
       findsOneWidget,
     );
     final pickerSurface = tester.widget<Material>(
@@ -1654,7 +2155,7 @@ void main() {
     await mouse.moveTo(tester.getCenter(picker));
     await tester.pump(const Duration(milliseconds: 800));
     expect(
-      find.text('蓝色为本剧本整套映射；黄色为跨剧本复用的全局角色档案'),
+      find.text('蓝色为本剧本保存的整套版本；黄色为跨剧本复用的全局角色档案'),
       findsOneWidget,
     );
     await mouse.moveTo(Offset.zero);
@@ -2015,7 +2516,7 @@ void main() {
       reason: 'status=${viewModel.roleMappingProfileStatus}; '
           'snackbars=$snackBarTexts',
     );
-    expect(second.activeMappingProfileId, profileId);
+    expect(second.activeMappingProfileId, isNull);
     expect(second.rules.single.targetPrompt, 'cache mapped target');
     expect(find.byType(Dialog), findsNothing);
   });

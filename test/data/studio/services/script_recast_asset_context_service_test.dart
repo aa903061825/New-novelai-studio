@@ -123,6 +123,31 @@ void main() {
       expect(context.characters.single.id, 'char-cached');
     });
 
+    test('refreshes a stale catalog before building the workbench context',
+        () async {
+      final catalog = _FakeCatalogService(
+        snapshot: _snapshot(
+          artistChains: const [
+            ArtistChain(
+              id: 'artist-v5',
+              name: 'V5 Chain',
+              modelPreviewRefs: {
+                'v5': ['assets/references/v5.png'],
+              },
+            ),
+          ],
+        ),
+      )..cachedSnapshotIsStale = true;
+
+      final context = await ScriptRecastAssetContextService(
+        catalogService: catalog,
+      ).loadContext();
+
+      expect(catalog.cachedSnapshotLoadCount, 1);
+      expect(catalog.refreshSnapshotCount, 1);
+      expect(context.artistChains.single.id, 'artist-v5');
+    });
+
     test('exposes immutable empty metadata when filters are absent', () async {
       final context = await ScriptRecastAssetContextService(
         catalogService: _FakeCatalogService(snapshot: _snapshot()),
@@ -179,7 +204,9 @@ class _FakeCatalogService extends StudioAssetCatalogService {
   final Map<String, dynamic>? filterRules;
   int snapshotLoadCount = 0;
   int cachedSnapshotLoadCount = 0;
+  int refreshSnapshotCount = 0;
   bool throwOnDirectSnapshotLoad = false;
+  bool cachedSnapshotIsStale = false;
 
   _FakeCatalogService({
     required this.snapshot,
@@ -214,8 +241,20 @@ class _FakeCatalogService extends StudioAssetCatalogService {
     return StudioAssetCatalogCacheLoadResult(
       snapshot: snapshot,
       fromCache: true,
-      isStale: false,
+      isStale: cachedSnapshotIsStale,
     );
+  }
+
+  @override
+  Future<StudioAssetCatalogSnapshot> refreshSnapshotCache({
+    bool includeLegacyCodex = false,
+    int legacyCodexLimit = 160,
+    String legacyCodexQuery = '',
+    String legacyCodexCategoryKey = StudioLegacyCodexCategories.allKey,
+    bool persistCacheBeforeReturn = true,
+  }) async {
+    refreshSnapshotCount += 1;
+    return snapshot;
   }
 
   @override

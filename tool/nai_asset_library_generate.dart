@@ -11,6 +11,8 @@ import 'package:novel_studio/data/models/generation_capabilities.dart';
 import 'package:novel_studio/data/models/generation_size.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 
+import 'private_prompt_append.dart';
+
 const _defaultQueuePath = r'tool\asset-library-image-queue.json';
 const _defaultEndpoint = 'https://image.novelai.net/ai/generate-image';
 const _defaultPreviewRoot = r'E:\codeximage\nai-new\preview-images';
@@ -37,6 +39,16 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  final promptAppend = options.usePrivatePromptAppend
+      ? await loadPrivatePromptAppend(
+          explicitPath: options.promptAppendPath ??
+              Platform.environment['NAI_PROMPT_APPEND_FILE'],
+        )
+      : const PrivatePromptAppend(path: '', text: '');
+  if (promptAppend.isActive) {
+    stdout.writeln('Private prompt append enabled (contents hidden).');
+  }
+
   final client = _createClient(options.proxy);
   stdout.writeln(
     'NAI generation mode: sequential; inter-image delay=${options.delayMs}ms; '
@@ -47,7 +59,11 @@ Future<void> main(List<String> args) async {
       final item = pending[index];
       final effectiveSeed = item.seed ??
           (options.seed == null ? _randomSeed() : options.seed! + index);
-      final payload = _payloadForItem(item: item, seed: effectiveSeed);
+      final payload = _payloadForItem(
+        item: item,
+        seed: effectiveSeed,
+        promptAppend: promptAppend,
+      );
       stdout.writeln(
         '[${index + 1}/${pending.length}] NAI generating ${item.id} -> ${item.outputPath}',
       );
@@ -66,7 +82,7 @@ Future<void> main(List<String> args) async {
           item.requestPayloadManifestPath!,
           id: item.id,
           seed: effectiveSeed,
-          payload: payload,
+          payload: promptAppend.redactPayload(payload),
         );
       }
       if (options.delayMs > 0 && index < pending.length - 1) {
@@ -295,8 +311,9 @@ Map<String, String> _headersForToken(String token) => {
 Map<String, dynamic> _payloadForItem({
   required _QueueItem item,
   required int seed,
+  required PrivatePromptAppend promptAppend,
 }) {
-  final prompt = item.prompt;
+  final prompt = promptAppend.appendTo(item.prompt);
   final model = item.model ?? 'nai-diffusion-4-5-full';
   if (GenerationModelCapabilities.fromModel(model).isV5) {
     return _v5PayloadForItem(
@@ -360,11 +377,18 @@ Map<String, dynamic> _payloadForItem({
     'legacy_v3_extend': false,
     'legacy_uc': item.legacyUc ?? false,
   };
+  final i2i = _resolveI2iInput(item, seed);
+  if (i2i != null) {
+    parameters['image'] = i2i.imageB64;
+    parameters['strength'] = i2i.strength;
+    parameters['noise'] = i2i.noise;
+    parameters['extra_noise_seed'] = i2i.extraNoiseSeed;
+  }
   parameters.removeWhere((_, value) => value == null);
   return {
     'input': prompt,
     'model': model,
-    'action': item.action ?? 'generate',
+    'action': i2i == null ? (item.action ?? 'generate') : 'img2img',
     'parameters': parameters,
   };
 }
@@ -401,6 +425,7 @@ Map<String, dynamic> _v5PayloadForItem({
     qualityPreset: item.qualityPreset ??
         ((item.qualityToggle ?? false) ? 'standard' : 'none'),
     ucPresetMode: item.ucPresetMode ?? 'none',
+    transparentBackground: item.transparentBackground ?? false,
     dynamicThresholding: item.dynamicThresholding ?? false,
     legacy: item.legacy ?? false,
     cfgRescale: item.cfgRescale ?? 0.1,
@@ -410,12 +435,39 @@ Map<String, dynamic> _v5PayloadForItem({
   ).getPayload();
   parameters['v4_prompt'] = _structuredPrompt(prompt);
   parameters['v4_negative_prompt'] = _structuredPrompt(negative);
+  final i2i = _resolveI2iInput(item, seed);
+  if (i2i != null) {
+    parameters['image'] = i2i.imageB64;
+    parameters['strength'] = i2i.strength;
+    parameters['noise'] = i2i.noise;
+    parameters['extra_noise_seed'] = i2i.extraNoiseSeed;
+  }
   return {
     'input': prompt,
     'model': model,
-    'action': item.action ?? 'generate',
+    'action': i2i == null ? (item.action ?? 'generate') : 'img2img',
     'parameters': parameters,
   };
+}
+
+_ResolvedI2iInput? _resolveI2iInput(_QueueItem item, int seed) {
+  var imageB64 = item.i2iImageB64?.trim();
+  if (imageB64 == null || imageB64.isEmpty) {
+    final sourcePath = item.i2iImagePath?.trim();
+    if (sourcePath == null || sourcePath.isEmpty) return null;
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) {
+      throw StateError('I2I source image does not exist: $sourcePath');
+    }
+    imageB64 = base64Encode(sourceFile.readAsBytesSync());
+  }
+  if (imageB64.isEmpty) return null;
+  return _ResolvedI2iInput(
+    imageB64: imageB64,
+    strength: (item.i2iStrength ?? 0.5).clamp(0.0, 1.0).toDouble(),
+    noise: (item.i2iNoise ?? 0.0).clamp(0.0, 1.0).toDouble(),
+    extraNoiseSeed: item.i2iExtraNoiseSeed ?? ((seed + 1) % (1 << 32)),
+  );
 }
 
 Map<String, dynamic> _structuredPrompt(String baseCaption) {
@@ -567,6 +619,11 @@ class _QueueItem {
   final String id;
   final String prompt;
   final String outputPath;
+  final String? i2iImagePath;
+  final String? i2iImageB64;
+  final double? i2iStrength;
+  final double? i2iNoise;
+  final int? i2iExtraNoiseSeed;
   final List<_VibeReference> vibeReferences;
   final String? negativePrompt;
   final String? model;
@@ -587,6 +644,7 @@ class _QueueItem {
   final bool? useOrder;
   final String? qualityPreset;
   final String? ucPresetMode;
+  final bool? transparentBackground;
   final int? seed;
   final String? requestPayloadManifestPath;
 
@@ -594,6 +652,11 @@ class _QueueItem {
     required this.id,
     required this.prompt,
     required this.outputPath,
+    this.i2iImagePath,
+    this.i2iImageB64,
+    this.i2iStrength,
+    this.i2iNoise,
+    this.i2iExtraNoiseSeed,
     this.vibeReferences = const [],
     this.negativePrompt,
     this.model,
@@ -614,6 +677,7 @@ class _QueueItem {
     this.useOrder,
     this.qualityPreset,
     this.ucPresetMode,
+    this.transparentBackground,
     this.seed,
     this.requestPayloadManifestPath,
   });
@@ -623,6 +687,15 @@ class _QueueItem {
       id: json['id'] as String,
       prompt: json['prompt'] as String,
       outputPath: json['outputPath'] as String,
+      i2iImagePath: (json['i2iImagePath'] ?? json['i2i_image_path']) as String?,
+      i2iImageB64: (json['i2iImageB64'] ?? json['i2i_image_b64']) as String?,
+      i2iStrength: _optionalDouble(
+        json['i2iStrength'] ?? json['i2i_strength'],
+      ),
+      i2iNoise: _optionalDouble(json['i2iNoise'] ?? json['i2i_noise']),
+      i2iExtraNoiseSeed: _optionalInt(
+        json['i2iExtraNoiseSeed'] ?? json['i2i_extra_noise_seed'],
+      ),
       vibeReferences: _parseVibeReferences(json),
       negativePrompt: json['negativePrompt'] as String?,
       model: json['model'] as String?,
@@ -643,10 +716,27 @@ class _QueueItem {
       useOrder: json['use_order'] as bool?,
       qualityPreset: json['quality_preset'] as String?,
       ucPresetMode: json['uc_preset_mode'] as String?,
+      transparentBackground: _optionalBool(
+        json['transparentBackground'] ?? json['transparent_background'],
+      ),
       seed: _optionalInt(json['seed']),
       requestPayloadManifestPath: json['requestPayloadManifestPath'] as String?,
     );
   }
+}
+
+class _ResolvedI2iInput {
+  final String imageB64;
+  final double strength;
+  final double noise;
+  final int extraNoiseSeed;
+
+  const _ResolvedI2iInput({
+    required this.imageB64,
+    required this.strength,
+    required this.noise,
+    required this.extraNoiseSeed,
+  });
 }
 
 class _VibeReference {
@@ -716,6 +806,11 @@ double? _optionalDouble(dynamic value) {
   return null;
 }
 
+bool? _optionalBool(dynamic value) {
+  if (value is bool) return value;
+  return null;
+}
+
 class _Options {
   final String queuePath;
   final String endpoint;
@@ -726,6 +821,8 @@ class _Options {
   final int retryCount;
   final int retryDelayMs;
   final int? seed;
+  final String? promptAppendPath;
+  final bool usePrivatePromptAppend;
 
   const _Options({
     required this.queuePath,
@@ -737,6 +834,8 @@ class _Options {
     required this.retryCount,
     required this.retryDelayMs,
     required this.seed,
+    required this.promptAppendPath,
+    required this.usePrivatePromptAppend,
   });
 
   factory _Options.parse(List<String> args) {
@@ -749,6 +848,8 @@ class _Options {
     var retryCount = 6;
     var retryDelayMs = 15000;
     int? seed;
+    String? promptAppendPath;
+    var usePrivatePromptAppend = true;
 
     for (final arg in args) {
       if (arg.startsWith('--queue=')) {
@@ -777,6 +878,10 @@ class _Options {
             retryDelayMs;
       } else if (arg.startsWith('--seed=')) {
         seed = int.tryParse(arg.substring('--seed='.length));
+      } else if (arg.startsWith('--prompt-append-file=')) {
+        promptAppendPath = arg.substring('--prompt-append-file='.length);
+      } else if (arg == '--no-private-prompt-append') {
+        usePrivatePromptAppend = false;
       }
     }
 
@@ -790,6 +895,8 @@ class _Options {
       retryCount: retryCount < 1 ? 1 : retryCount,
       retryDelayMs: retryDelayMs < 0 ? 0 : retryDelayMs,
       seed: seed,
+      promptAppendPath: promptAppendPath,
+      usePrivatePromptAppend: usePrivatePromptAppend,
     );
   }
 }

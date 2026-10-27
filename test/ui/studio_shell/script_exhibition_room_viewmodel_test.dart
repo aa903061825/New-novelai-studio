@@ -2095,7 +2095,7 @@ void main() {
     expect(viewModel.snapshot.scripts.single.scriptId, 'script-new');
   });
 
-  test('finishes loading after base snapshot before production enrichment',
+  test('publishes base snapshot while production enrichment is pending',
       () async {
     final productionCompleter = Completer<List<ProductionPlan>>();
     final viewModel = ScriptExhibitionRoomViewModel(
@@ -2107,7 +2107,7 @@ void main() {
     final loadFuture = viewModel.load();
     await pumpEventQueue();
 
-    expect(viewModel.isLoading, isFalse);
+    expect(viewModel.isLoading, isTrue);
     expect(viewModel.snapshot.scripts.single.scriptId, 'script-1');
     expect(
       viewModel.snapshot.scripts.single.items.any(
@@ -2125,6 +2125,75 @@ void main() {
         (item) => item.sourceKind == ScriptExhibitionItemSourceKind.generated,
       ),
       isTrue,
+    );
+  });
+
+  test('reload keeps existing dynamic results until enrichment finishes',
+      () async {
+    final initialPlan = _plan();
+    final refreshedPlan = initialPlan.copyWith(
+      tasks: [
+        initialPlan.tasks.first.copyWith(
+          outputImagePath: r'C:\out\frame-01-refreshed.png',
+        ),
+      ],
+    );
+    final productionReload = Completer<List<ProductionPlan>>();
+    var productionLoadCount = 0;
+    final viewModel = ScriptExhibitionRoomViewModel(
+      loadScripts: () async => [_script()],
+      loadProductionPlans: () {
+        productionLoadCount += 1;
+        if (productionLoadCount == 1) {
+          return Future.value([initialPlan]);
+        }
+        return productionReload.future;
+      },
+      loadGalleryRecords: () async => const [],
+    );
+
+    await viewModel.load();
+    expect(
+      viewModel.snapshot.scripts.single.generatedImageCount,
+      1,
+    );
+    expect(
+      viewModel.snapshot.scripts.single.versions
+          .singleWhere((version) => version.id == 'production-plan-hero-a')
+          .items
+          .first
+          .imagePath,
+      initialPlan.tasks.first.outputImagePath,
+    );
+
+    final reloadFuture = viewModel.load();
+    await pumpEventQueue();
+
+    expect(viewModel.isLoading, isTrue);
+    expect(
+      viewModel.snapshot.scripts.single.generatedImageCount,
+      1,
+    );
+    expect(
+      viewModel.snapshot.scripts.single.versions
+          .singleWhere((version) => version.id == 'production-plan-hero-a')
+          .items
+          .first
+          .imagePath,
+      initialPlan.tasks.first.outputImagePath,
+    );
+
+    productionReload.complete([refreshedPlan]);
+    await reloadFuture;
+
+    expect(viewModel.isLoading, isFalse);
+    expect(
+      viewModel.snapshot.scripts.single.versions
+          .singleWhere((version) => version.id == 'production-plan-hero-a')
+          .items
+          .first
+          .imagePath,
+      r'C:\out\frame-01-refreshed.png',
     );
   });
 
@@ -2779,7 +2848,7 @@ void main() {
     final loadFuture = viewModel.load();
     await pumpEventQueue();
 
-    expect(viewModel.isLoading, isFalse);
+    expect(viewModel.isLoading, isTrue);
     expect(viewModel.visibleScripts.map((script) => script.scriptId), [
       'recast-script',
     ]);
@@ -3707,13 +3776,13 @@ void main() {
 
     expect(result.failedImagePaths, isEmpty);
     expect(result.movedImagePaths, hasLength(2));
-    expect(await firstImage.exists(), isFalse);
-    expect(await secondImage.exists(), isFalse);
+    expect(await firstImage.exists(), isTrue);
+    expect(await secondImage.exists(), isTrue);
     expect(
       savedPlans.single.single.tasks.map((task) => task.outputImagePath),
       everyElement(isNotNull),
     );
-    expect(savedGalleryRecords.single, isEmpty);
+    expect(savedGalleryRecords, isEmpty);
   });
 
   test('organizeScriptImages requires savers before file mutation', () async {
@@ -3911,11 +3980,11 @@ void main() {
 
     expect(result.failedImagePaths, isEmpty);
     expect(await sourceSidecar.exists(), isTrue);
-    expect(await generatedImage.exists(), isFalse);
+    expect(await generatedImage.exists(), isTrue);
     expect(await File(result.movedImagePaths.single).exists(), isTrue);
     expect(savedPlans.single.single.tasks.single.outputImagePath,
         result.movedImagePaths.single);
-    expect(savedGalleryRecords.single, isEmpty);
+    expect(savedGalleryRecords, isEmpty);
   });
 
   test(

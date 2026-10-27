@@ -13739,6 +13739,110 @@ void main() {
     );
 
     testWidgets(
+      'role replacement source tag double click edits text and weight',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 3600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        late final RecastScriptCache cache;
+        await tester.runAsync(() async {
+          final parsedScript = await const ScriptRecastParserService()
+              .parseDirectory(Directory(_fixturePath));
+          cache = RecastScriptCache(
+            scriptId: parsedScript.id,
+            scriptName: parsedScript.name,
+            sourceRootPath: parsedScript.rootPath,
+            sourceFingerprint: _normalizedSourceFingerprintForTest(
+              parsedScript,
+            ),
+            updatedAt: DateTime.utc(2026, 8, 22),
+            mapping: RecastMapping.defaults(parsedScript.id).copyWith(
+              rolePromptReplacements: const [
+                ScriptRolePromptReplacement(
+                  sourceRoleId: 'slot-0',
+                  displayLabel: 'AI Hero',
+                  sourcePreview: 'source hero',
+                  rules: [
+                    ScriptPromptReplacementRule(
+                      id: 'rule-rabbit-ears',
+                      sourceTerms: [
+                        ScriptPromptReplacementTerm(
+                          id: 'term-rabbit-ears',
+                          text: 'rabbit ears',
+                          category: PromptTagCategory.upperBody,
+                          sourcePhrase: 'rabbit ears',
+                          sourceLocation: '角色 1',
+                          frameIndexes: [1, 3],
+                        ),
+                      ],
+                      action: ScriptPromptReplacementAction.replace,
+                      targetPrompt: 'lop rabbit ears',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final viewModel = StudioScriptViewModel(
+          loadRecastCaches: () async => [cache],
+        );
+        await tester.runAsync(() async {
+          await viewModel.importScriptPath(_fixturePath);
+        });
+
+        await tester.pumpWidget(buildScriptPage(viewModel: viewModel));
+        await tester.pumpAndSettle();
+
+        final sourceDisplay = find.byKey(
+          const ValueKey(
+            'replacement-rule-source-role-slot-0-rule-rabbit-ears',
+          ),
+        );
+        final sourceChip = find.descendant(
+          of: sourceDisplay,
+          matching: find.byKey(
+            const ValueKey('prompt-tag-chip-rabbit ears-0-idle'),
+          ),
+        );
+        expect(sourceChip, findsOneWidget);
+        final chipCenter = tester.getCenter(sourceChip);
+
+        await tester.tapAt(chipCenter);
+        await tester.pump(kDoubleTapMinTime);
+        await tester.tapAt(chipCenter);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('prompt-tag-edit-weight-dialog')),
+          findsOneWidget,
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('prompt-tag-edit-tag-field')),
+          'lop rabbit ears',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('prompt-tag-edit-weight-field')),
+          '1.35',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('prompt-tag-edit-weight-save')),
+        );
+        await tester.pumpAndSettle();
+
+        final term = viewModel
+            .roleReplacementMappings.single.rules.single.sourceTerms.single;
+        expect(term.text, '1.35:: lop rabbit ears ::');
+        expect(term.id, 'term-rabbit-ears');
+        expect(term.category, PromptTagCategory.upperBody);
+        expect(term.sourcePhrase, 'rabbit ears');
+        expect(term.sourceLocation, '角色 1');
+        expect(term.frameIndexes, [1, 3]);
+      },
+    );
+
+    testWidgets(
       'role replacement targets stay horizontal and blank tap clears selection',
       (tester) async {
         tester.view.physicalSize = const Size(1600, 3600);

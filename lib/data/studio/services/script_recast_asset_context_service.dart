@@ -12,9 +12,15 @@ class ScriptRecastAssetContextService {
 
   Future<ScriptRecastAssetContext> loadContext() async {
     final cacheResult = await catalogService.loadSnapshotWithCache(
-      checkStaleness: false,
+      checkStaleness: true,
     );
-    final snapshot = cacheResult.snapshot;
+    // The script workbench can stay open while the asset library is changed
+    // externally (for example by a V4.5/V5 preview registration). A stale
+    // cache must be rebuilt before the workbench captures its asset context;
+    // otherwise the drawer keeps showing deleted chains and old previews.
+    final snapshot = cacheResult.isStale
+        ? await catalogService.refreshSnapshotCache()
+        : cacheResult.snapshot;
     final filterRules = await catalogService.loadWorkbenchFilterRules();
     final characters = List<CharacterEntry>.unmodifiable(snapshot.characters);
     final outfits = List<StudioOutfitAsset>.unmodifiable(snapshot.outfits);

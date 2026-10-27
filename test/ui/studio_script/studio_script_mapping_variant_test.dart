@@ -9,6 +9,7 @@ import 'package:novel_studio/data/studio/services/role_mapping_profile_repositor
 import 'package:novel_studio/data/studio/services/script_recast_cache_restore_service.dart';
 import 'package:novel_studio/data/studio/services/script_recast_parser_service.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
+import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 import 'package:novel_studio/ui/studio_core/theme/studio_theme.dart';
 import 'package:novel_studio/ui/studio_script/view_models/studio_script_viewmodel.dart';
 import 'package:novel_studio/ui/studio_script/widgets/studio_script_page.dart';
@@ -51,6 +52,76 @@ void main() {
       expect(
         saved!.mapping.promptBlockSwaps.single.manualPrompt,
         'version b style',
+      );
+    });
+
+    test(
+        'dropping a character keeps editable rules in the active script version',
+        () async {
+      final fixture = await _variantFixture();
+      const replacement = ScriptRolePromptReplacement(
+        sourceRoleId: 'slot-0',
+        displayLabel: 'Mari',
+        targetCharacterId: 'old-character',
+        targetIdentityPrompt: 'old identity',
+        activeMappingProfileId: 'old-global-profile',
+        rules: [
+          ScriptPromptReplacementRule(
+            id: 'preserved-rule',
+            sourceTerms: [
+              ScriptPromptReplacementTerm(
+                id: 'preserved-term',
+                text: 'old source',
+                category: PromptTagCategory.character,
+              ),
+            ],
+            action: ScriptPromptReplacementAction.replace,
+            targetPrompt: 'old target',
+          ),
+        ],
+      );
+      final mapping = fixture.cache.mapping.copyWith(
+        rolePromptReplacements: const [replacement],
+      );
+      final cache = fixture.cache.copyWith(
+        mapping: mapping,
+        mappingVariants: [
+          for (final variant in fixture.cache.mappingVariants)
+            variant.id == 'variant-a'
+                ? variant.copyWith(mapping: mapping)
+                : variant,
+        ],
+      );
+      final viewModel = StudioScriptViewModel(
+        loadRecastCacheByScriptId: (_) async => cache,
+        saveRecastCache: (_) async {},
+        loadCharacters: () async => const [
+          CharacterEntry(
+            id: 'new-character',
+            name: '新角色',
+            traits: ViewVariantTexts(frontFull: 'new_character'),
+          ),
+        ],
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+      viewModel.setRoleReplacementTargetCharacter(
+        'slot-0',
+        'new-character',
+      );
+
+      final current = viewModel.roleReplacementMappings.single;
+      expect(viewModel.activeMappingVariantId, 'variant-a');
+      expect(current.targetCharacterId, 'new-character');
+      expect(current.activeMappingProfileId, isNull);
+      expect(
+          current.rules.single.action, ScriptPromptReplacementAction.replace);
+      expect(current.rules.single.targetPrompt, 'old target');
+      expect(
+        viewModel.mappingVariantItems
+            .singleWhere((item) => item.id == 'variant-a')
+            .isModified,
+        isTrue,
       );
     });
 
@@ -164,7 +235,89 @@ void main() {
     });
 
     test(
-        'auto creates seven complete global-profile snapshots without changing the working mapping',
+        'scopes an automatic profile snapshot to the roles linked to that profile',
+        () async {
+      final fixture = await _variantFixture(includeProfileReference: true);
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'novel-studio-scoped-mapping-variants-',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final repository = RoleMappingProfileRepository(
+        fileOverride: File('${tempDirectory.path}/profiles.json'),
+      );
+      final now = DateTime.utc(2026, 8, 20);
+      final pepe = _requiredProfile('佩佩（无兜帽）', 0, now);
+      final suzuran = _requiredProfile('铃兰', 1, now);
+      await repository.save(
+        RoleMappingProfileLibrary(profiles: [pepe, suzuran]),
+      );
+      final roleA = _requiredVariantSourceReplacement.copyWith(
+        sourceRoleId: 'role-a',
+        displayLabel: '角色 A',
+        targetIdentityPrompt: 'baseline A',
+        activeMappingProfileId: pepe.id,
+      );
+      final roleB = _requiredVariantSourceReplacement.copyWith(
+        sourceRoleId: 'role-b',
+        displayLabel: '角色 B',
+        targetIdentityPrompt: 'baseline B',
+        activeMappingProfileId: suzuran.id,
+      );
+      final baseMapping = fixture.cache.mapping.copyWith(
+        rolePromptReplacements: [roleA, roleB],
+      );
+      final cache = fixture.cache.copyWith(
+        mapping: baseMapping,
+        mappingVariants: const [],
+        activeMappingVariantId: null,
+      );
+      final viewModel = StudioScriptViewModel(
+        loadRecastCacheByScriptId: (_) async => cache,
+        saveRecastCache: (_) async {},
+        roleMappingProfileRepository: repository,
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+
+      expect(viewModel.mappingVariants, hasLength(2));
+      final pepeVariant = viewModel.mappingVariants.singleWhere(
+        (variant) => variant.name == '佩佩（无兜帽）',
+      );
+      final pepeRoleA = pepeVariant.mapping.rolePromptReplacements
+          .singleWhere((replacement) => replacement.sourceRoleId == 'role-a');
+      final pepeRoleB = pepeVariant.mapping.rolePromptReplacements
+          .singleWhere((replacement) => replacement.sourceRoleId == 'role-b');
+      expect(pepeRoleA.targetIdentityPrompt, 'identity-佩佩（无兜帽）');
+      expect(pepeRoleA.activeMappingProfileId, pepe.id);
+      expect(pepeRoleB.targetIdentityPrompt, 'baseline B');
+      expect(pepeRoleB.activeMappingProfileId, suzuran.id);
+      expect(
+        pepeRoleB.rules
+            .singleWhere((rule) => rule.id == 'girl-rule')
+            .targetPrompt,
+        'baseline girl',
+        reason: '未绑定该档案的角色不能被整套覆盖',
+      );
+      expect(
+        pepeVariant.targetCharacterNamesByRoleId,
+        const {'role-a': '佩佩（无兜帽）', 'role-b': '铃兰'},
+      );
+
+      final suzuranVariant = viewModel.mappingVariants.singleWhere(
+        (variant) => variant.name == '铃兰',
+      );
+      final suzuranRoleA = suzuranVariant.mapping.rolePromptReplacements
+          .singleWhere((replacement) => replacement.sourceRoleId == 'role-a');
+      final suzuranRoleB = suzuranVariant.mapping.rolePromptReplacements
+          .singleWhere((replacement) => replacement.sourceRoleId == 'role-b');
+      expect(suzuranRoleA.targetIdentityPrompt, 'baseline A');
+      expect(suzuranRoleA.activeMappingProfileId, pepe.id);
+      expect(suzuranRoleB.targetIdentityPrompt, 'identity-铃兰');
+      expect(suzuranRoleB.activeMappingProfileId, suzuran.id);
+    });
+
+    test(
+        'auto creates the linked global-profile snapshot without changing the working mapping',
         () async {
       final fixture = await _variantFixture(includeProfileReference: true);
       final tempDirectory = await Directory.systemTemp.createTemp(
@@ -176,8 +329,7 @@ void main() {
       );
       final now = DateTime.utc(2026, 8, 20);
       final requiredProfiles = [
-        for (final (index, target) in _requiredVariantTargets.indexed)
-          _requiredProfile(target, index, now),
+        _requiredProfile(_requiredVariantTargets.first, 0, now),
       ];
       await repository.save(
         RoleMappingProfileLibrary(
@@ -188,7 +340,11 @@ void main() {
         ),
       );
       final baseMapping = fixture.cache.mapping.copyWith(
-        rolePromptReplacements: const [_requiredVariantSourceReplacement],
+        rolePromptReplacements: [
+          _requiredVariantSourceReplacement.copyWith(
+            activeMappingProfileId: requiredProfiles.single.id,
+          ),
+        ],
       );
       final cache = fixture.cache.copyWith(
         mapping: baseMapping,
@@ -204,16 +360,16 @@ void main() {
 
       await viewModel.importScriptPath(_fixturePath);
 
-      expect(viewModel.mappingVariants, hasLength(7));
+      expect(viewModel.mappingVariants, hasLength(1));
       expect(
         viewModel.mappingVariants.map((variant) => variant.name).toSet(),
-        _requiredVariantTargets.toSet(),
+        {_requiredVariantTargets.first},
       );
       expect(viewModel.activeMappingVariantId, isNull);
       expect(
         viewModel.currentMapping!.rolePromptReplacements.single
             .activeMappingProfileId,
-        'manual-r15',
+        requiredProfiles.single.id,
       );
       expect(
         viewModel
@@ -225,55 +381,105 @@ void main() {
         'version a style',
       );
 
-      for (final (index, target) in _requiredVariantTargets.indexed) {
-        final profile = requiredProfiles[index];
-        final variant = viewModel.mappingVariants.singleWhere(
-          (entry) => entry.id == 'auto-global-profile-${profile.id}',
-        );
-        expect(variant.scriptId, cache.scriptId);
-        expect(variant.sourceFingerprint, cache.sourceFingerprint);
-        expect(
-          variant.sourceContentFingerprint,
-          cache.sourceContentFingerprint,
-        );
-        expect(
-          variant.targetCharacterNamesByRoleId,
-          {'slot-0': target},
-        );
-        expect(
-          variant.mapping.promptBlockSwaps.single.manualPrompt,
-          'version a style',
-          reason: '版本必须保留整套剧本映射中的非角色字段',
-        );
-        final replacement = variant.mapping.rolePromptReplacements.single;
-        expect(replacement.activeMappingProfileId, profile.id);
-        expect(replacement.targetIdentityPrompt, 'identity-$target');
-        final girlRule = replacement.rules.singleWhere(
-          (rule) => rule.sourceTerms.any((term) => term.id == 'girl-term'),
-        );
-        final hoodieRule = replacement.rules.singleWhere(
-          (rule) => rule.sourceTerms.any((term) => term.id == 'hoodie-term'),
-        );
-        expect(girlRule.targetPrompt, 'mapped-$target-girl');
-        expect(
-          hoodieRule.targetPrompt,
-          'mapped-$target-hoodie',
-          reason: '必须读取第二层档案，而不是只读取首层',
-        );
-      }
+      final profile = requiredProfiles.single;
+      final target = _requiredVariantTargets.first;
+      final variant = viewModel.mappingVariants.singleWhere(
+        (entry) => entry.id == 'auto-global-profile-${profile.id}',
+      );
+      expect(variant.scriptId, cache.scriptId);
+      expect(variant.sourceFingerprint, cache.sourceFingerprint);
+      expect(
+        variant.sourceContentFingerprint,
+        cache.sourceContentFingerprint,
+      );
+      expect(
+        variant.targetCharacterNamesByRoleId,
+        {'slot-0': target},
+      );
+      expect(
+        variant.mapping.promptBlockSwaps.single.manualPrompt,
+        'version a style',
+        reason: '版本必须保留整套剧本映射中的非角色字段',
+      );
+      final replacement = variant.mapping.rolePromptReplacements.single;
+      expect(replacement.activeMappingProfileId, profile.id);
+      expect(replacement.targetIdentityPrompt, 'identity-$target');
+      final girlRule = replacement.rules.singleWhere(
+        (rule) => rule.sourceTerms.any((term) => term.id == 'girl-term'),
+      );
+      final hoodieRule = replacement.rules.singleWhere(
+        (rule) => rule.sourceTerms.any((term) => term.id == 'hoodie-term'),
+      );
+      expect(
+        girlRule.targetPrompt,
+        'identity-$target',
+        reason: '角色身份规则必须使用完整角色身份输出，而不是局部映射片段',
+      );
+      expect(
+        hoodieRule.targetPrompt,
+        'mapped-$target-hoodie',
+        reason: '必须读取第二层档案，而不是只读取首层',
+      );
 
       expect(saved, isNotNull);
-      expect(saved!.mappingVariants, hasLength(7));
+      expect(
+        saved!.mappingVariants,
+        hasLength(1),
+      );
       expect(
         saved!.mapping.rolePromptReplacements.single.activeMappingProfileId,
-        'manual-r15',
+        requiredProfiles.single.id,
       );
       expect(await viewModel.ensureRequiredScriptMappingVariants(), 0);
-      expect(viewModel.mappingVariants, hasLength(7));
+      expect(viewModel.mappingVariants, hasLength(1));
     });
 
-    test('does not save a partial auto set when a required profile is missing',
-        () async {
+    test('keeps the 星移 outfit as a required script-level variant', () async {
+      final fixture = await _variantFixture(includeProfileReference: true);
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'novel-studio-xingyi-mapping-variant-',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final repository = RoleMappingProfileRepository(
+        fileOverride: File('${tempDirectory.path}/profiles.json'),
+      );
+      final now = DateTime.utc(2026, 8, 22);
+      final xingyi = _requiredProfile('佩佩（星移）', 42, now);
+      await repository.save(
+        RoleMappingProfileLibrary(profiles: [xingyi]),
+      );
+      final cache = fixture.cache.copyWith(
+        mapping: fixture.cache.mapping.copyWith(
+          rolePromptReplacements: [
+            _requiredVariantSourceReplacement.copyWith(
+              activeMappingProfileId: xingyi.id,
+            ),
+          ],
+        ),
+        mappingVariants: const [],
+        activeMappingVariantId: null,
+      );
+      RecastScriptCache? saved;
+      final viewModel = StudioScriptViewModel(
+        loadRecastCacheByScriptId: (_) async => cache,
+        saveRecastCache: (next) async => saved = next,
+        roleMappingProfileRepository: repository,
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+
+      expect(
+        viewModel.mappingVariants.map((variant) => variant.name),
+        contains('佩佩（星移）'),
+      );
+      expect(saved, isNotNull);
+      expect(
+        saved!.mappingVariants.map((variant) => variant.name),
+        contains('佩佩（星移）'),
+      );
+    });
+
+    test('generates only profiles linked to a source role', () async {
       final fixture = await _variantFixture(includeProfileReference: true);
       final tempDirectory = await Directory.systemTemp.createTemp(
         'novel-studio-incomplete-mapping-variants-',
@@ -286,17 +492,43 @@ void main() {
       await repository.save(
         RoleMappingProfileLibrary(
           profiles: [
-            for (final (index, target)
-                in _requiredVariantTargets.take(4).indexed)
-              _requiredProfile(target, index, now),
+            _requiredProfile('不相关档案', 99, now),
+            _requiredProfile(_requiredVariantTargets.first, 0, now),
+            _requiredProfile(_requiredVariantTargets[1], 1, now),
+            _requiredProfile(_requiredVariantTargets[2], 2, now),
+            _requiredProfile(_requiredVariantTargets[3], 3, now),
           ],
         ),
       );
       final cache = fixture.cache.copyWith(
         mapping: fixture.cache.mapping.copyWith(
-          rolePromptReplacements: const [_requiredVariantSourceReplacement],
+          rolePromptReplacements: [
+            _requiredVariantSourceReplacement.copyWith(
+              activeMappingProfileId: 'required-profile-0',
+            ),
+          ],
         ),
-        mappingVariants: const [],
+        mappingVariants: [
+          RecastMappingVariant(
+            id: 'auto-global-profile-required-profile-1',
+            name: _requiredVariantTargets[1],
+            scriptId: fixture.cache.scriptId,
+            sourceFingerprint: fixture.cache.sourceFingerprint,
+            capturedAt: DateTime.utc(2026, 8, 19),
+            mapping: fixture.cache.mapping,
+            targetCharacterNamesByRoleId: const {'slot-0': '铃兰'},
+          ),
+          RecastMappingVariant(
+            id: 'auto-global-profile-unrelated-profile',
+            name: '不相关档案',
+            scriptId: fixture.cache.scriptId,
+            sourceFingerprint: fixture.cache.sourceFingerprint,
+            sourceContentFingerprint: fixture.cache.sourceContentFingerprint,
+            capturedAt: DateTime.utc(2026, 8, 19, 1),
+            mapping: fixture.cache.mapping,
+            targetCharacterNamesByRoleId: const {'slot-0': '不相关档案'},
+          ),
+        ],
         activeMappingVariantId: null,
       );
       final viewModel = StudioScriptViewModel(
@@ -307,11 +539,97 @@ void main() {
 
       await viewModel.importScriptPath(_fixturePath);
 
-      expect(viewModel.mappingVariants, isEmpty);
+      expect(
+        viewModel.mappingVariants,
+        hasLength(2),
+        reason: '有效的必需离线版本要保留，但未列入必需角色的陈旧版本要清理',
+      );
+      expect(
+        viewModel.mappingVariants.any((variant) => variant.name == '铃兰'),
+        isTrue,
+      );
+      expect(
+        viewModel.mappingVariants.any((variant) => variant.name == '不相关档案'),
+        isFalse,
+      );
       expect(
         viewModel.currentMapping!.rolePromptReplacements.single
             .activeMappingProfileId,
-        'manual-r15',
+        'required-profile-0',
+      );
+    });
+
+    test(
+        'preserves valid offline required variants that are not linked by the working mapping',
+        () async {
+      final fixture = await _variantFixture(includeProfileReference: true);
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'novel-studio-preserve-required-variants-',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final repository = RoleMappingProfileRepository(
+        fileOverride: File('${tempDirectory.path}/profiles.json'),
+      );
+      final now = DateTime.utc(2026, 8, 20);
+      final linkedProfile = _requiredProfile(
+        _requiredVariantTargets.first,
+        0,
+        now,
+      );
+      final offlineProfile = _requiredProfile(
+        _requiredVariantTargets[1],
+        1,
+        now,
+      );
+      await repository.save(
+        RoleMappingProfileLibrary(
+          profiles: [linkedProfile, offlineProfile],
+        ),
+      );
+      final baseMapping = fixture.cache.mapping.copyWith(
+        rolePromptReplacements: [
+          _requiredVariantSourceReplacement.copyWith(
+            activeMappingProfileId: linkedProfile.id,
+          ),
+        ],
+      );
+      final offlineVariant = RecastMappingVariant(
+        id: 'auto-global-profile-${offlineProfile.id}',
+        name: offlineProfile.name,
+        scriptId: fixture.cache.scriptId,
+        sourceFingerprint: fixture.cache.sourceFingerprint,
+        sourceContentFingerprint: fixture.cache.sourceContentFingerprint,
+        capturedAt: DateTime.utc(2026, 8, 19),
+        mapping: baseMapping,
+        targetCharacterNamesByRoleId: const {'slot-0': '铃兰'},
+      );
+      final cache = fixture.cache.copyWith(
+        mapping: baseMapping,
+        mappingVariants: [offlineVariant],
+        activeMappingVariantId: null,
+      );
+      final viewModel = StudioScriptViewModel(
+        loadRecastCacheByScriptId: (_) async => cache,
+        saveRecastCache: (_) async {},
+        roleMappingProfileRepository: repository,
+      );
+
+      await viewModel.importScriptPath(_fixturePath);
+
+      expect(
+        viewModel.mappingVariants.map((variant) => variant.name).toSet(),
+        {_requiredVariantTargets.first, _requiredVariantTargets[1]},
+        reason: '已有的有效离线版本不能因为当前映射未链接它而被删除',
+      );
+      expect(
+        viewModel.mappingVariants,
+        hasLength(2),
+      );
+      expect(
+        viewModel.mappingVariants
+            .singleWhere((variant) => variant.name == offlineProfile.name)
+            .id,
+        'auto-global-profile-${offlineProfile.id}',
       );
     });
   });
@@ -344,7 +662,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
 
-    expect(find.text('剧本专属版本 (3)'), findsOneWidget);
+    expect(find.text('剧本级版本 (3)'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey('script-mapping-version-open')),
     );
@@ -357,7 +675,7 @@ void main() {
       find.byKey(const ValueKey('script-mapping-version-panel')),
       findsOneWidget,
     );
-    expect(find.text('剧本专属映射版本'), findsWidgets);
+    expect(find.text('剧本级映射版本'), findsWidgets);
     expect(find.textContaining('全局角色档案'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('script-mapping-version-current-variant-a')),
@@ -406,7 +724,7 @@ void main() {
   });
 
   testWidgets(
-      'role picker puts script mappings first and switches a complete version',
+      'role picker applies a saved script version to the current role only',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 2400);
     tester.view.devicePixelRatio = 1;
@@ -414,7 +732,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     late _VariantFixture fixture;
     await tester.runAsync(() async {
-      fixture = await _variantFixture(includeProfileReference: true);
+      fixture = await _variantFixture(
+        includeProfileReference: true,
+        distinctRoleMapping: true,
+      );
     });
     RecastScriptCache? saved;
     final viewModel = StudioScriptViewModel(
@@ -438,7 +759,7 @@ void main() {
       const ValueKey('role-mapping-profile-picker-slot-0'),
     );
     await tester.ensureVisible(picker);
-    expect(find.text('映射库（专属 3 · 全局 0）'), findsOneWidget);
+    expect(find.text('映射库（剧本版本 3 · 全局档案 0）'), findsOneWidget);
     await tester.tap(picker);
     await tester.pumpAndSettle();
 
@@ -458,7 +779,7 @@ void main() {
       find.byKey(const ValueKey('role-mapping-script-current-slot-0')),
       findsOneWidget,
     );
-    expect(find.text('剧本专属整套映射'), findsOneWidget);
+    expect(find.text('当前角色的剧本缓存'), findsOneWidget);
     expect(find.text('全局角色档案'), findsOneWidget);
     expect(find.textContaining('空映射（无规则）'), findsOneWidget);
     expect(find.textContaining('此角色：迷迭香'), findsOneWidget);
@@ -471,16 +792,21 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
 
-    expect(viewModel.activeMappingVariantId, 'variant-b');
+    expect(viewModel.activeMappingVariantId, 'variant-a');
     expect(
       viewModel.currentMapping!.promptBlockSwaps.single.manualPrompt,
-      'version b style',
+      'version a style',
     );
     expect(
       viewModel.currentMapping!.artistSwap?.manualPrompt,
-      'version b style artist',
+      'version a style artist',
     );
-    expect(saved?.activeMappingVariantId, 'variant-b');
+    expect(
+      viewModel
+          .currentMapping!.rolePromptReplacements.single.targetIdentityPrompt,
+      'variant b role',
+    );
+    expect(saved?.activeMappingVariantId, 'variant-a');
     expect(
       find.byKey(const ValueKey('role-mapping-profile-dropdown-slot-0')),
       findsNothing,
@@ -496,6 +822,8 @@ const _requiredVariantTargets = [
   '薄绿',
   '洛可可',
   '洛茜',
+  '果宝',
+  '佩佩（星移）',
 ];
 
 const _requiredVariantSourceReplacement = ScriptRolePromptReplacement(
@@ -593,6 +921,7 @@ RoleMappingProfile _requiredProfile(
 
 Future<_VariantFixture> _variantFixture({
   bool includeProfileReference = false,
+  bool distinctRoleMapping = false,
 }) async {
   final script = await const ScriptRecastParserService().parseDirectory(
     Directory(_fixturePath),
@@ -605,11 +934,13 @@ Future<_VariantFixture> _variantFixture({
     script.id,
     stylePrompt: 'version a style',
     includeProfileReference: includeProfileReference,
+    roleIdentityPrompt: distinctRoleMapping ? 'variant a role' : null,
   );
   final mappingB = _mapping(
     script.id,
     stylePrompt: 'version b style',
     includeProfileReference: includeProfileReference,
+    roleIdentityPrompt: distinctRoleMapping ? 'variant b role' : null,
   );
   final variants = [
     RecastMappingVariant(
@@ -662,6 +993,7 @@ RecastMapping _mapping(
   String scriptId, {
   required String stylePrompt,
   required bool includeProfileReference,
+  String? roleIdentityPrompt,
 }) {
   return RecastMapping.defaults(scriptId).copyWith(
     artistSwap: ArtistSwap(
@@ -675,12 +1007,13 @@ RecastMapping _mapping(
       ),
     ],
     rolePromptReplacements: includeProfileReference
-        ? const [
+        ? [
             ScriptRolePromptReplacement(
               sourceRoleId: 'slot-0',
               displayLabel: 'Mari',
               targetCharacterId: 'mari',
-              targetIdentityPrompt: 'inline mari identity',
+              targetIdentityPrompt:
+                  roleIdentityPrompt ?? 'inline mari identity',
               activeMappingProfileId: 'missing-global-profile',
               rules: [
                 ScriptPromptReplacementRule(

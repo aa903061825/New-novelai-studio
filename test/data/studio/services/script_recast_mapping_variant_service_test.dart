@@ -170,6 +170,45 @@ void main() {
       );
     });
 
+    test('switches only the requested role from a saved version', () {
+      final variant = RecastMappingVariant(
+        id: 'variant-role',
+        name: '角色版本',
+        scriptId: 'script-a',
+        sourceFingerprint: 'source-a',
+        sourceContentFingerprint: 'content-a',
+        capturedAt: DateTime.utc(2026, 8, 20, 5),
+        mapping: _mappingWithTwoRoles('script-a', 'variant', 'variant-other'),
+      );
+      final original = _cache(
+        mapping: _mappingWithTwoRoles('script-a', 'current', 'other'),
+        variants: [variant],
+      );
+
+      final switched = service.activateRole(
+        cache: original,
+        variantId: variant.id,
+        sourceRoleId: 'slot-current',
+        expectedScriptId: 'script-a',
+        expectedSourceFingerprint: 'source-a',
+        expectedSourceContentFingerprint: 'content-a',
+        activatedAt: DateTime.utc(2026, 8, 20, 6),
+      );
+
+      final selectedRole = switched.mapping.rolePromptReplacements
+          .singleWhere((entry) => entry.sourceRoleId == 'slot-current');
+      final untouchedRole = switched.mapping.rolePromptReplacements
+          .singleWhere((entry) => entry.sourceRoleId == 'slot-other');
+      expect(selectedRole.targetIdentityPrompt, 'target identity variant');
+      expect(untouchedRole.targetIdentityPrompt, 'target identity other');
+      expect(
+        switched.mapping.promptBlockSwaps.single.manualPrompt,
+        'style current',
+        reason: '角色快捷切换不能覆盖场景/样式等整套字段',
+      );
+      expect(switched.activeMappingVariantId, isNull);
+    });
+
     test('rejects foreign script and source fingerprints', () {
       final foreign = RecastMappingVariant(
         id: 'foreign',
@@ -363,5 +402,48 @@ RecastMapping _fullMapping(String scriptId, String suffix) {
     suppressedPromptTagWarningKeys: {'warning-$suffix'},
     preservePresetId: 'preset-$suffix',
     outputPolicy: 'output-$suffix',
+  );
+}
+
+RecastMapping _mappingWithTwoRoles(
+  String scriptId,
+  String firstSuffix,
+  String secondSuffix,
+) {
+  final first = _mappingForRole(scriptId, 'slot-current', firstSuffix);
+  final second = _mappingForRole(scriptId, 'slot-other', secondSuffix);
+  return first.copyWith(
+    roleSwaps: [...first.roleSwaps, ...second.roleSwaps],
+    roleAssemblies: [...first.roleAssemblies, ...second.roleAssemblies],
+    rolePromptReplacements: [
+      ...first.rolePromptReplacements,
+      ...second.rolePromptReplacements,
+    ],
+  );
+}
+
+RecastMapping _mappingForRole(
+  String scriptId,
+  String sourceRoleId,
+  String suffix,
+) {
+  final mapping = _fullMapping(scriptId, suffix);
+  return mapping.copyWith(
+    roleSwaps: [
+      for (final swap in mapping.roleSwaps)
+        RoleSwap(
+          sourceRoleId: sourceRoleId,
+          targetCharacterId: swap.targetCharacterId,
+          targetOutfitId: swap.targetOutfitId,
+        ),
+    ],
+    roleAssemblies: [
+      for (final assembly in mapping.roleAssemblies)
+        assembly.copyWith(sourceRoleId: sourceRoleId),
+    ],
+    rolePromptReplacements: [
+      for (final replacement in mapping.rolePromptReplacements)
+        replacement.copyWith(sourceRoleId: sourceRoleId),
+    ],
   );
 }

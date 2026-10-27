@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_command/flutter_command.dart';
@@ -55,6 +56,7 @@ class _PreviewGenerationPageViewmodel extends GenerationPageViewmodel {
 Command<void, InfoCardContent> _cardCommand({
   required String title,
   Uint8List? imageBytes,
+  String? imagePath,
 }) {
   final command = Command.createSyncNoParam(
     () => InfoCardContent(
@@ -62,6 +64,7 @@ Command<void, InfoCardContent> _cardCommand({
       info: '',
       additionalInfo: const {},
       imageBytes: imageBytes,
+      imagePath: imagePath,
     ),
     initialValue: InfoCardContent.fromEmpty(),
   );
@@ -131,5 +134,26 @@ void main() {
     expect(configService.configIndex['active']!.previewImages, isEmpty);
     expect(configService.saveConfigIndexCallCount, 0);
     expect(viewmodel.hasCurrentConfigPreviewSourceImages, isFalse);
+  });
+
+  test('loads saved image bytes only when exporting a config preview', () {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'generation-config-preview-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}saved.png',
+    )..writeAsBytesSync(const [7, 8, 9]);
+    final viewmodel = _PreviewGenerationPageViewmodel();
+    viewmodel.commandList.add(
+      _cardCommand(title: 'saved', imagePath: imageFile.path),
+    );
+
+    expect(viewmodel.hasCurrentConfigPreviewSourceImages, isTrue);
+
+    final savedCount = viewmodel.saveCurrentConfigPreview();
+
+    expect(savedCount, 1);
+    expect(configService.configIndex['active']!.previewImages, ['thumb-7']);
   });
 }

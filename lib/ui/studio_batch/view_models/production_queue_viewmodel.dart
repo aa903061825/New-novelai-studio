@@ -159,6 +159,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
   bool _pauseRequested = false;
   bool _isPaused = false;
   bool _clearCompletedTasksPending = false;
+  bool _clearEmptyPlansPending = false;
   ProductionPlan? _selectedPlanStatsPlan;
   _ProductionQueueTaskStats? _selectedPlanStats;
   late bool _useOriginalModel;
@@ -281,6 +282,18 @@ class ProductionQueueViewModel extends ChangeNotifier {
 
   bool get canClearCompletedTasks =>
       !_clearCompletedTasksPending && completedTasksPendingDismissal > 0;
+
+  /// Number of persisted production plans with no tasks left in Queue.
+  int get emptyPlansPendingCleanup {
+    var count = 0;
+    for (final plan in plans) {
+      if (_isPlanEligibleForEmptyPlanCleanup(plan)) count += 1;
+    }
+    return count;
+  }
+
+  bool get canClearEmptyPlans =>
+      !_clearEmptyPlansPending && emptyPlansPendingCleanup > 0;
 
   int get _completedTasksPendingDismissal {
     var count = 0;
@@ -785,7 +798,7 @@ class ProductionQueueViewModel extends ChangeNotifier {
     if (service == null) return;
     final lastUsedSettings = await service.loadLastExecutionSettings();
     _lastUsedExecutionSettings = lastUsedSettings;
-    final loadedPlans = await service.loadPlansReadOnly();
+    final loadedPlans = await service.loadPlansForQueue();
     final runningPlan = activePlan;
     final nextPlans = runningPlan == null
         ? loadedPlans
@@ -1243,6 +1256,39 @@ class ProductionQueueViewModel extends ChangeNotifier {
     return appliedCount;
   }
 
+  /// Removes empty production plans while keeping any local output files.
+  Future<int> clearEmptyPlans() {
+    if (_clearEmptyPlansPending) return Future<int>.value(0);
+    _clearEmptyPlansPending = true;
+    notifyListeners();
+    final clear = _enqueueQueueMutation(_clearEmptyPlansNow);
+    return clear.whenComplete(() {
+      _clearEmptyPlansPending = false;
+      notifyListeners();
+    });
+  }
+
+  Future<int> _clearEmptyPlansNow() async {
+    final emptyPlanIds = [
+      for (final plan in plans)
+        if (_isPlanEligibleForEmptyPlanCleanup(plan)) plan.id,
+    ];
+    var clearedCount = 0;
+    for (final planId in emptyPlanIds) {
+      final currentPlan = _planById(planId);
+      if (currentPlan == null ||
+          !_isPlanEligibleForEmptyPlanCleanup(currentPlan)) {
+        continue;
+      }
+      final result = await _deletePlanNow(
+        planId,
+        deleteLocalImages: false,
+      );
+      if (result.deleted) clearedCount += 1;
+    }
+    return clearedCount;
+  }
+
   Future<void> clearCurrentPlan() {
     return _enqueueQueueMutation(_clearCurrentPlanNow);
   }
@@ -1640,6 +1686,10 @@ class ProductionQueueViewModel extends ChangeNotifier {
     return plan.id != _activePlanId &&
         !_isPlanDeletionPending(plan.id) &&
         !_isPlanExecutionActivationPending(plan.id);
+  }
+
+  bool _isPlanEligibleForEmptyPlanCleanup(ProductionPlan plan) {
+    return plan.tasks.isEmpty && _isPlanEligibleForCompletedClear(plan);
   }
 
   ({List<ProductionPlan> plans, int count}) _collectCompletedDismissalChanges(

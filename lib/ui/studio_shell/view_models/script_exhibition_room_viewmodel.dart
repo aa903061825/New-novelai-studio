@@ -939,7 +939,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
     if (plansSaver == null || recordsSaver == null) {
       throw StateError(
         'Script image organization requires production plan and gallery '
-        'record savers before moving or deleting files.',
+        'record savers before copying files.',
       );
     }
     final previousScriptId = selectedScriptId;
@@ -957,12 +957,43 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       defaultOutputRoot: () async => defaultOutputRoot,
     );
     final result = await service.apply(currentPreview);
-    if (result.failedImagePaths.isEmpty) {
-      // The filesystem and JSON stores are not transactional here, but both
-      // stores receive updates from the same successful apply result. If either
-      // save throws, the caller sees the persistence error.
-      await plansSaver(result.updatedProductionPlans);
-      await recordsSaver(result.updatedGalleryRecords);
+    if (result.organizedImagePaths.isNotEmpty) {
+      // Persist successful copies even if another file failed. Source files
+      // remain available if either store cannot be saved.
+      final previousPlans = {
+        for (final plan in currentPreview.productionPlans) plan.id: plan,
+      };
+      final changedPlans = <ProductionPlan>[];
+      for (final plan in result.updatedProductionPlans) {
+        final previousTasks = {
+          for (final task in previousPlans[plan.id]?.tasks ?? <ProductionTask>[])
+            task.id: task,
+        };
+        final changedTasks = plan.tasks
+            .where((task) =>
+                previousTasks[task.id]?.outputImagePath != task.outputImagePath)
+            .toList(growable: false);
+        if (changedTasks.isNotEmpty) {
+          changedPlans.add(plan.copyWith(
+            tasks: changedTasks,
+            planFingerprint: plan.planFingerprint,
+          ));
+        }
+      }
+      await plansSaver(changedPlans);
+      final previousRecords = {
+        for (final record in currentPreview.galleryRecords) record.id: record,
+      };
+      final changedRecords = result.updatedGalleryRecords.where((record) {
+        final previous = previousRecords[record.id];
+        return previous != null &&
+            (record.imagePath != previous.imagePath ||
+                record.provenance?.outputImagePath !=
+                    previous.provenance?.outputImagePath);
+      }).toList(growable: false);
+      if (changedRecords.isNotEmpty) {
+        await recordsSaver(changedRecords);
+      }
       await load();
       _restoreSelectionIfPresent(
         scriptId: previousScriptId,
@@ -1279,7 +1310,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
 
   Future<void> load() async {
     final generation = ++_loadGeneration;
-    var publishedBaseSnapshot = false;
+    final publishBaseSnapshot = !_hasLoaded;
     isLoading = true;
     loadError = null;
     notifyListeners();
@@ -1303,24 +1334,24 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       _loadedScripts = scripts;
       _loadedCustomCategories = loadedCustomCategories;
       _loadedCustomCategoryScriptIds = loadedCustomCategoryScriptIds;
-      _loadedProductionPlans = const [];
-      _loadedGalleryRecords = const [];
-      final baseBuild = await _buildSnapshotForPublication(
-        recastScripts: recastScripts,
-        scripts: scripts,
-        plans: const [],
-        records: const [],
-      );
-      if (!_canPublishSnapshotBuild(
-        generation: generation,
-        revision: baseBuild.revision,
-      )) {
-        return;
+      if (publishBaseSnapshot) {
+        _loadedProductionPlans = const [];
+        _loadedGalleryRecords = const [];
+        final baseBuild = await _buildSnapshotForPublication(
+          recastScripts: recastScripts,
+          scripts: scripts,
+          plans: const [],
+          records: const [],
+        );
+        if (!_canPublishSnapshotBuild(
+          generation: generation,
+          revision: baseBuild.revision,
+        )) {
+          return;
+        }
+        _hasLoaded = true;
+        _publishSnapshot(baseBuild.snapshot);
       }
-      _hasLoaded = true;
-      isLoading = false;
-      publishedBaseSnapshot = true;
-      _publishSnapshot(baseBuild.snapshot);
 
       final galleryRecords = () async {
         try {
@@ -1332,8 +1363,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       final results = await Future.wait<Object>([
         loadProductionPlans(),
         galleryRecords,
-      ]).catchError(
-          (_) => const <Object>[<ProductionPlan>[], <StudioGalleryRecord>[]]);
+      ]);
       final plans = results[0] as List<ProductionPlan>;
       final records = results[1] as List<StudioGalleryRecord>;
       if (generation != _loadGeneration) {
@@ -1360,7 +1390,7 @@ class ScriptExhibitionRoomViewModel extends ChangeNotifier {
       }
       loadError = error;
     } finally {
-      if (generation == _loadGeneration && !publishedBaseSnapshot) {
+      if (generation == _loadGeneration) {
         _hasLoaded = true;
         isLoading = false;
         notifyListeners();
@@ -3360,7 +3390,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
 
   final scriptsOut = buckets
       .map((bucket) => bucket.toScript())
-      .where((script) => script.hasImage)
+      .where(_scriptHasExhibitionContent)
       .toList()
     ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
 
@@ -3386,7 +3416,7 @@ ScriptExhibitionSnapshot _buildSnapshot({
 ScriptExhibitionSnapshot _snapshotFromScripts(
   Iterable<ScriptExhibitionScript> scripts,
 ) {
-  final scriptsOut = scripts.where((script) => script.hasImage).toList()
+  final scriptsOut = scripts.where(_scriptHasExhibitionContent).toList()
     ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
   var totalImageCount = 0;
   var generatedImageCount = 0;
@@ -3404,6 +3434,14 @@ ScriptExhibitionSnapshot _snapshotFromScripts(
     generatedImageCount: generatedImageCount,
     needsActionCount: needsActionCount,
   );
+}
+
+bool _scriptHasExhibitionContent(ScriptExhibitionScript script) {
+  if (script.hasImage) return true;
+  // A pure JSON/script cache can have valid frame items without an image path.
+  // Keep those scripts in the exhibition room so the existing text fallback
+  // card and detail view can expose them.
+  return script.versions.any((version) => version.items.isNotEmpty);
 }
 
 ScriptExhibitionScript? _scriptWithoutVersions(

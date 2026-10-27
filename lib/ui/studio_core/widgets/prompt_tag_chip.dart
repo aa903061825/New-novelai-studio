@@ -391,20 +391,20 @@ class PromptTagChip extends StatelessWidget {
     final secondaryStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
           color: StudioTokens.textSecondary,
         );
-    return Padding(
-      padding: EdgeInsets.only(
-        left: dense ? 12 : 14,
-        right: 2,
-        top: dense ? 3 : 5,
-        bottom: dense ? 3 : 5,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Flexible(
-            child: _withTranslationToggleExcludedDoubleTap(
-              Column(
+    final verticalPadding = dense ? 3.0 : 5.0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          child: _withTranslationToggleExcludedDoubleTap(
+            Padding(
+              padding: EdgeInsets.only(
+                left: dense ? 12 : 14,
+                top: verticalPadding,
+                bottom: verticalPadding,
+              ),
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -457,8 +457,19 @@ class PromptTagChip extends StatelessWidget {
               ),
             ),
           ),
-          if (_canToggleTranslation) _buildTranslationToggleButton(),
-          IconButton(
+        ),
+        if (_canToggleTranslation)
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: verticalPadding),
+            child: _buildTranslationToggleButton(),
+          ),
+        Padding(
+          padding: EdgeInsets.only(
+            right: 2,
+            top: verticalPadding,
+            bottom: verticalPadding,
+          ),
+          child: IconButton(
             key: deleteKey,
             tooltip: deleteTooltip,
             icon: const Icon(Icons.close),
@@ -472,8 +483,8 @@ class PromptTagChip extends StatelessWidget {
             color: StudioTokens.textMuted,
             onPressed: onDeleted,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -511,7 +522,7 @@ class PromptTagChip extends StatelessWidget {
   }
 
   Widget _buildTranslationToggleButton() {
-    return IconButton(
+    final button = IconButton(
       key: translationToggleKey,
       tooltip: translationVisible ? '取消此标签翻译' : '显示此标签翻译',
       padding: EdgeInsets.zero,
@@ -529,6 +540,7 @@ class PromptTagChip extends StatelessWidget {
       ),
       onPressed: enabled ? onTranslationToggle : null,
     );
+    return button;
   }
 
   Widget _buildSelectedCheck() {

@@ -34,6 +34,8 @@ class ScriptExhibitionImageOrganizationPreview {
 }
 
 class ScriptExhibitionImageOrganizationResult {
+  // Kept for existing callers; organization now creates copies and retains
+  // every source file rather than moving or deleting user images.
   final List<String> movedImagePaths;
   final List<String> deletedOrphanImagePaths;
   final List<String> failedImagePaths;
@@ -47,6 +49,8 @@ class ScriptExhibitionImageOrganizationResult {
     required this.updatedProductionPlans,
     required this.updatedGalleryRecords,
   });
+
+  List<String> get organizedImagePaths => movedImagePaths;
 }
 
 class ScriptExhibitionImageOrganizerService {
@@ -136,19 +140,14 @@ class ScriptExhibitionImageOrganizerService {
       }
     }
 
-    final referenced = _referencedImageKeys(productionPlans, galleryRecords)
-      ..addAll(moves.map(
-        (move) => ScriptExhibitionImagePathPolicy.normalizedPathKey(
-          move.sourcePath,
-        ),
-      ))
-      ..addAll(originalSourceKeys);
-    final orphans = await _findOrphans(generatedRoots, referenced);
+    // Missing references are not evidence that a file is disposable. In
+    // particular, exhibition records are only a view of a shared image root.
+    // Do not scan generatedRoots or turn unknown images into deletion targets.
     return ScriptExhibitionImageOrganizationPreview(
       moves: List.unmodifiable(moves),
-      orphanImagePaths: List.unmodifiable(orphans),
-      productionPlans: productionPlans,
-      galleryRecords: galleryRecords,
+      orphanImagePaths: const [],
+      productionPlans: List.unmodifiable(productionPlans),
+      galleryRecords: List.unmodifiable(galleryRecords),
     );
   }
 
@@ -174,12 +173,23 @@ class ScriptExhibitionImageOrganizerService {
             ScriptExhibitionImagePathPolicy.normalizedPathKey(
           destination.absolute.path,
         );
-        if (sourceKey != destinationKey && await destination.exists()) {
+        if (sourceKey == destinationKey) {
+          continue;
+        }
+        if (await FileSystemEntity.type(destination.path, followLinks: false) !=
+            FileSystemEntityType.notFound) {
           failed.add(source.absolute.path);
           continue;
         }
         await destination.parent.create(recursive: true);
-        final movedFile = await _moveFile(source, destination);
+        // Reserve the name atomically, including when two organization runs
+        // share the same preview. An existing image must never be overwritten.
+        await destination.create(exclusive: true);
+        final movedFile = await source.copy(destination.path);
+        if (await movedFile.length() != await source.length()) {
+          throw FileSystemException(
+              'Image copy is incomplete', destination.path);
+        }
         final destinationPath = movedFile.absolute.path;
         pathUpdates[ScriptExhibitionImagePathPolicy.normalizedPathKey(
           move.sourcePath,
@@ -199,24 +209,9 @@ class ScriptExhibitionImageOrganizerService {
       pathUpdates,
     );
 
-    final deleted = <String>[];
-    if (failed.isEmpty) {
-      for (final orphan in preview.orphanImagePaths) {
-        final file = File(orphan);
-        try {
-          if (await file.exists()) {
-            await file.delete();
-            deleted.add(file.absolute.path);
-          }
-        } on FileSystemException {
-          failed.add(file.absolute.path);
-        }
-      }
-    }
-
     return ScriptExhibitionImageOrganizationResult(
       movedImagePaths: List.unmodifiable(moved),
-      deletedOrphanImagePaths: List.unmodifiable(deleted),
+      deletedOrphanImagePaths: const [],
       failedImagePaths: List.unmodifiable(failed),
       updatedProductionPlans: updatedPlans,
       updatedGalleryRecords: updatedRecords,
@@ -344,16 +339,6 @@ class ScriptExhibitionImagePathPolicy {
   }
 }
 
-Future<File> _moveFile(File source, File destination) async {
-  try {
-    return await source.rename(destination.path);
-  } on FileSystemException {
-    await source.copy(destination.path);
-    await source.delete();
-    return destination;
-  }
-}
-
 ProductionTask _taskWithFallbackScriptTitle(
   ProductionTask task,
   String? targetScriptTitle,
@@ -375,78 +360,6 @@ ProductionTask _taskWithFallbackScriptTitle(
       sourceFileName: task.source.sourceFileName,
     ),
   );
-}
-
-Set<String> _referencedImageKeys(
-  List<ProductionPlan> productionPlans,
-  List<StudioGalleryRecord> galleryRecords,
-) {
-  final referenced = <String>{};
-  for (final plan in productionPlans) {
-    for (final task in plan.tasks) {
-      final path = task.outputImagePath?.trim();
-      if (path != null && path.isNotEmpty) {
-        referenced.add(ScriptExhibitionImagePathPolicy.normalizedPathKey(path));
-      }
-    }
-  }
-  for (final record in galleryRecords) {
-    final imagePath = record.imagePath?.trim();
-    if (imagePath != null && imagePath.isNotEmpty) {
-      referenced.add(
-        ScriptExhibitionImagePathPolicy.normalizedPathKey(imagePath),
-      );
-    }
-    final outputPath = record.provenance?.outputImagePath.trim();
-    if (outputPath != null && outputPath.isNotEmpty) {
-      referenced.add(
-        ScriptExhibitionImagePathPolicy.normalizedPathKey(outputPath),
-      );
-    }
-  }
-  return referenced;
-}
-
-Future<List<String>> _findOrphans(
-  List<String> generatedRoots,
-  Set<String> referencedImageKeys,
-) async {
-  final orphans = <String>[];
-  final scannedRootKeys = <String>{};
-  for (final rootPath in generatedRoots) {
-    final root = Directory(rootPath);
-    final rootKey = ScriptExhibitionImagePathPolicy.normalizedPathKey(
-      root.absolute.path,
-    );
-    if (!scannedRootKeys.add(rootKey) || !await root.exists()) {
-      continue;
-    }
-    await for (final entity in root.list(recursive: true, followLinks: false)) {
-      if (entity is! File || !_isImagePath(entity.path)) {
-        continue;
-      }
-      final key = ScriptExhibitionImagePathPolicy.normalizedPathKey(
-        entity.path,
-      );
-      if (!referencedImageKeys.contains(key)) {
-        orphans.add(entity.absolute.path);
-      }
-    }
-  }
-  orphans.sort((left, right) =>
-      ScriptExhibitionImagePathPolicy.normalizedPathKey(left).compareTo(
-        ScriptExhibitionImagePathPolicy.normalizedPathKey(right),
-      ));
-  return orphans;
-}
-
-bool _isImagePath(String path) {
-  final lower = path.toLowerCase();
-  return lower.endsWith('.png') ||
-      lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.endsWith('.webp') ||
-      lower.endsWith('.gif');
 }
 
 List<ProductionPlan> _updateProductionPlanPaths(

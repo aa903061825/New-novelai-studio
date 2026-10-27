@@ -415,6 +415,43 @@ void main() {
     expect(aspectRatio.aspectRatio, 1);
   });
 
+  testWidgets('memory-backed cards cap thumbnail decode size', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            child: StudioGeneratedImageGallery(
+              items: [
+                StudioGeneratedImageItem.memory(
+                  id: 'memory-one',
+                  name: 'Unsaved result',
+                  imageBytes: _pngBytesFor(width: 832, height: 1216),
+                ),
+              ],
+              columnWidth: 220,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(
+      find.byKey(const ValueKey('studio-generated-image-memory-one')),
+    );
+    expect(image.image, isA<ResizeImage>());
+    final resizedImage = image.image as ResizeImage;
+    expect(resizedImage.width, isNotNull);
+    expect(resizedImage.width!, lessThan(832));
+    expect(resizedImage.width!, lessThanOrEqualTo(1024));
+    expect(resizedImage.height, isNotNull);
+    expect(resizedImage.height!, lessThan(1216));
+    expect(resizedImage.height!, lessThanOrEqualTo(1024));
+  });
+
   testWidgets(
       'fullscreen viewer lays out images at source pixel dimensions and centers them',
       (tester) async {

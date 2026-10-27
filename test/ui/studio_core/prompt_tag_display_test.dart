@@ -117,11 +117,13 @@ void main() {
     };
   }
 
-  testWidgets('renders prompt text as raw tags by default', (tester) async {
+  testWidgets('renders prompt text with translations by default',
+      (tester) async {
     await tester.pumpWidget(
       host(
         PromptTagDisplay(
           text: 'blue eyes, long hair',
+          defaultTranslated: true,
           translationCache: cache(),
         ),
       ),
@@ -129,7 +131,8 @@ void main() {
 
     expect(find.text('blue eyes'), findsOneWidget);
     expect(find.text('long hair'), findsOneWidget);
-    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('蓝眼睛'), findsOneWidget);
+    expect(find.text('长发'), findsOneWidget);
   });
 
   testWidgets('renders prompt weight badges beside clean tag text', (
@@ -416,6 +419,42 @@ void main() {
       expect(translationCache.getCached('silver hair'), '缂冩垹绮堕拑婵堟簜');
     },
   );
+
+  testWidgets('failed automatic translation is attempted only once per tag', (
+    tester,
+  ) async {
+    final service = _CountingPromptTranslationService(
+      const OnlineTranslationResult(
+        text: '',
+        source: OnlineAiResultSource.emptyFallback,
+        error: 'offline',
+      ),
+    );
+    GetIt.I.registerSingleton<PromptTranslationService>(service);
+
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'silver hair',
+          defaultTranslated: true,
+          enableTagActions: true,
+          translationCache: TranslationCache(clock: () => 1710000000),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(service.callCount, 1);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: const Offset(1, 1));
+    await mouse.moveTo(
+      tester.getCenter(chipKey('silver hair', 0, selected: false)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.callCount, 1);
+  });
 
   testWidgets('translates only after the hovered shortcut trigger', (
     tester,
@@ -1629,6 +1668,68 @@ void main() {
     expect(find.text('blue eyes'), findsNothing);
   });
 
+  testWidgets('editable display opens the editor on the second pointer down', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair',
+          enableTagActions: true,
+          translationCache: cache(),
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    final chip = chipKey('blue eyes', 0, selected: false);
+    final center = tester.getCenter(chip);
+    await tester.tapAt(center);
+    await tester.pump(kDoubleTapMinTime);
+    final secondTap = await tester.startGesture(center);
+    await secondTap.moveBy(const Offset(4, 0));
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-edit-weight-dialog')),
+      findsOneWidget,
+    );
+
+    await secondTap.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('hovering one display tag does not reclassify the whole group', (
+    tester,
+  ) async {
+    var classificationWrites = 0;
+    final classificationCache = PromptTagClassificationCache(
+      clock: () => 1710000000 + classificationWrites++,
+    );
+    await tester.pumpWidget(
+      host(
+        PromptTagDisplay(
+          text: 'blue eyes, long hair',
+          enableTagActions: true,
+          translationCache: cache(),
+          classificationCache: classificationCache,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(classificationWrites, 2);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: const Offset(1, 1));
+    await mouse.moveTo(
+      tester.getCenter(chipKey('blue eyes', 0, selected: false)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(classificationWrites, 2);
+  });
+
   testWidgets('right click can expose an extra script-only filter target', (
     tester,
   ) async {
@@ -1881,17 +1982,26 @@ void main() {
     );
   });
 
-  testWidgets('display toolbar translates all tags and each tag can opt out',
+  testWidgets('display toolbar hides all tags and each tag can opt out',
       (tester) async {
     await tester.pumpWidget(
       host(
         PromptTagDisplay(
           text: 'blue eyes, long hair',
+          defaultTranslated: true,
           showLayoutControls: true,
           translationCache: cache(),
         ),
       ),
     );
+
+    expect(find.text('蓝眼睛'), findsOneWidget);
+    expect(find.text('长发'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-translation-toggle')),
+    );
+    await tester.pumpAndSettle();
 
     expect(find.text('蓝眼睛'), findsNothing);
     expect(find.text('长发'), findsNothing);
@@ -2372,6 +2482,25 @@ class _FakePromptTranslationService implements PromptTranslationService {
     OnlineTranslationRequest request, {
     bool preferCache = true,
   }) async {
+    return result;
+  }
+}
+
+class _CountingPromptTranslationService implements PromptTranslationService {
+  final OnlineTranslationResult result;
+  int callCount = 0;
+
+  _CountingPromptTranslationService(this.result);
+
+  @override
+  OnlineAiMode get currentMode => OnlineAiMode.ai;
+
+  @override
+  Future<OnlineTranslationResult> translate(
+    OnlineTranslationRequest request, {
+    bool preferCache = true,
+  }) async {
+    callCount += 1;
     return result;
   }
 }

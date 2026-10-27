@@ -33,7 +33,8 @@ class ScriptAiRoleAssemblyApplication {
       );
     }
 
-    final normalizedExtraction = extraction.collapseEquivalentStages();
+    final normalizedExtraction =
+        _withoutWordlessStages(extraction).collapseEquivalentStages();
     var changed = false;
     var roleAssembliesChanged = false;
     var nextAssemblies = mapping.roleAssemblies;
@@ -199,6 +200,62 @@ class ScriptAiRoleAssemblyApplication {
     return ScriptAiRoleAssemblyApplicationResult(
       mapping: nextMapping,
       changed: true,
+    );
+  }
+
+  ScriptAiRoleExtraction _withoutWordlessStages(
+    ScriptAiRoleExtraction extraction,
+  ) {
+    var changed = false;
+    final roles = <ScriptAiExtractedRole>[];
+    for (final role in extraction.roles) {
+      final stages = role.stages
+          .where(_hasMaterializableStageWords)
+          .toList(growable: false);
+      if (stages.length == role.stages.length) {
+        roles.add(role);
+        continue;
+      }
+      changed = true;
+      roles.add(
+        ScriptAiExtractedRole(
+          sourceRoleId: role.sourceRoleId,
+          sourceKind: role.sourceKind,
+          displayName: role.displayName,
+          roleReason: role.roleReason,
+          canonicalName: role.canonicalName,
+          franchise: role.franchise,
+          rawIdentityTags: role.rawIdentityTags,
+          variantTags: role.variantTags,
+          mergeWithRoleId: role.mergeWithRoleId,
+          confidence: role.confidence,
+          frameIndexes: role.frameIndexes,
+          appearances: role.appearances,
+          evidenceTerms: role.evidenceTerms,
+          warnings: role.warnings,
+          stages: List.unmodifiable(stages),
+          unassignedTerms: role.unassignedTerms,
+          promptTerms: role.promptTerms,
+        ),
+      );
+    }
+    if (!changed) {
+      return extraction;
+    }
+    return ScriptAiRoleExtraction(
+      schemaVersion: extraction.schemaVersion,
+      status: extraction.status,
+      chunkId: extraction.chunkId,
+      confidence: extraction.confidence,
+      roles: List.unmodifiable(roles),
+      artistChains: extraction.artistChains,
+      strongFilterKeywords: extraction.strongFilterKeywords,
+      attentionItems: extraction.attentionItems,
+      unassignedTerms: extraction.unassignedTerms,
+      evidenceRequests: extraction.evidenceRequests,
+      sceneTerms: extraction.sceneTerms,
+      termCacheSuggestions: extraction.termCacheSuggestions,
+      rawResponse: extraction.rawResponse,
     );
   }
 
@@ -1026,6 +1083,9 @@ class ScriptAiRoleAssemblyApplication {
     final stages = <RoleAssemblyStage>[];
     final producedStageIds = <String>{};
     for (final (index, stage) in role.stages.indexed) {
+      if (!_hasMaterializableStageWords(stage)) {
+        continue;
+      }
       final baseId = stage.stageId.trim().isEmpty
           ? 'ai-role-${_safeIdSegment(role.sourceRoleId)}-${index + 1}'
           : stage.stageId.trim();
@@ -1049,6 +1109,18 @@ class ScriptAiRoleAssemblyApplication {
       );
     }
     return List.unmodifiable(stages);
+  }
+
+  bool _hasMaterializableStageWords(ScriptAiExtractedStage stage) {
+    return [
+      stage.identity,
+      stage.upperBody,
+      stage.lowerBody,
+      stage.upperClothing,
+      stage.lowerClothing,
+      if (stage.nonRoleMaterialized) stage.nonRole,
+      ...stage.evidenceTerms,
+    ].any((value) => value.trim().isNotEmpty);
   }
 
   List<RoleAssemblyStage> _mergeAiRoleExtractionStages({

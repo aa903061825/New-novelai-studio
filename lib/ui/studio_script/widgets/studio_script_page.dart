@@ -409,7 +409,7 @@ class _ScriptMappingVersionsPanel extends StatelessWidget {
                 size: 20,
               ),
               Text(
-                '剧本专属映射版本',
+                '剧本级映射版本',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: StudioTokens.textPrimary,
                       fontWeight: FontWeight.w900,
@@ -427,7 +427,7 @@ class _ScriptMappingVersionsPanel extends StatelessWidget {
                     ? () => _saveVersion(context)
                     : null,
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('保存为剧本专属版本'),
+                label: const Text('保存为剧本级版本'),
               ),
             ],
           ),
@@ -442,7 +442,7 @@ class _ScriptMappingVersionsPanel extends StatelessWidget {
                 border: Border.all(color: StudioTokens.border),
               ),
               child: Text(
-                '尚未保存剧本专属版本。当前工作映射仍会照常写入本剧本缓存；保存后可一键切换整套快照。',
+                '尚未保存剧本级版本。当前工作映射仍会照常写入本剧本缓存；保存后可一键切换整套快照。',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: StudioTokens.textSecondary,
                     ),
@@ -525,7 +525,7 @@ class _ScriptMappingVersionsPanel extends StatelessWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存剧本专属映射版本失败：$error')),
+          SnackBar(content: Text('保存剧本级映射版本失败：$error')),
         );
       }
     }
@@ -541,7 +541,7 @@ class _ScriptMappingVersionsPanel extends StatelessWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('切换剧本专属映射版本失败：$error')),
+          SnackBar(content: Text('切换剧本级映射版本失败：$error')),
         );
       }
     }
@@ -1330,7 +1330,7 @@ class _ScriptMappingVersionsButton extends StatelessWidget {
     final count = viewModel.mappingVariantItems.length;
     return StudioButton(
       key: const ValueKey('script-mapping-version-open'),
-      label: count == 0 ? '剧本专属版本' : '剧本专属版本 ($count)',
+      label: count == 0 ? '剧本级版本' : '剧本级版本 ($count)',
       icon: Icons.layers_outlined,
       tone: StudioButtonTone.secondary,
       onPressed: () => _showScriptMappingVersionsDialog(context, viewModel),
@@ -1348,7 +1348,7 @@ Future<void> _showScriptMappingVersionsDialog(
       animation: viewModel,
       builder: (context, _) => AlertDialog(
         key: const ValueKey('script-mapping-version-dialog'),
-        title: const Text('剧本专属映射版本'),
+        title: const Text('剧本级映射版本'),
         content: SizedBox(
           width: 900,
           child: SingleChildScrollView(
@@ -3013,7 +3013,7 @@ class _SelectedFrameReplacedPromptState
               ],
               groupKeyPrefix: 'script-replaced-prompt-group',
               tagKeyPrefix: 'script-replaced-prompt-tags',
-              defaultTranslated: false,
+              defaultTranslated: true,
               enableTagActions: true,
               onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
               filterRuleTargets: _scriptPromptFilterRuleTargets,
@@ -3041,7 +3041,7 @@ class _SelectedFrameReplacedPromptState
               ],
               groupKeyPrefix: 'script-replaced-prompt-group',
               tagKeyPrefix: 'script-replaced-prompt-tags',
-              defaultTranslated: false,
+              defaultTranslated: true,
               enableTagActions: true,
               onAddToFilterRules: widget.viewModel.addTagsToFilterRulesLibrary,
               filterRuleTargets: _scriptPromptFilterRuleTargets,
@@ -3816,7 +3816,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
                 ],
                 groupKeyPrefix: widget.groupKeyPrefix,
                 tagKeyPrefix: widget.tagKeyPrefix,
-                defaultTranslated: false,
+                defaultTranslated: true,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
                 contextMenuActionBuilder: widget.contextMenuActionBuilder,
@@ -3848,7 +3848,7 @@ class _KeyframeTokenColumnState extends State<_KeyframeTokenColumn> {
             else
               PromptTagDisplay(
                 text: widget.tokens.map((token) => token.source).join(', '),
-                defaultTranslated: false,
+                defaultTranslated: true,
                 enableTagActions: true,
                 onAddToFilterRules: widget.onAddToFilterRules,
                 contextMenuActionBuilder: widget.contextMenuActionBuilder,
@@ -5380,7 +5380,7 @@ class _FrameTagCard extends StatelessWidget {
           const SizedBox(height: 8),
           PromptTagDisplay(
             text: group.tags.join(', '),
-            defaultTranslated: false,
+            defaultTranslated: true,
             enableTagActions: true,
             onAddToFilterRules: onAddToFilterRules,
             contextMenuActionBuilder: contextMenuActionBuilder == null
@@ -6247,7 +6247,7 @@ class _AiRoleExtractionTermGroup extends StatelessWidget {
           const SizedBox(height: 8),
           PromptTagDisplay(
             text: visibleTerms.join(', '),
-            defaultTranslated: false,
+            defaultTranslated: true,
             dense: true,
             enableTagActions: true,
             initialLayoutMode: PromptTagLayoutMode.sourceOrder,
@@ -6690,6 +6690,12 @@ class _RoleReplacementSection extends StatelessWidget {
                   role.sourceRoleId,
                   value,
                 ),
+                onRuleSourceChanged: (ruleId, value) =>
+                    viewModel.setRoleReplacementRuleSource(
+                  role.sourceRoleId,
+                  ruleId,
+                  value,
+                ),
                 onRuleTargetChanged: (ruleId, value) =>
                     viewModel.setRoleReplacementRuleTarget(
                   role.sourceRoleId,
@@ -6821,6 +6827,12 @@ class _SceneReplacementSection extends StatelessWidget {
               child: _SceneReplacementCard(
                 item: group,
                 translationCache: viewModel.translationCache,
+                onRuleSourceChanged: (ruleId, value) =>
+                    viewModel.setSceneReplacementRuleSource(
+                  group.id,
+                  ruleId,
+                  value,
+                ),
                 onRuleTargetChanged: (ruleId, value) =>
                     viewModel.setSceneReplacementRuleTarget(
                   group.id,
@@ -7220,6 +7232,7 @@ class _RoleReplacementCard extends StatefulWidget {
   final PromptTagWarningScopeSuppressor onSuppressTagWarningForScope;
   final ValueChanged<_ScriptAssetDragData> onTargetAssetDropped;
   final ValueChanged<String> onIdentityChanged;
+  final void Function(String ruleId, String value) onRuleSourceChanged;
   final void Function(String ruleId, String value) onRuleTargetChanged;
   final void Function(String ruleId, List<String> tags) onRuleTargetTagsDropped;
   final void Function(String ruleId, double multiplier)
@@ -7244,7 +7257,7 @@ class _RoleReplacementCard extends StatefulWidget {
   final VoidCallback onMergeSelectedRules;
   final VoidCallback onResetReplacementGroup;
   final VoidCallback onSyncIdentityToSelectedRules;
-  final Future<void> Function(String profileId) onQuickApplyProfile;
+  final Future<bool> Function(String profileId) onQuickApplyProfile;
   final VoidCallback onManageProfiles;
   final VoidCallback onStopProfileRecording;
 
@@ -7261,6 +7274,7 @@ class _RoleReplacementCard extends StatefulWidget {
     required this.onSuppressTagWarningForScope,
     required this.onTargetAssetDropped,
     required this.onIdentityChanged,
+    required this.onRuleSourceChanged,
     required this.onRuleTargetChanged,
     required this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
@@ -7335,6 +7349,7 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
     final onSuppressTagWarningForScope = widget.onSuppressTagWarningForScope;
     final onTargetAssetDropped = widget.onTargetAssetDropped;
     final onIdentityChanged = widget.onIdentityChanged;
+    final onRuleSourceChanged = widget.onRuleSourceChanged;
     final onRuleTargetChanged = widget.onRuleTargetChanged;
     final onRuleTargetTagsDropped = widget.onRuleTargetTagsDropped;
     final onRuleWeightMultiplierChanged = widget.onRuleWeightMultiplierChanged;
@@ -7434,6 +7449,25 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                                         color: StudioTokens.textMuted,
                                       ),
                                 ),
+                                if (activeProfileName?.trim().isNotEmpty ==
+                                    true) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '当前目标角色：${activeProfileName!.trim()}',
+                                    key: ValueKey(
+                                      'role-replacement-target-name-${item.sourceRoleId}',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: StudioTokens.primary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -7504,14 +7538,16 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                               item.sourceRoleId],
                           profiles: widget.roleMappingProfiles,
                           activeProfileId: item.activeMappingProfileId,
-                          activeVariantId:
-                              widget.viewModel.activeMappingVariantId,
+                          activeVariantId: null,
                           onCurrentMappingSelected: () {
                             setState(() => _profilePickerExpanded = false);
                           },
                           onScriptVariantSelected: (variantId) {
                             setState(() => _profilePickerExpanded = false);
-                            _quickActivateMappingVariant(variantId);
+                            _quickActivateMappingVariant(
+                              variantId,
+                              item.sourceRoleId,
+                            );
                           },
                           onManageScriptVariants: () {
                             setState(() => _profilePickerExpanded = false);
@@ -7630,9 +7666,12 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                             onClearRuleSelection();
                             setState(() => _selectedLayerId = layer.id);
                           },
-                          onStageAction: (action) {
+                          onStageAction: (action, layer) {
                             unawaited(
-                              _handleStageAction(action, selectedLayer),
+                              _handleStageAction(
+                                action,
+                                layer ?? selectedLayer,
+                              ),
                             );
                           },
                         ),
@@ -7671,6 +7710,7 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                         acceptedPromptTagSourceFieldIds: {
                           _replacementRoleIdentityFieldId(item.sourceRoleId),
                         },
+                        onRuleSourceChanged: onRuleSourceChanged,
                         onRuleTargetChanged: onRuleTargetChanged,
                         onRuleTargetTagsDropped: onRuleTargetTagsDropped,
                         onRuleWeightMultiplierChanged:
@@ -7858,10 +7898,6 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
         if (selectedLayer?.kind != ScriptRoleReplacementRuleLayerKind.stage) {
           return;
         }
-        if (widget.item.stageCount <= 1) {
-          _showStageMessage('至少需要保留一个服装阶段。');
-          return;
-        }
         final confirmed = await showDialog<bool>(
               context: context,
               builder: (context) => AlertDialog(
@@ -7874,6 +7910,7 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
                     child: const Text('取消'),
                   ),
                   FilledButton(
+                    key: const ValueKey('role-stage-delete-confirm'),
                     onPressed: () => Navigator.of(context).pop(true),
                     child: const Text('删除'),
                   ),
@@ -7926,7 +7963,10 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
     _showProfileSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _quickActivateMappingVariant(String variantId) async {
+  Future<void> _quickActivateMappingVariant(
+    String variantId,
+    String sourceRoleId,
+  ) async {
     final variant = widget.viewModel.mappingVariantItems
         .where((entry) => entry.id == variantId)
         .firstOrNull;
@@ -7938,17 +7978,20 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
     }
     setState(() => _activatingVariantId = variantId);
     try {
-      await widget.viewModel.activateMappingVariant(variantId);
+      await widget.viewModel.activateMappingVariantForRole(
+        variantId: variantId,
+        sourceRoleId: sourceRoleId,
+      );
       if (!mounted) return;
       _showProfileSnackBar(
         SnackBar(
-          content: Text('已整套切换到剧本专属版本“${variant.name}”'),
+          content: Text('已将当前角色切换到剧本缓存“${variant.name}”'),
         ),
       );
     } catch (error) {
       if (!mounted) return;
       _showProfileSnackBar(
-        SnackBar(content: Text('切换剧本专属整套映射失败：$error')),
+        SnackBar(content: Text('切换当前角色剧本缓存失败：$error')),
       );
     } finally {
       if (mounted) {
@@ -7997,8 +8040,14 @@ class _RoleReplacementCardState extends State<_RoleReplacementCard> {
     }
     setState(() => _applyingProfileId = profileId);
     try {
-      await widget.onQuickApplyProfile(profileId);
+      final changed = await widget.onQuickApplyProfile(profileId);
       if (!mounted) return;
+      if (!changed) {
+        _showProfileSnackBar(
+          const SnackBar(content: Text('未写入映射：没有选中可应用的映射组')),
+        );
+        return;
+      }
       _showProfileSnackBar(
         SnackBar(
           content: Text(
@@ -8136,7 +8185,7 @@ class _RoleStageEditorDialogState extends State<_RoleStageEditorDialog> {
   }
 }
 
-class _RoleReplacementLayerTabs extends StatelessWidget {
+class _RoleReplacementLayerTabs extends StatefulWidget {
   final String sourceRoleId;
   final List<StudioScriptRoleReplacementLayerItem> layers;
   final String selectedLayerId;
@@ -8147,7 +8196,10 @@ class _RoleReplacementLayerTabs extends StatelessWidget {
     StudioScriptRoleReplacementLayerItem layer,
     Set<String> ruleIds,
   ) onRulesDropped;
-  final ValueChanged<_RoleStageAction> onStageAction;
+  final void Function(
+    _RoleStageAction action,
+    StudioScriptRoleReplacementLayerItem? layer,
+  ) onStageAction;
 
   const _RoleReplacementLayerTabs({
     required this.sourceRoleId,
@@ -8161,9 +8213,75 @@ class _RoleReplacementLayerTabs extends StatelessWidget {
   });
 
   @override
+  State<_RoleReplacementLayerTabs> createState() =>
+      _RoleReplacementLayerTabsState();
+}
+
+class _RoleReplacementLayerTabsState extends State<_RoleReplacementLayerTabs> {
+  final ScrollController _scrollController = ScrollController();
+  double? _mouseDragLastX;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_scrollController.hasClients) {
+      return;
+    }
+    final delta =
+        event.scrollDelta.dy == 0 ? event.scrollDelta.dx : event.scrollDelta.dy;
+    if (delta == 0) return;
+    final position = _scrollController.position;
+    final target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if ((target - position.pixels).abs() < 0.5) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (event.kind == PointerDeviceKind.mouse &&
+        event.buttons == kPrimaryMouseButton) {
+      _mouseDragLastX = event.position.dx;
+    }
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final previousX = _mouseDragLastX;
+    if (previousX == null ||
+        event.kind != PointerDeviceKind.mouse ||
+        event.buttons != kPrimaryMouseButton ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    _mouseDragLastX = event.position.dx;
+    final position = _scrollController.position;
+    final target = (position.pixels - (event.position.dx - previousX))
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if ((target - position.pixels).abs() >= 0.5) {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
+    _mouseDragLastX = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final selectedLayer =
-        layers.where((layer) => layer.id == selectedLayerId).firstOrNull;
+    final selectedLayer = widget.layers
+        .where((layer) => layer.id == widget.selectedLayerId)
+        .firstOrNull;
     final selectedIsStage =
         selectedLayer?.kind == ScriptRoleReplacementRuleLayerKind.stage;
     return Column(
@@ -8172,31 +8290,88 @@ class _RoleReplacementLayerTabs extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final layer in layers) ...[
-                      _RoleReplacementLayerTab(
-                        sourceRoleId: sourceRoleId,
-                        layer: layer,
-                        selected: layer.id == selectedLayerId,
-                        selectedRuleIds: selectedRuleIds,
-                        onSelected: () => onSelected(layer.id),
-                        onRulesDropped: (ruleIds) =>
-                            onRulesDropped(layer, ruleIds),
+              child: Listener(
+                key: ValueKey(
+                  'role-replacement-layer-scroll-listener-${widget.sourceRoleId}',
+                ),
+                behavior: HitTestBehavior.opaque,
+                onPointerSignal: _handlePointerSignal,
+                onPointerDown: _handlePointerDown,
+                onPointerMove: _handlePointerMove,
+                onPointerUp: _handlePointerEnd,
+                onPointerCancel: _handlePointerEnd,
+                child: Scrollbar(
+                  key: ValueKey(
+                    'role-replacement-layer-scrollbar-${widget.sourceRoleId}',
+                  ),
+                  controller: _scrollController,
+                  thumbVisibility: true,
+                  interactive: true,
+                  thickness: 5,
+                  radius: const Radius.circular(999),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(
+                        dragDevices: const {
+                          PointerDeviceKind.touch,
+                          PointerDeviceKind.stylus,
+                          PointerDeviceKind.invertedStylus,
+                        },
+                        scrollbars: false,
                       ),
-                      const SizedBox(width: 7),
-                    ],
-                  ],
+                      child: SingleChildScrollView(
+                        key: ValueKey(
+                          'role-replacement-layer-scroll-${widget.sourceRoleId}',
+                        ),
+                        controller: _scrollController,
+                        scrollDirection: Axis.horizontal,
+                        physics: const ClampingScrollPhysics(),
+                        child: Row(
+                          children: [
+                            for (final layer in widget.layers) ...[
+                              _RoleReplacementLayerTab(
+                                sourceRoleId: widget.sourceRoleId,
+                                layer: layer,
+                                selected: layer.id == widget.selectedLayerId,
+                                selectedRuleIds: widget.selectedRuleIds,
+                                onSelected: () => widget.onSelected(layer.id),
+                                onRulesDropped: (ruleIds) =>
+                                    widget.onRulesDropped(layer, ruleIds),
+                                onDelete: layer.kind ==
+                                        ScriptRoleReplacementRuleLayerKind.stage
+                                    ? () => widget.onStageAction(
+                                          _RoleStageAction.delete,
+                                          layer,
+                                        )
+                                    : null,
+                              ),
+                              const SizedBox(width: 7),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
+            const SizedBox(width: 4),
+            StudioIconButton(
+              key: ValueKey('role-stage-add-${widget.sourceRoleId}'),
+              icon: Icons.add_circle_outline,
+              tooltip: '新增阶段',
+              onPressed: () => widget.onStageAction(
+                _RoleStageAction.add,
+                null,
+              ),
+            ),
             PopupMenuButton<_RoleStageAction>(
-              key: ValueKey('role-stage-menu-$sourceRoleId'),
+              key: ValueKey('role-stage-menu-${widget.sourceRoleId}'),
               tooltip: '管理服装阶段',
               icon: const Icon(Icons.more_horiz, size: 20),
-              onSelected: onStageAction,
+              onSelected: (action) =>
+                  widget.onStageAction(action, selectedLayer),
               itemBuilder: (context) => [
                 const PopupMenuItem(
                   value: _RoleStageAction.add,
@@ -8269,10 +8444,12 @@ class _RoleReplacementLayerTabs extends StatelessWidget {
             ),
           ],
         ),
-        if (existingOverlapMessage != null) ...[
+        if (widget.existingOverlapMessage != null) ...[
           const SizedBox(height: 7),
           Container(
-            key: ValueKey('role-stage-overlap-warning-$sourceRoleId'),
+            key: ValueKey(
+              'role-stage-overlap-warning-${widget.sourceRoleId}',
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
             decoration: BoxDecoration(
               color: StudioTokens.warning.withAlpha(18),
@@ -8289,7 +8466,7 @@ class _RoleReplacementLayerTabs extends StatelessWidget {
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    existingOverlapMessage!,
+                    widget.existingOverlapMessage!,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -8309,6 +8486,7 @@ class _RoleReplacementLayerTab extends StatelessWidget {
   final Set<String> selectedRuleIds;
   final VoidCallback onSelected;
   final ValueChanged<Set<String>> onRulesDropped;
+  final VoidCallback? onDelete;
 
   const _RoleReplacementLayerTab({
     required this.sourceRoleId,
@@ -8317,6 +8495,7 @@ class _RoleReplacementLayerTab extends StatelessWidget {
     required this.selectedRuleIds,
     required this.onSelected,
     required this.onRulesDropped,
+    this.onDelete,
   });
 
   @override
@@ -8398,6 +8577,23 @@ class _RoleReplacementLayerTab extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (onDelete != null) ...[
+                  const SizedBox(width: 5),
+                  IconButton(
+                    key: ValueKey(
+                      'role-stage-delete-$sourceRoleId-${layer.stageId}',
+                    ),
+                    tooltip: '删除“${layer.label}”',
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.close_rounded, size: 15),
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(3),
+                    constraints: const BoxConstraints(
+                      minWidth: 26,
+                      minHeight: 26,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -8427,11 +8623,12 @@ class _RoleMappingScopeStatus extends StatelessWidget {
     final linkedToGlobalProfile = profileId.isNotEmpty;
     final color =
         linkedToGlobalProfile ? StudioTokens.primary : StudioTokens.info;
+    final title = linkedToGlobalProfile ? '全局角色档案同步已开启' : '本剧本独立映射';
     final description = linkedToGlobalProfile
         ? profileName.isNotEmpty
-            ? '已连接全局角色档案“$profileName”；剧本内仍保留完整快照，后续修改会同步回全局档案'
-            : '引用的全局角色档案暂未载入（$profileId）；剧本内完整快照仍保留，不会被清空'
-        : '仅保存于当前剧本；不会写回任何全局角色档案';
+            ? '当前角色已明确连接到全局档案“$profileName”；只有这个角色的修改会回写档案'
+            : '当前角色引用的全局档案暂未载入（$profileId）；本剧本内容仍保留，不会被清空'
+        : '已复制的内容仅保存于当前剧本；不会写回任何全局角色档案';
     return Container(
       key: ValueKey('role-mapping-scope-status-$sourceRoleId'),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -8454,8 +8651,9 @@ class _RoleMappingScopeStatus extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '剧本专属角色映射',
+                Text(
+                  title,
+                  key: ValueKey('role-mapping-scope-title-$sourceRoleId'),
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 Text(
@@ -8472,7 +8670,7 @@ class _RoleMappingScopeStatus extends StatelessWidget {
                 'role-mapping-profile-stop-sync-$sourceRoleId',
               ),
               onPressed: onStopProfileRecording,
-              child: const Text('断开全局同步'),
+              child: const Text('断开持续同步'),
             ),
           ],
         ],
@@ -8509,7 +8707,7 @@ class _RoleMappingProfilePickerButton extends StatelessWidget {
         ? StudioTokens.primary.withValues(alpha: 0.55)
         : StudioTokens.border;
     return Tooltip(
-      message: '蓝色为本剧本整套映射；黄色为跨剧本复用的全局角色档案',
+      message: '蓝色为本剧本保存的整套版本；黄色为跨剧本复用的全局角色档案',
       child: Material(
         key: ValueKey('role-mapping-profile-picker-surface-$sourceRoleId'),
         color: background,
@@ -8553,7 +8751,7 @@ class _RoleMappingProfilePickerButton extends StatelessWidget {
                     ),
                   const SizedBox(width: 7),
                   Text(
-                    '映射库（专属 $scriptMappingCount · 全局 $profileCount）',
+                    '映射库（剧本版本 $scriptMappingCount · 全局档案 $profileCount）',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: enabled
                               ? StudioTokens.textPrimary
@@ -8641,7 +8839,7 @@ class _RoleMappingProfileDropdown extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '剧本专属整套映射',
+                          '当前角色的剧本缓存',
                           style:
                               Theme.of(context).textTheme.labelLarge?.copyWith(
                                     color: StudioTokens.info,
@@ -8649,7 +8847,7 @@ class _RoleMappingProfileDropdown extends StatelessWidget {
                                   ),
                         ),
                         Text(
-                          '仅当前剧本 · 点击已存版本会原子切换角色、场景及策略',
+                          '仅套用当前角色 · 不改动其他角色、场景或策略',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: StudioTokens.textSecondary,
@@ -8692,7 +8890,7 @@ class _RoleMappingProfileDropdown extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 48, vertical: 10),
                 child: Text(
-                  '当前缓存只有工作映射，尚未另存剧本专属版本。',
+                  '当前缓存只有工作映射，尚未另存本剧本版本。',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: StudioTokens.textMuted,
                       ),
@@ -8723,6 +8921,7 @@ class _RoleMappingProfileDropdown extends StatelessWidget {
                         index: index,
                         item: variant,
                         sourceRoleId: sourceRoleId,
+                        roleScoped: true,
                       ),
                     ),
                   ),
@@ -8747,7 +8946,7 @@ class _RoleMappingProfileDropdown extends StatelessWidget {
                     ),
                     SizedBox(width: 10),
                     Text(
-                      '管理 / 保存剧本专属整套版本',
+                      '管理 / 保存本剧本整套版本',
                       style: TextStyle(
                         color: StudioTokens.info,
                         fontWeight: FontWeight.w800,
@@ -8935,21 +9134,24 @@ class _ScriptMappingVariantMenuRow extends StatelessWidget {
   final int index;
   final StudioScriptMappingVariantItem item;
   final String sourceRoleId;
+  final bool roleScoped;
 
   const _ScriptMappingVariantMenuRow({
     required this.index,
     required this.item,
     required this.sourceRoleId,
+    this.roleScoped = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final target = item.targetCharacterNameForRole(sourceRoleId) ?? '';
+    final isActive = !roleScoped && item.isActive;
     return Row(
       children: [
         SizedBox(
           width: 28,
-          child: item.isActive
+          child: isActive
               ? const Icon(
                   Icons.check_circle_rounded,
                   size: 18,
@@ -8989,10 +9191,19 @@ class _ScriptMappingVariantMenuRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        if (item.isActive)
+        if (isActive)
           _MappingLibraryBadge(
             label: item.isModified ? '基准 · 已修改' : '当前版本',
             color: StudioTokens.info,
+          )
+        else if (roleScoped)
+          const Text(
+            '仅当前角色',
+            style: TextStyle(
+              color: StudioTokens.info,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           )
         else
           const Text(
@@ -9167,7 +9378,7 @@ class _CollapsedRoleReplacementCardSummary extends StatelessWidget {
                   StudioChip(
                     label: linkedToGlobalProfile
                         ? '全局同步：${activeProfileName ?? '档案未载入'}'
-                        : '剧本专属',
+                        : '本剧本独立',
                   ),
                 ],
               ),
@@ -9297,6 +9508,7 @@ class _RoleReplacementIdentityEditor extends StatelessWidget {
 class _SceneReplacementCard extends StatelessWidget {
   final StudioScriptSceneReplacementItem item;
   final TranslationCache translationCache;
+  final void Function(String ruleId, String value) onRuleSourceChanged;
   final void Function(String ruleId, String value) onRuleTargetChanged;
   final void Function(String ruleId, double multiplier)
       onRuleWeightMultiplierChanged;
@@ -9321,6 +9533,7 @@ class _SceneReplacementCard extends StatelessWidget {
   const _SceneReplacementCard({
     required this.item,
     required this.translationCache,
+    required this.onRuleSourceChanged,
     required this.onRuleTargetChanged,
     required this.onRuleWeightMultiplierChanged,
     required this.onRuleSourceTagsDropped,
@@ -9401,6 +9614,7 @@ class _SceneReplacementCard extends StatelessWidget {
                   rules: item.rules,
                   onRulesCategoryChanged: onRulesCategoryChanged,
                   translationCache: translationCache,
+                  onRuleSourceChanged: onRuleSourceChanged,
                   onRuleTargetChanged: onRuleTargetChanged,
                   onRuleWeightMultiplierChanged: onRuleWeightMultiplierChanged,
                   onRuleSourceTagsDropped: onRuleSourceTagsDropped,
@@ -9437,6 +9651,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
   final Set<String> suppressedTagWarningKeys;
   final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
   final Set<String> acceptedPromptTagSourceFieldIds;
+  final void Function(String ruleId, String value) onRuleSourceChanged;
   final void Function(String ruleId, String value) onRuleTargetChanged;
   final void Function(String ruleId, List<String> tags)?
       onRuleTargetTagsDropped;
@@ -9475,6 +9690,7 @@ class _ReplacementRuleGrid extends StatelessWidget {
     this.suppressedTagWarningKeys = const {},
     this.onSuppressTagWarningForScope,
     this.acceptedPromptTagSourceFieldIds = const {},
+    required this.onRuleSourceChanged,
     required this.onRuleTargetChanged,
     this.onRuleTargetTagsDropped,
     required this.onRuleWeightMultiplierChanged,
@@ -9539,6 +9755,8 @@ class _ReplacementRuleGrid extends StatelessWidget {
                   onSuppressTagWarningForScope: onSuppressTagWarningForScope,
                   acceptedPromptTagSourceFieldIds:
                       acceptedPromptTagSourceFieldIds,
+                  onSourceChanged: (value) =>
+                      onRuleSourceChanged(rule.id, value),
                   onTargetChanged: (value) =>
                       onRuleTargetChanged(rule.id, value),
                   onPromptTagsDropped: onRuleTargetTagsDropped == null
@@ -9807,6 +10025,7 @@ class _ReplacementRuleRow extends StatefulWidget {
   final Set<String> suppressedTagWarningKeys;
   final PromptTagWarningScopeSuppressor? onSuppressTagWarningForScope;
   final Set<String> acceptedPromptTagSourceFieldIds;
+  final ValueChanged<String> onSourceChanged;
   final ValueChanged<String> onTargetChanged;
   final ValueChanged<List<String>>? onPromptTagsDropped;
   final ValueChanged<double> onWeightMultiplierChanged;
@@ -9837,6 +10056,7 @@ class _ReplacementRuleRow extends StatefulWidget {
     this.suppressedTagWarningKeys = const {},
     this.onSuppressTagWarningForScope,
     this.acceptedPromptTagSourceFieldIds = const {},
+    required this.onSourceChanged,
     required this.onTargetChanged,
     this.onPromptTagsDropped,
     required this.onWeightMultiplierChanged,
@@ -10053,7 +10273,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                     'replacement-rule-source-$ruleKey',
                   ),
                   text: sourcePrompt,
-                  defaultTranslated: false,
+                  defaultTranslated: true,
                   dense: true,
                   initialLayoutMode: PromptTagLayoutMode.sourceOrder,
                   respectInitialLayoutMode: true,
@@ -10062,6 +10282,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                   sourceOrderHoveredTagMaxWidth:
                       _replacementRuleCollapsedTagMaxWidth,
                   enableTagActions: true,
+                  acceptExternalTagDrops: false,
                   translationCache: widget.translationCache,
                   classificationCache: widget.classificationCache,
                   saveClassificationCache: widget.saveClassificationCache,
@@ -10077,6 +10298,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                   selectionGroupId: widget.selectionGroupId,
                   showSelectionToolbar: false,
                   onTagDragEnd: _handleSourceTagDragEnd,
+                  onChanged: widget.onSourceChanged,
                   emptyText: '暂无来源词',
                   onTagTap: widget.onTermExcludedChanged == null
                       ? null
@@ -10181,7 +10403,7 @@ class _ReplacementRuleRowState extends State<_ReplacementRuleRow> {
                       'replacement-rule-target-$ruleKey',
                     ),
                     text: rule.targetPrompt,
-                    defaultTranslated: false,
+                    defaultTranslated: true,
                     dense: true,
                     initialLayoutMode: PromptTagLayoutMode.sourceOrder,
                     respectInitialLayoutMode: true,
@@ -14048,7 +14270,7 @@ class _ArtistPromptCell extends StatelessWidget {
           if (!editable || normalized.isNotEmpty)
             PromptTagDisplay(
               text: normalized,
-              defaultTranslated: false,
+              defaultTranslated: true,
               dense: true,
               enableTagActions: true,
               translationCache: translationCache,

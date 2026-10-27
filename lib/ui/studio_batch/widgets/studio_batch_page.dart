@@ -250,6 +250,7 @@ Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
     totalTasks: viewModel.totalTasks,
     completedTasks: viewModel.completedTasks,
     completedTasksPendingDismissal: viewModel.completedTasksPendingDismissal,
+    emptyPlansPendingCleanup: viewModel.emptyPlansPendingCleanup,
     failedTasks: viewModel.failedTasks,
     abnormalTasks: viewModel.abnormalTasks,
     runningTasks: viewModel.runningTasks,
@@ -261,6 +262,7 @@ Object _queueOverviewRebuildToken(ProductionQueueViewModel viewModel) {
     canStop: viewModel.canStop,
     canClearCurrentPlan: viewModel.canClearCurrentPlan,
     canClearCompletedTasks: viewModel.canClearCompletedTasks,
+    canClearEmptyPlans: viewModel.canClearEmptyPlans,
     canRenameSelectedPlan: viewModel.canRenameSelectedPlan,
   );
 }
@@ -361,6 +363,23 @@ Future<void> _clearCompletedProductionTasks(
   } catch (error) {
     if (!context.mounted) return;
     _showProductionSnack(context, '清理已完成任务失败：$error');
+  }
+}
+
+Future<void> _clearEmptyProductionPlans(
+  BuildContext context,
+  ProductionQueueViewModel viewModel,
+) async {
+  try {
+    final count = await viewModel.clearEmptyPlans();
+    if (!context.mounted) return;
+    _showProductionSnack(
+      context,
+      count > 0 ? '已清理 $count 个空产线，生成结果已保留' : '暂无可清理的空产线',
+    );
+  } catch (error) {
+    if (!context.mounted) return;
+    _showProductionSnack(context, '清理空产线失败：$error');
   }
 }
 
@@ -852,6 +871,29 @@ class _QueueOverviewPanel extends StatelessWidget {
                         ? () => unawaited(
                               _clearCompletedProductionTasks(
                                   context, viewModel),
+                            )
+                        : null,
+                  ),
+                ),
+              ),
+              Semantics(
+                button: true,
+                enabled: viewModel.canClearEmptyPlans,
+                label: viewModel.emptyPlansPendingCleanup > 0
+                    ? '清理空产线：可清理 ${viewModel.emptyPlansPendingCleanup} 条空产线，生成结果保留'
+                    : '清理空产线：暂无可清理的空产线，生成结果保留',
+                child: Tooltip(
+                  message: viewModel.emptyPlansPendingCleanup > 0
+                      ? '可清理 ${viewModel.emptyPlansPendingCleanup} 条空产线；生成结果保留'
+                      : '暂无可清理的空产线；生成结果保留',
+                  child: StudioButton(
+                    key: const ValueKey('studio-production-clear-empty'),
+                    icon: Icons.remove_circle_outline,
+                    label: '清理空产线',
+                    tone: StudioButtonTone.secondary,
+                    onPressed: viewModel.canClearEmptyPlans
+                        ? () => unawaited(
+                              _clearEmptyProductionPlans(context, viewModel),
                             )
                         : null,
                   ),
@@ -3787,7 +3829,7 @@ class _PromptTagBlock extends StatelessWidget {
                 groups: visibleGroups,
                 groupKeyPrefix: '$tagKeyValue-group',
                 tagKeyPrefix: '$tagKeyValue-group-tags',
-                defaultTranslated: false,
+                defaultTranslated: true,
                 dense: true,
                 enableHoverShortcut: true,
                 enableTagActions: true,
@@ -3798,7 +3840,7 @@ class _PromptTagBlock extends StatelessWidget {
               PromptTagDisplay(
                 key: tagKey,
                 text: trimmed,
-                defaultTranslated: false,
+                defaultTranslated: true,
                 dense: true,
                 enableHoverShortcut: true,
                 enableTagActions: true,

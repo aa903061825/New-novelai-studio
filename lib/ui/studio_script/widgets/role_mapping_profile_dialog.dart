@@ -35,7 +35,8 @@ Future<bool> showRoleMappingProfileApplyPreviewDialog(
     sourceRoleId: sourceRoleId,
   );
   if (!context.mounted) return false;
-  return await showDialog<bool>(
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final applied = await showDialog<bool>(
         context: context,
         builder: (context) => _RoleMappingProfileApplyDialog(
           viewModel: viewModel,
@@ -45,6 +46,12 @@ Future<bool> showRoleMappingProfileApplyPreviewDialog(
         ),
       ) ??
       false;
+  if (applied && context.mounted) {
+    messenger?.showSnackBar(
+      SnackBar(content: Text(viewModel.roleMappingProfileStatus)),
+    );
+  }
+  return applied;
 }
 
 class _RoleMappingProfileManagerDialog extends StatefulWidget {
@@ -525,7 +532,11 @@ class _RoleMappingProfileManagerDialogState
         ),
       );
       if (applied == true && context.mounted) {
+        final messenger = ScaffoldMessenger.maybeOf(context);
         Navigator.of(context).pop();
+        messenger?.showSnackBar(
+          SnackBar(content: Text(viewModel.roleMappingProfileStatus)),
+        );
       }
     } catch (error) {
       if (context.mounted) _showError(context, error);
@@ -565,7 +576,9 @@ class _RoleMappingProfileApplyDialogState
   late final Map<String, String> _targetLayerIdByProfileLayerId;
   final Map<String, String> _anchorTermIdsByBlockId = {};
   late bool _applyIdentity;
+  bool _linkProfile = false;
   bool _saving = false;
+  String? _applyError;
 
   @override
   void initState() {
@@ -596,6 +609,7 @@ class _RoleMappingProfileApplyDialogState
     final role = widget.viewModel.roleReplacementMappings
         .where((entry) => entry.sourceRoleId == widget.sourceRoleId)
         .firstOrNull;
+    final canApply = _hasApplicationEffect(role);
     final screenSize = MediaQuery.sizeOf(context);
     final dialogWidth = (screenSize.width - 48).clamp(360.0, 920.0).toDouble();
     final dialogHeight =
@@ -646,7 +660,13 @@ class _RoleMappingProfileApplyDialogState
               skippedCount: skippedCount,
             ),
             const SizedBox(height: 10),
+            if (_shouldShowApplyNotice(role)) ...[
+              _buildApplyNotice(context),
+              const SizedBox(height: 8),
+            ],
             _buildIdentitySection(context, role),
+            const SizedBox(height: 8),
+            _buildSyncSection(context),
             const SizedBox(height: 8),
             if (widget.preview.layerEntries.isNotEmpty) ...[
               _buildLayerMappingSection(context, role),
@@ -665,17 +685,134 @@ class _RoleMappingProfileApplyDialogState
         ),
         FilledButton.icon(
           key: const ValueKey('role-mapping-profile-apply'),
-          onPressed: _saving ? null : _apply,
+          onPressed: _saving || !canApply ? null : _apply,
           icon: _saving
               ? const SizedBox.square(
                   dimension: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.check),
-          label: const Text('复制到当前剧本角色'),
+              : Icon(canApply ? Icons.check : Icons.block_outlined),
+          label: Text(_applyButtonLabel(role)),
         ),
       ],
     );
+  }
+
+  int get _selectedMappingCount {
+    var count = 0;
+    for (final entry in widget.preview.entries) {
+      if (_enabledByBlockId[entry.block.id] == true &&
+          (_termIdsByBlockId[entry.block.id]?.isNotEmpty ?? false) &&
+          (_targetLayerIdByProfileLayerId[entry.profileLayerId]?.isNotEmpty ??
+              false)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  int get _actionableMappingCount => widget.preview.entries
+      .where(
+        (entry) =>
+            entry.status != RoleMappingApplyPreviewStatus.same &&
+            entry.status != RoleMappingApplyPreviewStatus.unmatched &&
+            entry.selectedTermIds.isNotEmpty,
+      )
+      .length;
+
+  int get _skippedLayerCount => _targetLayerIdByProfileLayerId.values
+      .where((layerId) => layerId.isEmpty)
+      .length;
+
+  bool _identityWillChange(StudioScriptRoleReplacementItem? role) {
+    if (!_applyIdentity || role == null) return false;
+    final profileCharacterId = widget.profile.targetCharacterId;
+    final applicableCharacterId = profileCharacterId != null &&
+            widget.viewModel.characterOptions
+                .any((character) => character.id == profileCharacterId)
+        ? profileCharacterId
+        : null;
+    return applicableCharacterId != role.targetCharacterId ||
+        widget.profile.targetIdentityPrompt.trim() !=
+            role.targetIdentityPrompt.trim();
+  }
+
+  bool _syncWillChange(StudioScriptRoleReplacementItem? role) {
+    if (role == null) return false;
+    final currentProfileId = role.activeMappingProfileId?.trim() ?? '';
+    final nextProfileId = _linkProfile ? widget.profile.id.trim() : '';
+    return currentProfileId != nextProfileId;
+  }
+
+  bool _hasApplicationEffect(StudioScriptRoleReplacementItem? role) {
+    return _selectedMappingCount > 0 ||
+        _identityWillChange(role) ||
+        _syncWillChange(role);
+  }
+
+  bool _shouldShowApplyNotice(StudioScriptRoleReplacementItem? role) {
+    return _applyError != null ||
+        !_hasApplicationEffect(role) ||
+        _selectedMappingCount < _actionableMappingCount ||
+        (_selectedMappingCount == 0 && _skippedLayerCount > 0);
+  }
+
+  Widget _buildApplyNotice(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final error = _applyError;
+    final selectedCount = _selectedMappingCount;
+    final pendingCount = _actionableMappingCount - selectedCount;
+    final title = error != null
+        ? '复制未完成'
+        : selectedCount == 0
+            ? '当前没有任何映射规则会被写入'
+            : '将写入 $selectedCount 个映射组，仍有 $pendingCount 个未确认';
+    final facts = [
+      if (_skippedLayerCount > 0) '$_skippedLayerCount 个档案分层仍为“跳过”',
+      if (pendingCount > 0) '$pendingCount 个映射组还没有确认',
+    ];
+    final detail = error ??
+        '${facts.isEmpty ? '当前没有选中可写入的映射组' : facts.join('；')}。'
+            '上方“当前 / 应用后”只比较身份标签，不代表映射规则一致。'
+            '请先选择分层目标，并确认下方映射组；否则工作台的“已映射”数量不会变化。';
+    return Container(
+      key: const ValueKey('role-mapping-profile-no-change-notice'),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: colors.errorContainer.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colors.error.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 19, color: colors.error),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(detail, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _applyButtonLabel(StudioScriptRoleReplacementItem? role) {
+    if (_saving) return '正在复制…';
+    final selectedCount = _selectedMappingCount;
+    if (selectedCount > 0) return '复制 $selectedCount 个映射组到当前角色';
+    if (_identityWillChange(role)) return '仅复制身份（映射 0 组）';
+    if (_syncWillChange(role)) return '应用持续同步设置';
+    return '请先选择要复制的内容';
   }
 
   Widget _buildApplySummary(
@@ -783,7 +920,7 @@ class _RoleMappingProfileApplyDialogState
       child: CheckboxListTile(
         key: const ValueKey('role-mapping-profile-apply-identity'),
         contentPadding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
-        title: const Text('替换目标身份'),
+        title: const Text('目标身份标签（仅这一栏）'),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -793,7 +930,7 @@ class _RoleMappingProfileApplyDialogState
                   : !_applyIdentity
                       ? '已选择保留当前身份'
                       : same
-                          ? '档案身份与当前一致'
+                          ? '身份标签相同；下方映射规则仍需独立确认'
                           : '将用档案身份覆盖当前内容',
             ),
             if (canApply) ...[
@@ -846,8 +983,33 @@ class _RoleMappingProfileApplyDialogState
         ),
         value: canApply && _applyIdentity,
         onChanged: canApply
-            ? (value) => setState(() => _applyIdentity = value ?? false)
+            ? (value) => setState(() {
+                  _applyIdentity = value ?? false;
+                  _applyError = null;
+                })
             : null,
+      ),
+    );
+  }
+
+  Widget _buildSyncSection(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: CheckboxListTile(
+        key: const ValueKey('role-mapping-profile-link-sync'),
+        contentPadding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
+        title: const Text('套用后开启持续同步'),
+        subtitle: const Text(
+          '默认关闭。勾选后，只有当前角色的后续修改会回写这个全局档案，不会同步整套剧本。',
+        ),
+        value: _linkProfile,
+        onChanged: _saving
+            ? null
+            : (value) => setState(() {
+                  _linkProfile = value ?? false;
+                  _applyError = null;
+                }),
       ),
     );
   }
@@ -1022,10 +1184,19 @@ class _RoleMappingProfileApplyDialogState
                         targetLayerId;
                     for (final blockEntry in widget.preview.entries) {
                       if (blockEntry.profileLayerId != entry.layer.id) continue;
-                      _enabledByBlockId[blockEntry.block.id] =
-                          targetLayerId.isNotEmpty &&
-                              blockEntry.selectedByDefault;
+                      final termIds = _termIdsByBlockId[blockEntry.block.id] ??
+                          const <String>{};
+                      final canWrite = blockEntry.status !=
+                              RoleMappingApplyPreviewStatus.same &&
+                          blockEntry.status !=
+                              RoleMappingApplyPreviewStatus.unmatched &&
+                          termIds.isNotEmpty;
+                      _setMappingEntryEnabled(
+                        blockEntry,
+                        targetLayerId.isNotEmpty && canWrite,
+                      );
                     }
+                    _applyError = null;
                   });
                 },
               ),
@@ -1142,7 +1313,8 @@ class _RoleMappingProfileApplyDialogState
               onChanged: targetLayerReady && selectedIds.isNotEmpty
                   ? (value) {
                       setState(() {
-                        _enabledByBlockId[entry.block.id] = value ?? false;
+                        _setMappingEntryEnabled(entry, value ?? false);
+                        _applyError = null;
                       });
                     }
                   : null,
@@ -1271,10 +1443,41 @@ class _RoleMappingProfileApplyDialogState
           _termIdsByBlockId[entry.block.id] = selectedIds;
           if (selectedIds.isEmpty) {
             _enabledByBlockId[entry.block.id] = false;
+          } else if (_enabledByBlockId[entry.block.id] == true) {
+            _setMappingEntryEnabled(entry, true);
           }
+          _applyError = null;
         });
       },
     );
+  }
+
+  void _setMappingEntryEnabled(
+    RoleMappingApplyPreviewEntry entry,
+    bool enabled,
+  ) {
+    if (!enabled) {
+      _enabledByBlockId[entry.block.id] = false;
+      return;
+    }
+    final selectedTermIds =
+        _termIdsByBlockId[entry.block.id] ?? const <String>{};
+    if (selectedTermIds.isEmpty) {
+      _enabledByBlockId[entry.block.id] = false;
+      return;
+    }
+    for (final other in widget.preview.entries) {
+      if (other.block.id == entry.block.id ||
+          _enabledByBlockId[other.block.id] != true) {
+        continue;
+      }
+      final otherTermIds =
+          _termIdsByBlockId[other.block.id] ?? const <String>{};
+      if (otherTermIds.any(selectedTermIds.contains)) {
+        _enabledByBlockId[other.block.id] = false;
+      }
+    }
+    _enabledByBlockId[entry.block.id] = true;
   }
 
   Widget _buildPassiveEntryGroup(
@@ -1343,23 +1546,23 @@ class _RoleMappingProfileApplyDialogState
     ];
     setState(() => _saving = true);
     try {
-      await widget.viewModel.applyRoleMappingProfile(
+      final changed = await widget.viewModel.applyRoleMappingProfile(
         profileId: widget.profile.id,
         sourceRoleId: widget.sourceRoleId,
         selections: selections,
         applyIdentity: _applyIdentity,
+        linkProfile: _linkProfile,
         layerSelections: layerSelections,
       );
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-            content: Text(
-              '已应用“${widget.profile.name}”，后续调整会自动同步',
-            ),
-          ),
-        );
-        Navigator.of(context).pop(true);
+      if (!mounted) return;
+      if (!changed) {
+        setState(() {
+          _saving = false;
+          _applyError = '当前选择没有改变任何内容。请重新选择分层或映射组后再复制。';
+        });
+        return;
       }
+      Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) {
         setState(() => _saving = false);
@@ -2085,7 +2288,7 @@ PromptTagDisplay _profilePromptDisplay(
     text: text,
     emptyText: emptyText,
     dense: true,
-    defaultTranslated: false,
+    defaultTranslated: true,
     enableTagActions: enableTagActions,
     initialLayoutMode: PromptTagLayoutMode.sourceOrder,
     respectInitialLayoutMode: true,

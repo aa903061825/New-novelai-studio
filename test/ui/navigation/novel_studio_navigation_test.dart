@@ -8,6 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+// Drag-and-drop uses this transitive channel in desktop widget tests.
+// ignore: depend_on_referenced_packages
+import 'package:irondash_message_channel/irondash_message_channel.dart';
+// ignore: depend_on_referenced_packages, implementation_imports
+import 'package:super_native_extensions/src/native/context.dart';
 import 'package:novel_studio/data/models/command_status.dart';
 import 'package:novel_studio/data/models/param_config.dart';
 import 'package:novel_studio/data/models/payload_config.dart';
@@ -353,6 +358,23 @@ class _FakeWorkspaceService extends WorkspaceService {
   Future<void> saveRecastScriptCaches(List<RecastScriptCache> caches) async {
     this.caches = List.unmodifiable(caches);
   }
+
+  @override
+  Future<void> removeRecastScriptCachesMatching({
+    required String scriptId,
+    required String scriptName,
+    required String sourceRootPath,
+  }) async {
+    String normalize(String value) => value
+        .trim()
+        .replaceAll('\\', '/')
+        .replaceFirst(RegExp(r'/+$'), '')
+        .toLowerCase();
+    caches = List.unmodifiable(caches.where((cache) =>
+        cache.scriptId != scriptId &&
+        cache.scriptName != scriptName &&
+        normalize(cache.sourceRootPath) != normalize(sourceRootPath)));
+  }
 }
 
 class _FakeProductionQueueService extends ProductionQueueService {
@@ -374,6 +396,38 @@ class _FakeProductionQueueService extends ProductionQueueService {
   Future<List<ProductionPlan>> loadPlansReadOnly() async {
     readOnlyLoadCount += 1;
     return plans;
+  }
+
+  @override
+  Future<List<ProductionPlan>> loadPlansForScriptExhibition() {
+    return loadPlansReadOnly();
+  }
+
+  @override
+  Future<List<ProductionPlan>> loadPlansForQueue() {
+    return loadPlansReadOnly();
+  }
+
+  @override
+  Future<ProductionPlan?> loadPlanReadOnly(String planId) async {
+    for (final plan in plans) {
+      if (plan.id == planId) return plan;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> savePlanChanges({
+    required Iterable<ProductionPlan> updatedPlans,
+    required Iterable<String> deletedPlanIds,
+  }) async {
+    final updates = {for (final plan in updatedPlans) plan.id: plan};
+    final deleted = deletedPlanIds.toSet();
+    plans = [
+      for (final plan in plans)
+        if (!deleted.contains(plan.id)) updates.remove(plan.id) ?? plan,
+      ...updates.values.where((plan) => !deleted.contains(plan.id)),
+    ];
   }
 
   @override
@@ -542,6 +596,16 @@ void main() {
 
   setUpAll(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('dev.irondash.engine_context'),
+      (call) async => call.method == 'getEngineHandle' ? 1 : null,
+    );
+    final channelContext = superNativeExtensionsContext;
+    if (channelContext is MockMessageChannelContext) {
+      channelContext.registerMockMethodCallHandler('DropManager', (_) => null);
+      channelContext.registerMockMethodCallHandler('DragManager', (_) => null);
+    }
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_sharedPreferencesChannel, (call) async {
       if (call.method == 'getAll') return <String, Object>{};
       return true;
@@ -610,7 +674,33 @@ void main() {
 
   tearDownAll(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('dev.irondash.engine_context'),
+      null,
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_sharedPreferencesChannel, null);
+  });
+
+  testWidgets('back navigation returns through previously visited sections',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('studio-nav-assets')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('studio-nav-settings')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('studio-back-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AssetLibraryPage), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('studio-back-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-hero-reveal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('studio-back-button')), findsNothing);
   });
 
   testWidgets('navigation exposes the studio product areas', (tester) async {
@@ -1218,7 +1308,7 @@ void main() {
   });
 
   testWidgets(
-      'script exhibition re-entry from batch returns to the script shelf',
+      'script exhibition re-entry preserves detail and back returns to shelf',
       (tester) async {
     tester.view.physicalSize = const Size(1320, 980);
     tester.view.devicePixelRatio = 1;
@@ -1296,6 +1386,9 @@ void main() {
     page = tester.widget<ScriptExhibitionRoomPage>(
       find.byType(ScriptExhibitionRoomPage).first,
     );
+    expect(page.viewModel.selectedScript?.scriptId, 'script-1');
+    await tester.tap(find.byKey(const ValueKey('studio-back-button')));
+    await tester.pumpAndSettle();
     expect(page.viewModel.selectedScript, isNull);
     expect(
       find.byKey(const ValueKey('script-exhibition-script-card-script-1')),
@@ -1561,12 +1654,12 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final outputDirectory = await Directory.systemTemp.createTemp(
+    final outputDirectory = Directory.systemTemp.createTempSync(
       'script-exhibition-live-production-',
     );
-    addTearDown(() async {
-      if (await outputDirectory.exists()) {
-        await outputDirectory.delete(recursive: true);
+    addTearDown(() {
+      if (outputDirectory.existsSync()) {
+        outputDirectory.deleteSync(recursive: true);
       }
     });
     final productionService = _FakeProductionQueueService([
@@ -1600,7 +1693,7 @@ void main() {
     await GetIt.I.unregister<ProductionQueueViewModel>();
     GetIt.I.registerSingleton<ProductionQueueViewModel>(batchViewModel);
 
-    await tester.pumpWidget(_buildNavigationApp());
+    await tester.pumpWidget(_buildStudioShellApp());
     await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const ValueKey('studio-nav-scriptExhibition')).first,
@@ -1624,7 +1717,24 @@ void main() {
     );
     expect(productionImage, findsNothing);
 
-    await batchViewModel.start();
+    // Image writing and the debounced refresh run on the real event loop.
+    final exhibition = tester
+        .widget<ScriptExhibitionRoomPage>(
+          find.byType(ScriptExhibitionRoomPage),
+        )
+        .viewModel;
+    await tester.runAsync(() async {
+      await batchViewModel.start();
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!exhibition.snapshot.scripts.any((script) => script.items.any(
+            (item) => item.imagePath.startsWith(outputDirectory.path),
+          ))) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('Completed batch image was not published to exhibition');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    });
     await tester.pump(const Duration(milliseconds: 120));
     await tester.pumpAndSettle();
 
@@ -1853,6 +1963,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     await tester.pump(const Duration(milliseconds: 120));
+    await tester.pumpAndSettle();
 
     expect(productionService.plans.single.tasks, hasLength(2));
     expect(

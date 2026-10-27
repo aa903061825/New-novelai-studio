@@ -39,16 +39,9 @@ Future<void> main(List<String> arguments) async {
     _jsonObject(profileFile.readAsStringSync()),
   );
   final profiles = <RoleMappingProfile>[];
-  for (final targetId in options.targetIds) {
-    final matches = profileLibrary.profiles
-        .where((profile) => profile.targetCharacterId == targetId)
-        .toList(growable: false);
-    if (matches.length != 1) {
-      throw StateError(
-        'Expected one global profile for $targetId, found ${matches.length}.',
-      );
-    }
-    final profile = matches.single;
+  final selectedProfileIds = <String>{};
+  void addProfile(RoleMappingProfile profile) {
+    if (!selectedProfileIds.add(profile.id)) return;
     if (profile.targetIdentityPrompt.trim().isEmpty ||
         profile.effectiveLayers.isEmpty ||
         !profile.blocks.any((block) => block.hasEffect)) {
@@ -56,14 +49,48 @@ Future<void> main(List<String> arguments) async {
     }
     profiles.add(profile);
   }
-  final profileIds =
-      profiles.map((profile) => profile.targetCharacterId).toSet();
+
+  for (final profileId in options.profileIds) {
+    final matches = profileLibrary.profiles
+        .where((profile) => profile.id == profileId)
+        .toList(growable: false);
+    if (matches.length != 1) {
+      throw StateError(
+        'Expected one global profile for id $profileId, found ${matches.length}.',
+      );
+    }
+    addProfile(matches.single);
+  }
+  for (final targetId in options.targetIds) {
+    final matches = profileLibrary.profiles
+        .where((profile) => profile.targetCharacterId == targetId)
+        .toList(growable: false);
+    final profile = _profileForTargetId(targetId, matches);
+    if (profile == null) {
+      throw StateError(
+        'Expected one global profile for $targetId, found ${matches.length}.',
+      );
+    }
+    addProfile(profile);
+  }
+  final selectedTargetIds = profiles
+      .map((profile) => profile.targetCharacterId)
+      .whereType<String>()
+      .toSet();
   final unknownRefreshIds = options.refreshTargetIds
-      .where((id) => !profileIds.contains(id))
+      .where((id) => !selectedTargetIds.contains(id))
       .toList(growable: false);
   if (unknownRefreshIds.isNotEmpty) {
     throw StateError(
       'Refresh targets are not in the selected profiles: ${unknownRefreshIds.join(', ')}',
+    );
+  }
+  final unknownRefreshProfileIds = options.refreshProfileIds
+      .where((id) => !selectedProfileIds.contains(id))
+      .toList(growable: false);
+  if (unknownRefreshProfileIds.isNotEmpty) {
+    throw StateError(
+      'Refresh profile ids are not selected: ${unknownRefreshProfileIds.join(', ')}',
     );
   }
 
@@ -118,9 +145,31 @@ Future<void> main(List<String> arguments) async {
       }
     }
 
+    final baseMapping = cache.mapping;
+    final linkedProfileIds = {
+      for (final replacement in baseMapping.rolePromptReplacements)
+        if (replacement.activeMappingProfileId?.trim().isNotEmpty == true)
+          replacement.activeMappingProfileId!.trim(),
+    };
+    // Every profile selected for this offline run is intentionally eligible
+    // for every matched script.  The old code only treated --profile-id as an
+    // explicit selection, so the default --target-id profiles were generated
+    // only for scripts that already happened to link them.  That left entire
+    // scripts without script-specific character mapping variants.
+    final explicitlySelectedProfileIds = {
+      ...options.profileIds,
+      ...profiles.map((profile) => profile.id),
+    };
+    bool isEligibleProfile(RoleMappingProfile profile) {
+      return linkedProfileIds.contains(profile.id) ||
+          explicitlySelectedProfileIds.contains(profile.id);
+    }
+
     final missingProfiles = [
       for (final profile in profiles)
-        if (!existingIds.contains('auto-global-profile-${profile.id}')) profile,
+        if (isEligibleProfile(profile) &&
+            !existingIds.contains('auto-global-profile-${profile.id}'))
+          profile,
     ];
     for (final profile in missingProfiles) {
       missingBefore.add({
@@ -131,7 +180,8 @@ Future<void> main(List<String> arguments) async {
     }
     for (final profile in profiles) {
       final variantId = 'auto-global-profile-${profile.id}';
-      if (options.refreshTargetIds.contains(profile.targetCharacterId) &&
+      if (isEligibleProfile(profile) &&
+          _isProfileRefreshSelected(options, profile) &&
           existingIds.contains(variantId)) {
         refreshedBefore.add({
           'file': file.path,
@@ -142,41 +192,80 @@ Future<void> main(List<String> arguments) async {
     }
     final profilesToGenerate = [
       for (final profile in profiles)
-        if (options.refreshTargetIds.contains(profile.targetCharacterId) ||
-            !existingIds.contains('auto-global-profile-${profile.id}'))
+        if (isEligibleProfile(profile) &&
+            (_isProfileRefreshSelected(options, profile) ||
+                !existingIds.contains('auto-global-profile-${profile.id}')))
           profile,
     ];
-    if (profilesToGenerate.isEmpty) {
+    final selectedAutoVariantIds = {
+      for (final profile in profiles) 'auto-global-profile-${profile.id}',
+    };
+    final staleSelectedVariantIds = {
+      for (final variant in existingRawVariants)
+        if (selectedAutoVariantIds.contains(_stringValue(variant['id'])) &&
+            !linkedProfileIds.contains(
+              _stringValue(variant['id']).substring(
+                'auto-global-profile-'.length,
+              ),
+            ) &&
+            !explicitlySelectedProfileIds.contains(
+              _stringValue(variant['id']).substring(
+                'auto-global-profile-'.length,
+              ),
+            ))
+          _stringValue(variant['id']),
+    };
+    if (profilesToGenerate.isEmpty && staleSelectedVariantIds.isEmpty) {
       variantsAfter += existingRawVariants.length;
       continue;
     }
 
-    final baseMapping = cache.mapping;
     final generated = <Map<String, dynamic>>[];
     final generatedDetails = <Map<String, dynamic>>[];
     final capturedAt = DateTime.now().toUtc();
     for (final indexed in profilesToGenerate.indexed) {
       final profile = indexed.$2;
       final variantId = 'auto-global-profile-${profile.id}';
-      final isRefresh =
-          options.refreshTargetIds.contains(profile.targetCharacterId) &&
-              existingIds.contains(variantId);
+      final isRefresh = _isProfileRefreshSelected(options, profile) &&
+          existingIds.contains(variantId);
       final applicableProfile = profile.targetCharacterId != null &&
               !characterIds.contains(profile.targetCharacterId)
           ? profile.copyWith(targetCharacterId: null)
           : profile;
+      // A cache may currently have the same global profile selected as its
+      // active mapping. Rebase that input before refreshing the profile;
+      // otherwise removed/renamed profile blocks can leak into the refreshed
+      // variant and the refresh is no longer idempotent.
+      final mappingBase = _mappingRebasedFromSelectedProfiles(
+        baseMapping,
+        profiles,
+      );
       final rolePromptReplacements = <ScriptRolePromptReplacement>[];
       var selectedEntryCount = 0;
       var selectedTermCount = 0;
       var effectiveRuleCount = 0;
       var beforeEffectiveRuleCount = 0;
-      for (final replacement in baseMapping.rolePromptReplacements) {
+      for (final replacement in mappingBase.rolePromptReplacements) {
         beforeEffectiveRuleCount +=
             replacement.rules.where((rule) => rule.hasEffect).length;
+        final assembly = _assemblyForRole(
+          mappingBase,
+          replacement.sourceRoleId,
+        );
+        final shouldApplyProfile =
+            explicitlySelectedProfileIds.contains(profile.id) ||
+                replacement.activeMappingProfileId?.trim() == profile.id.trim();
+        if (!shouldApplyProfile ||
+            !_profileCanApplyToRole(profile, replacement, assembly)) {
+          rolePromptReplacements.add(replacement);
+          effectiveRuleCount +=
+              replacement.rules.where((rule) => rule.hasEffect).length;
+          continue;
+        }
         final preview = profileService.buildPreview(
           profile: applicableProfile,
           replacement: replacement,
-          assembly: _assemblyForRole(baseMapping, replacement.sourceRoleId),
+          assembly: assembly,
         );
         final selections = [
           for (final entry in preview.entries)
@@ -189,12 +278,22 @@ Future<void> main(List<String> arguments) async {
         selectedEntryCount += selections.length;
         selectedTermCount += selections.fold<int>(
             0, (sum, selection) => sum + selection.termIds.length);
-        final nextReplacement = profileService.applySelections(
+        final appliedReplacement = profileService.applySelections(
           profile: applicableProfile,
           replacement: replacement,
           selections: selections,
           applyIdentity: true,
-          assembly: _assemblyForRole(baseMapping, replacement.sourceRoleId),
+          linkProfile: true,
+          assembly: assembly,
+        );
+        final materializedReplacement =
+            profileService.materializeTargetIdentityReplacement(
+          appliedReplacement,
+        );
+        final nextReplacement = profileService.deduplicateTargetOutputs(
+          materializedReplacement,
+          forbiddenTarget:
+              profile.id == 'profile-legacy-character-sheet-r24' ? '果宝' : '',
         );
         effectiveRuleCount +=
             nextReplacement.rules.where((rule) => rule.hasEffect).length;
@@ -202,7 +301,7 @@ Future<void> main(List<String> arguments) async {
       }
       final mapping = RecastMapping.fromJson(
         Map<String, dynamic>.from(
-          baseMapping
+          mappingBase
               .copyWith(
                 rolePromptReplacements:
                     List.unmodifiable(rolePromptReplacements),
@@ -213,7 +312,8 @@ Future<void> main(List<String> arguments) async {
       final targetName = _targetName(profile);
       final namesByRoleId = <String, String>{
         for (final replacement in mapping.rolePromptReplacements)
-          replacement.sourceRoleId: targetName,
+          if (replacement.activeMappingProfileId?.trim() == profile.id.trim())
+            replacement.sourceRoleId: targetName,
       };
       final variant = RecastMappingVariant(
         id: variantId,
@@ -242,10 +342,17 @@ Future<void> main(List<String> arguments) async {
         'effectiveRulesBefore': beforeEffectiveRuleCount,
         'effectiveRulesAfter': effectiveRuleCount,
         'identityPromptHasWolfEars': targetName == '洛茜'
-            ? mapping.rolePromptReplacements.every(
-                (replacement) =>
-                    replacement.targetIdentityPrompt.contains('wolf_ears'),
-              )
+            ? mapping.rolePromptReplacements
+                .where(
+                  (replacement) =>
+                      explicitlySelectedProfileIds.contains(profile.id) ||
+                      replacement.activeMappingProfileId?.trim() ==
+                          profile.id.trim(),
+                )
+                .every(
+                  (replacement) =>
+                      replacement.targetIdentityPrompt.contains('wolf_ears'),
+                )
             : null,
       });
     }
@@ -255,13 +362,19 @@ Future<void> main(List<String> arguments) async {
     };
     final nextVariants = <Map<String, dynamic>>[
       for (final variant in existingRawVariants)
-        generatedById[_stringValue(variant['id'])] ?? variant,
+        if (!staleSelectedVariantIds.contains(_stringValue(variant['id'])))
+          generatedById[_stringValue(variant['id'])] ?? variant,
       for (final profile in profilesToGenerate)
         if (!existingIds.contains('auto-global-profile-${profile.id}'))
           generatedById['auto-global-profile-${profile.id}']!,
     ];
     final nextRaw = Map<String, dynamic>.from(raw);
     nextRaw['mappingVariants'] = nextVariants;
+    if (staleSelectedVariantIds.contains(
+      _stringValue(raw['activeMappingVariantId']),
+    )) {
+      nextRaw['activeMappingVariantId'] = null;
+    }
     final nextVariantCount = nextVariants.length;
     variantsAfter += nextVariantCount;
     filesWithChanges.add(file.path);
@@ -297,7 +410,10 @@ Future<void> main(List<String> arguments) async {
     'profile_file': profileFile.path,
     'character_library': characterLibraryFile.path,
     'target_ids': options.targetIds,
+    'profile_ids': options.profileIds,
     'refresh_target_ids': options.refreshTargetIds,
+    'refresh_profile_ids': options.refreshProfileIds,
+    'selected_profile_ids': profiles.map((profile) => profile.id).toList(),
     'target_names': profiles.map(_targetName).toList(growable: false),
     'files_scanned': files.length,
     'files_matched': filesMatched,
@@ -347,6 +463,28 @@ String _targetName(RoleMappingProfile profile) {
   return snapshot.isEmpty ? profile.name.trim() : snapshot;
 }
 
+RoleMappingProfile? _profileForTargetId(
+  String targetId,
+  List<RoleMappingProfile> matches,
+) {
+  if (matches.length == 1) return matches.single;
+  if (targetId == 'legacy-character-sheet-r14') {
+    final legacy = matches
+        .where((profile) => profile.name == '佩佩（无兜帽）')
+        .toList(growable: false);
+    if (legacy.length == 1) return legacy.single;
+  }
+  return null;
+}
+
+bool _isProfileRefreshSelected(
+  _Options options,
+  RoleMappingProfile profile,
+) {
+  return options.refreshTargetIds.contains(profile.targetCharacterId) ||
+      options.refreshProfileIds.contains(profile.id);
+}
+
 Set<String> _characterIds(Object? raw) {
   final values = raw is List
       ? raw
@@ -372,6 +510,55 @@ List<Map<String, dynamic>> _rawVariantList(Object? value) {
     for (final entry in value)
       if (entry is Map) Map<String, dynamic>.from(entry),
   ];
+}
+
+RecastMapping _mappingRebasedFromSelectedProfiles(
+  RecastMapping mapping,
+  Iterable<RoleMappingProfile> profiles,
+) {
+  final profileIds = {
+    for (final profile in profiles)
+      if (profile.id.trim().isNotEmpty) profile.id.trim(),
+  };
+  final targetCharacterIds = {
+    for (final profile in profiles)
+      if (profile.targetCharacterId?.trim().isNotEmpty == true)
+        profile.targetCharacterId!.trim(),
+  };
+  if (profileIds.isEmpty && targetCharacterIds.isEmpty) return mapping;
+  var changed = false;
+  final replacements = <ScriptRolePromptReplacement>[];
+  for (final replacement in mapping.rolePromptReplacements) {
+    if (profileIds.contains(replacement.activeMappingProfileId?.trim()) ||
+        targetCharacterIds.contains(replacement.targetCharacterId?.trim())) {
+      changed = true;
+      replacements.add(
+        replacement.copyWith(
+          targetCharacterId: null,
+          targetIdentityPrompt: '',
+          activeMappingProfileId: null,
+          rules: List.unmodifiable([
+            for (final rule in replacement.rules)
+              rule.copyWith(
+                action: rule.action == ScriptPromptReplacementAction.delete
+                    ? ScriptPromptReplacementAction.delete
+                    : ScriptPromptReplacementAction.none,
+                targetPrompt: '',
+                targetWeightMultiplier: null,
+                manualPhrase: '',
+              ),
+          ]),
+        ),
+      );
+    } else {
+      replacements.add(replacement);
+    }
+  }
+  return changed
+      ? mapping.copyWith(
+          rolePromptReplacements: List.unmodifiable(replacements),
+        )
+      : mapping;
 }
 
 Map<String, dynamic> _jsonObject(String text) {
@@ -400,6 +587,42 @@ bool _isUnderSourceRoot(String value, String root) {
   return current == root || current.startsWith('$root/');
 }
 
+bool _profileCanApplyToRole(
+  RoleMappingProfile profile,
+  ScriptRolePromptReplacement replacement,
+  RoleAssembly? assembly,
+) {
+  if (assembly == null ||
+      !assembly.sourceAppearances.any(
+        (appearance) =>
+            appearance.sourceKind.trim().toLowerCase() != 'base' &&
+            appearance.sourceId.trim().toLowerCase() != 'base',
+      )) {
+    return false;
+  }
+  final targetText =
+      '${profile.name} ${profile.targetIdentityPrompt}'.toLowerCase();
+  final targetLooksMale = RegExp(
+    r'\b(?:male|man|boy|boys|guy|shota|father|husband)\b|男性|男孩|男人',
+  ).hasMatch(targetText);
+  if (targetLooksMale) return true;
+
+  final identityTerms = [
+    for (final rule in replacement.rules)
+      for (final term in rule.sourceTerms)
+        if (term.category.name == 'character') term.text,
+  ];
+  final sourceText = [
+    replacement.sourceRoleId,
+    replacement.displayLabel,
+    replacement.sourcePreview,
+    ...identityTerms,
+  ].join(' ').toLowerCase();
+  return !RegExp(
+    r'\b(?:anonymous[-_ ]?male|muscular[-_ ]?male|black[-_ ]?man|fat[-_ ]?man|male|man|boy|boys|guy|shota|father|husband|sensei|teacher|commander|doodle|yuuki|caelus)\b|男性|男孩|男人|老师|教师|指挥官',
+  ).hasMatch(sourceText);
+}
+
 class _Options {
   final String cacheDirectory;
   final String sourceRoot;
@@ -408,7 +631,9 @@ class _Options {
   final String reportFile;
   final String backupDirectory;
   final List<String> targetIds;
+  final List<String> profileIds;
   final List<String> refreshTargetIds;
+  final List<String> refreshProfileIds;
   final bool apply;
 
   const _Options({
@@ -419,7 +644,9 @@ class _Options {
     required this.reportFile,
     required this.backupDirectory,
     required this.targetIds,
+    required this.profileIds,
     required this.refreshTargetIds,
+    required this.refreshProfileIds,
     required this.apply,
   });
 }
@@ -432,7 +659,9 @@ _Options _parseArgs(List<String> arguments) {
   String? reportFile;
   String? backupDirectory;
   final targetIds = <String>[];
+  final profileIds = <String>[];
   final refreshTargetIds = <String>[];
+  final refreshProfileIds = <String>[];
   var apply = false;
   for (var index = 0; index < arguments.length; index += 1) {
     final argument = arguments[index];
@@ -458,8 +687,12 @@ _Options _parseArgs(List<String> arguments) {
         backupDirectory = value;
       case 'target-id':
         targetIds.add(value);
+      case 'profile-id':
+        profileIds.add(value);
       case 'refresh-target-id':
         refreshTargetIds.add(value);
+      case 'refresh-profile-id':
+        refreshProfileIds.add(value);
     }
   }
   if (cacheDirectory == null ||
@@ -482,8 +715,11 @@ _Options _parseArgs(List<String> arguments) {
     characterLibrary: characterLibrary,
     reportFile: reportFile,
     backupDirectory: backupDirectory ?? '',
-    targetIds: targetIds.isEmpty ? _defaultTargetIds : targetIds,
+    targetIds:
+        targetIds.isEmpty && profileIds.isEmpty ? _defaultTargetIds : targetIds,
+    profileIds: profileIds,
     refreshTargetIds: refreshTargetIds,
+    refreshProfileIds: refreshProfileIds,
     apply: apply,
   );
 }

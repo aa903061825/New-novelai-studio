@@ -238,6 +238,9 @@ void main(List<String> args) async {
       loadRecastCaches: workspaceService.loadRecastScriptCaches,
       saveRecastCaches: workspaceService.saveRecastScriptCaches,
       loadRecastCacheByScriptId: workspaceService.loadRecastScriptCache,
+      recastCacheChanges: workspaceService.root == null
+          ? null
+          : workspaceService.watchRecastScriptCacheChanges(),
       restoreRecastCacheSnapshotByScriptId:
           workspaceService.restoreRecastScriptCacheSnapshot,
       saveRecastCache: workspaceService.saveRecastScriptCache,

@@ -54,7 +54,6 @@ Command<void, InfoCardContent> _commandWithSavedImage(String imagePath) {
     title: 'saved.png',
     info: 'prompt',
     additionalInfo: const {},
-    imageBytes: _squarePngBytes(),
     imagePath: imagePath,
   );
   return Command.createAsyncNoParam(
@@ -194,6 +193,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('generated-info-card-image-frame')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byType(InfoCard));
     await tester.pump();

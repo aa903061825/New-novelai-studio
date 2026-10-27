@@ -24,6 +24,7 @@ class StudioGalleryCreativeSummary {
 }
 
 class StudioGalleryService {
+  static final Map<String, Future<void>> _pendingRecordMutations = {};
   final WorkspaceService workspaceService;
   final StudioGalleryResolvePicturePath? resolvePictureSavePath;
 
@@ -115,8 +116,7 @@ class StudioGalleryService {
       additionalInfo: additionalInfo,
       lineage: lineage,
     );
-    final records = await loadRecords();
-    await saveRecords([record, ...records]);
+    await _prependRecord(record);
     return record;
   }
 
@@ -149,8 +149,7 @@ class StudioGalleryService {
         parameters: parameters,
       ),
     );
-    final records = await loadRecords();
-    await saveRecords([record, ...records]);
+    await _prependRecord(record);
     return record;
   }
 
@@ -175,38 +174,100 @@ class StudioGalleryService {
       provenance: provenance,
       additionalInfo: additionalInfo,
     );
-    final records = await loadRecords();
-    await saveRecords([record, ...records]);
+    await _prependRecord(record);
     return record;
   }
 
-  Future<void> saveRecords(List<StudioGalleryRecord> records) async {
-    final file = _recordsFile();
-    await file.parent.create(recursive: true);
-    const encoder = JsonEncoder.withIndent('  ');
-    await file.writeAsString(
-      '${encoder.convert(records.map((record) => record.toJson()).toList())}\n',
-    );
+  Future<void> saveRecords(List<StudioGalleryRecord> records) {
+    return _mutateRecords(() => _saveRecordsNow(records));
+  }
+
+  /// Updates existing records without replacing unrelated or newer records.
+  /// A deleted record is never resurrected from a stale organization preview.
+  Future<void> mergeImagePaths(List<StudioGalleryRecord> updates) {
+    final updatesById = {for (final record in updates) record.id: record};
+    return _mutateRecords(() async {
+      final current = await loadRecords();
+      await _saveRecordsNow([
+        for (final record in current)
+          if (updatesById[record.id] case final update?)
+            _mergeImagePaths(record, update)
+          else
+            record,
+      ]);
+    });
+  }
+
+  StudioGalleryRecord _mergeImagePaths(
+    StudioGalleryRecord current,
+    StudioGalleryRecord update,
+  ) {
+    final json = current.toJson();
+    json['imagePath'] = update.imagePath;
+    final provenance = current.provenance;
+    final outputPath = update.provenance?.outputImagePath;
+    if (provenance != null && outputPath != null) {
+      final updatedProvenance = provenance.toJson()
+        ..['outputImagePath'] = outputPath;
+      json['provenance'] = updatedProvenance;
+      final info = Map<String, dynamic>.from(current.additionalInfo);
+      if (info.containsKey('provenance')) {
+        info['provenance'] = updatedProvenance;
+      }
+      json['additionalInfo'] = info;
+    }
+    return StudioGalleryRecord.fromJson(json);
+  }
+
+  Future<void> _prependRecord(StudioGalleryRecord record) {
+    return _mutateRecords(() async {
+      final records = await loadRecords();
+      await _saveRecordsNow([
+        record,
+        ...records.where((existing) => existing.id != record.id),
+      ]);
+    });
+  }
+
+  Future<void> _saveRecordsNow(List<StudioGalleryRecord> records) {
+    return workspaceService.saveGalleryRecordData([
+      for (final record in records) record.toJson(),
+    ]);
+  }
+
+  Future<void> _mutateRecords(Future<void> Function() action) {
+    final path = _recordsFile().absolute.path;
+    final key = Platform.isWindows ? path.toLowerCase() : path;
+    final previous = _pendingRecordMutations[key] ?? Future<void>.value();
+    final next = previous.catchError((Object _) {}).then((_) => action());
+    _pendingRecordMutations[key] = next;
+    return next.whenComplete(() {
+      if (identical(_pendingRecordMutations[key], next)) {
+        _pendingRecordMutations.remove(key);
+      }
+    });
   }
 
   Future<void> removeRecord(
     String id, {
     bool deleteImageFile = false,
-  }) async {
-    final records = await loadRecords();
-    StudioGalleryRecord? removedRecord;
-    final remainingRecords = <StudioGalleryRecord>[];
-    for (final record in records) {
-      if (record.id == id) {
-        removedRecord ??= record;
-      } else {
-        remainingRecords.add(record);
+  }) {
+    return _mutateRecords(() async {
+      final records = await loadRecords();
+      StudioGalleryRecord? removedRecord;
+      final remainingRecords = <StudioGalleryRecord>[];
+      for (final record in records) {
+        if (record.id == id) {
+          removedRecord ??= record;
+        } else {
+          remainingRecords.add(record);
+        }
       }
-    }
-    if (deleteImageFile) {
-      await _deleteRecordImageFile(removedRecord);
-    }
-    await saveRecords(remainingRecords);
+      await _saveRecordsNow(remainingRecords);
+      if (deleteImageFile) {
+        await _deleteRecordImageFile(removedRecord);
+      }
+    });
   }
 
   void restoreToWorkbench(

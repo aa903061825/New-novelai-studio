@@ -637,8 +637,8 @@ void main() {
       findsWidgets,
     );
     expect(
-      find.descendant(of: dialog, matching: find.textContaining('3')),
-      findsWidgets,
+      find.descendant(of: dialog, matching: find.textContaining('不删除任何图片')),
+      findsOneWidget,
     );
 
     await tester.tap(

@@ -52,7 +52,7 @@ class GenerationPageView extends StatelessWidget {
   }
 }
 
-class _WorkbenchLayout extends StatelessWidget {
+class _WorkbenchLayout extends StatefulWidget {
   final GenerationPageViewmodel viewmodel;
   final WorkbenchTransferViewModel? transferViewModel;
   final StudioWorkbenchAssetService assetService;
@@ -66,7 +66,43 @@ class _WorkbenchLayout extends StatelessWidget {
   });
 
   @override
+  State<_WorkbenchLayout> createState() => _WorkbenchLayoutState();
+}
+
+class _WorkbenchLayoutState extends State<_WorkbenchLayout> {
+  late WorkbenchSingleImageParametersViewmodel _parametersViewmodel;
+
+  @override
+  void initState() {
+    super.initState();
+    _parametersViewmodel = WorkbenchSingleImageParametersViewmodel(
+      widget.viewmodel.payloadConfig,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _WorkbenchLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewmodel.payloadConfig != widget.viewmodel.payloadConfig) {
+      _parametersViewmodel.dispose();
+      _parametersViewmodel = WorkbenchSingleImageParametersViewmodel(
+        widget.viewmodel.payloadConfig,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _parametersViewmodel.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final viewmodel = widget.viewmodel;
+    final transferViewModel = widget.transferViewModel;
+    final assetService = widget.assetService;
+    final catalogService = widget.catalogService;
     return LayoutBuilder(
       builder: (context, constraints) {
         final drawer = WorkbenchAssetDrawer(
@@ -74,9 +110,7 @@ class _WorkbenchLayout extends StatelessWidget {
           workbenchAssetService: assetService,
         );
         final composer = PromptComposerPanel(service: assetService);
-        final parametersViewmodel = WorkbenchSingleImageParametersViewmodel(
-          viewmodel.payloadConfig,
-        );
+        final parametersViewmodel = _parametersViewmodel;
         final creativeInputs = WorkbenchCreativeInputsPanel(
           parametersViewmodel: parametersViewmodel,
         );
@@ -86,22 +120,94 @@ class _WorkbenchLayout extends StatelessWidget {
           parametersViewmodel: parametersViewmodel,
           workbenchAssetService: assetService,
           transferViewModel: transferViewModel,
+          showExecutionControls: constraints.maxWidth >= 1180,
         );
 
+        if (constraints.maxWidth < 820) {
+          return DefaultTabController(
+            length: 3,
+            child: Padding(
+              key: const ValueKey('workbench-compact-layout'),
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  Row(children: [
+                    Expanded(child: _assetButton(context, drawer)),
+                  ]),
+                  const TabBar(tabs: [
+                    Tab(text: '画面输入'),
+                    Tab(text: '出图参数'),
+                    Tab(text: '生成结果'),
+                  ]),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(children: [
+                      Column(children: [
+                        Expanded(flex: 2, child: composer),
+                        const SizedBox(height: 12),
+                        Expanded(flex: 3, child: creativeInputs),
+                      ]),
+                      WorkbenchSingleImageConsole(
+                        generationViewmodel: viewmodel,
+                        parametersViewmodel: parametersViewmodel,
+                        workbenchAssetService: assetService,
+                        transferViewModel: transferViewModel,
+                        showExecutionControls: false,
+                      ),
+                      generation,
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                  WorkbenchGenerationActions(
+                    key: const ValueKey('workbench-pinned-generation-actions'),
+                    generationViewmodel: viewmodel,
+                    parametersViewmodel: parametersViewmodel,
+                    workbenchAssetService: assetService,
+                    transferViewModel: transferViewModel,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         if (constraints.maxWidth < 1180) {
-          return ListView(
+          return Padding(
+            key: const ValueKey('workbench-medium-layout'),
             padding: const EdgeInsets.all(12),
-            children: [
-              SizedBox(height: 360, child: drawer),
+            child: Column(children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _assetButton(context, drawer),
+              ),
               const SizedBox(height: 12),
-              SizedBox(height: 300, child: composer),
+              Expanded(
+                  child: Row(children: [
+                Expanded(
+                    flex: 6,
+                    child: Column(children: [
+                      Expanded(flex: 2, child: composer),
+                      const SizedBox(height: 12),
+                      Expanded(flex: 3, child: creativeInputs),
+                    ])),
+                const SizedBox(width: 12),
+                Expanded(
+                    flex: 5,
+                    child: Column(children: [
+                      Expanded(flex: 5, child: console),
+                      const SizedBox(height: 12),
+                      Expanded(flex: 6, child: generation),
+                    ])),
+              ])),
               const SizedBox(height: 12),
-              SizedBox(height: 860, child: creativeInputs),
-              const SizedBox(height: 12),
-              SizedBox(height: 620, child: console),
-              const SizedBox(height: 12),
-              SizedBox(height: 540, child: generation),
-            ],
+              WorkbenchGenerationActions(
+                key: const ValueKey('workbench-pinned-generation-actions'),
+                generationViewmodel: viewmodel,
+                parametersViewmodel: parametersViewmodel,
+                workbenchAssetService: assetService,
+                transferViewModel: transferViewModel,
+              ),
+            ]),
           );
         }
 
@@ -144,6 +250,34 @@ class _WorkbenchLayout extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _assetButton(BuildContext context, Widget drawer) {
+    return OutlinedButton.icon(
+      key: const ValueKey('workbench-open-assets'),
+      icon: const Icon(Icons.inventory_2_outlined),
+      label: const Text('选择素材'),
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          child: SizedBox(
+            width: 520,
+            height: MediaQuery.sizeOf(context).height * 0.8,
+            child: Column(children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: '关闭素材',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              Expanded(child: drawer),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 }

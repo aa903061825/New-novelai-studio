@@ -223,6 +223,8 @@ class RecastMappingVariant {
 }
 
 class RecastScriptCache {
+  static const currentRoleMappingProfileSyncVersion = 1;
+
   final String scriptId;
   final String scriptName;
   final String sourceRootPath;
@@ -241,6 +243,7 @@ class RecastScriptCache {
   final Map<String, dynamic> scriptSnapshot;
   final List<RecastMappingVariant> mappingVariants;
   final String? activeMappingVariantId;
+  final int roleMappingProfileSyncVersion;
 
   const RecastScriptCache({
     required this.scriptId,
@@ -261,6 +264,8 @@ class RecastScriptCache {
     this.scriptSnapshot = const {},
     this.mappingVariants = const [],
     this.activeMappingVariantId,
+    this.roleMappingProfileSyncVersion =
+        currentRoleMappingProfileSyncVersion,
   });
 
   factory RecastScriptCache.fromJson(Map<String, dynamic> json) {
@@ -313,6 +318,8 @@ class RecastScriptCache {
               )
           ? activeMappingVariantId
           : null,
+      roleMappingProfileSyncVersion:
+          (json['roleMappingProfileSyncVersion'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -335,6 +342,7 @@ class RecastScriptCache {
     Map<String, dynamic>? scriptSnapshot,
     List<RecastMappingVariant>? mappingVariants,
     Object? activeMappingVariantId = _unset,
+    int? roleMappingProfileSyncVersion,
   }) {
     return RecastScriptCache(
       scriptId: scriptId ?? this.scriptId,
@@ -362,6 +370,8 @@ class RecastScriptCache {
       activeMappingVariantId: identical(activeMappingVariantId, _unset)
           ? this.activeMappingVariantId
           : activeMappingVariantId as String?,
+      roleMappingProfileSyncVersion: roleMappingProfileSyncVersion ??
+          this.roleMappingProfileSyncVersion,
     );
   }
 
@@ -397,6 +407,7 @@ class RecastScriptCache {
             mappingVariants.map((variant) => variant.toJson()).toList(),
       if (activeMappingVariantId != null)
         'activeMappingVariantId': activeMappingVariantId,
+      'roleMappingProfileSyncVersion': roleMappingProfileSyncVersion,
     };
   }
 }

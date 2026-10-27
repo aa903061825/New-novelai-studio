@@ -76,6 +76,7 @@ class _StudioShellViewState extends State<StudioShellView> {
   bool _skipNextBatchInitialLoad = false;
   final Set<StudioShellSection> _mountedSections = {StudioShellSection.home};
   final Map<StudioShellSection, Widget> _stablePageCache = {};
+  final List<StudioShellSection> _sectionHistory = [];
   DateTime? _lastBackButtonPressTime;
   StudioScriptAssetFocus? _scriptAssetFocus;
   int _scriptAssetFocusNonce = 0;
@@ -152,6 +153,7 @@ class _StudioShellViewState extends State<StudioShellView> {
               _StudioTopBar(
                 currentSection: _currentSection,
                 compact: true,
+                onBack: _canGoBack ? () => _handleBack(false, null) : null,
               ),
               Expanded(child: page),
               _BottomStudioNavigation(
@@ -173,7 +175,10 @@ class _StudioShellViewState extends State<StudioShellView> {
             Expanded(
               child: Column(
                 children: [
-                  _StudioTopBar(currentSection: _currentSection),
+                  _StudioTopBar(
+                    currentSection: _currentSection,
+                    onBack: _canGoBack ? () => _handleBack(false, null) : null,
+                  ),
                   Expanded(child: page),
                 ],
               ),
@@ -397,10 +402,12 @@ class _StudioShellViewState extends State<StudioShellView> {
       recastCacheChanges: workspaceService.root == null
           ? null
           : workspaceService.watchRecastScriptCacheChanges(),
-      loadProductionPlans: GetIt.I<ProductionQueueService>().loadPlansReadOnly,
-      loadGalleryRecords: GetIt.I<StudioGalleryService>().loadRecastRecords,
-      saveProductionPlans: GetIt.I<ProductionQueueService>().savePlans,
-      saveGalleryRecords: GetIt.I<StudioGalleryService>().saveRecords,
+      loadProductionPlans:
+          GetIt.I<ProductionQueueService>().loadPlansForScriptExhibition,
+      loadGalleryRecords: GetIt.I<StudioGalleryService>().loadRecords,
+      saveProductionPlans:
+          GetIt.I<ProductionQueueService>().savePlansForScriptExhibition,
+      saveGalleryRecords: GetIt.I<StudioGalleryService>().mergeImagePaths,
       defaultGeneratedImageRoot: _defaultGeneratedImageRootForScriptExhibition,
       importScriptFolder: _importScriptExhibitionFolder,
       importScriptImages: _importScriptImagesForExhibitionScript,
@@ -506,7 +513,10 @@ class _StudioShellViewState extends State<StudioShellView> {
     return null;
   }
 
-  void _changeSection(StudioShellSection section) {
+  bool get _canGoBack =>
+      _sectionHistory.isNotEmpty || _currentSection != StudioShellSection.home;
+
+  void _changeSection(StudioShellSection section, {bool recordHistory = true}) {
     if (section == _currentSection && section == _pageSection) {
       if (section == StudioShellSection.scriptExhibition) {
         unawaited(_scriptExhibitionRoomViewModel.load());
@@ -520,13 +530,8 @@ class _StudioShellViewState extends State<StudioShellView> {
     if (index < 0) {
       return;
     }
-    if (section == StudioShellSection.scriptExhibition &&
-        wasMounted &&
-        _scriptExhibitionRoomViewModel.selectedScriptId != null) {
-      // A main-navigation entry starts at the room shelf. Keeping the cached
-      // nested detail selection makes the refreshed room look as though all
-      // but that script's few images disappeared.
-      _scriptExhibitionRoomViewModel.clearScriptSelection();
+    if (recordHistory) {
+      _sectionHistory.add(_currentSection);
     }
     widget.viewModel.changeIndex(index);
     setState(() {
@@ -2020,6 +2025,15 @@ class _StudioShellViewState extends State<StudioShellView> {
   }
 
   void _handleBack(bool didPop, Object? result) {
+    if (_currentSection == StudioShellSection.scriptExhibition &&
+        _scriptExhibitionRoomViewModel.selectedScriptId != null) {
+      _scriptExhibitionRoomViewModel.clearScriptSelection();
+      return;
+    }
+    if (_sectionHistory.isNotEmpty) {
+      _changeSection(_sectionHistory.removeLast(), recordHistory: false);
+      return;
+    }
     if (_currentSection != StudioShellSection.home) {
       _changeSection(StudioShellSection.home);
       return;
@@ -2211,10 +2225,12 @@ bool _hasProductionTaskIdentity(ScriptExhibitionItem item) {
 class _StudioTopBar extends StatelessWidget {
   final StudioShellSection currentSection;
   final bool compact;
+  final VoidCallback? onBack;
 
   const _StudioTopBar({
     required this.currentSection,
     this.compact = false,
+    this.onBack,
   });
 
   @override
@@ -2236,6 +2252,15 @@ class _StudioTopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (onBack != null) ...[
+            IconButton(
+              key: const ValueKey('studio-back-button'),
+              tooltip: '返回上一步',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: onBack,
+            ),
+            const SizedBox(width: 8),
+          ],
           Image.asset(
             'assets/appicon.png',
             width: 30,

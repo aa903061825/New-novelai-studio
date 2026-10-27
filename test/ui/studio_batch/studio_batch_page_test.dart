@@ -1837,6 +1837,52 @@ void main() {
     expect(find.text('已清理 1 个已完成任务，生成结果已保留'), findsOneWidget);
   });
 
+  testWidgets('batch page exposes clear empty production plans',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final now = DateTime.utc(2026, 5, 28, 10, 30);
+    final emptyPlan = ProductionPlan(
+      id: 'empty-plan',
+      name: 'Empty Queue',
+      tasks: const [],
+      createdAt: now,
+      updatedAt: now,
+    );
+    final viewModel = ProductionQueueViewModel(
+      plans: [emptyPlan, _fakePlan()],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: StudioTheme.build(),
+        home: StudioBatchPage(
+          viewModel: viewModel,
+          skipInitialLoad: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final clearButton = find.byKey(
+      const ValueKey('studio-production-clear-empty'),
+    );
+    expect(clearButton, findsOneWidget);
+    expect(find.text('清理空产线'), findsOneWidget);
+    expect(
+      find.byTooltip('可清理 1 条空产线；生成结果保留'),
+      findsOneWidget,
+    );
+
+    await tester.tap(clearButton);
+    await tester.pumpAndSettle();
+
+    expect(viewModel.plans.map((plan) => plan.id), ['plan-1']);
+    expect(find.text('已清理 1 个空产线，生成结果已保留'), findsOneWidget);
+  });
+
   testWidgets(
       'batch page clears completed work from a viewed inactive plan and keeps the active tab',
       (tester) async {

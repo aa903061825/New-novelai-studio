@@ -56,6 +56,124 @@ void main() {
     expect(stage.omittedParts, contains(RecastPromptPart.upperBody));
   });
 
+  test('does not materialize AI stages without any stage words', () {
+    final result = application.apply(
+      mapping: RecastMapping.defaults('script-1'),
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'role-heroine',
+            displayName: 'Heroine',
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'empty-stage',
+                label: 'No prompt words',
+                frameIndexes: [0],
+                missingFields: ['missing_upper_clothing'],
+              ),
+              ScriptAiExtractedStage(
+                stageId: 'casual-stage',
+                label: 'Casual',
+                frameIndexes: [1],
+                upperClothing: 'white hoodie',
+              ),
+            ],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.mapping.roleAssemblies, hasLength(1));
+    expect(
+      result.mapping.roleAssemblies.single.stages.map((stage) => stage.id),
+      ['casual-stage'],
+    );
+  });
+
+  test('keeps replacement rules when every AI stage is wordless', () {
+    final result = application.apply(
+      mapping: RecastMapping.defaults('script-1'),
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'empty-stage',
+                frameIndexes: [0],
+              ),
+            ],
+            promptTerms: [
+              ScriptAiExtractedPromptTerm(
+                id: 'hoodie',
+                text: 'hoodie',
+                category: PromptTagCategory.upperClothing,
+                frameIndexes: [0],
+              ),
+            ],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(result.mapping.roleAssemblies, isEmpty);
+    expect(
+      result.mapping.rolePromptReplacements.single.rules.single.sourceTerms
+          .single.text,
+      'hoodie',
+    );
+  });
+
+  test('keeps user-authored stage state when refreshed AI stage is wordless',
+      () {
+    const mapping = RecastMapping(
+      id: 'mapping-script-1',
+      scriptId: 'script-1',
+      roleAssemblies: [
+        RoleAssembly(
+          sourceRoleId: 'slot-0',
+          displayLabel: 'Heroine',
+          stages: [
+            RoleAssemblyStage(
+              id: 'manual-stage',
+              label: 'Manual stage',
+              targetCharacterId: 'target-character',
+            ),
+          ],
+        ),
+      ],
+    );
+    final result = application.apply(
+      mapping: mapping,
+      extraction: const ScriptAiRoleExtraction(
+        status: ScriptAiRoleExtractionStatus.ready,
+        roles: [
+          ScriptAiExtractedRole(
+            sourceRoleId: 'slot-0',
+            stages: [
+              ScriptAiExtractedStage(
+                stageId: 'empty-stage',
+                frameIndexes: [0],
+              ),
+            ],
+          ),
+        ],
+      ),
+      stageLabelFor: labelFor,
+    );
+
+    expect(
+        result.mapping.roleAssemblies.single.stages.single.id, 'manual-stage');
+    expect(
+      result.mapping.roleAssemblies.single.stages.single.targetCharacterId,
+      'target-character',
+    );
+  });
+
   test('applies AI role and scene terms as replacement groups', () {
     final result = application.apply(
       mapping: RecastMapping.defaults('script-1'),

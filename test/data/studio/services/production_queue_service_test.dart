@@ -26,6 +26,52 @@ void main() {
     }
   });
 
+  test('exhibition path updates preserve newer queue state and other plans',
+      () async {
+    final now = DateTime.utc(2026);
+    ProductionTask task(String id, ProductionTaskStatus status) =>
+        ProductionTask.manualSingleFrame(
+          id: id,
+          planId: 'plan-1',
+          title: id,
+          payload: const {'input': 'local test'},
+          status: status,
+          outputImagePath: '$id.png',
+          createdAt: now,
+          updatedAt: now,
+        );
+    final first = task('first', ProductionTaskStatus.completed);
+    final running = task('second', ProductionTaskStatus.running);
+    final current = ProductionPlan(
+      id: 'plan-1',
+      name: 'Latest name',
+      tasks: [first, running],
+      createdAt: now,
+      updatedAt: now,
+    );
+    final unrelated = ProductionPlan(
+      id: 'plan-2',
+      name: 'Unrelated',
+      tasks: const [],
+      createdAt: now,
+      updatedAt: now,
+    );
+    await workspaceService.saveProductionPlans([current, unrelated]);
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    await service.savePlansForScriptExhibition([
+      current.copyWith(name: 'Stale name', tasks: [
+        first.copyWith(outputImagePath: 'organized.png'),
+      ]),
+    ]);
+    final stored = await workspaceService.loadProductionPlans();
+    expect(stored.map((plan) => plan.id), containsAll(['plan-1', 'plan-2']));
+    final updated = stored.singleWhere((plan) => plan.id == 'plan-1');
+    expect(updated.name, 'Latest name');
+    expect(updated.tasks.first.outputImagePath, 'organized.png');
+    expect(updated.tasks.last.status, ProductionTaskStatus.running);
+    expect(updated.tasks.last.outputImagePath, 'second.png');
+  });
+
   test('ProductionQueueService saves and loads deterministic plans', () async {
     final service = ProductionQueueService(workspaceService: workspaceService);
     final task1 = ProductionTask.scriptRecastFrame(
@@ -409,6 +455,217 @@ void main() {
 
     expect(loadErrors, isEmpty);
     expect((await service.loadPlansReadOnly()).length, 12);
+  });
+
+  test('queue load excludes exhibition-only plans without deleting them',
+      () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final now = DateTime.utc(2026, 8, 22);
+
+    ProductionTask task({
+      required String id,
+      required String planId,
+      DateTime? queueDismissedAt,
+    }) {
+      return ProductionTask.manualSingleFrame(
+        id: id,
+        planId: planId,
+        title: id,
+        payload: {'input': id},
+        status: queueDismissedAt == null
+            ? ProductionTaskStatus.queued
+            : ProductionTaskStatus.completed,
+        outputImagePath: queueDismissedAt == null ? null : 'C:/outputs/$id.png',
+        queueDismissedAt: queueDismissedAt,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    ProductionPlan plan(String id, List<ProductionTask> tasks) {
+      return ProductionPlan(
+        id: id,
+        name: id,
+        tasks: tasks,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    final dismissedAt = now.add(const Duration(hours: 1));
+    final exhibitionOnly = plan('exhibition-only', [
+      task(
+        id: 'archived-task',
+        planId: 'exhibition-only',
+        queueDismissedAt: dismissedAt,
+      ),
+    ]);
+    final active = plan('active-plan', [
+      task(
+        id: 'dismissed-sibling',
+        planId: 'active-plan',
+        queueDismissedAt: dismissedAt,
+      ),
+      task(id: 'queued-task', planId: 'active-plan'),
+    ]);
+    final empty = plan('empty-plan', const []);
+    await service.savePlans([exhibitionOnly, active, empty]);
+
+    final queuePlans = await service.loadPlansForQueue();
+    final allPlans = await service.loadPlansReadOnly();
+
+    expect(queuePlans.map((plan) => plan.id).toSet(), {
+      'active-plan',
+      'empty-plan',
+    });
+    expect(queuePlans.singleWhere((plan) => plan.id == 'active-plan').tasks,
+        hasLength(2));
+    expect(allPlans.map((plan) => plan.id).toSet(), {
+      'exhibition-only',
+      'active-plan',
+      'empty-plan',
+    });
+    expect(
+      File(
+        _workspacePath(
+          tempDir,
+          WorkspacePaths.productionPlanFile('exhibition-only'),
+        ),
+      ).existsSync(),
+      isTrue,
+    );
+  });
+
+  test(
+      'script exhibition load includes completed results from explicit plan backups',
+      () async {
+    final service = ProductionQueueService(workspaceService: workspaceService);
+    final now = DateTime.utc(2026, 6, 1, 10);
+
+    ProductionTask task({
+      required String id,
+      required String planId,
+      ProductionTaskStatus status = ProductionTaskStatus.queued,
+      String? outputImagePath,
+    }) {
+      return ProductionTask.manualSingleFrame(
+        id: id,
+        planId: planId,
+        title: id,
+        payload: {'input': id},
+        status: status,
+        outputImagePath: outputImagePath,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    ProductionPlan plan(String id, List<ProductionTask> tasks) {
+      return ProductionPlan(
+        id: id,
+        name: id,
+        tasks: tasks,
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    final activePlan = plan('active-plan', [
+      task(id: 'active-task', planId: 'active-plan'),
+    ]);
+    await service.savePlans([activePlan]);
+
+    final nestedBackup = Directory(
+      _workspacePath(
+        tempDir,
+        '${WorkspacePaths.deterministicPlansDir}/backup-20260610-test',
+      ),
+    );
+    final siblingBackup = Directory(
+      _workspacePath(
+        tempDir,
+        'production/deterministic_plans_backup_test',
+      ),
+    );
+    await nestedBackup.create(recursive: true);
+    await siblingBackup.create(recursive: true);
+
+    final nestedOutput = File(
+      '${nestedBackup.path}${Platform.pathSeparator}nested.png',
+    );
+    final siblingOutput = File(
+      '${siblingBackup.path}${Platform.pathSeparator}sibling.png',
+    );
+    await nestedOutput.writeAsBytes(const [1, 2, 3]);
+    await siblingOutput.writeAsBytes(const [4, 5, 6]);
+
+    final nestedPlan = plan('nested-archive', [
+      task(
+        id: 'nested-completed',
+        planId: 'nested-archive',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: nestedOutput.path,
+      ),
+      task(id: 'nested-queued', planId: 'nested-archive'),
+    ]);
+    final siblingPlan = plan('sibling-archive', [
+      task(
+        id: 'sibling-completed',
+        planId: 'sibling-archive',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: siblingOutput.path,
+      ),
+    ]);
+    await File(
+      '${nestedBackup.path}${Platform.pathSeparator}nested-plan.json',
+    ).writeAsString(jsonEncode(nestedPlan.toJson()));
+    await File(
+      '${siblingBackup.path}${Platform.pathSeparator}sibling-plan.json',
+    ).writeAsString(jsonEncode(siblingPlan.toJson()));
+
+    final exhibitionPlans = await service.loadPlansForScriptExhibition();
+    final exhibitionById = {
+      for (final exhibitionPlan in exhibitionPlans)
+        exhibitionPlan.id: exhibitionPlan,
+    };
+
+    expect(
+        exhibitionById.keys,
+        containsAll([
+          'active-plan',
+          'nested-archive',
+          'sibling-archive',
+        ]));
+    expect(exhibitionById['nested-archive']!.tasks, hasLength(1));
+    expect(
+      exhibitionById['nested-archive']!.tasks.single.status,
+      ProductionTaskStatus.completed,
+    );
+    expect(
+      exhibitionById['nested-archive']!.tasks.single.outputImagePath,
+      nestedOutput.path,
+    );
+
+    final queuePlans = await service.loadPlansReadOnly();
+    expect(queuePlans.map((queuePlan) => queuePlan.id), ['active-plan']);
+
+    await service.savePlansForScriptExhibition(exhibitionPlans);
+
+    expect(
+      await File(
+        '${nestedBackup.path}${Platform.pathSeparator}nested-plan.json',
+      ).exists(),
+      isTrue,
+    );
+    expect(
+      await File(
+        _workspacePath(
+          tempDir,
+          WorkspacePaths.productionPlanFile('nested-archive'),
+        ),
+      ).exists(),
+      isFalse,
+    );
   });
 
   test('saves and loads last-used production execution settings', () async {

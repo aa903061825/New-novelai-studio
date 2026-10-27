@@ -153,14 +153,10 @@ class ScriptRecastCacheRestoreService {
     RecastScriptCache draft,
     RecastScriptCache? existing,
   ) {
-    final variantPreservingDraft = existing != null &&
-            draft.mappingVariants.isEmpty &&
-            existing.mappingVariants.isNotEmpty
-        ? draft.copyWith(
-            mappingVariants: existing.mappingVariants,
-            activeMappingVariantId: existing.activeMappingVariantId,
-          )
-        : draft;
+    final variantPreservingDraft = _cacheMergingExistingMappingVariants(
+      draft,
+      existing,
+    );
     if (existing == null ||
         variantPreservingDraft.aiRoleExtraction.status !=
             ScriptAiRoleExtractionStatus.idle ||
@@ -175,6 +171,39 @@ class ScriptRecastCacheRestoreService {
       scriptSnapshot: variantPreservingDraft.scriptSnapshot.isNotEmpty
           ? variantPreservingDraft.scriptSnapshot
           : existing.scriptSnapshot,
+    );
+  }
+
+  RecastScriptCache _cacheMergingExistingMappingVariants(
+    RecastScriptCache draft,
+    RecastScriptCache? existing,
+  ) {
+    if (existing == null) return draft;
+
+    final existingVariantIds = {
+      for (final variant in existing.mappingVariants) variant.id,
+    };
+    final draftOnlyAdditions = [
+      for (final variant in draft.mappingVariants)
+        if (!existingVariantIds.contains(variant.id) &&
+            !variant.capturedAt.isBefore(existing.updatedAt))
+          variant,
+    ];
+    final mergedVariants = List<RecastMappingVariant>.unmodifiable([
+      ...existing.mappingVariants,
+      ...draftOnlyAdditions,
+    ]);
+    final draftActiveVariantId = draft.activeMappingVariantId;
+    final existingActiveVariantId = existing.activeMappingVariantId;
+    final mergedActiveVariantId = mergedVariants
+            .any((variant) => variant.id == draftActiveVariantId)
+        ? draftActiveVariantId
+        : mergedVariants.any((variant) => variant.id == existingActiveVariantId)
+            ? existingActiveVariantId
+            : null;
+    return draft.copyWith(
+      mappingVariants: mergedVariants,
+      activeMappingVariantId: mergedActiveVariantId,
     );
   }
 

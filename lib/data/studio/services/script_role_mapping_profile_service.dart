@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:novel_studio/data/studio/models/script_recast.dart';
 import 'package:novel_studio/data/studio/models/script_role_mapping_profile.dart';
 import 'package:novel_studio/data/studio/services/script_role_replacement_layer_service.dart';
+import 'package:novel_studio/data/studio/tools/prompt_tag_classifier.dart';
 import 'package:novel_studio/data/studio/tools/prompt_tag_processor.dart';
 import 'package:novel_studio/data/workspace/models/workspace_entities.dart';
 
@@ -135,6 +136,42 @@ class ScriptRoleMappingProfileService {
       replacement: replacement,
       assembly: assembly,
     );
+
+    // A profile block is a reusable target-side mapping.  Its source terms
+    // can be heterogeneous because older profiles were recorded before the
+    // upper/lower split was enforced.  First collect every raw candidate, then
+    // remove fallback candidates for a term whenever a same-part candidate
+    // exists elsewhere in the profile.
+    final candidateTermIdsByBlockKey = <String, List<String>>{};
+    final strictOwnersByTermId = <String, Set<String>>{};
+    for (final layer in profile.effectiveLayers) {
+      for (final block in layer.blocks) {
+        final blockKey = _profileBlockKey(layer.id, block.id);
+        final candidates = [
+          for (final entry in currentTerms.entries)
+            if (block.normalizedTermKeys.contains(
+              normalizeRoleMappingProfileTerm(entry.value.text),
+            ))
+              entry.key,
+        ];
+        candidateTermIdsByBlockKey[blockKey] = candidates;
+        for (final termId in candidates) {
+          final term = currentTerms[termId];
+          if (term == null || !_hasStrictCategoryMatch(block, term.category)) {
+            continue;
+          }
+          strictOwnersByTermId.putIfAbsent(termId, () => <String>{}).add(
+                blockKey,
+              );
+        }
+      }
+    }
+    final blockedGenericClothingTermIds = <String>{
+      for (final entry in currentTerms.entries)
+        if (entry.value.category == PromptTagCategory.clothing &&
+            !strictOwnersByTermId.containsKey(entry.key))
+          entry.key,
+    };
     var entries = [
       for (final layer in profile.effectiveLayers)
         for (final block in layer.blocks)
@@ -145,6 +182,16 @@ class ScriptRoleMappingProfileService {
             currentTerms: currentTerms,
             presentKeys: presentKeys,
             availableTermIds: availableTermIds,
+            candidateTermIds: [
+              for (final termId in candidateTermIdsByBlockKey[
+                      _profileBlockKey(layer.id, block.id)] ??
+                  const <String>[])
+                if (!blockedGenericClothingTermIds.contains(termId) &&
+                    ((strictOwnersByTermId[termId]?.isEmpty ?? true) ||
+                        strictOwnersByTermId[termId]!
+                            .contains(_profileBlockKey(layer.id, block.id))))
+                  termId,
+            ],
           ),
     ];
 
@@ -181,10 +228,15 @@ class ScriptRoleMappingProfileService {
     required ScriptRolePromptReplacement replacement,
     required Iterable<RoleMappingProfileApplySelection> selections,
     bool applyIdentity = true,
+    bool linkProfile = false,
     Iterable<RoleMappingProfileLayerApplySelection> layerSelections = const [],
     RoleAssembly? assembly,
   }) {
     final selected = selections.toList(growable: false);
+    final hasSelectedTerms = selected.any(
+      (selection) => selection.termIds.isNotEmpty,
+    );
+    final effectiveApplyIdentity = applyIdentity && hasSelectedTerms;
     final claimedTermIds = <String>{};
     for (final selection in selected) {
       for (final termId in selection.termIds) {
@@ -214,7 +266,7 @@ class ScriptRoleMappingProfileService {
       ))
         preview.layer.id: preview,
     };
-    final targetChanged = applyIdentity &&
+    final targetChanged = effectiveApplyIdentity &&
         profile.targetCharacterId != replacement.targetCharacterId;
     var rules = targetChanged
         ? _rulesWithoutTargetOutputs(replacement.rules)
@@ -257,15 +309,34 @@ class ScriptRoleMappingProfileService {
       }
     }
 
+    final identityPromptToken = profile.targetIdentityPromptToken.trim();
+    if (effectiveApplyIdentity && identityPromptToken.isNotEmpty) {
+      // A custom identity token belongs only on character-identity source
+      // rules. Appearance terms such as hair, eyes, ears, and headwear must
+      // remain in their own upper-body/accessory rules instead of being
+      // attached to the source character name.
+      rules = _rulesWithIdentityPromptToken(
+        rules: rules,
+        token: identityPromptToken,
+      );
+    }
+
     final survivingRuleIds = {for (final rule in rules) rule.id};
     return replacement.copyWith(
-      targetCharacterId: applyIdentity
+      targetCharacterId: effectiveApplyIdentity
           ? profile.targetCharacterId
           : replacement.targetCharacterId,
-      targetIdentityPrompt: applyIdentity
-          ? profile.targetIdentityPrompt
+      targetIdentityPrompt: effectiveApplyIdentity
+          ? _targetIdentityPromptWithToken(
+              profile.targetIdentityPrompt,
+              identityPromptToken,
+            )
           : replacement.targetIdentityPrompt,
-      activeMappingProfileId: profile.id,
+      // Applying a global profile is a one-time copy by default. Linking the
+      // current role back to the global profile is a separate, explicit
+      // action so a normal apply cannot silently enable write-back sync.
+      activeMappingProfileId:
+          linkProfile && hasSelectedTerms ? profile.id : null,
       rules: List.unmodifiable(rules),
       layerOverrides: List.unmodifiable([
         for (final override in replacement.layerOverrides)
@@ -275,6 +346,199 @@ class ScriptRoleMappingProfileService {
         ...appliedLayerByRuleId.values,
       ]),
     );
+  }
+
+  /// Converts character-identity cleanup into a real replacement when a
+  /// fully materialized cache is being produced.
+  ///
+  /// `targetIdentityPrompt` is intentionally a candidate in the interactive
+  /// editor.  Offline script variants, however, must be executable without a
+  /// second manual "sync to selected rules" action. Older profiles can leave
+  /// the source identity as delete-only, no-op, or mixed character rules;
+  /// merge those identity terms into one replacement and keep accessory/body
+  /// cleanup terms as their own rules.
+  ScriptRolePromptReplacement materializeTargetIdentityReplacement(
+    ScriptRolePromptReplacement replacement,
+  ) {
+    final targetPrompt = replacement.targetIdentityPrompt.trim();
+    if (targetPrompt.isEmpty) return replacement;
+
+    final rules = replacement.rules;
+    final identityRuleIndexes = <int>[];
+    final mixedIdentityRuleIndexes = <int>[];
+    final movedTermIdsByIndex = <int, Set<String>>{};
+    for (var index = 0; index < rules.length; index += 1) {
+      final rule = rules[index];
+      final includedTerms = [
+        for (final term in rule.sourceTerms)
+          if (!rule.excludedTermIds.contains(term.id)) term,
+      ];
+      final characterTerms = includedTerms
+          .where((term) => term.category == PromptTagCategory.character)
+          .toList(growable: false);
+      if (_isCharacterIdentityRule(rule)) {
+        identityRuleIndexes.add(index);
+      } else if (characterTerms.isNotEmpty &&
+          includedTerms.any(
+            (term) =>
+                term.category != PromptTagCategory.character &&
+                term.category != PromptTagCategory.other,
+          )) {
+        // A profile block can be a mixed rule even when its current action is
+        // replace.  Its target may only be a partial identity output, so the
+        // character terms still need to be separated and merged into the
+        // canonical full identity replacement below.
+        mixedIdentityRuleIndexes.add(index);
+      }
+      if (characterTerms.isNotEmpty &&
+          (identityRuleIndexes.contains(index) ||
+              mixedIdentityRuleIndexes.contains(index))) {
+        movedTermIdsByIndex[index] = {
+          for (final term in includedTerms)
+            if (term.category == PromptTagCategory.character ||
+                (term.category == PromptTagCategory.other &&
+                    characterTerms.isNotEmpty))
+              term.id,
+        };
+      }
+    }
+    final candidateIndexes = {
+      ...identityRuleIndexes,
+      ...mixedIdentityRuleIndexes,
+    }.toList()
+      ..sort();
+    if (candidateIndexes.isEmpty) return replacement;
+
+    final mergedTerms = <ScriptPromptReplacementTerm>[];
+    final seenTermKeys = <String>{};
+    for (final index in candidateIndexes) {
+      final rule = rules[index];
+      final movedTermIds = movedTermIdsByIndex[index] ?? const <String>{};
+      for (final term in rule.sourceTerms) {
+        if (!movedTermIds.contains(term.id)) continue;
+        final key = PromptTagProcessor.normalizeMatchKey(term.text);
+        if (key.isNotEmpty && seenTermKeys.add(key)) {
+          mergedTerms.add(term);
+        }
+      }
+    }
+    if (mergedTerms.isEmpty) return replacement;
+
+    final firstIndex = candidateIndexes.reduce(
+      (left, right) => left < right ? left : right,
+    );
+    final firstRule = rules[firstIndex];
+    final materializedRule = firstRule.copyWith(
+      sourceTerms: List.unmodifiable(mergedTerms),
+      excludedTermIds: const [],
+      action: ScriptPromptReplacementAction.replace,
+      matchMode: ScriptPromptReplacementMatchMode.any,
+      targetPrompt: targetPrompt,
+      targetWeightMultiplier: null,
+      manualPhrase: '',
+      anchorTermId: '',
+    );
+    final nextRules = <ScriptPromptReplacementRule>[];
+    for (var index = 0; index < rules.length; index += 1) {
+      if (index == firstIndex) {
+        nextRules.add(materializedRule);
+      }
+      if (identityRuleIndexes.contains(index)) continue;
+      if (mixedIdentityRuleIndexes.contains(index)) {
+        final movedTermIds = movedTermIdsByIndex[index] ?? const <String>{};
+        final remainingTerms = [
+          for (final term in rules[index].sourceTerms)
+            if (!movedTermIds.contains(term.id)) term,
+        ];
+        if (remainingTerms.isNotEmpty) {
+          final remainingRule = rules[index].copyWith(
+            id: index == firstIndex
+                ? '${rules[index].id}-non-identity'
+                : rules[index].id,
+            sourceTerms: List.unmodifiable(remainingTerms),
+            excludedTermIds: [
+              for (final termId in rules[index].excludedTermIds)
+                if (remainingTerms.any((term) => term.id == termId)) termId,
+            ],
+          );
+          nextRules.add(remainingRule);
+        }
+        continue;
+      }
+      nextRules.add(rules[index]);
+    }
+
+    return replacement.copyWith(
+      rules: List.unmodifiable(nextRules),
+      layerOverrides: List.unmodifiable([
+        for (final override in replacement.layerOverrides)
+          if ({for (final rule in nextRules) rule.id}.contains(override.ruleId))
+            override,
+      ]),
+    );
+  }
+
+  /// Removes exact duplicate target tags across a materialized role mapping.
+  /// Character identity rules are authoritative, so their stable appearance
+  /// tags are reserved before accessory/body/clothing rules are processed.
+  ScriptRolePromptReplacement deduplicateTargetOutputs(
+    ScriptRolePromptReplacement replacement, {
+    String forbiddenTarget = '',
+  }) {
+    final emittedKeys = <String>{};
+    final forbiddenTargetKey = PromptTagProcessor.normalizeMatchKey(
+      forbiddenTarget,
+    );
+    final identityRuleIds = {
+      for (final rule in replacement.rules)
+        if (_isCharacterIdentityRule(rule) &&
+            rule.effectiveAction == ScriptPromptReplacementAction.replace &&
+            rule.targetPrompt.trim().isNotEmpty)
+          rule.id,
+    };
+    for (final rule in replacement.rules) {
+      if (!identityRuleIds.contains(rule.id)) continue;
+      for (final tag in _splitTargetPromptTags(rule.targetPrompt)) {
+        final key = PromptTagProcessor.normalizeMatchKey(tag);
+        if (key.isNotEmpty) emittedKeys.add(key);
+      }
+    }
+
+    final rules = <ScriptPromptReplacementRule>[];
+    for (final rule in replacement.rules) {
+      if (identityRuleIds.contains(rule.id)) {
+        rules.add(rule);
+        continue;
+      }
+      if (rule.effectiveAction != ScriptPromptReplacementAction.replace ||
+          rule.targetPrompt.trim().isEmpty) {
+        rules.add(rule);
+        continue;
+      }
+      final keptTags = <String>[];
+      for (final tag in _splitTargetPromptTags(rule.targetPrompt)) {
+        final key = PromptTagProcessor.normalizeMatchKey(tag);
+        if (key.isEmpty ||
+            (forbiddenTargetKey.isNotEmpty && key == forbiddenTargetKey) ||
+            !emittedKeys.add(key)) {
+          continue;
+        }
+        keptTags.add(tag);
+      }
+      if (keptTags.isEmpty) {
+        rules.add(
+          rule.copyWith(
+            action: ScriptPromptReplacementAction.delete,
+            targetPrompt: '',
+            targetWeightMultiplier: null,
+            manualPhrase: '',
+          ),
+        );
+      } else {
+        rules.add(rule.copyWith(targetPrompt: keptTags.join(', ')));
+      }
+    }
+    return replacement.copyWith(rules: List.unmodifiable(rules));
   }
 
   RoleMappingProfile withAppliedCompanionTerms({
@@ -785,6 +1049,7 @@ class ScriptRoleMappingProfileService {
     required Map<String, ScriptPromptReplacementTerm> currentTerms,
     required Set<String> presentKeys,
     required List<String> availableTermIds,
+    required List<String> candidateTermIds,
   }) {
     final detectionKeys = block.detectionKeys;
     final triggered = switch (block.matchMode) {
@@ -806,13 +1071,9 @@ class ScriptRoleMappingProfileService {
       );
     }
 
-    final selectedTermIds = [
-      for (final entry in currentTerms.entries)
-        if (block.normalizedTermKeys.contains(
-          normalizeRoleMappingProfileTerm(entry.value.text),
-        ))
-          entry.key,
-    ];
+    final selectedTermIds = candidateTermIds
+        .where(currentTerms.containsKey)
+        .toList(growable: false);
     if (selectedTermIds.isEmpty) {
       return RoleMappingApplyPreviewEntry(
         block: block,
@@ -872,6 +1133,64 @@ class ScriptRoleMappingProfileService {
       selectedByDefault: status == RoleMappingApplyPreviewStatus.matched ||
           status == RoleMappingApplyPreviewStatus.conflict,
     );
+  }
+
+  String _profileBlockKey(String layerId, String blockId) {
+    return '$layerId\u001f$blockId';
+  }
+
+  bool _hasStrictCategoryMatch(
+    RoleMappingProfileBlock block,
+    PromptTagCategory sourceCategory,
+  ) {
+    final targetCategories = _targetCategoriesForBlock(block);
+    if (targetCategories.isEmpty) return false;
+    if (sourceCategory == PromptTagCategory.character) {
+      return targetCategories.contains(PromptTagCategory.character);
+    }
+    if (sourceCategory == PromptTagCategory.upperBody ||
+        sourceCategory == PromptTagCategory.upperClothing) {
+      return targetCategories.any(
+        (category) =>
+            category == PromptTagCategory.upperBody ||
+            category == PromptTagCategory.upperClothing,
+      );
+    }
+    if (sourceCategory == PromptTagCategory.lowerBody ||
+        sourceCategory == PromptTagCategory.lowerClothing) {
+      return targetCategories.any(
+        (category) =>
+            category == PromptTagCategory.lowerBody ||
+            category == PromptTagCategory.lowerClothing,
+      );
+    }
+    if (sourceCategory == PromptTagCategory.accessory) {
+      return targetCategories.contains(PromptTagCategory.accessory);
+    }
+    if (sourceCategory == PromptTagCategory.clothingState) {
+      return targetCategories.any(
+        (category) =>
+            category == PromptTagCategory.clothingState ||
+            category == PromptTagCategory.clothing,
+      );
+    }
+    if (sourceCategory == PromptTagCategory.clothing) {
+      return targetCategories.contains(PromptTagCategory.clothing);
+    }
+    return targetCategories.contains(sourceCategory);
+  }
+
+  Set<PromptTagCategory> _targetCategoriesForBlock(
+    RoleMappingProfileBlock block,
+  ) {
+    if (block.targetCategories.isNotEmpty) {
+      return block.targetCategories.toSet();
+    }
+    final inferred = <PromptTagCategory>{};
+    for (final tag in _splitTargetPromptTags(block.targetPrompt)) {
+      inferred.add(PromptTagClassifier.classify(tag).category);
+    }
+    return inferred;
   }
 
   List<ScriptPromptReplacementRule> _rulesWithAppliedBlock({
@@ -957,6 +1276,51 @@ class ScriptRoleMappingProfileService {
       mergedRule,
     );
     return List.unmodifiable(next);
+  }
+
+  bool _isCharacterIdentityRule(ScriptPromptReplacementRule rule) {
+    final excluded = rule.excludedTermIds.toSet();
+    final terms = [
+      for (final term in rule.sourceTerms)
+        if (!excluded.contains(term.id)) term,
+    ];
+    return terms.isNotEmpty &&
+        terms.any((term) => term.category == PromptTagCategory.character) &&
+        terms.every(
+          (term) =>
+              term.category == PromptTagCategory.character ||
+              term.category == PromptTagCategory.other,
+        );
+  }
+
+  List<ScriptPromptReplacementRule> _rulesWithIdentityPromptToken({
+    required Iterable<ScriptPromptReplacementRule> rules,
+    required String token,
+  }) {
+    final normalizedToken = token.trim();
+    if (normalizedToken.isEmpty) return List.unmodifiable(rules);
+    return List.unmodifiable([
+      for (final rule in rules)
+        if (rule.sourceTerms.isNotEmpty &&
+            rule.sourceTerms.every(
+              (term) => term.category == PromptTagCategory.character,
+            ) &&
+            rule.action != ScriptPromptReplacementAction.delete)
+          rule.copyWith(
+            action: ScriptPromptReplacementAction.replace,
+            targetPrompt: normalizedToken,
+            targetWeightMultiplier: null,
+            manualPhrase: '',
+          )
+        else
+          rule,
+    ]);
+  }
+
+  String _targetIdentityPromptWithToken(String prompt, String token) {
+    final normalizedToken = token.trim();
+    if (normalizedToken.isEmpty) return prompt;
+    return _joinTargetPromptTags([normalizedToken, prompt]);
   }
 
   List<ScriptPromptReplacementRule> _rulesWithoutTargetOutputs(

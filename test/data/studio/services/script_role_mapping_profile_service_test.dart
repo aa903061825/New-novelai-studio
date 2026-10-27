@@ -185,6 +185,343 @@ void main() {
     );
   });
 
+  test('writes a custom identity token only to character rules', () {
+    final profile = RoleMappingProfile(
+      id: 'fruit-profile',
+      name: '果宝',
+      targetIdentityPromptToken: '果宝',
+      targetIdentityPrompt: 'white_hair, girl',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'character-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'source-mari',
+              text: 'mari (blue archive)',
+              normalizedKey: 'mari_blue_archive',
+            ),
+          ],
+          action: ScriptPromptReplacementAction.replace,
+          targetPrompt: 'white_hair',
+        ),
+        RoleMappingProfileBlock(
+          id: 'hair-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'source-hair',
+              text: 'long hair',
+              normalizedKey: 'long_hair',
+            ),
+          ],
+          action: ScriptPromptReplacementAction.replace,
+          targetPrompt: 'white_hair, very_long_hair',
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    );
+    final replacement = _replacement(
+      rules: [
+        _rule(
+          id: 'character-rule',
+          terms: const [('mari (blue archive)', 'current-mari')],
+          target: 'old character target',
+        ),
+        _categorizedRule(
+          id: 'hair-rule',
+          text: 'long hair',
+          category: PromptTagCategory.upperBody,
+          frameIndexes: const [0],
+          target: 'old hair target',
+        ),
+      ],
+    );
+
+    final applied = service.applySelections(
+      profile: profile,
+      replacement: replacement,
+      selections: const [
+        RoleMappingProfileApplySelection(
+          blockId: 'character-block',
+          termIds: ['current-mari'],
+        ),
+        RoleMappingProfileApplySelection(
+          blockId: 'hair-block',
+          termIds: ['term-hair-rule'],
+        ),
+      ],
+    );
+
+    expect(applied.targetIdentityPrompt, '果宝, white_hair, girl');
+    expect(
+      applied.rules
+          .singleWhere(
+            (rule) => rule.sourceTerms.any(
+              (term) => term.text == 'mari (blue archive)',
+            ),
+          )
+          .targetPrompt,
+      '果宝',
+    );
+    expect(
+      applied.rules
+          .singleWhere(
+            (rule) => rule.sourceTerms.any((term) => term.text == 'long hair'),
+          )
+          .targetPrompt,
+      'white_hair, very_long_hair',
+    );
+  });
+
+  test('materializes a delete-only character identity for offline variants',
+      () {
+    final replacement = _replacement(
+      targetIdentityPrompt: 'girl, loli, white_hair, lop_rabbit_ears',
+      rules: [
+        _categorizedRule(
+          id: 'identity-delete-a',
+          text: 'arona (blue archive)',
+          category: PromptTagCategory.character,
+          action: ScriptPromptReplacementAction.delete,
+        ),
+        _categorizedRule(
+          id: 'identity-delete-b',
+          text: 'girl',
+          category: PromptTagCategory.character,
+          action: ScriptPromptReplacementAction.delete,
+        ),
+        _categorizedRule(
+          id: 'clothing-delete',
+          text: 'tight clothes',
+          category: PromptTagCategory.clothing,
+          action: ScriptPromptReplacementAction.delete,
+        ),
+      ],
+    );
+
+    final materialized =
+        service.materializeTargetIdentityReplacement(replacement);
+    final identity = materialized.rules.singleWhere(
+      (rule) => rule.id == 'identity-delete-a',
+    );
+
+    expect(identity.effectiveAction, ScriptPromptReplacementAction.replace);
+    expect(identity.targetPrompt, replacement.targetIdentityPrompt);
+    expect(
+      identity.sourceTerms.map((term) => term.text),
+      ['arona (blue archive)', 'girl'],
+    );
+    expect(
+      materialized.rules.map((rule) => rule.id),
+      ['identity-delete-a', 'clothing-delete'],
+    );
+    expect(
+      materialized.rules
+          .singleWhere((rule) => rule.id == 'clothing-delete')
+          .effectiveAction,
+      ScriptPromptReplacementAction.delete,
+    );
+  });
+
+  test(
+      'materializes unmatched character terms instead of leaving a zero rule mapping',
+      () {
+    final replacement = _replacement(
+      targetIdentityPrompt: 'girl, loli, white_hair, lop_rabbit_ears',
+      rules: [
+        _categorizedRule(
+          id: 'unmatched-character-a',
+          text: 'ganyu (genshin impact)',
+          category: PromptTagCategory.character,
+        ),
+        _categorizedRule(
+          id: 'unmatched-character-b',
+          text: 'girl',
+          category: PromptTagCategory.character,
+        ),
+        _categorizedRule(
+          id: 'clothing-delete',
+          text: 'tight clothes',
+          category: PromptTagCategory.clothing,
+          action: ScriptPromptReplacementAction.delete,
+        ),
+      ],
+    );
+
+    final materialized =
+        service.materializeTargetIdentityReplacement(replacement);
+    final identity = materialized.rules.singleWhere(
+      (rule) => rule.id == 'unmatched-character-a',
+    );
+
+    expect(identity.effectiveAction, ScriptPromptReplacementAction.replace);
+    expect(identity.targetPrompt, replacement.targetIdentityPrompt);
+    expect(
+      identity.sourceTerms.map((term) => term.text),
+      ['ganyu (genshin impact)', 'girl'],
+    );
+    expect(
+      materialized.rules.map((rule) => rule.id),
+      ['unmatched-character-a', 'clothing-delete'],
+    );
+  });
+
+  test('splits character terms out of a mixed delete rule', () {
+    final replacement = _replacement(
+      targetIdentityPrompt: 'girl, loli, white_hair',
+      rules: [
+        ScriptPromptReplacementRule(
+          id: 'mixed-delete',
+          sourceTerms: const [
+            ScriptPromptReplacementTerm(
+              id: 'mari-term',
+              text: 'mari (blue archive)',
+              category: PromptTagCategory.character,
+            ),
+            ScriptPromptReplacementTerm(
+              id: 'girl-term',
+              text: 'girl',
+              category: PromptTagCategory.character,
+            ),
+            ScriptPromptReplacementTerm(
+              id: 'yellow-hat-term',
+              text: 'yellow hat',
+              category: PromptTagCategory.accessory,
+            ),
+          ],
+          action: ScriptPromptReplacementAction.delete,
+        ),
+        _categorizedRule(
+          id: 'existing-identity',
+          text: 'nun',
+          category: PromptTagCategory.character,
+          action: ScriptPromptReplacementAction.replace,
+          target: 'existing identity',
+        ),
+      ],
+    );
+
+    final materialized =
+        service.materializeTargetIdentityReplacement(replacement);
+    final identity = materialized.rules.first;
+    final accessory = materialized.rules.last;
+
+    expect(identity.effectiveAction, ScriptPromptReplacementAction.replace);
+    expect(identity.targetPrompt, replacement.targetIdentityPrompt);
+    expect(
+      identity.sourceTerms.map((term) => term.text),
+      ['mari (blue archive)', 'girl', 'nun'],
+    );
+    expect(accessory.effectiveAction, ScriptPromptReplacementAction.delete);
+    expect(
+      accessory.sourceTerms.map((term) => term.text),
+      ['yellow hat'],
+    );
+    expect(
+      materialized.rules.where((rule) => rule.id == 'existing-identity'),
+      isEmpty,
+    );
+  });
+
+  test('splits character terms out of a mixed replace rule', () {
+    final replacement = _replacement(
+      targetIdentityPrompt: 'girl, loli, white_hair',
+      rules: [
+        ScriptPromptReplacementRule(
+          id: 'mixed-replace',
+          sourceTerms: const [
+            ScriptPromptReplacementTerm(
+              id: 'mari-term',
+              text: 'mari (blue archive)',
+              category: PromptTagCategory.character,
+            ),
+            ScriptPromptReplacementTerm(
+              id: 'girl-term',
+              text: 'girl',
+              category: PromptTagCategory.character,
+            ),
+            ScriptPromptReplacementTerm(
+              id: 'yellow-hat-term',
+              text: 'yellow hat',
+              category: PromptTagCategory.accessory,
+            ),
+          ],
+          action: ScriptPromptReplacementAction.replace,
+          targetPrompt: 'girl, cat_ears',
+        ),
+        _categorizedRule(
+          id: 'existing-identity',
+          text: 'nun',
+          category: PromptTagCategory.character,
+          action: ScriptPromptReplacementAction.replace,
+          target: 'existing identity',
+        ),
+      ],
+    );
+
+    final materialized =
+        service.materializeTargetIdentityReplacement(replacement);
+    final identity = materialized.rules.first;
+    final accessory = materialized.rules[1];
+
+    expect(identity.effectiveAction, ScriptPromptReplacementAction.replace);
+    expect(identity.targetPrompt, replacement.targetIdentityPrompt);
+    expect(
+      identity.sourceTerms.map((term) => term.text),
+      ['mari (blue archive)', 'girl', 'nun'],
+    );
+    expect(accessory.id, 'mixed-replace-non-identity');
+    expect(
+      accessory.sourceTerms.map((term) => term.text),
+      ['yellow hat'],
+    );
+    expect(accessory.targetPrompt, 'girl, cat_ears');
+    expect(
+      materialized.rules.where((rule) => rule.id == 'existing-identity'),
+      isEmpty,
+    );
+  });
+
+  test('deduplicates target tags while keeping identity output authoritative',
+      () {
+    final replacement = _replacement(
+      rules: [
+        _categorizedRule(
+          id: 'identity',
+          text: 'girl',
+          category: PromptTagCategory.character,
+          action: ScriptPromptReplacementAction.replace,
+          target: 'girl, loli, white_hair',
+        ),
+        _categorizedRule(
+          id: 'hair',
+          text: 'blue hair',
+          category: PromptTagCategory.upperBody,
+          action: ScriptPromptReplacementAction.replace,
+          target: 'white_hair, long_hair',
+        ),
+        _categorizedRule(
+          id: 'ears',
+          text: 'animal ears',
+          category: PromptTagCategory.accessory,
+          action: ScriptPromptReplacementAction.replace,
+          target: 'long_hair, cat_ears',
+        ),
+      ],
+    );
+
+    final deduplicated = service.deduplicateTargetOutputs(replacement);
+
+    expect(
+      deduplicated.rules.singleWhere((rule) => rule.id == 'hair').targetPrompt,
+      'long_hair',
+    );
+    expect(
+      deduplicated.rules.singleWhere((rule) => rule.id == 'ears').targetPrompt,
+      'cat_ears',
+    );
+  });
+
   test('active profile binding survives script cache JSON round-trip', () {
     final restored = ScriptRolePromptReplacement.fromJson(
       const ScriptRolePromptReplacement(
@@ -542,7 +879,19 @@ void main() {
       (rule) => rule.sourceTerms.any((term) => term.text == 'red eyes'),
     );
     expect(remainder.sourceTerms.map((term) => term.text), ['red eyes']);
-    expect(applied.activeMappingProfileId, profile.id);
+    expect(applied.activeMappingProfileId, isNull);
+    final linked = service.applySelections(
+      profile: profile,
+      replacement: replacement,
+      linkProfile: true,
+      selections: const [
+        RoleMappingProfileApplySelection(
+          blockId: 'identity-block',
+          termIds: ['current-shun', 'current-loli'],
+        ),
+      ],
+    );
+    expect(linked.activeMappingProfileId, profile.id);
     final preserved = merged.sourceTerms.singleWhere(
       (term) => term.id == 'current-loli',
     );
@@ -1114,6 +1463,144 @@ void main() {
     );
     expect(deleted.blocks, isEmpty);
   });
+
+  test('routes a source term to the matching upper or lower body side', () {
+    final profile = RoleMappingProfile(
+      id: 'side-aware-profile',
+      name: '上下身约束',
+      targetCharacterId: 'character-pepe',
+      targetIdentityPrompt: 'pepe (arknights)',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'upper-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'upper-tail',
+              text: 'rabbit tail',
+              normalizedKey: 'rabbit_tail',
+            ),
+          ],
+          targetPrompt: 'white hair',
+          targetCategories: [PromptTagCategory.upperBody],
+        ),
+        RoleMappingProfileBlock(
+          id: 'lower-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'lower-tail',
+              text: 'rabbit tail',
+              normalizedKey: 'rabbit_tail',
+            ),
+          ],
+          targetPrompt: 'cat tail',
+          targetCategories: [PromptTagCategory.lowerBody],
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    );
+    final preview = service.buildPreview(
+      profile: profile,
+      replacement: _replacement(
+        rules: [
+          _categorizedRule(
+            id: 'rabbit-tail-current',
+            text: 'rabbit tail',
+            category: PromptTagCategory.lowerBody,
+          ),
+        ],
+      ),
+    );
+
+    final upper = preview.entries.singleWhere(
+      (entry) => entry.block.id == 'upper-block',
+    );
+    final lower = preview.entries.singleWhere(
+      (entry) => entry.block.id == 'lower-block',
+    );
+    expect(upper.selectedTermIds, isEmpty);
+    expect(lower.selectedTermIds, ['term-rabbit-tail-current']);
+  });
+
+  test('does not force mixed clothing into a one-sided target block', () {
+    final profile = RoleMappingProfile(
+      id: 'mixed-clothing-profile',
+      name: '混合服装约束',
+      targetCharacterId: 'character-pepe',
+      targetIdentityPrompt: 'pepe (arknights)',
+      blocks: const [
+        RoleMappingProfileBlock(
+          id: 'upper-only-block',
+          terms: [
+            RoleMappingProfileTerm(
+              id: 'mixed-clothing',
+              text: 'bra and panties',
+              normalizedKey: 'bra_and_panties',
+            ),
+          ],
+          targetPrompt: 'black jacket',
+          targetCategories: [PromptTagCategory.upperClothing],
+        ),
+      ],
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    );
+    final preview = service.buildPreview(
+      profile: profile,
+      replacement: _replacement(
+        rules: [
+          _categorizedRule(
+            id: 'mixed-current',
+            text: 'bra and panties',
+            category: PromptTagCategory.clothing,
+          ),
+        ],
+      ),
+    );
+
+    expect(preview.entries.single.selectedTermIds, isEmpty);
+    expect(
+      preview.entries.single.status,
+      RoleMappingApplyPreviewStatus.unmatched,
+    );
+  });
+
+  test('does not apply a target identity when no source term was selected', () {
+    final profile = _profile(
+      block: const RoleMappingProfileBlock(
+        id: 'girl-block',
+        terms: [
+          RoleMappingProfileTerm(
+            id: 'girl',
+            text: 'girl',
+            normalizedKey: 'girl',
+          ),
+        ],
+        targetPrompt: 'white hair',
+      ),
+    );
+    final replacement = _replacement(
+      targetIdentityPrompt: 'old target',
+      rules: [
+        _categorizedRule(
+          id: 'unrelated',
+          text: 'boy',
+          category: PromptTagCategory.character,
+        ),
+      ],
+    );
+
+    final applied = service.applySelections(
+      profile: profile,
+      replacement: replacement,
+      linkProfile: true,
+      selections: const [],
+    );
+
+    expect(applied.targetCharacterId, replacement.targetCharacterId);
+    expect(applied.targetIdentityPrompt, 'old target');
+    expect(applied.activeMappingProfileId, isNull);
+  });
 }
 
 RoleMappingProfile _profile({required RoleMappingProfileBlock block}) {
@@ -1130,11 +1617,13 @@ RoleMappingProfile _profile({required RoleMappingProfileBlock block}) {
 }
 
 ScriptRolePromptReplacement _replacement({
+  String targetIdentityPrompt = '',
   List<ScriptPromptReplacementRule> rules = const [],
 }) {
   return ScriptRolePromptReplacement(
     sourceRoleId: 'role-1',
     displayLabel: '角色 1',
+    targetIdentityPrompt: targetIdentityPrompt,
     rules: rules,
   );
 }
@@ -1168,8 +1657,9 @@ ScriptPromptReplacementRule _categorizedRule({
   required String id,
   required String text,
   required PromptTagCategory category,
-  required List<int> frameIndexes,
+  List<int> frameIndexes = const [],
   String target = '',
+  ScriptPromptReplacementAction? action,
 }) {
   return ScriptPromptReplacementRule(
     id: id,
@@ -1181,6 +1671,10 @@ ScriptPromptReplacementRule _categorizedRule({
         frameIndexes: frameIndexes,
       ),
     ],
+    action: action ??
+        (target.isEmpty
+            ? ScriptPromptReplacementAction.none
+            : ScriptPromptReplacementAction.replace),
     targetPrompt: target,
   );
 }

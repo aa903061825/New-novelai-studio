@@ -105,7 +105,7 @@ void main() {
     await GetIt.I.reset();
   });
 
-  testWidgets('keeps raw tags by default and translates from the toolbar',
+  testWidgets('shows translated labels by default and toggles from the toolbar',
       (tester) async {
     String value = 'blue eyes, long hair';
     GetIt.I.registerSingleton<TranslationCache>(
@@ -129,8 +129,8 @@ void main() {
 
     expect(find.text('blue eyes'), findsOneWidget);
     expect(find.text('long hair'), findsOneWidget);
-    expect(find.text('蓝眼睛'), findsNothing);
-    expect(find.text('长发'), findsNothing);
+    expect(find.text('蓝眼睛'), findsOneWidget);
+    expect(find.text('长发'), findsOneWidget);
     expect(value, 'blue eyes, long hair');
 
     await tester.tap(
@@ -138,8 +138,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('蓝眼睛'), findsOneWidget);
-    expect(find.text('长发'), findsOneWidget);
+    expect(find.text('blue eyes'), findsOneWidget);
+    expect(find.text('long hair'), findsOneWidget);
+    expect(find.text('蓝眼睛'), findsNothing);
+    expect(find.text('长发'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('prompt-tag-editor-translation-toggle')),
+    );
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('prompt-tag-editor-delete-0')));
     await tester.pumpAndSettle();
@@ -1096,8 +1103,61 @@ void main() {
     expect(find.text('long hair'), findsOneWidget);
   });
 
-  testWidgets('adds Chinese input as translated English prompt tags',
+  testWidgets('keeps Chinese input as a raw prompt tag by default',
       (tester) async {
+    String value = '';
+    final requests = <OnlineTranslationRequest>[];
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000),
+    );
+    GetIt.I.registerSingleton<PromptTranslationService>(
+      _FakePromptTranslationService((request) async {
+        requests.add(request);
+        if (request.text == '\u7ea2\u773c' &&
+            request.sourceLanguage == 'zh' &&
+            request.targetLanguage == 'en') {
+          return const OnlineTranslationResult(
+            text: 'red eyes',
+            source: OnlineAiResultSource.online,
+            providerName: 'fake',
+          );
+        }
+        return const OnlineTranslationResult(
+          text: '',
+          source: OnlineAiResultSource.emptyFallback,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            return PromptTagEditor(
+              value: value,
+              onChanged: (next) => setState(() => value = next),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('prompt-tag-editor-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('prompt-tag-editor-input')),
+      '\u7ea2\u773c',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(value, '\u7ea2\u773c');
+    expect(find.text('\u7ea2\u773c'), findsOneWidget);
+    expect(find.text('red eyes'), findsNothing);
+    expect(requests, isEmpty);
+  });
+
+  testWidgets('can opt in to translating Chinese input', (tester) async {
     String value = '';
     GetIt.I.registerSingleton<TranslationCache>(
       TranslationCache(clock: () => 1710000000),
@@ -1126,6 +1186,7 @@ void main() {
           builder: (context, setState) {
             return PromptTagEditor(
               value: value,
+              translateChineseInput: true,
               onChanged: (next) => setState(() => value = next),
             );
           },
@@ -1174,6 +1235,7 @@ void main() {
           builder: (context, setState) {
             return PromptTagEditor(
               value: value,
+              translateChineseInput: true,
               onChanged: (next) => setState(() => value = next),
             );
           },
@@ -1248,6 +1310,7 @@ void main() {
           builder: (context, setState) {
             return PromptTagEditor(
               value: value,
+              translateChineseInput: true,
               onChanged: (next) => setState(() => value = next),
             );
           },
@@ -1323,6 +1386,7 @@ void main() {
           builder: (context, setState) {
             return PromptTagEditor(
               value: value,
+              translateChineseInput: true,
               onChanged: (next) => setState(() => value = next),
             );
           },
@@ -2097,6 +2161,66 @@ void main() {
     );
   });
 
+  testWidgets('double click opens edit dialog while translations are visible',
+      (tester) async {
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000)..setManual('blue eyes', '蓝眼睛'),
+    );
+
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: '1.2::blue eyes::',
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    final chipRect = tester.getRect(_editorChip(0));
+    final chipPaddingPoint = Offset(chipRect.left + 6, chipRect.center.dy);
+    await tester.tapAt(chipPaddingPoint);
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tapAt(chipPaddingPoint);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-tag-dialog')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-weight-field')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('double clicking a translation toggle does not edit the tag',
+      (tester) async {
+    GetIt.I.registerSingleton<TranslationCache>(
+      TranslationCache(clock: () => 1710000000)..setManual('blue eyes', '蓝眼睛'),
+    );
+    await tester.pumpWidget(
+      _host(
+        PromptTagEditor(
+          value: 'blue eyes',
+          onChanged: (_) {},
+        ),
+      ),
+    );
+
+    final toggle = find.byKey(
+      const ValueKey('prompt-tag-editor-translation-toggle-0'),
+    );
+    await tester.tap(toggle);
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('prompt-tag-editor-edit-tag-dialog')),
+      findsNothing,
+    );
+  });
+
   testWidgets('double click opens tag editor without repeated shared selection',
       (tester) async {
     final selectionController = PromptTagSelectionController();
@@ -2237,6 +2361,7 @@ void main() {
           builder: (context, setState) {
             return PromptTagEditor(
               value: value,
+              translateChineseInput: true,
               onChanged: (next) => setState(() => value = next),
             );
           },

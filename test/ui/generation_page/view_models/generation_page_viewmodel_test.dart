@@ -921,6 +921,10 @@ void main() {
       expect(viewmodel.commandStatus.currentBatchCount, 0);
       expect(viewmodel.commandStatus.isCoolingDown.value, isFalse);
       expect(viewmodel.lastScheduledCooldown, isNull);
+      final result = command.value;
+      expect(result.imageBytes, isNull);
+      expect(result.imagePath, isNotNull);
+      expect(result.imagePath, isNotEmpty);
     },
   );
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:easy_localization/easy_localization.dart';
@@ -704,6 +705,79 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  testWidgets('prompt edits and layout changes preserve generation count',
+      (tester) async {
+    tester.view.physicalSize = const Size(1500, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final viewmodel = _WorkbenchLayoutViewmodel();
+    await _pumpGenerationPage(tester, viewmodel);
+    final count =
+        find.byKey(const ValueKey('workbench-generation-count-field'));
+    await tester.ensureVisible(count);
+    await tester.enterText(count, '4');
+    await tester.pump();
+    GetIt.I<StudioWorkbenchAssetService>()
+        .setManualPositivePrompt('local regression prompt');
+    await tester.pump();
+    tester.view.physicalSize = const Size(640, 850);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final generate =
+        find.byKey(const ValueKey('workbench-start-generation-button'));
+    expect(generate, findsOneWidget);
+    await tester.tap(generate);
+    await tester.pump();
+    expect(viewmodel.lastSingleImageGenerationCount, 4);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('medium workbench keeps generation and results in the viewport',
+      (tester) async {
+    tester.view.physicalSize = const Size(1130, 850);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+    expect(
+        find.byKey(const ValueKey('workbench-medium-layout')), findsOneWidget);
+    for (final key in [
+      'workbench-start-generation-button',
+      'workbench-generation-results-panel'
+    ]) {
+      final rect = tester.getRect(find.byKey(ValueKey(key)));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.bottom, lessThanOrEqualTo(850));
+    }
+    await tester.tap(find.byKey(const ValueKey('workbench-open-assets')));
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkbenchAssetDrawer), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭素材'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final width in [360.0, 640.0]) {
+    testWidgets(
+        'compact workbench at $width keeps generation available on results tab',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 850);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _pumpGenerationPage(tester, _WorkbenchLayoutViewmodel());
+      await tester.tap(find.widgetWithText(Tab, '生成结果'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('workbench-generation-results-panel')),
+          findsOneWidget);
+      final generate =
+          find.byKey(const ValueKey('workbench-start-generation-button'));
+      expect(tester.getRect(generate).bottom, lessThanOrEqualTo(850));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('workbench generated image preview includes synced detail panel',
       (tester) async {
     tester.view.physicalSize = const Size(1500, 950);
@@ -711,6 +785,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    final tempDir = Directory.systemTemp.createTempSync(
+      'workbench-generated-image-path-test-',
+    );
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final imageFile = File(
+      '${tempDir.path}${Platform.pathSeparator}generated.png',
+    )..writeAsBytesSync(base64Decode(_tinyPngBase64));
     final content = InfoCardContent(
       title: 'generated.png',
       info: 'soft light, blue eyes',
@@ -719,6 +800,7 @@ void main() {
       },
       contentOrderText: '#1',
       imageBytes: base64Decode(_tinyPngBase64),
+      imagePath: imageFile.path,
     );
     GetIt.I<CommandStatus>().commandList.add(
           Command.createAsyncNoParam<InfoCardContent>(
@@ -733,6 +815,11 @@ void main() {
       const ValueKey('studio-generated-image-card-workbench-1'),
     );
     await tester.ensureVisible(card);
+    final cardImage = tester.widget<Image>(
+      find.byKey(const ValueKey('studio-generated-image-workbench-1')),
+    );
+    expect(cardImage.image, isA<ResizeImage>());
+    expect((cardImage.image as ResizeImage).imageProvider, isA<FileImage>());
     await tester.tap(card);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

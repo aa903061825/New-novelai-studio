@@ -49,6 +49,36 @@ void main() {
     expect(viewModel.totalTasks, 1);
   });
 
+  test('load keeps exhibition-only history out of the resident queue',
+      () async {
+    final dismissedAt = DateTime.utc(2026, 8, 22, 1);
+    final exhibitionOnly = _plan([
+      _scriptTask(
+        id: 'archived-task',
+        status: ProductionTaskStatus.completed,
+        outputImagePath: 'C:/outputs/archived-task.png',
+      ).copyWith(queueDismissedAt: dismissedAt),
+    ]);
+    final activePlan = _plan(
+      [_scriptTask(id: 'queued-task', planId: 'active-plan')],
+      id: 'active-plan',
+      name: 'Active plan',
+    );
+    await queueService.savePlans([exhibitionOnly, activePlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: const [],
+      queueService: queueService,
+    );
+
+    await viewModel.load();
+
+    expect(viewModel.plans.map((plan) => plan.id), ['active-plan']);
+    expect(
+      (await queueService.loadPlansReadOnly()).map((plan) => plan.id).toSet(),
+      {exhibitionOnly.id, activePlan.id},
+    );
+  });
+
   test('load selects the first plan task when a newer plan is prepended',
       () async {
     final oldPlan = _plan(
@@ -2163,6 +2193,37 @@ void main() {
         viewModel.selectedPlan?.updatedAt, DateTime.utc(2026, 5, 28, 10, 30));
     final saved = await queueService.loadPlans();
     expect(saved.single.tasks, isEmpty);
+  });
+
+  test('clearEmptyPlans removes empty plans and persists the remaining queues',
+      () async {
+    final emptyPlan = _plan(
+      const [],
+      id: 'empty-plan',
+      name: 'Empty Queue',
+    );
+    final keptPlan = _plan(
+      [_scriptTask(id: 'queued-task', planId: 'kept-plan')],
+      id: 'kept-plan',
+      name: 'Kept Queue',
+    );
+    await queueService.savePlans([emptyPlan, keptPlan]);
+    final viewModel = ProductionQueueViewModel(
+      plans: await queueService.loadPlansReadOnly(),
+      queueService: queueService,
+    );
+
+    expect(viewModel.emptyPlansPendingCleanup, 1);
+    expect(viewModel.canClearEmptyPlans, isTrue);
+    expect(await viewModel.clearEmptyPlans(), 1);
+    expect(viewModel.plans.map((plan) => plan.id), ['kept-plan']);
+    expect(viewModel.selectedPlan?.id, 'kept-plan');
+    expect(
+      (await queueService.loadPlansReadOnly()).map((plan) => plan.id),
+      ['kept-plan'],
+    );
+    expect(viewModel.emptyPlansPendingCleanup, 0);
+    expect(await viewModel.clearEmptyPlans(), 0);
   });
 
   test('clearCompletedTasks hides only discoverable script results and reloads',

@@ -1182,6 +1182,42 @@ class _StudioGeneratedImage extends StatelessWidget {
     final effectiveHeight = sourceSize == null ? height : null;
     final bytes = item.imageBytes;
     if (bytes != null) {
+      final maxDecodeExtent = this.maxDecodeExtent;
+      if (maxDecodeExtent != null) {
+        return _NaturalAspectRatio(
+          sourceSize: sourceSize,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+              final cacheWidth = _cacheImageExtentFor(
+                width ?? constraints.maxWidth,
+                devicePixelRatio,
+                maxExtent: maxDecodeExtent,
+              );
+              final cacheHeight = _cacheImageExtentFor(
+                effectiveHeight ?? constraints.maxHeight,
+                devicePixelRatio,
+                maxExtent: maxDecodeExtent,
+              );
+              return Image(
+                key: imageKey,
+                image: ResizeImage(
+                  MemoryImage(bytes),
+                  width: cacheWidth,
+                  height: cacheHeight,
+                  policy: ResizeImagePolicy.fit,
+                ),
+                width: width ?? double.infinity,
+                height: effectiveHeight,
+                fit: BoxFit.contain,
+                filterQuality: filterQuality,
+                errorBuilder: (context, error, stackTrace) =>
+                    _ImagePlaceholder(item: item, placeholderKey: imageKey),
+              );
+            },
+          ),
+        );
+      }
       return _NaturalAspectRatio(
         sourceSize: sourceSize,
         child: Image.memory(

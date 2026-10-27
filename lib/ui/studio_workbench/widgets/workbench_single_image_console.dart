@@ -149,6 +149,7 @@ class WorkbenchSingleImageConsole extends StatefulWidget {
   final WorkbenchSingleImageParametersViewmodel parametersViewmodel;
   final StudioWorkbenchAssetService workbenchAssetService;
   final WorkbenchTransferViewModel? transferViewModel;
+  final bool showExecutionControls;
 
   const WorkbenchSingleImageConsole({
     super.key,
@@ -156,6 +157,7 @@ class WorkbenchSingleImageConsole extends StatefulWidget {
     required this.parametersViewmodel,
     required this.workbenchAssetService,
     this.transferViewModel,
+    this.showExecutionControls = true,
   });
 
   @override
@@ -214,16 +216,18 @@ class _WorkbenchSingleImageConsoleState
             viewmodel: widget.generationViewmodel,
             transferViewModel: widget.transferViewModel,
           ),
-          const SizedBox(height: 12),
-          StudioMotionSequenceRegion(
-            region: StudioMotionRegion.controls,
-            child: _ExecutionSection(
-              viewmodel: widget.generationViewmodel,
-              parametersViewmodel: widget.parametersViewmodel,
-              workbenchAssetService: widget.workbenchAssetService,
-              transferViewModel: widget.transferViewModel,
+          if (widget.showExecutionControls) ...[
+            const SizedBox(height: 12),
+            StudioMotionSequenceRegion(
+              region: StudioMotionRegion.controls,
+              child: _ExecutionSection(
+                viewmodel: widget.generationViewmodel,
+                parametersViewmodel: widget.parametersViewmodel,
+                workbenchAssetService: widget.workbenchAssetService,
+                transferViewModel: widget.transferViewModel,
+              ),
             ),
-          ),
+          ],
           const Divider(height: 24),
           Expanded(
             child: ListenableBuilder(
@@ -233,6 +237,17 @@ class _WorkbenchSingleImageConsoleState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (!widget.showExecutionControls) ...[
+                        _NaiAccountUsagePanel(
+                          service:
+                              widget.generationViewmodel.naiAccountUsageService,
+                          showV5Allowance:
+                              widget.parametersViewmodel.capabilities.isV5,
+                          onRefresh:
+                              widget.generationViewmodel.refreshNaiAccountUsage,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       _CoreOutputSection(viewmodel: widget.parametersViewmodel),
                       const Divider(height: 24),
                       _AdvancedSection(viewmodel: widget.parametersViewmodel),
@@ -353,17 +368,43 @@ class _ConsoleHeader extends StatelessWidget {
   }
 }
 
+class WorkbenchGenerationActions extends StatelessWidget {
+  final GenerationPageViewmodel generationViewmodel;
+  final WorkbenchSingleImageParametersViewmodel parametersViewmodel;
+  final StudioWorkbenchAssetService workbenchAssetService;
+  final WorkbenchTransferViewModel? transferViewModel;
+
+  const WorkbenchGenerationActions({
+    super.key,
+    required this.generationViewmodel,
+    required this.parametersViewmodel,
+    required this.workbenchAssetService,
+    this.transferViewModel,
+  });
+
+  @override
+  Widget build(BuildContext context) => _ExecutionSection(
+        viewmodel: generationViewmodel,
+        parametersViewmodel: parametersViewmodel,
+        workbenchAssetService: workbenchAssetService,
+        transferViewModel: transferViewModel,
+        showAccountUsage: false,
+      );
+}
+
 class _ExecutionSection extends StatelessWidget {
   final GenerationPageViewmodel viewmodel;
   final WorkbenchSingleImageParametersViewmodel parametersViewmodel;
   final StudioWorkbenchAssetService workbenchAssetService;
   final WorkbenchTransferViewModel? transferViewModel;
+  final bool showAccountUsage;
 
   const _ExecutionSection({
     required this.viewmodel,
     required this.parametersViewmodel,
     required this.workbenchAssetService,
     required this.transferViewModel,
+    this.showAccountUsage = true,
   });
 
   @override
@@ -387,12 +428,14 @@ class _ExecutionSection extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _NaiAccountUsagePanel(
-              service: usageService,
-              showV5Allowance: parametersViewmodel.capabilities.isV5,
-              onRefresh: viewmodel.refreshNaiAccountUsage,
-            ),
-            const SizedBox(height: 10),
+            if (showAccountUsage) ...[
+              _NaiAccountUsagePanel(
+                service: usageService,
+                showV5Allowance: parametersViewmodel.capabilities.isV5,
+                onRefresh: viewmodel.refreshNaiAccountUsage,
+              ),
+              const SizedBox(height: 10),
+            ],
             if (!active && parametersViewmodel.knownExtraAnlas > 0)
               Wrap(
                 spacing: 8,
@@ -409,29 +452,26 @@ class _ExecutionSection extends StatelessWidget {
               ),
             if (!active && parametersViewmodel.knownExtraAnlas > 0)
               const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: KeyedSubtree(
-                    key: const ValueKey('workbench-generation-cost-estimate'),
-                    child: StudioButton(
-                      key: const ValueKey('workbench-start-generation-button'),
-                      label: active ? '停止生成' : '$estimatedAmount Anlas · 开始生成',
-                      icon: active ? Icons.stop : Icons.toll_outlined,
-                      tone: active
-                          ? StudioButtonTone.danger
-                          : StudioButtonTone.primary,
-                      onPressed: active
-                          ? () => viewmodel.stopBatch()
-                          : () => _startGeneration(context),
-                    ),
-                  ),
+            LayoutBuilder(builder: (context, constraints) {
+              final generate = KeyedSubtree(
+                key: const ValueKey('workbench-generation-cost-estimate'),
+                child: StudioButton(
+                  key: const ValueKey('workbench-start-generation-button'),
+                  label: active ? '停止生成' : '$estimatedAmount Anlas · 开始生成',
+                  icon: active ? Icons.stop : Icons.toll_outlined,
+                  tone: active
+                      ? StudioButtonTone.danger
+                      : StudioButtonTone.primary,
+                  onPressed: active
+                      ? () => viewmodel.stopBatch()
+                      : () => _startGeneration(context),
                 ),
-                const SizedBox(width: 10),
-                _GenerationCountField(
-                  viewmodel: parametersViewmodel,
-                  enabled: !active,
-                ),
+              );
+              final count = _GenerationCountField(
+                viewmodel: parametersViewmodel,
+                enabled: !active,
+              );
+              final secondary = <Widget>[
                 if (transferViewModel != null) ...[
                   const SizedBox(width: 10),
                   StudioButton(
@@ -454,8 +494,29 @@ class _ExecutionSection extends StatelessWidget {
                           parametersViewmodel.refreshFromPayload();
                         },
                 ),
-              ],
-            ),
+              ];
+              if (constraints.maxWidth < 520) {
+                return Column(children: [
+                  Row(children: [
+                    Expanded(child: generate),
+                    const SizedBox(width: 10),
+                    count,
+                  ]),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Row(
+                        mainAxisSize: MainAxisSize.min, children: secondary),
+                  ),
+                ]);
+              }
+              return Row(children: [
+                Expanded(child: generate),
+                const SizedBox(width: 10),
+                count,
+                ...secondary,
+              ]);
+            }),
           ],
         );
       },
@@ -779,6 +840,15 @@ StudioGeneratedImageItem _workbenchGeneratedImageItem(
     if (title.isNotEmpty) title,
   ];
   final name = nameParts.join(' ');
+  final imagePath = executing ? null : content.imagePath?.trim();
+  if (imagePath != null && imagePath.isNotEmpty) {
+    return StudioGeneratedImageItem.file(
+      id: 'workbench-$displayIndex',
+      name: name,
+      imagePath: imagePath,
+      source: content,
+    );
+  }
   final bytes = executing ? null : content.imageBytes;
   if (bytes != null) {
     return StudioGeneratedImageItem.memory(
@@ -2145,7 +2215,7 @@ class _CharacterPromptStack extends StatelessWidget {
             ),
             child: PromptTagDisplay(
               text: blocks.join(', '),
-              defaultTranslated: false,
+              defaultTranslated: true,
               dense: true,
               enableTagActions: true,
               emptyText: '当前角色没有可标签化的角色词',

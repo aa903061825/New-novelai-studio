@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -655,16 +656,6 @@ String _mappingVariantSummaryLabel(RecastMappingVariantSummary summary) {
 
 const Object _unset = Object();
 
-const List<String> _requiredScriptMappingVariantTargets = [
-  '佩佩（无兜帽）',
-  '铃兰',
-  '巫恋',
-  '迷迭香',
-  '薄绿',
-  '洛可可',
-  '洛茜',
-];
-
 class StudioScriptDiff {
   final String original;
   final String recast;
@@ -704,6 +695,20 @@ Future<Script> defaultStudioScriptCacheSnapshotHydrator({
 }
 
 class StudioScriptViewModel extends ChangeNotifier {
+  static const List<String> _requiredScriptMappingProfileNames = [
+    '佩佩（无兜帽）',
+    '铃兰',
+    '巫恋',
+    '迷迭香',
+    '薄绿',
+    '洛可可',
+    '洛茜',
+    '果宝',
+    '佩佩（星移）',
+  ];
+  static const String _autoGlobalProfileVariantIdPrefix =
+      'auto-global-profile-';
+
   final StudioScriptDirectoryPicker? pickScriptDirectory;
   final ScriptRecastParserService parserService;
   final ScriptRecastEngine recastEngine;
@@ -743,6 +748,7 @@ class StudioScriptViewModel extends ChangeNotifier {
   final ScriptRoleMappingProfileService roleMappingProfileService;
   final ScriptRoleReplacementLayerService roleReplacementLayerService;
   final ScriptRecastMappingVariantService mappingVariantService;
+  final Duration recastCacheRefreshDebounce;
 
   Script? _script;
   _ScriptSourceTermFrameIndex? _sourceTermFrameIndex;
@@ -819,7 +825,10 @@ class StudioScriptViewModel extends ChangeNotifier {
   int _pendingAiRoleExtractionStreamChars = 0;
   Timer? _aiRoleExtractionStreamNotifyTimer;
   Timer? _cacheSaveDebounceTimer;
+  Timer? _recastCacheRefreshTimer;
+  StreamSubscription<void>? _recastCacheChangesSubscription;
   Future<void>? _cacheSaveTail;
+  int _mappingVariantRefreshGeneration = 0;
   int _deferredAssetRefreshGeneration = 0;
   int _scriptOpenGeneration = 0;
   int _productionSendGeneration = 0;
@@ -1044,11 +1053,23 @@ class StudioScriptViewModel extends ChangeNotifier {
     this.roleReplacementLayerService =
         const ScriptRoleReplacementLayerService(),
     this.mappingVariantService = const ScriptRecastMappingVariantService(),
+    Stream<void>? recastCacheChanges,
+    this.recastCacheRefreshDebounce = const Duration(milliseconds: 600),
   })  : translationCache = translationCache ?? TranslationCache(),
         hydrateCachedScriptSnapshot = hydrateCachedScriptSnapshot ??
             defaultStudioScriptCacheSnapshotHydrator,
         classificationCache =
-            classificationCache ?? PromptTagClassificationCache();
+            classificationCache ?? PromptTagClassificationCache() {
+    _recastCacheChangesSubscription = recastCacheChanges?.listen(
+      (_) => _scheduleCurrentMappingVariantsRefresh(),
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint(
+          'Failed to watch script recast cache changes: '
+          '$error\n$stackTrace',
+        );
+      },
+    );
+  }
 
   Future<void> ensureRoleMappingProfilesLoaded({bool force = false}) async {
     final repository = roleMappingProfileRepository;
@@ -1175,9 +1196,8 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
     if (_disposed) return profile;
     _setRoleMappingProfileLibrary(library);
-    _setRoleReplacementActiveProfile(sourceRoleId, profile.id);
     roleMappingProfileError = null;
-    roleMappingProfileStatus = '已创建并开始同步：${profile.name}';
+    roleMappingProfileStatus = '已创建全局角色档案：${profile.name}（当前角色未开启同步）';
     notifyListeners();
     _scheduleCurrentCacheSave();
     return profile;
@@ -1288,7 +1308,7 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
   }
 
-  Future<void> quickApplyRoleMappingProfile({
+  Future<bool> quickApplyRoleMappingProfile({
     required String profileId,
     required String sourceRoleId,
   }) async {
@@ -1304,7 +1324,7 @@ class StudioScriptViewModel extends ChangeNotifier {
             termIds: entry.selectedTermIds,
           ),
     ];
-    await applyRoleMappingProfile(
+    return applyRoleMappingProfile(
       profileId: profileId,
       sourceRoleId: sourceRoleId,
       selections: selections,
@@ -1312,11 +1332,12 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
   }
 
-  Future<void> applyRoleMappingProfile({
+  Future<bool> applyRoleMappingProfile({
     required String profileId,
     required String sourceRoleId,
     required List<RoleMappingProfileApplySelection> selections,
     bool applyIdentity = true,
+    bool linkProfile = false,
     List<RoleMappingProfileLayerApplySelection> layerSelections = const [],
   }) async {
     final repository = _requireRoleMappingProfileRepository();
@@ -1345,7 +1366,7 @@ class StudioScriptViewModel extends ChangeNotifier {
         ]),
       );
     });
-    if (_disposed) return;
+    if (_disposed) return false;
     _setRoleMappingProfileLibrary(library);
     final latestProfile = roleMappingProfileById(profileId)!;
     final applicableProfile = latestProfile.targetCharacterId != null &&
@@ -1357,18 +1378,48 @@ class StudioScriptViewModel extends ChangeNotifier {
       replacement: before,
       selections: selections,
       applyIdentity: applyIdentity,
+      linkProfile: linkProfile,
       layerSelections: layerSelections,
       assembly: _roleAssemblyById(sourceRoleId),
     );
+    final identityChanged =
+        applied.targetCharacterId != before.targetCharacterId ||
+            applied.targetIdentityPrompt != before.targetIdentityPrompt;
+    final mappingChanged = jsonEncode([
+              for (final rule in applied.rules) rule.toJson(),
+            ]) !=
+            jsonEncode([
+              for (final rule in before.rules) rule.toJson(),
+            ]) ||
+        jsonEncode([
+              for (final override in applied.layerOverrides) override.toJson(),
+            ]) !=
+            jsonEncode([
+              for (final override in before.layerOverrides) override.toJson(),
+            ]);
+    final syncChanged =
+        applied.activeMappingProfileId != before.activeMappingProfileId;
+    if (!identityChanged && !mappingChanged && !syncChanged) {
+      roleMappingProfileStatus = '未复制：没有选中可写入的映射组，身份标签和同步设置也未变化';
+      notifyListeners();
+      return false;
+    }
     _updateRoleReplacement(
       sourceRoleId,
       (_) => applied,
       learnProfile: false,
     );
+    if (linkProfile) {
+      _setRoleReplacementActiveProfile(sourceRoleId, profileId);
+    }
     _refreshReplacementEditPreview();
-    roleMappingProfileStatus = '已应用并开始同步：${latestProfile.name}';
+    roleMappingProfileStatus = '已更新当前角色：'
+        '${mappingChanged ? '映射规则已更新' : '映射规则未写入'} · '
+        '${identityChanged ? '身份标签已更新' : '身份标签未变化'} · '
+        '${linkProfile ? '持续同步已开启' : '保持本剧本独立'}';
     notifyListeners();
     await _saveCurrentCache();
+    return true;
   }
 
   Future<void> resolveRoleMappingProfileDeletion({
@@ -1506,6 +1557,120 @@ class StudioScriptViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> activateMappingVariantForRole({
+    required String variantId,
+    required String sourceRoleId,
+  }) async {
+    final script = _script;
+    final mapping = _mapping;
+    if (script == null || mapping == null) {
+      throw StateError('请先打开剧本再切换角色映射缓存。');
+    }
+    if (!canPersistMappingVariants) {
+      throw StateError('当前工作区未配置剧本缓存保存。');
+    }
+
+    final now = DateTime.now().toUtc();
+    final sourceFingerprint = cacheRestoreService.sourceFingerprint(script);
+    final sourceContentFingerprint =
+        cacheRestoreService.sourceContentFingerprint(script);
+    final nextCache = mappingVariantService.activateRole(
+      cache: _cacheDraftForScript(
+        script,
+        mapping: _mappingForCurrentScript(script, mapping),
+        updatedAt: now,
+      ),
+      variantId: variantId,
+      sourceRoleId: sourceRoleId,
+      expectedScriptId: script.id,
+      expectedSourceFingerprint: sourceFingerprint,
+      expectedSourceContentFingerprint: sourceContentFingerprint,
+      activatedAt: now,
+    );
+    final previousMapping = _mapping;
+    mappingVariantStatus = '正在切换当前角色映射…';
+    _applyScript(script, mappingOverride: nextCache.mapping);
+    notifyListeners();
+    try {
+      await _saveCurrentCache();
+    } catch (_) {
+      _applyScript(script, mappingOverride: previousMapping);
+      mappingVariantStatus = '当前角色映射切换失败，已回退';
+      notifyListeners();
+      rethrow;
+    }
+    final active = nextCache.mappingVariants
+        .where((entry) => entry.id == variantId)
+        .firstOrNull;
+    mappingVariantStatus =
+        active == null ? '已切换当前角色的剧本缓存' : '已切换当前角色的剧本缓存：${active.name}';
+    cacheStatus = '已切换并保存当前角色映射';
+    notifyListeners();
+  }
+
+  void _scheduleCurrentMappingVariantsRefresh() {
+    if (_disposed || _script == null || loadRecastCacheByScriptId == null) {
+      return;
+    }
+    _recastCacheRefreshTimer?.cancel();
+    _recastCacheRefreshTimer = Timer(recastCacheRefreshDebounce, () {
+      _recastCacheRefreshTimer = null;
+      unawaited(refreshCurrentScriptMappingVariantsFromCache());
+    });
+  }
+
+  /// 只从磁盘刷新当前剧本的版本列表，不覆盖当前页面尚未保存的工作映射。
+  Future<bool> refreshCurrentScriptMappingVariantsFromCache() async {
+    final script = _script;
+    final loader = loadRecastCacheByScriptId;
+    if (_disposed || script == null || loader == null) {
+      return false;
+    }
+    final refreshGeneration = ++_mappingVariantRefreshGeneration;
+    try {
+      final cache = await loader(script.id);
+      if (_disposed ||
+          refreshGeneration != _mappingVariantRefreshGeneration ||
+          _script?.id != script.id ||
+          cache == null) {
+        return false;
+      }
+      final sourceFingerprint =
+          cacheRestoreService.sourceFingerprint(script).trim();
+      if (!cacheRestoreService.cacheBelongsToScript(cache, script) ||
+          cache.sourceFingerprint.trim() != sourceFingerprint) {
+        return false;
+      }
+
+      final nextVariants = _validMappingVariantsForCache(cache, script);
+      if (_sameMappingVariantLists(_mappingVariants, nextVariants)) {
+        return false;
+      }
+      final previousActiveVariantId = _activeMappingVariantId;
+      _mappingVariants = List.unmodifiable(nextVariants);
+      _activeMappingVariantId = nextVariants.any(
+        (variant) => variant.id == previousActiveVariantId,
+      )
+          ? previousActiveVariantId
+          : null;
+      final ignoredCount = cache.mappingVariants.length - nextVariants.length;
+      mappingVariantStatus = ignoredCount == 0
+          ? '已从外部缓存刷新剧本级版本（共 ${nextVariants.length} 个）'
+          : '已从外部缓存刷新剧本级版本（共 ${nextVariants.length} 个，'
+              '忽略 $ignoredCount 个不匹配版本）';
+      notifyListeners();
+      return true;
+    } catch (error, stackTrace) {
+      if (!_disposed && refreshGeneration == _mappingVariantRefreshGeneration) {
+        debugPrint(
+          'Failed to refresh open script mapping variants: '
+          '$error\n$stackTrace',
+        );
+      }
+      return false;
+    }
+  }
+
   Future<int> ensureRequiredScriptMappingVariants() async {
     final script = _script;
     final currentMapping = _mapping;
@@ -1515,52 +1680,31 @@ class StudioScriptViewModel extends ChangeNotifier {
         !canPersistMappingVariants) {
       return 0;
     }
-    await ensureRoleMappingProfilesLoaded();
-    if (_disposed || _script?.id != script.id || _mapping == null) {
+    await ensureRoleMappingProfilesLoaded(force: true);
+    if (_disposed ||
+        _script?.id != script.id ||
+        _mapping == null ||
+        roleMappingProfileRepository == null) {
       return 0;
     }
     final baseMapping = _mappingForCurrentScript(script, currentMapping);
 
-    final requiredProfiles = <RoleMappingProfile>[];
-    for (final target in _requiredScriptMappingVariantTargets) {
-      final matches = roleMappingProfiles
-          .where(
-            (entry) =>
-                entry.targetCharacterNameSnapshot.trim() == target ||
-                entry.name.trim() == target,
-          )
-          .toList(growable: false);
-      if (matches.length != 1) {
-        return 0;
-      }
-      final profile = matches.single;
-      if (profile.targetIdentityPrompt.trim().isEmpty ||
-          profile.effectiveLayers.isEmpty ||
-          !profile.blocks.any((block) => block.hasEffect)) {
-        return 0;
-      }
-      requiredProfiles.add(profile);
-    }
-
-    final existingVariantIds = {
-      for (final variant in _mappingVariants) variant.id,
-    };
-    final missingProfiles = [
-      for (final profile in requiredProfiles)
-        if (!existingVariantIds.contains('auto-global-profile-${profile.id}'))
+    final requiredProfiles = [
+      for (final profile in _requiredScriptMappingProfiles())
+        // A global profile is linked per source role; its mere presence in
+        // the library must never imply whole-script replacement.
+        if (_canGenerateScriptMappingVariant(profile) &&
+            _mappingUsesRoleMappingProfile(baseMapping, profile.id))
           profile,
     ];
-    if (missingProfiles.isEmpty) {
-      return 0;
-    }
-
     final previousVariants = _mappingVariants;
+    final previousActiveVariantId = _activeMappingVariantId;
     final now = DateTime.now().toUtc();
     final sourceFingerprint = cacheRestoreService.sourceFingerprint(script);
     final sourceContentFingerprint =
         cacheRestoreService.sourceContentFingerprint(script);
     final generated = <RecastMappingVariant>[];
-    for (final (index, profile) in missingProfiles.indexed) {
+    for (final (index, profile) in requiredProfiles.indexed) {
       final mapping = _mappingWithRoleProfileApplied(
         baseMapping,
         profile,
@@ -1579,30 +1723,115 @@ class StudioScriptViewModel extends ChangeNotifier {
           mapping: RecastMapping.fromJson(
             Map<String, dynamic>.from(mapping.toJson()),
           ),
-          targetCharacterNamesByRoleId: Map.unmodifiable({
-            for (final replacement in mapping.rolePromptReplacements)
-              replacement.sourceRoleId: targetName,
-          }),
+          targetCharacterNamesByRoleId: _targetCharacterNamesByRoleId(mapping),
         ),
       );
     }
 
-    _mappingVariants = List.unmodifiable([
-      ..._mappingVariants,
-      ...generated,
-    ]);
+    final existingById = {
+      for (final variant in _mappingVariants) variant.id: variant,
+    };
+    final generatedChangedCount = generated.where((candidate) {
+      final existing = existingById[candidate.id];
+      return existing == null ||
+          !_sameMappingVariantContent(existing, candidate);
+    }).length;
+
+    final generatedById = {
+      for (final variant in generated) variant.id: variant,
+    };
+    final nextVariants = <RecastMappingVariant>[];
+    var removedStaleAutoVariantCount = 0;
+    for (final variant in _mappingVariants) {
+      final replacement = generatedById.remove(variant.id);
+      if (replacement != null) {
+        nextVariants.add(replacement);
+      } else if (variant.id.startsWith(_autoGlobalProfileVariantIdPrefix) &&
+          !_isAllowedScriptMappingVariant(variant)) {
+        removedStaleAutoVariantCount += 1;
+      } else {
+        nextVariants.add(variant);
+      }
+    }
+    nextVariants.addAll(generatedById.values);
+    final changedCount = generatedChangedCount + removedStaleAutoVariantCount;
+    if (changedCount == 0) {
+      return 0;
+    }
+
+    _mappingVariants = List.unmodifiable(nextVariants);
+    _activeMappingVariantId = nextVariants.any(
+      (variant) => variant.id == previousActiveVariantId,
+    )
+        ? previousActiveVariantId
+        : null;
     mappingVariantStatus =
-        '已自动补齐 ${generated.length} 个剧本专属版本（共 ${_mappingVariants.length} 个）';
+        '已刷新 $changedCount 个剧本级版本（共 ${_mappingVariants.length} 个）';
     notifyListeners();
     try {
       await _saveCurrentCache();
     } catch (error) {
       _mappingVariants = previousVariants;
-      mappingVariantStatus = '自动补齐剧本专属版本失败，已回退：$error';
+      _activeMappingVariantId = previousActiveVariantId;
+      mappingVariantStatus = '自动补齐剧本级版本失败，已回退：$error';
       notifyListeners();
       return 0;
     }
-    return generated.length;
+    return changedCount;
+  }
+
+  bool _sameMappingVariantContent(
+    RecastMappingVariant left,
+    RecastMappingVariant right,
+  ) {
+    return left.id == right.id &&
+        left.name == right.name &&
+        left.scriptId == right.scriptId &&
+        left.sourceFingerprint == right.sourceFingerprint &&
+        left.sourceContentFingerprint == right.sourceContentFingerprint &&
+        mapEquals(
+          left.targetCharacterNamesByRoleId,
+          right.targetCharacterNamesByRoleId,
+        ) &&
+        mappingVariantService.sameMapping(left.mapping, right.mapping);
+  }
+
+  bool _canGenerateScriptMappingVariant(RoleMappingProfile profile) {
+    return profile.targetIdentityPrompt.trim().isNotEmpty &&
+        profile.effectiveLayers.any(
+          (layer) => layer.blocks.any((block) => block.hasEffect),
+        );
+  }
+
+  bool _mappingUsesRoleMappingProfile(
+    RecastMapping mapping,
+    String profileId,
+  ) {
+    final normalizedProfileId = profileId.trim();
+    if (normalizedProfileId.isEmpty) return false;
+    return mapping.rolePromptReplacements.any(
+      (replacement) =>
+          replacement.activeMappingProfileId?.trim() == normalizedProfileId,
+    );
+  }
+
+  List<RoleMappingProfile> _requiredScriptMappingProfiles() {
+    final profiles = <RoleMappingProfile>[];
+    for (final requiredName in _requiredScriptMappingProfileNames) {
+      for (final profile in roleMappingProfiles) {
+        if (profile.name.trim() == requiredName) {
+          profiles.add(profile);
+          break;
+        }
+      }
+    }
+    return profiles;
+  }
+
+  bool _isAllowedScriptMappingVariant(RecastMappingVariant variant) {
+    final variantId = variant.id.trim();
+    return !variantId.startsWith(_autoGlobalProfileVariantIdPrefix) ||
+        _requiredScriptMappingProfileNames.contains(variant.name.trim());
   }
 
   RecastMapping _mappingWithRoleProfileApplied(
@@ -1613,6 +1842,14 @@ class StudioScriptViewModel extends ChangeNotifier {
             _characterById(profile.targetCharacterId!) == null
         ? profile.copyWith(targetCharacterId: null)
         : profile;
+    // Keep the snapshot's other source roles byte-for-byte unchanged. The
+    // previous implementation applied one profile to every replacement.
+    final linkedRoleIds = {
+      for (final replacement in mapping.rolePromptReplacements)
+        if (replacement.activeMappingProfileId?.trim() == profile.id.trim())
+          replacement.sourceRoleId,
+    };
+    if (linkedRoleIds.isEmpty) return mapping;
     final assemblyByRoleId = {
       for (final assembly in mapping.roleAssemblies)
         assembly.sourceRoleId: assembly,
@@ -1620,11 +1857,14 @@ class StudioScriptViewModel extends ChangeNotifier {
     return mapping.copyWith(
       rolePromptReplacements: List.unmodifiable([
         for (final replacement in mapping.rolePromptReplacements)
-          _replacementWithRoleProfileApplied(
-            replacement: replacement,
-            profile: applicableProfile,
-            assembly: assemblyByRoleId[replacement.sourceRoleId],
-          ),
+          if (linkedRoleIds.contains(replacement.sourceRoleId))
+            _replacementWithRoleProfileApplied(
+              replacement: replacement,
+              profile: applicableProfile,
+              assembly: assemblyByRoleId[replacement.sourceRoleId],
+            )
+          else
+            replacement,
       ]),
     );
   }
@@ -1647,12 +1887,17 @@ class StudioScriptViewModel extends ChangeNotifier {
             termIds: entry.selectedTermIds,
           ),
     ];
-    return roleMappingProfileService.applySelections(
+    final applied = roleMappingProfileService.applySelections(
       profile: profile,
       replacement: replacement,
       selections: selections,
       applyIdentity: true,
+      linkProfile: true,
       assembly: assembly,
+    );
+    return roleMappingProfileService.deduplicateTargetOutputs(
+      roleMappingProfileService.materializeTargetIdentityReplacement(applied),
+      forbiddenTarget: profile.name.trim() == '果宝' ? '果宝' : '',
     );
   }
 
@@ -1663,7 +1908,13 @@ class StudioScriptViewModel extends ChangeNotifier {
     _scriptOpenGeneration++;
     _productionSendGeneration++;
     _deferredAssetRefreshGeneration++;
+    _mappingVariantRefreshGeneration++;
     _aiRoleExtractionStreamNotifyTimer?.cancel();
+    _recastCacheRefreshTimer?.cancel();
+    final recastCacheChangesSubscription = _recastCacheChangesSubscription;
+    if (recastCacheChangesSubscription != null) {
+      unawaited(recastCacheChangesSubscription.cancel());
+    }
     if (_cacheSaveDebounceTimer != null) {
       unawaited(_saveCurrentCache());
     }
@@ -2368,7 +2619,7 @@ class StudioScriptViewModel extends ChangeNotifier {
       cacheHit: true,
     );
     if (reportProgress) {
-      _setImportProgress('正在恢复剧本专属映射...', value: 0.84);
+      _setImportProgress('正在恢复剧本级映射...', value: 0.84);
       await _yieldImportProgressFrame();
       if (shouldContinue?.call() == false) return false;
     }
@@ -3724,28 +3975,18 @@ class StudioScriptViewModel extends ChangeNotifier {
     if (!_updateRoleReplacement(
       sourceRoleId,
       (replacement) {
-        final targetChanged = replacement.targetCharacterId != character.id ||
-            replacement.targetIdentityPrompt.trim() !=
-                targetIdentityPrompt.trim();
+        // Dropping a character card edits the target identity only.  It must
+        // not erase already-confirmed source -> target rules; users can use
+        // “重置本组” when they explicitly want to clear those rules.
+        final targetIdentityChanged =
+            replacement.targetCharacterId != character.id ||
+                replacement.targetIdentityPrompt.trim() !=
+                    targetIdentityPrompt.trim();
         return replacement.copyWith(
           targetCharacterId: character.id,
           targetIdentityPrompt: targetIdentityPrompt,
           activeMappingProfileId:
-              targetChanged ? null : replacement.activeMappingProfileId,
-          rules: targetChanged
-              ? [
-                  for (final rule in replacement.rules)
-                    rule.copyWith(
-                      action:
-                          rule.action == ScriptPromptReplacementAction.delete
-                              ? ScriptPromptReplacementAction.delete
-                              : ScriptPromptReplacementAction.none,
-                      targetPrompt: '',
-                      targetWeightMultiplier: null,
-                      manualPhrase: '',
-                    ),
-                ]
-              : replacement.rules,
+              targetIdentityChanged ? null : replacement.activeMappingProfileId,
         );
       },
       learnProfile: false,
@@ -3800,6 +4041,23 @@ class StudioScriptViewModel extends ChangeNotifier {
       sourceRoleId: sourceRoleId,
       ruleId: ruleId,
       update: (rule) => _ruleWithTarget(rule, value),
+    )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
+  void setRoleReplacementRuleSource(
+    String sourceRoleId,
+    String ruleId,
+    String value,
+  ) {
+    if (!_updateRoleReplacementRule(
+      sourceRoleId: sourceRoleId,
+      ruleId: ruleId,
+      update: (rule) => _ruleWithSourcePrompt(rule, value),
     )) {
       return;
     }
@@ -5195,6 +5453,23 @@ class StudioScriptViewModel extends ChangeNotifier {
     _scheduleCurrentCacheSave();
   }
 
+  void setSceneReplacementRuleSource(
+    String groupId,
+    String ruleId,
+    String value,
+  ) {
+    if (!_updateSceneReplacementRule(
+      groupId: groupId,
+      ruleId: ruleId,
+      update: (rule) => _ruleWithSourcePrompt(rule, value),
+    )) {
+      return;
+    }
+    _refreshReplacementEditPreview();
+    notifyListeners();
+    _scheduleCurrentCacheSave();
+  }
+
   void scaleSceneReplacementRuleWeight(
     String groupId,
     String ruleId,
@@ -5528,6 +5803,32 @@ class StudioScriptViewModel extends ChangeNotifier {
     );
   }
 
+  ScriptPromptReplacementRule _ruleWithSourcePrompt(
+    ScriptPromptReplacementRule rule,
+    String value,
+  ) {
+    final editedTags = PromptTagProcessor.splitWorkshopTags(value)
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList(growable: false);
+    final editableTerms = rule.sourceTerms
+        .where((term) => term.text.trim().isNotEmpty)
+        .toList(growable: false);
+    if (editedTags.length != editableTerms.length) {
+      return rule;
+    }
+    var editedIndex = 0;
+    return rule.copyWith(
+      sourceTerms: List.unmodifiable([
+        for (final term in rule.sourceTerms)
+          if (term.text.trim().isEmpty)
+            term
+          else
+            term.copyWith(text: editedTags[editedIndex++]),
+      ]),
+    );
+  }
+
   List<ScriptRolePromptReplacement> _rolePromptReplacementsWithResetGroup({
     required List<ScriptRolePromptReplacement> current,
     required String sourceRoleId,
@@ -5782,13 +6083,42 @@ class StudioScriptViewModel extends ChangeNotifier {
     String sourceRoleId,
     String? profileId,
   ) {
-    final changed = _updateRoleReplacement(
-      sourceRoleId,
-      (replacement) => replacement.copyWith(
-        activeMappingProfileId: profileId,
-      ),
-      learnProfile: false,
-    );
+    final mapping = _mapping;
+    if (mapping == null) return false;
+    final normalizedProfileId = profileId?.trim();
+    final shouldLink = normalizedProfileId?.isNotEmpty ?? false;
+    if (!mapping.rolePromptReplacements.any(
+      (replacement) => replacement.sourceRoleId == sourceRoleId,
+    )) {
+      return false;
+    }
+    var changed = false;
+    final replacements = [
+      for (final replacement in mapping.rolePromptReplacements)
+        if (replacement.sourceRoleId == sourceRoleId)
+          _markChanged(
+            replacement.copyWith(
+              activeMappingProfileId: shouldLink ? normalizedProfileId : null,
+            ),
+            () => changed = true,
+          )
+        else if (shouldLink &&
+            replacement.activeMappingProfileId?.trim() == normalizedProfileId)
+          // A profile is a mutable global record. Within one script it may be
+          // linked to the current role only; otherwise editing that role
+          // silently edits every other role sharing the same profile.
+          _markChanged(
+            replacement.copyWith(activeMappingProfileId: null),
+            () => changed = true,
+          )
+        else
+          replacement,
+    ];
+    if (changed) {
+      _mapping = mapping.copyWith(
+        rolePromptReplacements: List.unmodifiable(replacements),
+      );
+    }
     if (changed) {
       _refreshReplacementMappings();
     }
@@ -5814,6 +6144,46 @@ class StudioScriptViewModel extends ChangeNotifier {
       rolePromptReplacements: List.unmodifiable(replacements),
     );
     _refreshReplacementMappings();
+  }
+
+  RecastMapping _withoutRoleMappingProfileLinks(RecastMapping mapping) {
+    return mapping.copyWith(
+      rolePromptReplacements: List.unmodifiable([
+        for (final replacement in mapping.rolePromptReplacements)
+          replacement.copyWith(activeMappingProfileId: null),
+      ]),
+    );
+  }
+
+  RecastMapping _withRoleScopedMappingProfileLinks(RecastMapping mapping) {
+    final linkedProfileIds = <String>{};
+    var changed = false;
+    final replacements = [
+      for (final replacement in mapping.rolePromptReplacements)
+        () {
+          final profileId = replacement.activeMappingProfileId?.trim();
+          if (profileId == null || profileId.isEmpty) {
+            if (replacement.activeMappingProfileId == null) {
+              return replacement;
+            }
+            changed = true;
+            return replacement.copyWith(activeMappingProfileId: null);
+          }
+          if (linkedProfileIds.add(profileId)) {
+            return replacement;
+          }
+          // Keep the visible target/rules, but turn a duplicate link into a
+          // one-time local copy. This repairs caches written by the old
+          // whole-script sync path without guessing which role's mapping to
+          // overwrite.
+          changed = true;
+          return replacement.copyWith(activeMappingProfileId: null);
+        }(),
+    ];
+    return changed
+        ? mapping.copyWith(
+            rolePromptReplacements: List.unmodifiable(replacements))
+        : mapping;
   }
 
   Future<void> _learnActiveRoleMappingProfile(
@@ -7085,25 +7455,31 @@ class StudioScriptViewModel extends ChangeNotifier {
     final targetAssembly = mapping.roleAssemblies
         .where((assembly) => assembly.sourceRoleId == sourceRoleId)
         .firstOrNull;
-    if (targetAssembly == null || targetAssembly.stages.length <= 1) {
+    if (targetAssembly == null) {
       return;
     }
     var changed = false;
-    final nextAssemblies = [
-      for (final assembly in mapping.roleAssemblies) ...[
-        if (assembly.sourceRoleId != sourceRoleId)
-          assembly
-        else
-          () {
-            final nextStages = [
-              for (final stage in assembly.stages)
-                if (stage.id != stageId) stage,
-            ];
-            changed = changed || nextStages.length != assembly.stages.length;
-            return assembly.copyWith(stages: List.unmodifiable(nextStages));
-          }(),
-      ],
-    ];
+    final nextAssemblies = <RoleAssembly>[];
+    for (final assembly in mapping.roleAssemblies) {
+      if (assembly.sourceRoleId != sourceRoleId) {
+        nextAssemblies.add(assembly);
+        continue;
+      }
+      final nextStages = [
+        for (final stage in assembly.stages)
+          if (stage.id != stageId) stage,
+      ];
+      if (nextStages.length == assembly.stages.length) {
+        nextAssemblies.add(assembly);
+        continue;
+      }
+      changed = true;
+      if (nextStages.isNotEmpty) {
+        nextAssemblies.add(
+          assembly.copyWith(stages: List.unmodifiable(nextStages)),
+        );
+      }
+    }
     if (!changed) {
       return;
     }
@@ -7130,8 +7506,14 @@ class StudioScriptViewModel extends ChangeNotifier {
       ]),
     );
     if (_manualSelectedStageIdsByRole[sourceRoleId] == stageId) {
-      _manualSelectedStageIdsByRole[sourceRoleId] =
-          targetAssembly.stages.firstWhere((stage) => stage.id != stageId).id;
+      final fallbackStage = targetAssembly.stages
+          .where((stage) => stage.id != stageId)
+          .firstOrNull;
+      if (fallbackStage == null) {
+        _manualSelectedStageIdsByRole.remove(sourceRoleId);
+      } else {
+        _manualSelectedStageIdsByRole[sourceRoleId] = fallbackStage.id;
+      }
     }
     _learnRoleMappingProfileAfterStageStructureChange(
       beforeMapping: mapping,
@@ -8844,6 +9226,28 @@ class StudioScriptViewModel extends ChangeNotifier {
     ]).join(', ');
   }
 
+  RecastScriptCache _cacheWithScopedScriptMappingVariants(
+    RecastScriptCache cache,
+  ) {
+    final scopedVariants = [
+      for (final variant in cache.mappingVariants)
+        if (_isAllowedScriptMappingVariant(variant)) variant,
+    ];
+    final activeVariantId = scopedVariants.any(
+      (variant) => variant.id == cache.activeMappingVariantId,
+    )
+        ? cache.activeMappingVariantId
+        : null;
+    if (scopedVariants.length == cache.mappingVariants.length &&
+        activeVariantId == cache.activeMappingVariantId) {
+      return cache;
+    }
+    return cache.copyWith(
+      mappingVariants: List.unmodifiable(scopedVariants),
+      activeMappingVariantId: activeVariantId,
+    );
+  }
+
   Future<void> _loadGlobalBlockWords() async {
     final loader = loadFilterRules;
     if (loader == null) {
@@ -8919,11 +9323,14 @@ class StudioScriptViewModel extends ChangeNotifier {
         script: script,
         sourceFingerprint: cache.sourceFingerprint,
       );
-      await singleSaver(
+      final mergedCache = _cacheWithScopedScriptMappingVariants(
         cacheRestoreService.cachePreservingExistingAiDraft(
           cache,
           existingExact,
         ),
+      );
+      await singleSaver(
+        mergedCache,
       );
       cacheStatus = '已保存本剧本缓存';
       return;
@@ -8936,12 +9343,14 @@ class StudioScriptViewModel extends ChangeNotifier {
       return;
     }
     final existing = await loader();
-    final cacheToSave = cacheRestoreService.cachePreservingExistingAiDraft(
-      cache,
-      cacheRestoreService.bestExactCacheForScript(
-        existing,
-        script: script,
-        sourceFingerprint: cache.sourceFingerprint,
+    final cacheToSave = _cacheWithScopedScriptMappingVariants(
+      cacheRestoreService.cachePreservingExistingAiDraft(
+        cache,
+        cacheRestoreService.bestExactCacheForScript(
+          existing,
+          script: script,
+          sourceFingerprint: cache.sourceFingerprint,
+        ),
       ),
     );
     await saver([
@@ -11058,6 +11467,54 @@ class StudioScriptViewModel extends ChangeNotifier {
     cacheStatus = '已恢复本剧本缓存';
   }
 
+  List<RecastMappingVariant> _validMappingVariantsForCache(
+    RecastScriptCache cache,
+    Script? script,
+  ) {
+    final expectedScriptId = script?.id.trim() ?? cache.scriptId.trim();
+    final expectedSourceFingerprint = script == null
+        ? cache.sourceFingerprint.trim()
+        : cacheRestoreService.sourceFingerprint(script).trim();
+    return [
+      for (final variant in cache.mappingVariants)
+        if (variant.scriptId.trim() == expectedScriptId &&
+            variant.mapping.scriptId.trim() == expectedScriptId &&
+            variant.sourceFingerprint.trim() == expectedSourceFingerprint &&
+            _isAllowedScriptMappingVariant(variant))
+          variant,
+    ];
+  }
+
+  bool _sameMappingVariantLists(
+    List<RecastMappingVariant> left,
+    List<RecastMappingVariant> right,
+  ) {
+    if (identical(left, right)) return true;
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index += 1) {
+      final leftVariant = left[index];
+      final rightVariant = right[index];
+      if (leftVariant.id != rightVariant.id ||
+          leftVariant.name != rightVariant.name ||
+          leftVariant.scriptId != rightVariant.scriptId ||
+          leftVariant.sourceFingerprint != rightVariant.sourceFingerprint ||
+          leftVariant.sourceContentFingerprint !=
+              rightVariant.sourceContentFingerprint ||
+          leftVariant.capturedAt != rightVariant.capturedAt ||
+          !mapEquals(
+            leftVariant.targetCharacterNamesByRoleId,
+            rightVariant.targetCharacterNamesByRoleId,
+          ) ||
+          !mappingVariantService.sameMapping(
+            leftVariant.mapping,
+            rightVariant.mapping,
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void _applyCache(
     RecastScriptCache cache, {
     bool refreshPreview = true,
@@ -11066,16 +11523,15 @@ class StudioScriptViewModel extends ChangeNotifier {
     _selectedRoleReplacementRuleIdsByRole.clear();
     _selectedSceneReplacementRuleIdsByGroup.clear();
     final script = _script;
-    final expectedScriptId = script?.id.trim() ?? cache.scriptId.trim();
-    final expectedSourceFingerprint = script == null
-        ? cache.sourceFingerprint.trim()
-        : cacheRestoreService.sourceFingerprint(script).trim();
+    final legacyImplicitRoleMappingSync = cache.roleMappingProfileSyncVersion <
+        RecastScriptCache.currentRoleMappingProfileSyncVersion;
     final validMappingVariants = [
-      for (final variant in cache.mappingVariants)
-        if (variant.scriptId.trim() == expectedScriptId &&
-            variant.mapping.scriptId.trim() == expectedScriptId &&
-            variant.sourceFingerprint.trim() == expectedSourceFingerprint)
-          variant,
+      for (final variant in _validMappingVariantsForCache(cache, script))
+        variant.copyWith(
+          mapping: legacyImplicitRoleMappingSync
+              ? _withoutRoleMappingProfileLinks(variant.mapping)
+              : _withRoleScopedMappingProfileLinks(variant.mapping),
+        ),
     ];
     _mappingVariants = List.unmodifiable(validMappingVariants);
     _activeMappingVariantId = validMappingVariants.any(
@@ -11090,6 +11546,9 @@ class StudioScriptViewModel extends ChangeNotifier {
     final restoredMapping = script == null
         ? cache.mapping
         : _mappingWithRoleAssemblies(script, cache.mapping);
+    final restoredMappingWithoutImplicitSync = legacyImplicitRoleMappingSync
+        ? _withoutRoleMappingProfileLinks(restoredMapping)
+        : _withRoleScopedMappingProfileLinks(restoredMapping);
     final materializedExtraction = script == null
         ? cache.aiRoleExtraction
         : _roleExtractionWithMaterializedNonRoleFields(
@@ -11119,10 +11578,11 @@ class StudioScriptViewModel extends ChangeNotifier {
             ? null
             : _mappingWithAppliedAiRoleExtraction(
                 script: script,
-                mapping: restoredMapping,
+                mapping: restoredMappingWithoutImplicitSync,
                 extraction: sourceRepairedExtraction,
               );
-    final mapped = appliedExtractionMapping?.mapping ?? restoredMapping;
+    final mapped =
+        appliedExtractionMapping?.mapping ?? restoredMappingWithoutImplicitSync;
     final mappingFrameRepair = script == null
         ? (mapping: mapped, changed: false)
         : _mappingWithSourceTermFrameEvidence(script: script, mapping: mapped);
@@ -11161,7 +11621,11 @@ class StudioScriptViewModel extends ChangeNotifier {
     if ((appliedExtractionMapping?.changed ?? false) ||
         extractionNormalizationChanged ||
         extractionFrameRepair.changed ||
-        mappingFrameRepair.changed) {
+        mappingFrameRepair.changed ||
+        legacyImplicitRoleMappingSync) {
+      if (legacyImplicitRoleMappingSync) {
+        roleMappingProfileStatus = '已清理旧版默认全局同步，当前剧本保持独立映射';
+      }
       _scheduleCurrentCacheSave();
     }
   }

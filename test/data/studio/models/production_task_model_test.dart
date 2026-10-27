@@ -63,6 +63,62 @@ void main() {
     expect(restored.copyWith(rating: 3).rating, 3);
   });
 
+  test('metadata-only copies reuse immutable production payloads', () {
+    final task = ProductionTask.manualSingleFrame(
+      id: 'task-copy',
+      planId: 'plan-copy',
+      title: 'Copy without payload allocation',
+      payload: const {
+        'input': 'large prompt',
+        'parameters': {
+          'reference_image_multiple': ['encoded-reference'],
+        },
+      },
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    );
+    final sharedParameters = {
+      'reference_image_multiple': ['encoded-reference'],
+    };
+    final plan = ProductionPlan(
+      id: 'plan-copy',
+      name: 'Copy plan',
+      tasks: [task],
+      sharedPayloadParameters: sharedParameters,
+      createdAt: DateTime.utc(2026, 8, 22),
+      updatedAt: DateTime.utc(2026, 8, 22),
+    );
+
+    final runningTask = task.copyWith(
+      status: ProductionTaskStatus.running,
+      attempts: 1,
+    );
+    final updatedPlan = plan.copyWith(
+      tasks: [runningTask],
+      updatedAt: DateTime.utc(2026, 8, 22, 0, 1),
+    );
+    final metadataOnlyPlan = plan.copyWith(
+      updatedAt: DateTime.utc(2026, 8, 22, 0, 2),
+    );
+
+    expect(identical(runningTask.payload, task.payload), isTrue);
+    expect(runningTask.payloadFingerprint, task.payloadFingerprint);
+    expect(
+      identical(
+          updatedPlan.sharedPayloadParameters, plan.sharedPayloadParameters),
+      isTrue,
+    );
+    expect(identical(metadataOnlyPlan.tasks, plan.tasks), isTrue);
+    expect(
+      identical(
+        metadataOnlyPlan.sharedPayloadParameters,
+        plan.sharedPayloadParameters,
+      ),
+      isTrue,
+    );
+    expect(updatedPlan.planFingerprint, plan.planFingerprint);
+  });
+
   test('ProductionTask payload fingerprint ignores map insertion order', () {
     final first = ProductionTask.manualSingleFrame(
       id: 'task-a',

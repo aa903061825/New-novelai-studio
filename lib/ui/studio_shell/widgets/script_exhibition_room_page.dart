@@ -794,7 +794,7 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
       final preview =
           await widget.viewModel.previewScriptImageOrganization(script);
       if (!mounted || !context.mounted) return;
-      if (preview.moves.isEmpty && preview.orphanImagePaths.isEmpty) {
+      if (preview.moves.isEmpty) {
         _showSnackBar(context, '没有需要整理的剧本展览室生成图片。');
         return;
       }
@@ -813,7 +813,7 @@ class _ScriptExhibitionRoomPageState extends State<ScriptExhibitionRoomPage> {
           : '，${result.failedImagePaths.length} 个文件失败';
       _showSnackBar(
         context,
-        '已整理 ${result.movedImagePaths.length} 张剧本展览室生成图片，删除 ${result.deletedOrphanImagePaths.length} 张孤儿图片$failedText。',
+        '已整理 ${result.organizedImagePaths.length} 张剧本展览室生成图片，原文件已保留$failedText。',
       );
     } catch (error) {
       if (!mounted || !context.mounted) return;
@@ -5124,7 +5124,7 @@ class _PreviewPromptPanel extends StatelessWidget {
             groupKeyPrefix: 'script-exhibition-preview-prompt-group-${item.id}',
             tagKeyPrefix:
                 'script-exhibition-preview-prompt-group-tags-${item.id}',
-            defaultTranslated: false,
+            defaultTranslated: true,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,
@@ -5143,7 +5143,7 @@ class _PreviewPromptPanel extends StatelessWidget {
           PromptTagDisplay(
             key: ValueKey('script-exhibition-preview-prompt-tags-${item.id}'),
             text: prompt,
-            defaultTranslated: false,
+            defaultTranslated: true,
             dense: true,
             enableHoverShortcut: true,
             enableTagActions: true,
@@ -5658,8 +5658,8 @@ Future<bool> _showScriptImageOrganizationDialog({
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '将移动 ${preview.moves.length} 张剧本展览室生成图片，并删除 '
-                '${preview.orphanImagePaths.length} 张不在画廊和剧本展览室记录中的孤儿图片。',
+                '将为 ${preview.moves.length} 张剧本展览室生成图片创建分类副本，并更新对应记录。'
+                '原文件全部保留，不删除任何图片。',
               ),
               if (moveSamples.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -5707,7 +5707,7 @@ Future<bool> _showScriptImageOrganizationDialog({
               if (orphanSamples.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  '将删除孤儿图片：',
+                  '以下未关联图片会保留：',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: StudioTokens.textMuted,
                       ),
